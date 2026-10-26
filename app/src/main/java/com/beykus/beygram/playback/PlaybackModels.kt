@@ -146,7 +146,10 @@ data class PlaybackState(
     val bufferedFraction: Float = 0f,
     /** Music and voice/video notes keep independent speeds; music defaults to 1x. */
     val musicSpeed: Float = 1f,
-    val voiceSpeed: Float = 1f
+    val voiceSpeed: Float = 1f,
+    /** Actual Media3 timeline availability; null falls back to the pure original-order policy. */
+    val timelineHasNext: Boolean? = null,
+    val timelineHasPrevious: Boolean? = null
 ) {
     /** Доля проигранного от 0 до 1. Пока длина неизвестна, берём длину из сообщения, если она есть. */
     val fraction: Float
@@ -160,11 +163,11 @@ data class PlaybackState(
         }
 
     val canNext: Boolean
-        get() = canGoNext(queue.size, queueIndex, repeatMode, shuffleEnabled)
+        get() = timelineHasNext ?: canGoNext(queue.size, queueIndex, repeatMode, shuffleEnabled)
 
     val canPrevious: Boolean
         get() = item != null && (positionMs >= PREVIOUS_RESTART_THRESHOLD_MS ||
-            canGoPrevious(queue.size, queueIndex, repeatMode, shuffleEnabled))
+            (timelineHasPrevious ?: canGoPrevious(queue.size, queueIndex, repeatMode, shuffleEnabled)))
 
     val hasQueue: Boolean get() = queue.isNotEmpty()
 }
@@ -441,13 +444,28 @@ internal fun PlaybackItem.systemMetadata(): PlaybackMetadata =
         )
     }
 
-/** Only 1–2 following, still unresolved public tracks are prefetched; never a whole channel and never private items. */
-internal fun prefetchCandidates(state: PlaybackState, max: Int = 2): List<PlaybackItem> {
+/**
+ * Only 1–2 following, still unresolved public tracks are prefetched; never a whole channel and never private items.
+ * [playbackOrder] is the actual Media3 order (shuffled when enabled), not the visible original queue. Repeat All scans
+ * past the end of that order; Repeat One and Repeat Off do not wrap.
+ */
+internal fun prefetchCandidates(
+    state: PlaybackState,
+    playbackOrder: List<Int> = state.queue.indices.toList(),
+    max: Int = 2
+): List<PlaybackItem> {
     if (max <= 0 || state.item?.kind != MediaKind.Audio) return emptyList()
     if (state.queue.isEmpty() || state.queueIndex !in state.queue.indices) return emptyList()
+    val order = playbackOrder.filter { it in state.queue.indices }
+    val currentOrderIndex = order.indexOf(state.queueIndex)
+    val following = when {
+        currentOrderIndex < 0 -> state.queue.indices.drop(state.queueIndex + 1)
+        state.repeatMode == PlaybackRepeatMode.All -> order.drop(currentOrderIndex + 1) + order.take(currentOrderIndex)
+        else -> order.drop(currentOrderIndex + 1)
+    }
     val result = ArrayList<PlaybackItem>(max)
-    for (index in state.queueIndex + 1 until state.queue.size) {
-        val item = state.queue[index]
+    for (queueIndex in following) {
+        val item = state.queue[queueIndex]
         if (item.systemPrivate || item.fileId == null) continue
         if (item.path.isNotBlank() || item.growing != null) continue
         result += item
@@ -455,6 +473,9 @@ internal fun prefetchCandidates(state: PlaybackState, max: Int = 2): List<Playba
     }
     return result
 }
+
+/** A prefetch key is remembered only when policy allowed the request and the repository accepted it. */
+internal fun shouldRememberPrefetch(allowed: Boolean, accepted: Boolean): Boolean = allowed && accepted
 
 /**
  * ENDED is delivered asynchronously. A manual Next, a new source or a stop bumps the transition token, so only the

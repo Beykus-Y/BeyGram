@@ -108,6 +108,81 @@ class PlaybackQueuePolicyTest {
     }
 
     @Test
+    fun prefetchFollowsTheActualShuffledPlaybackOrder() {
+        val current = track("current", 1, path = "/current.mp3")
+        val first = track("first", 2)
+        val second = track("second", 3)
+        val third = track("third", 4)
+        val fourth = track("fourth", 5)
+        val state = PlaybackState(
+            item = current,
+            queue = listOf(current, first, second, third, fourth),
+            queueIndex = 0,
+            shuffleEnabled = true
+        )
+        assertEquals(
+            listOf("third", "second"),
+            prefetchCandidates(state, playbackOrder = listOf(0, 3, 2, 1, 4)).map { it.key }
+        )
+    }
+
+    @Test
+    fun repeatAllPrefetchWrapsToTheStartOfTheActualOrder() {
+        val first = track("first", 1)
+        val second = track("second", 2)
+        val third = track("third", 3)
+        val fourth = track("fourth", 4, path = "/fourth.mp3")
+        val state = PlaybackState(
+            item = fourth,
+            queue = listOf(first, second, third, fourth),
+            queueIndex = 3,
+            shuffleEnabled = true,
+            repeatMode = PlaybackRepeatMode.All
+        )
+        assertEquals(
+            listOf("third", "second"),
+            prefetchCandidates(state, playbackOrder = listOf(0, 3, 2, 1)).map { it.key }
+        )
+    }
+
+    @Test
+    fun deniedPrefetchIsNotRememberedForTheNextPolicyEvaluation() {
+        assertFalse(shouldRememberPrefetch(allowed = false, accepted = false))
+        assertFalse(shouldRememberPrefetch(allowed = true, accepted = false))
+        assertTrue(shouldRememberPrefetch(allowed = true, accepted = true))
+    }
+
+    @Test
+    fun timelineAvailabilityOverridesTheShuffleFallbackForNextAndPrevious() {
+        val first = track("first", 1)
+        val second = track("second", 2)
+        val third = track("third", 3)
+        val queue = listOf(first, second, third)
+        val lastInShuffle = PlaybackState(
+            item = third,
+            queue = queue,
+            queueIndex = 2,
+            shuffleEnabled = true,
+            timelineHasNext = false,
+            timelineHasPrevious = true
+        )
+        assertFalse(lastInShuffle.canNext)
+        assertTrue(lastInShuffle.canPrevious)
+
+        val firstInShuffle = PlaybackState(
+            item = first,
+            queue = queue,
+            queueIndex = 0,
+            shuffleEnabled = true,
+            positionMs = 0L,
+            timelineHasNext = true,
+            timelineHasPrevious = false
+        )
+        assertTrue(firstInShuffle.canNext)
+        assertFalse(firstInShuffle.canPrevious)
+    }
+
+    @Test
     fun prefetchIgnoresNonMusicAndQueueWithoutCurrentIndex() {
         val voice = PlaybackItem("voice", MediaKind.Voice, "/voice.ogg", "Voice", 3)
         assertTrue(prefetchCandidates(PlaybackState(item = voice, queue = listOf(voice), queueIndex = 0)).isEmpty())

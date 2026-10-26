@@ -112,6 +112,32 @@ class PlaybackOrderTest {
         assertEquals(listOf(0, 1, 3, 2), result.playbackOrder)
     }
 
+    @Test
+    fun prefetchAfterPlayNextUsesTheUpdatedShuffleOrder() {
+        val first = track("first", 1)
+        val second = track("second", 2)
+        val third = track("third", 3)
+        val inserted = track("inserted", 4)
+        val queue = listOf(first, second, third)
+        val result = queueAfterPlayNext(
+            queue = queue,
+            currentIndex = 0,
+            item = inserted,
+            existingIndex = -1,
+            shuffleOrder = listOf(0, 2, 1)
+        )
+        val state = PlaybackState(
+            item = first,
+            queue = result.queue,
+            queueIndex = result.queueIndex,
+            shuffleEnabled = true
+        )
+        assertEquals(
+            listOf("inserted", "third"),
+            prefetchCandidates(state, result.playbackOrder).map { it.key }
+        )
+    }
+
     @OptIn(UnstableApi::class)
     @Test
     fun explicitShuffleOrderFollowsTheProvidedPlaybackSequence() {

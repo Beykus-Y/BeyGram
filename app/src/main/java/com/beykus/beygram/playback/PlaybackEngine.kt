@@ -16,8 +16,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.beykus.beygram.data.media.AutoDownloadDecision
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.media.AutoDownloadRuntime
 import com.beykus.beygram.data.media.Mp4StreamingProbe
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
@@ -33,6 +35,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -150,6 +154,8 @@ object PlaybackEngine {
     private var transitionToken = 0L
     private var activeAccountId: String? = null
     private val prefetchedKeys = mutableSetOf<String>()
+    private var prefetchPolicyJob: Job? = null
+    private var prefetchPolicyAccount: String? = null
 
     /**
      * A cover thumbnail may finish downloading after playback has already started. The key carries account/origin,
@@ -295,7 +301,7 @@ object PlaybackEngine {
             val nextItems = nextQueue.items.map { if (it.key == merged.key) merged else it }
             val nextIndex = nextQueue.index.takeIf { it in nextItems.indices } ?: nextItems.indexOfFirst { it.key == merged.key }
             val shouldPlay = currentState.playing || currentState.intentPlaying
-            _state.update { it.copy(item = merged, queue = nextItems, queueIndex = nextIndex) }
+            _state.update { it.copy(item = merged, queue = nextItems, queueIndex = nextIndex).withTimelineNavigation(exo) }
             if (timelineChanged(currentState, nextItems, nextIndex)) {
                 rebuildTimeline(nextItems, nextIndex, currentState.positionMs, shouldPlay)
             }
@@ -441,6 +447,7 @@ object PlaybackEngine {
             speed = speed
         )
         updateAudioSessionId()
+        refreshPrefetchPolicyObserver()
         if (defer) {
             target.pause()
             deferredSeek = DeferredGrowingSeek(item.key, requestedStart, resume = true)
@@ -485,6 +492,7 @@ object PlaybackEngine {
             speed = effectiveSpeed(resolved)
         )
         updateAudioSessionId()
+        refreshPrefetchPolicyObserver()
         if (resolved.systemPrivate) stopPlaybackService()
         if (defer) {
             target.pause()
@@ -527,8 +535,14 @@ object PlaybackEngine {
             bufferedFraction = target?.bufferedPercentage?.coerceIn(0, 100)?.toFloat()?.div(100f) ?: 0f,
             musicSpeed = current.musicSpeed,
             voiceSpeed = current.voiceSpeed
-        )
+        ).withTimelineNavigation(target)
     }
+
+    /** The Media3 timeline is authoritative under shuffle/repeat; UI availability must match next/previous handlers. */
+    private fun PlaybackState.withTimelineNavigation(target: Player? = exo): PlaybackState = copy(
+        timelineHasNext = target?.hasNextMediaItem(),
+        timelineHasPrevious = target?.hasPreviousMediaItem()
+    )
 
     private fun registerSource(item: PlaybackItem, source: PlaybackQueueSource?) {
         PlaybackSources.register(
@@ -682,9 +696,10 @@ object PlaybackEngine {
                 ended = false,
                 failed = false,
                 durationMs = durationNow()
-            )
+            ).withTimelineNavigation(target)
         }
         updateAudioSessionId()
+        refreshPrefetchPolicyObserver()
     }
 
     @OptIn(UnstableApi::class)
@@ -705,14 +720,20 @@ object PlaybackEngine {
         queue.forEach { registerSource(it, queueSource) }
         val item = resolvedItem(queue[index])
         val resolvedQueue = queue.map { if (it.key == item.key) item else it }
-        target.setMediaItems(resolvedQueue.map(::mediaItemFor), index, positionMs.coerceAtLeast(0L))
+        val requestedStart = positionMs.coerceAtLeast(0L)
+        val defer = shouldDeferGrowingSeek(item.growing, requestedStart)
+        target.setMediaItems(resolvedQueue.map(::mediaItemFor), index, if (defer) 0L else requestedStart)
         if (playbackOrder != null && playbackOrder.size == resolvedQueue.size) {
             target.setShuffleOrder(PlaybackShuffleOrder(playbackOrder))
         }
         applyPlayerModes(target, music = item.isMusic && !item.systemPrivate)
         applySpeed(target, item)
         target.prepare()
-        if (play) {
+        if (defer) {
+            target.pause()
+            deferredSeek = DeferredGrowingSeek(item.key, requestedStart, resume = play)
+            startDeferredSeekWatcher()
+        } else if (play) {
             target.play()
             if (item.systemPrivate) stopPlaybackService() else startPlaybackService()
             startProgress()
@@ -726,20 +747,21 @@ object PlaybackEngine {
                 item = item,
                 queue = resolvedQueue,
                 queueIndex = index,
-                positionMs = positionMs.coerceAtLeast(0L),
+                positionMs = requestedStart,
                 playing = false,
                 intentPlaying = play,
                 speed = effectiveSpeed(item),
                 started = exo?.isPlaying == true,
                 ended = false,
                 failed = false,
-                isBuffering = target.playbackState == Player.STATE_BUFFERING,
+                isBuffering = if (defer) play else target.playbackState == Player.STATE_BUFFERING,
                 bufferedFraction = target.bufferedPercentage.coerceIn(0, 100).toFloat() / 100f,
                 durationMs = durationNow()
-            )
+            ).withTimelineNavigation(target)
         }
         updateAudioSessionId()
-        if (play) prefetchNext()
+        refreshPrefetchPolicyObserver()
+        if (play && !defer) prefetchNext()
     }
 
     private fun startDeferredSeekWatcher() {
@@ -843,6 +865,9 @@ object PlaybackEngine {
         startedCallback = null
         transitionToken++
         prefetchedKeys.clear()
+        prefetchPolicyJob?.cancel()
+        prefetchPolicyJob = null
+        prefetchPolicyAccount = null
         PlaybackSources.clear()
         exo?.let {
             it.stop()
@@ -897,7 +922,7 @@ object PlaybackEngine {
             wrapAll -> target.seekTo(0, 0L)
             fallback != null -> target.seekTo(fallback, 0L)
         }
-        _state.update { it.copy(intentPlaying = wasPlaying) }
+        _state.update { it.copy(intentPlaying = wasPlaying).withTimelineNavigation(target) }
         if (wasPlaying) {
             if (target.playbackState == Player.STATE_IDLE) target.prepare()
             if (state.item?.systemPrivate != true) startPlaybackService()
@@ -918,8 +943,15 @@ object PlaybackEngine {
         val wasPlaying = state.playing || state.intentPlaying || state.ended
         transitionToken++
         clearDeferredSeek()
+        val hasPrevious = target.hasPreviousMediaItem()
+        // No previous item in the actual (shuffled) order and nothing to restart: Previous is disabled.
+        if (!hasPrevious && !state.ended && state.positionMs < PREVIOUS_RESTART_THRESHOLD_MS &&
+            !(state.repeatMode == PlaybackRepeatMode.All && target.mediaItemCount > 1)
+        ) {
+            return
+        }
         _state.update { it.copy(ended = false, failed = false) }
-        if (!target.hasPreviousMediaItem()) {
+        if (!hasPrevious) {
             if (state.repeatMode == PlaybackRepeatMode.All && target.mediaItemCount > 1) {
                 target.seekTo(target.mediaItemCount - 1, 0L)
             } else {
@@ -934,7 +966,7 @@ object PlaybackEngine {
                 if (fallback != null) target.seekTo(fallback, 0L)
             }
         }
-        _state.update { it.copy(intentPlaying = wasPlaying) }
+        _state.update { it.copy(intentPlaying = wasPlaying).withTimelineNavigation(target) }
         if (wasPlaying) {
             if (target.playbackState == Player.STATE_IDLE) target.prepare()
             if (state.item?.systemPrivate != true) startPlaybackService()
@@ -945,8 +977,11 @@ object PlaybackEngine {
 
     fun setShuffle(enabled: Boolean) {
         if (_state.value.shuffleEnabled == enabled) return
-        _state.update { it.copy(shuffleEnabled = enabled) }
-        if (_state.value.item?.isMusic == true && _state.value.item?.systemPrivate != true) exo?.shuffleModeEnabled = enabled
+        val target = exo
+        if (_state.value.item?.isMusic == true && _state.value.item?.systemPrivate != true) target?.shuffleModeEnabled = enabled
+        _state.update { it.copy(shuffleEnabled = enabled).withTimelineNavigation(target) }
+        prefetchedKeys.clear()
+        prefetchNext()
     }
 
     fun cycleRepeat() {
@@ -954,8 +989,11 @@ object PlaybackEngine {
     }
 
     fun setRepeatMode(mode: PlaybackRepeatMode) {
-        _state.update { it.copy(repeatMode = mode) }
-        if (_state.value.item?.isMusic == true && _state.value.item?.systemPrivate != true) exo?.repeatMode = mode.toPlayerRepeatMode()
+        val target = exo
+        if (_state.value.item?.isMusic == true && _state.value.item?.systemPrivate != true) target?.repeatMode = mode.toPlayerRepeatMode()
+        _state.update { it.copy(repeatMode = mode).withTimelineNavigation(target) }
+        prefetchedKeys.clear()
+        prefetchNext()
     }
 
     /** Inserts [item] after the current item and keeps the current position. */
@@ -1119,7 +1157,7 @@ object PlaybackEngine {
                     ended = endedNow,
                     isBuffering = playbackState == Player.STATE_BUFFERING,
                     bufferedFraction = exo?.bufferedPercentage?.coerceIn(0, 100)?.toFloat()?.div(100f) ?: it.bufferedFraction
-                )
+                ).withTimelineNavigation(exo)
             }
             if (playbackState == Player.STATE_BUFFERING) startProgress()
             if (playbackState == Player.STATE_READY && exo?.isPlaying == true) {
@@ -1163,7 +1201,7 @@ object PlaybackEngine {
                             started = exo?.isPlaying == true,
                             isBuffering = exo?.playbackState == Player.STATE_BUFFERING,
                             intentPlaying = exo?.playWhenReady ?: it.intentPlaying
-                        )
+                        ).withTimelineNavigation(exo)
                     }
                     startedCallback = startedCallback?.takeIf { it.first == item.key }
                     if (exo?.isPlaying == true) fireStartedCallback()
@@ -1176,7 +1214,7 @@ object PlaybackEngine {
         override fun onPlayerError(error: PlaybackException) {
             progress?.cancel()
             clearDeferredSeek()
-            _state.update { it.copy(playing = false, intentPlaying = false, failed = true, isBuffering = false) }
+            _state.update { it.copy(playing = false, intentPlaying = false, failed = true, isBuffering = false).withTimelineNavigation(exo) }
             // Голосовое или кружок, которые не открылись, не должны оставить прерванную музыку навсегда на паузе.
             val music = interruptedMusic ?: return
             val context = appContext ?: return
@@ -1257,7 +1295,7 @@ object PlaybackEngine {
                 bufferedFraction = target.bufferedPercentage.coerceIn(0, 100).toFloat() / 100f,
                 isBuffering = target.playbackState == Player.STATE_BUFFERING,
                 playing = target.isPlaying
-            )
+            ).withTimelineNavigation(target)
         }
     }
 
@@ -1283,19 +1321,27 @@ object PlaybackEngine {
     }
 
     /**
-     * Requests at most two immediately following tracks. The auto-download policy (Data Saver/roaming/size) gates this;
-     * the current item, when actually opened, is always requested by its data source instead.
+     * Requests at most two following tracks from the actual Media3 playback order. The auto-download policy
+     * (Data Saver/roaming/size) gates this; the current item, when actually opened, is always requested by its
+     * data source instead.
      */
+    @OptIn(UnstableApi::class)
     private fun prefetchNext() {
         val source = queueSource ?: return
         val context = appContext ?: return
-        prefetchCandidates(_state.value).forEach { item ->
+        val state = _state.value
+        val playbackOrder = if (state.shuffleEnabled && exo != null) {
+            runCatching { exo!!.shuffleOrder.toIndexOrder() }.getOrDefault(state.queue.indices.toList())
+        } else {
+            state.queue.indices.toList()
+        }
+        prefetchCandidates(state, playbackOrder).forEach { item ->
             val fileId = item.fileId ?: return@forEach
             if (source.accountId != item.accountId) return@forEach
             // Speculative traffic must use the repository automatic path; the manual callback is reserved for
             // the track playback actually opens, so Data Saver/network cancellation can track prefetch downloads.
             if (source.autoDownload == null) return@forEach
-            if (!prefetchedKeys.add(item.key)) return@forEach
+            if (item.key in prefetchedKeys) return@forEach
             val fileState = runCatching { source.observeFile(fileId).value }.getOrNull() ?: return@forEach
             if (fileState.localPath != null || fileState.isDownloading) return@forEach
             val request = AutoDownloadRequest(
@@ -1310,7 +1356,34 @@ object PlaybackEngine {
                 AutoDownloadRuntime.decision(context, request, item.accountId) == AutoDownloadDecision.Allowed
             }.getOrDefault(false)
             if (allowed) {
-                runCatching { source.prefetch(request) }
+                val accepted = runCatching { source.prefetch(request) }.getOrDefault(false)
+                if (shouldRememberPrefetch(allowed, accepted)) prefetchedKeys.add(item.key)
+            }
+        }
+    }
+
+    /**
+     * A denied prefetch is intentionally not remembered: a network/settings change must retry it. Keep one observer
+     * per current account so Data Saver toggles and route changes clear the settled keys and evaluate again.
+     */
+    private fun refreshPrefetchPolicyObserver() {
+        val source = queueSource
+        if (source == null || _state.value.queue.isEmpty()) {
+            prefetchPolicyJob?.cancel()
+            prefetchPolicyJob = null
+            prefetchPolicyAccount = null
+            return
+        }
+        val context = appContext ?: return
+        if (prefetchPolicyJob?.isActive == true && prefetchPolicyAccount == source.accountId) return
+        prefetchPolicyJob?.cancel()
+        prefetchPolicyAccount = source.accountId
+        AutoDownloadNetworkStatus.ensureStarted(context.applicationContext)
+        val settings = AutoDownloadSettingsStore.getInstance(context.applicationContext, source.accountId).settings
+        prefetchPolicyJob = scope.launch {
+            combine(AutoDownloadNetworkStatus.network, settings) { _, _ -> Unit }.collect {
+                prefetchedKeys.clear()
+                prefetchNext()
             }
         }
     }
