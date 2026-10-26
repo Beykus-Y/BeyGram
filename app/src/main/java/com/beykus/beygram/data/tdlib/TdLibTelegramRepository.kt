@@ -33,6 +33,10 @@ import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageTranslation
+import com.beykus.beygram.domain.model.SpeechRecognitionException
+import com.beykus.beygram.domain.model.SpeechRecognitionFailure
+import com.beykus.beygram.domain.model.SpeechRecognitionFailureReason
+import com.beykus.beygram.domain.model.SpeechRecognitionTrial
 import com.beykus.beygram.domain.model.MessageDraft
 import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.MessageThreadPage
@@ -372,6 +376,10 @@ class TdLibTelegramRepository private constructor(
     private val _connectionState = MutableStateFlow(TelegramConnectionState.Unknown)
     override val connectionState: StateFlow<TelegramConnectionState> = _connectionState.asStateFlow()
 
+    /** Free recognition quota reported by this account's TDLib; null until Telegram has sent it. */
+    private val speechTrialStore = SpeechRecognitionTrialStore()
+    override val speechRecognitionTrial: StateFlow<SpeechRecognitionTrial?> get() = speechTrialStore.state
+
     private val authScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var authTimeoutJob: Job? = null
 
@@ -433,7 +441,12 @@ class TdLibTelegramRepository private constructor(
     private val cancelledAutoDownloads = ConcurrentHashMap.newKeySet<Int>()
     private var autoDownloadSettingsJob: Job? = null
     private val autoDownloadNetworkMonitor = AutoDownloadNetworkMonitor(appContext, authScope, ::reevaluateAutoDownloads)
-    private val mediaMapper = TdMediaMapper(mediaFiles)
+    private val profiles = TdProfiles({ client }, mediaFiles)
+    private val mediaMapper = TdMediaMapper(
+        mediaFiles,
+        { speechTrialStore.state.value },
+        { profiles.me.value.info?.isPremium == true }
+    )
     private val stickerCatalog = TdStickerCatalog(tdRequests, mediaFiles)
 
     init {
@@ -471,7 +484,6 @@ class TdLibTelegramRepository private constructor(
             }
         })
     }
-    private val profiles = TdProfiles({ client }, mediaFiles)
     private val stories = TdStories({ client }, profiles, mediaFiles, accountId, File(appContext.filesDir, "uploads"))
     private val groupAdministration = TdGroupAdministration(tdRequests, profiles)
     private val privacy = TdPrivacy({ client }, profiles)
@@ -1474,13 +1486,22 @@ class TdLibTelegramRepository private constructor(
             if (translated.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_translation_failed))
             translated.toMessageTranslation(toLanguageCode)
         }
-    override suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit> = speechRecognitionResult {
-        if (resolveIsSecretChat(chatId)) throw UserMessageException(UiText.Res(R.string.err_transcription_secret_chat))
-        tdRequests(TdApi.RecognizeSpeech(chatId, messageId))
-        Unit
-    }
+    override suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit> =
+        speechRecognitionResult(
+            { speechTrialStore.state.value },
+            { profiles.me.value.info?.isPremium == true }
+        ) {
+            if (resolveIsSecretChat(chatId)) throw SpeechRecognitionException(
+                SpeechRecognitionFailure(SpeechRecognitionFailureReason.SecretChat)
+            )
+            tdRequests(TdApi.RecognizeSpeech(chatId, messageId))
+            Unit
+        }
     override suspend fun rateSpeechRecognition(chatId: Long, messageId: Long, isGood: Boolean): Result<Unit> =
-        speechRecognitionResult {
+        speechRecognitionResult(
+            { speechTrialStore.state.value },
+            { profiles.me.value.info?.isPremium == true }
+        ) {
             tdRequests(TdApi.RateSpeechRecognition(chatId, messageId, isGood))
             Unit
         }
@@ -2459,7 +2480,7 @@ class TdLibTelegramRepository private constructor(
             }
             is TdApi.UpdateMessageContent -> {
                 val secretChat = isSecretChat(update.chatId)
-                val attachment = mediaMapper.media(update.newContent)?.let {
+                val attachment = mediaMapper.media(update.newContent, freshSpeechError = true)?.let {
                     if (secretChat) it.copy(isSecretChat = true) else it
                 }
                 val service = serviceMessages.text(update.newContent)
@@ -2511,6 +2532,7 @@ class TdLibTelegramRepository private constructor(
                 updateForumMessage(update.chatId, update.messageId) { it.copy(reactions = reactions) }
             }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
+            is TdApi.UpdateSpeechRecognitionTrial -> speechTrialStore.update(update)
             is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
             is TdApi.UpdateSupergroup, is TdApi.UpdateBasicGroup -> chatCache.keys.toList().forEach(::refreshPostingRight)
@@ -2681,6 +2703,8 @@ class TdLibTelegramRepository private constructor(
     // ---- Авторизация ---------------------------------------------------------
 
     private fun handleAuthorizationState(state: TdApi.AuthorizationState) {
+        // Quota data belongs to a signed-in account only. TDLib re-sends it after the next login.
+        if (state !is TdApi.AuthorizationStateReady) speechTrialStore.clear()
         ConnectionEventLog.shared.record("Вход в аккаунт: ${state.authLogLabel()}")
         StructuredEventLog.shared.record(
             kind = EventKind.TDLIB,

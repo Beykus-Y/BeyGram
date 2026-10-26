@@ -5,6 +5,10 @@ import com.beykus.beygram.diagnostics.ConnectionFailure
 import com.beykus.beygram.diagnostics.recordConnectionFailure
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.SpeechRecognitionException
+import com.beykus.beygram.domain.model.SpeechRecognitionFailure
+import com.beykus.beygram.domain.model.SpeechRecognitionFailureReason
+import com.beykus.beygram.domain.model.SpeechRecognitionTrial
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -139,14 +143,28 @@ internal suspend fun <T> translationResult(block: suspend () -> T): Result<T> =
         }
     }
 
-internal suspend fun <T> speechRecognitionResult(block: suspend () -> T): Result<T> =
-    telegramResult(UiText.Res(R.string.err_transcription_failed), block) { error ->
-        when {
-            error.isSecretChatError() -> UiText.Res(R.string.err_transcription_secret_chat)
-            error.isFloodWait() -> UiText.Res(R.string.err_tdlib_flood_wait)
-            else -> UiText.Res(R.string.err_transcription_failed)
-        }
-    }
+internal suspend fun <T> speechRecognitionResult(
+    trial: () -> SpeechRecognitionTrial? = { null },
+    isPremiumAccount: () -> Boolean = { false },
+    block: suspend () -> T
+): Result<T> = try {
+    Result.success(block())
+} catch (timeout: TimeoutCancellationException) {
+    recordConnectionFailure(ConnectionFailure.Timeout)
+    Result.failure(SpeechRecognitionException(
+        SpeechRecognitionFailure(SpeechRecognitionFailureReason.Network), timeout))
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (error: SpeechRecognitionException) {
+    Result.failure(error)
+} catch (error: UserMessageException) {
+    Result.failure(error)
+} catch (error: Exception) {
+    val failure = classifySpeechRecognitionError((error as? TdRequestError)?.code, error.message, trial(),
+        isPremiumAccount = isPremiumAccount())
+    if (failure.reason == SpeechRecognitionFailureReason.FloodWait) recordConnectionFailure(ConnectionFailure.FloodWait)
+    Result.failure(SpeechRecognitionException(failure, error))
+}
 
 private fun Exception.isSecretChatError(): Boolean =
     message?.contains("SECRET", ignoreCase = true) == true || message?.contains("CHAT_TYPE_INVALID") == true

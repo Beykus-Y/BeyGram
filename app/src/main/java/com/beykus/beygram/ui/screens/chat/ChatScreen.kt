@@ -115,6 +115,12 @@ private const val MAX_ACTIVE_COMPOSER_LAUNCHES = 4
 
 private data class PendingBotWebApp(val url: String, val botUserId: Long, val messageId: Long, val source: BotWebAppSource, val buttonText: String)
 
+/** The synchronous refusal plus the server result it replaced, so a later async result can invalidate it. */
+private data class LocalTranscriptionFailure(
+    val failure: SpeechRecognitionFailure,
+    val serverFailureAtStart: SpeechRecognitionFailure?
+)
+
 /** A zero-watermark jump walks history to its beginning; this guard keeps a huge chat from loading forever. */
 private const val MAX_UNREAD_HISTORY_PAGES = 50
 private const val UNREAD_HISTORY_PAGE_TIMEOUT_MS = 15_000L
@@ -131,6 +137,10 @@ fun ChatScreen(
     chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
     onServiceUser: (Long) -> Unit = {},
+    /** Current account's Premium status; free-recognition quota hints are hidden for Premium accounts. */
+    isPremiumAccount: Boolean = false,
+    /** Opens the existing Telegram Premium screen; no purchase is started from a chat bubble. */
+    onPremium: (() -> Unit)? = null,
     /** Opens a private chat for a contact card's "Message" action; defaults to the profile route. */
     onOpenUserChat: (Long) -> Unit = onServiceUser,
     /** Opens the channel post's comment thread; only channel posts with a linked discussion group call it. */
@@ -156,6 +166,10 @@ fun ChatScreen(
     fun clearReply() = updateDraft { it.copy(replyToMessageId = null) }
     var editEntities by remember(chat.id) { mutableStateOf<List<MessageTextEntity>>(emptyList()) }
     val botKeyboard by remember(conversation, chat.id) { conversation.observeBotKeyboard(chat.id) }.collectAsStateWithLifecycle()
+    val speechRecognitionTrial by remember(conversation) { conversation.speechRecognitionTrial }.collectAsStateWithLifecycle()
+    val speechRecognitionUi = remember(speechRecognitionTrial, isPremiumAccount, onPremium) {
+        SpeechRecognitionUi(speechRecognitionTrial, isPremiumAccount, onPremium)
+    }
     // Bumped whenever a reply starts, so the composer takes focus and the keyboard opens.
     var replyFocusRequest by remember(chat.id) { mutableIntStateOf(0) }
     // The message of the latest swipe; a slower capability check for an older swipe is ignored.
@@ -179,7 +193,8 @@ fun ChatScreen(
     val translationJobs = remember(chat.id) { mutableMapOf<Long, Job>() }
     // Local request state covers the gap before TDLib sends UpdateMessageContent with the recognition result.
     var transcribingIds by remember(chat.id) { mutableStateOf<Set<Long>>(emptySet()) }
-    var transcriptionErrors by remember(chat.id) { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    // A local refusal is valid only while TDLib still has the same server result that preceded the attempt.
+    var transcriptionErrors by remember(chat.id) { mutableStateOf<Map<Long, LocalTranscriptionFailure>>(emptyMap()) }
     var ratedTranscriptions by remember(chat.id) { mutableStateOf<Set<Long>>(emptySet()) }
     var editId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var editText by rememberSaveable(chat.id) { mutableStateOf("") }
@@ -850,13 +865,16 @@ fun ChatScreen(
     fun transcribe(message: ChatMessage) {
         val media = message.media ?: return
         if (!TranslationPolicy.canTranscribe(chat.isSecret, media)) return
+        val serverFailureAtStart = media.transcriptionError
         transcriptionErrors = transcriptionErrors - message.id
         transcribingIds = transcribingIds + message.id
         scope.launch {
             val result = conversation.recognizeSpeech(message.chatId, message.id)
             transcribingIds = transcribingIds - message.id
-            result.onFailure {
-                transcriptionErrors = transcriptionErrors + (message.id to it.userMessage(context, R.string.err_transcription_failed))
+            result.onFailure { error ->
+                val failure = (error as? SpeechRecognitionException)?.failure
+                    ?: SpeechRecognitionFailure(SpeechRecognitionFailureReason.Other)
+                transcriptionErrors = transcriptionErrors + (message.id to LocalTranscriptionFailure(failure, serverFailureAtStart))
             }
         }
     }
@@ -1488,6 +1506,9 @@ fun ChatScreen(
                             val translationLanguage = translationLanguages[message.id]
                             val translationState = translationLanguage?.let { translationStates[message.id to it] }
                             val media = message.media
+                            val transcriptionFailure = transcriptionErrors[message.id]
+                                ?.takeIf { it.serverFailureAtStart == media?.transcriptionError }
+                                ?.failure
                             if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
                             else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                             else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
@@ -1500,8 +1521,9 @@ fun ChatScreen(
                                 onTranslationCancel = { cancelTranslation(message.id) },
                                 onTranslationDismiss = { translationLanguages = translationLanguages - message.id },
                                 transcriptionRequestPending = message.id in transcribingIds,
-                                transcriptionRequestError = transcriptionErrors[message.id],
+                                transcriptionRequestError = transcriptionFailure,
                                 transcriptionRated = message.id in ratedTranscriptions,
+                                speechRecognitionUi = speechRecognitionUi,
                                 onTranscribe = if (message.sendState == MessageSendState.Sent && TranslationPolicy.canTranscribe(chat.isSecret, media)) {
                                     { transcribe(message) }
                                 } else null,
@@ -2176,10 +2198,11 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onTranslationCancel: (() -> Unit)? = null,
     onTranslationDismiss: (() -> Unit)? = null,
     transcriptionRequestPending: Boolean = false,
-    transcriptionRequestError: String? = null,
+    transcriptionRequestError: SpeechRecognitionFailure? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
     onRateTranscription: ((Boolean) -> Unit)? = null,
+    speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
     onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     commentsBar: (@Composable () -> Unit)? = null,
     selectionMode: Boolean = false,
@@ -2267,6 +2290,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 transcriptionRated = transcriptionRated,
                                 onTranscribe = onTranscribe,
                                 onRateTranscription = onRateTranscription,
+                                speechRecognitionUi = speechRecognitionUi,
                                 autoDownloadFile = onAutoDownloadFile)
                             else MediaPreview(media, observeFile, onDownloadFile,
                                 onOpen = if (selectionMode) onToggleSelection else onOpen,
@@ -2277,6 +2301,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 transcriptionRated = transcriptionRated,
                                 onTranscribe = onTranscribe,
                                 onRateTranscription = onRateTranscription,
+                                speechRecognitionUi = speechRecognitionUi,
                                 viewOnce = message.isViewOnce,
                                 autoDownloadFile = onAutoDownloadFile)
                         }

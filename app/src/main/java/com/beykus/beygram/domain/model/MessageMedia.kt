@@ -33,8 +33,8 @@ data class MessageMedia(
     val transcriptionText: String = "",
     /** Non-null while recognition is running; may hold the partial text TDLib has already produced. */
     val transcriptionPending: String? = null,
-    /** Friendly failure for the last recognition attempt; null when no error is known. */
-    val transcriptionError: UiText? = null,
+    /** Structured reason for the last recognition attempt; null when no error is known. */
+    val transcriptionError: SpeechRecognitionFailure? = null,
     /** The sender marked the video as fast-start streamable; playback may begin from a partial local file. */
     val supportsStreaming: Boolean = false,
     /** The message belongs to a secret chat; such content is never auto-downloaded off the visible feed. */

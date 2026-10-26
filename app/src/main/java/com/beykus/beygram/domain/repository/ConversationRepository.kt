@@ -174,6 +174,11 @@ interface ConversationRepository {
     suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit>
     /** Rates the last recognition result as good or bad. Telegram uses it to improve recognition quality. */
     suspend fun rateSpeechRecognition(chatId: Long, messageId: Long, isGood: Boolean): Result<Unit>
+    /**
+     * Telegram's free recognition quota for this account. Null means TDLib has not reported it yet; an
+     * exhausted quota is represented by [SpeechRecognitionTrial.leftCount] equal to zero.
+     */
+    val speechRecognitionTrial: StateFlow<SpeechRecognitionTrial?>
     /** Place among the chat's attachments of the same kind; TDLib counts can be approximate in large chats. */
     suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition>
     suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity> = emptyList()): Result<Unit>
