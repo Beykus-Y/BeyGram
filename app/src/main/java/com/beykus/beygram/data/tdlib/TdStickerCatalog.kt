@@ -31,6 +31,16 @@ internal class TdStickerCatalog(
         request(TdApi.GetRecentStickers(false)).stickers.orEmpty().mapNotNull { it?.toStickerItem(::register) }
     }
 
+    suspend fun favoriteStickers(): Result<List<StickerItem>> = requestResult {
+        request(TdApi.GetFavoriteStickers()).stickers.orEmpty().mapNotNull { it?.toStickerItem(::register) }
+    }
+
+    suspend fun setStickerFavorite(sticker: StickerItem, favorite: Boolean): Result<Unit> = requestResult {
+        val input = TdApi.InputFileId(sticker.fileId)
+        if (favorite) request(TdApi.AddFavoriteSticker(input)) else request(TdApi.RemoveFavoriteSticker(input))
+        Unit
+    }
+
     suspend fun installedStickerSets(): Result<List<StickerSetSummary>> = requestResult {
         request(TdApi.GetInstalledStickerSets(TdApi.StickerTypeRegular())).sets.orEmpty()
             .mapNotNull { it?.toStickerSetSummary(::register) }
@@ -42,6 +52,20 @@ internal class TdStickerCatalog(
         val content = request(TdApi.GetStickerSet(setId)).toStickerSetContent(::register)
         synchronized(cacheLock) { setCache[setId] = content }
         content
+    }
+
+    /**
+     * Adds or removes a set. The cached copy is dropped before the request: the caller may be cancelled while TDLib
+     * still commits the change, so keeping the old installed flag would make the next opening show a stale button.
+     */
+    suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit> = requestResult {
+        synchronized(cacheLock) { setCache.remove(setId) }
+        request(TdApi.ChangeStickerSet(setId, installed, false))
+        // A concurrent GetStickerSet may have populated the cache while the mutation was in flight.
+        synchronized(cacheLock) {
+            setCache[setId]?.let { setCache[setId] = it.copy(isInstalled = installed) }
+        }
+        Unit
     }
 
     suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = requestResult {

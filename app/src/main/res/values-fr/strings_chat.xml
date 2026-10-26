@@ -60,6 +60,9 @@
     <string name="chat_forward_failed">Impossible de transférer le message</string>
     <string name="chat_history_load_older">Charger les messages précédents</string>
     <string name="chat_link_failed">Impossible d’ouvrir le lien</string>
+    <string name="message_link_username_failed">Impossible d’ouvrir %1$s</string>
+    <string name="chat_bot_start">Démarrer le bot</string>
+    <string name="chat_bot_start_failed">Impossible de démarrer le bot</string>
     <string name="chat_media_position">%1$d sur %2$d</string>
     <string name="chat_message">Message</string>
     <string name="chat_message_forwarded">Message transféré</string>
@@ -134,6 +137,9 @@
     <string name="chat_contact_send_failed">Impossible d’envoyer le contact</string>
     <string name="chat_dice_rolling">Lancer…</string>
     <string name="chat_dice_result">Résultat : %1$d</string>
+    <string name="chat_dice_jackpot">Jackpot !</string>
+    <string name="chat_dice_not_sent">Non envoyé</string>
+    <string name="chat_dice_a11y">%1$s, %2$s</string>
     <string name="chat_dice_send_failed">Impossible d’envoyer le dé</string>
     <string name="chat_unsupported_message">Ce type de message n’est pas encore pris en charge</string>
     <string name="chat_unsupported_hint">Mettez BeyGram à jour ou ouvrez la discussion dans Telegram pour voir le contenu.</string>
@@ -151,6 +157,8 @@
     <string name="chat_reaction_custom_remove_description">Retirer la réaction émoji personnalisée</string>
     <string name="chat_reaction_description">Réaction %1$s, %2$d</string>
     <string name="chat_reaction_failed">Impossible d’ajouter la réaction</string>
+    <string name="chat_reaction_paid_confirmation_required">Les réactions payantes ne peuvent être envoyées qu’après confirmation</string>
+    <string name="chat_reaction_paid_description">Réaction en étoiles, %1$d</string>
     <string name="chat_reaction_pick_description">Ajouter la réaction %1$s</string>
     <string name="chat_reaction_remove_description">Retirer la réaction %1$s</string>
     <string name="chat_read_description">Lu</string>

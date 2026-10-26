@@ -46,9 +46,11 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
@@ -95,10 +97,14 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.TelegramChatFolders
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramFolderLoadState
 import com.beykus.beygram.domain.model.TelegramFolderTab
 import com.beykus.beygram.domain.model.orderedTelegramFolderTabs
 import com.beykus.beygram.domain.model.validTelegramFolderSelection
+import com.beykus.beygram.domain.search.GlobalSearchQuery
+import com.beykus.beygram.domain.search.networkSearchAction
+import com.beykus.beygram.domain.search.parseGlobalSearchQuery
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
@@ -110,10 +116,12 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.russianPlural
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.Dialog
@@ -139,6 +147,10 @@ fun ChatsScreen(
     folderSnapshot: TelegramChatFolders,
     folderChats: Map<Int, List<ChatPreview>>,
     folderLoadStates: Map<Int, TelegramFolderLoadState>,
+    /** Состояние сессии Telegram у активного аккаунта, а не доступность интернета или прокси. */
+    connectionState: TelegramConnectionState,
+    /** Активный аккаунт: при переключении строка статуса не должна остаться от предыдущего. */
+    accountId: String,
     onFolderLoadMore: (Int) -> Unit,
     onPinFolderChat: suspend (Int, Long, Boolean) -> Result<Unit>,
     onLoadFolder: suspend (Int) -> Result<com.beykus.beygram.domain.model.TelegramFolderDraft>,
@@ -209,6 +221,8 @@ fun ChatsScreen(
     val headerPadding = if (compactHeader) 14.dp else 20.dp
     val titleSize = if (compactHeader) 24.sp else 30.sp
     val titleLineHeight = if (compactHeader) 27.sp else 33.sp
+    // Статус сессии Telegram общий для телефона и двухпанельного списка: он не зависит от раскладки.
+    val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
     var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
     val readAction = ChatSwipeAction(
@@ -220,8 +234,14 @@ fun ChatsScreen(
         enabled = true, perform = onArchive
     )
     val filteredChats = remember(query, displayedChats, selectedFilter) {
+        // @username and t.me links match local titles by the bare username too.
+        val localQuery = parseGlobalSearchQuery(query).publicText
         displayedChats.filter { chat ->
-            val matchesQuery = query.isBlank() || chat.title.contains(query, true) || (chat.lastMessage as? UiText.Raw)?.text?.contains(query, true) == true
+            val preview = (chat.lastMessage as? UiText.Raw)?.text
+            val matchesQuery = query.isBlank() ||
+                chat.title.contains(localQuery, true) ||
+                preview?.contains(query, true) == true ||
+                (localQuery != query && preview?.contains(localQuery, true) == true)
             val matchesFilter = when (selectedFilter) {
                 ChatFilter.All -> true
                 ChatFilter.Unread -> showsUnreadIndicator(chat)
@@ -356,9 +376,22 @@ fun ChatsScreen(
                         Modifier.clearAndSetSemantics {})
                 }
             }
+            // Заголовок «Сообщения» остаётся названием раздела; реальное состояние TDLib
+            // показывается строкой во всю ширину шапки и исчезает сразу после восстановления связи.
+            ChatsConnectionLine(connectionStatus)
 
             Spacer(Modifier.height(14.dp))
             SearchField(query = query, onChange = { state.query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
+            // The network action stays directly under the field, above folders and local rows,
+            // so it is discoverable before a long cached chat list scrolls it out of view.
+            networkSearchAction(query)?.let { search ->
+                Spacer(Modifier.height(8.dp))
+                TelegramSearchAction(
+                    search = search,
+                    offline = connectionState == TelegramConnectionState.WaitingForNetwork,
+                    onClick = { onGlobalSearch(query) }
+                )
+            }
             Spacer(Modifier.height(12.dp))
             // Only one source of folder navigation: server-backed Telegram lists.
             // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
@@ -446,12 +479,14 @@ fun ChatsScreen(
                 }
             }
             if (query.isNotBlank()) {
-                item(key = "global_search") {
+                item(key = "local_search_header") {
                     Text(
-                        stringResource(R.string.chats_search_all, query),
-                        color = palette.accent,
-                        fontSize = 15.sp,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { onGlobalSearch(query) }.padding(horizontal = 20.dp, vertical = 14.dp)
+                        stringResource(R.string.chats_search_local_section),
+                        color = palette.textSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp)
+                            .semantics { heading() }
                     )
                 }
             }
@@ -532,6 +567,95 @@ fun ChatsScreen(
             setUnread = { onMarkUnread(selected) },
             delete = { onDeleteChat(selected.id) }
         )
+    }
+}
+
+/**
+ * Строка состояния сессии Telegram под заголовком списка. Говорит только то, что сообщил TDLib:
+ * ожидание сети, подключение или получение обновлений. Экран не крутит спиннер и ничего не опрашивает.
+ */
+@Composable
+private fun ChatsConnectionLine(status: ChatsConnectionStatus) {
+    if (status == ChatsConnectionStatus.None) return
+    val palette = beyGramPalette()
+    val label = stringResource(status.labelResource())
+    val spokenLabel = stringResource(R.string.chats_connection_a11y, label)
+    // Ожидание сети — предупреждение, остальные состояния нейтральны и не выглядят как ошибка.
+    val color = if (status == ChatsConnectionStatus.WaitingForNetwork) palette.warningText else palette.textSecondary
+    val icon = when (status) {
+        ChatsConnectionStatus.WaitingForNetwork -> Icons.Rounded.WifiOff
+        ChatsConnectionStatus.Connecting -> Icons.Rounded.Schedule
+        else -> Icons.Rounded.Refresh
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 5.dp).semantics(mergeDescendants = true) {
+            // Статус меняется без действия пользователя: сообщаем его, не уводя фокус с экрана.
+            liveRegion = LiveRegionMode.Polite
+            contentDescription = spokenLabel
+        },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = color, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Текст строки для состояния TDLib; [ChatsConnectionStatus.None] сюда не попадает. */
+private fun ChatsConnectionStatus.labelResource(): Int = when (this) {
+    ChatsConnectionStatus.WaitingForNetwork -> R.string.chats_connection_waiting_network
+    ChatsConnectionStatus.Connecting -> R.string.chats_connection_connecting
+    ChatsConnectionStatus.Updating -> R.string.chats_connection_updating
+    ChatsConnectionStatus.None -> error("The plain title has no connection label")
+}
+
+@Composable
+private fun TelegramSearchAction(
+    search: GlobalSearchQuery,
+    offline: Boolean,
+    onClick: () -> Unit
+) {
+    val palette = beyGramPalette()
+    val title = stringResource(R.string.chats_search_network_action)
+    val subtitle = when {
+        offline -> stringResource(R.string.chats_search_network_action_offline)
+        search.username != null -> stringResource(
+            R.string.chats_search_network_action_username,
+            search.username
+        )
+        else -> stringResource(R.string.chats_search_network_action_hint)
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(palette.accentSoft)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = accessibleDescription(title, subtitle)
+            }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(36.dp).clip(CircleShape).background(palette.surface),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = palette.accentInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                subtitle,
+                color = palette.textSecondary,
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -673,7 +797,7 @@ private fun EmptyState(filter: ChatFilter, query: String) {
         Spacer(Modifier.height(12.dp))
         Text(
             text = when {
-                query.isNotBlank() -> stringResource(R.string.chats_empty_no_results)
+                query.isNotBlank() -> stringResource(R.string.chats_search_local_empty)
                 filter == ChatFilter.Unread -> stringResource(R.string.chats_empty_all_read)
                 filter == ChatFilter.Groups -> stringResource(R.string.chats_empty_no_groups)
                 else -> stringResource(R.string.chats_empty_quiet)
@@ -681,7 +805,10 @@ private fun EmptyState(filter: ChatFilter, query: String) {
             color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold
         )
         Spacer(Modifier.height(5.dp))
-        Text(stringResource(R.string.chats_empty_hint), color = palette.textSecondary, fontSize = 14.sp)
+        Text(
+            stringResource(if (query.isNotBlank()) R.string.chats_search_local_empty_hint else R.string.chats_empty_hint),
+            color = palette.textSecondary, fontSize = 14.sp
+        )
     }
 }
 

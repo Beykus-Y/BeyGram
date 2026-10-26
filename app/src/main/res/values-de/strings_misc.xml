@@ -45,6 +45,13 @@
     <string name="poll_error_correct_missing">Wählen Sie die richtige Antwort</string>
     <string name="poll_error_correct_invalid">Die richtige Antwort ist nicht unter den Optionen</string>
     <string name="poll_error_correct_count">Ein Quiz mit einer Antwort braucht genau eine richtige Option</string>
+    <string name="poll_send_failed">Umfrage konnte nicht gesendet werden</string>
+    <string name="poll_send_private_chat">Telegram erlaubt keine Umfragen in privaten Chats mit Personen. Umfragen sind in Gruppen, Kanälen, Gespeicherten Nachrichten und Bot-Chats möglich.</string>
+    <string name="poll_send_chat_unsupported">In diesem Chat können keine Umfragen erstellt werden.</string>
+    <string name="poll_send_channel_anonymous">In einem Kanal können nur anonyme Umfragen veröffentlicht werden.</string>
+    <string name="poll_send_rights_missing">Sie haben in diesem Chat kein Recht, Umfragen zu erstellen. Prüfen Sie die Chat-Berechtigungen.</string>
+    <string name="poll_send_invalid">Telegram hat die Umfrageeinstellungen abgelehnt. Prüfen Sie Frage, Antwortoptionen und richtige Antwort.</string>
+    <string name="poll_send_retained">Die Umfrage ist gespeichert. Senden Sie sie erneut oder entfernen Sie sie.</string>
     <string name="contact_picker_title">Kontakt senden</string>
     <string name="contact_picker_search">Kontakte durchsuchen</string>
     <string name="contact_picker_empty">Im Telegram-Adressbuch gibt es keine Kontakte</string>
@@ -97,6 +104,7 @@
     <string name="message_action_copy_text">Text kopieren</string>
     <string name="message_action_more">Mehr</string>
     <string name="message_action_copy_link">Link kopieren</string>
+    <string name="message_action_copy_entity">Link/Benutzernamen kopieren</string>
     <string name="message_action_forward_copy">Ohne Autor weiterleiten</string>
     <string name="message_action_forward">Weiterleiten</string>
     <string name="message_action_select">Nachrichten auswählen</string>
@@ -124,6 +132,7 @@
     <string name="forward_topic_general">Allgemein</string>
     <string name="message_link">Nachrichtenlink</string>
     <string name="message_link_copied">Link kopiert</string>
+    <string name="message_entity_copied">Kopiert</string>
     <string name="err_message_link_unavailable">Für diese Nachricht ist kein Link verfügbar</string>
     <string name="message_action_edit">Bearbeiten</string>
     <string name="message_action_edit_caption">Bildunterschrift bearbeiten</string>

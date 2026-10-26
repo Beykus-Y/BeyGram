@@ -2,9 +2,13 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.DiceStickerAsset
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageDiceInfo
+import com.beykus.beygram.domain.model.MessageDiceState
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.MessageSendState
+import com.beykus.beygram.domain.model.MessageSpecialContent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -298,6 +302,19 @@ class MessageHistoryStoreTest {
         val file = message(5L, 5L).copy(media = MessageMedia(MediaKind.Document, fileId = 77))
         store.recordOutsideWindow(1L, listOf(file))
         assertEquals(setOf(77), store.mediaFileIds())
+    }
+
+    @Test fun diceAnimationFilesStayReferenced() {
+        val store = MessageHistoryStore()
+        val sticker = DiceStickerAsset(fileId = 88)
+        val dice = MessageDiceInfo(
+            emoji = "🎲",
+            value = 4,
+            initialState = MessageDiceState.Regular(sticker),
+            finalState = MessageDiceState.Regular(sticker.copy(fileId = 89))
+        )
+        store.recordOutsideWindow(1L, listOf(message(5L, 5L).copy(special = MessageSpecialContent.Dice(dice))))
+        assertEquals(setOf(88, 89), store.mediaFileIds())
     }
 
 }

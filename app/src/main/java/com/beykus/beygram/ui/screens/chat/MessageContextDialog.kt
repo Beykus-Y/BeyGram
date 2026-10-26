@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -20,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.R
+import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.deeplink.copyableMessageLinks
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -32,15 +36,19 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClose: () -> Unit,
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null) {
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    allowEntityCopy: Boolean = true) {
     var context by remember(chatId, targetId) { mutableStateOf<MessageContext?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf<ChatMessage?>(null) }
+    var stickerSetId by remember { mutableStateOf<Long?>(null) }
     var viewerItem by remember { mutableStateOf<MediaViewerItem?>(null) }
     var viewerChatId by remember { mutableStateOf(0L) }
     var openedViewOnceIds by remember(chatId, targetId) { mutableStateOf(emptySet<Long>()) }
     var rights by remember { mutableStateOf<MessageRights?>(null) }
+    var copyLinks by remember(chatId, targetId) { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(selected?.id) {
         rights = null
         val message = selected ?: return@LaunchedEffect
@@ -95,7 +103,11 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                             selected = message
                             viewerItem = message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce) }
                             viewerChatId = message.chatId
-                        }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
+                        }, onStickerOpen = { media -> stickerSetId = media.stickerSetId },
+                            onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
+                            onActions = if (!allowEntityCopy || message.isViewOnce) null else copyableMessageLinks(message.text, message.entities)
+                                .takeIf { it.isNotEmpty() }
+                                ?.let { links -> { copyLinks = links } },
                             onPollVote = { messageId, choices ->
                                 reactionScope.launch {
                                     conversation.votePoll(message.chatId, messageId, choices)
@@ -116,12 +128,30 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                             onAddPollOption = { messageId, text ->
                                 conversation.addPollOption(message.chatId, messageId, text)
                                     .onSuccess { refreshPollSnapshot() }
-                            })
+                            },
+                            onOpenMessageEntity = onOpenMessageEntity)
                     }
                 }
             }
         }
     }
+    StickerSetBrowser(
+        setId = stickerSetId,
+        conversation = conversation,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        onDismiss = { stickerSetId = null }
+    )
+    if (copyLinks.isNotEmpty()) MessageLinkCopyDialog(
+        links = copyLinks,
+        onCopy = { value ->
+            androidContext.getSystemService(ClipboardManager::class.java)
+                ?.setPrimaryClip(ClipData.newPlainText(androidContext.getString(R.string.message_action_copy_entity), value))
+            Toast.makeText(androidContext, androidContext.getString(R.string.message_entity_copied), Toast.LENGTH_SHORT).show()
+            copyLinks = emptyList()
+        },
+        onDismiss = { copyLinks = emptyList() }
+    )
     // The viewer keeps its own opened page; deleting the live message must not dismiss it mid-view.
     val activeItem = viewerItem
     if (activeItem != null) {

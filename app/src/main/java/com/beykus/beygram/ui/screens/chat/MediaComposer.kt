@@ -1,17 +1,16 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -21,30 +20,27 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Compress
 import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.Face
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
@@ -59,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -72,10 +69,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
-import com.beykus.beygram.data.media.AudioCompressionPreferences
 import com.beykus.beygram.data.media.AudioCompressor
 import com.beykus.beygram.data.media.AudioPlanReason
-import com.beykus.beygram.data.media.AudioQualityOption
 import com.beykus.beygram.data.media.CaptureRetryState
 import com.beykus.beygram.data.media.MediaLimits
 import com.beykus.beygram.data.media.NormalizedCrop
@@ -83,10 +78,9 @@ import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.data.media.PhotoEditor
 import com.beykus.beygram.data.media.PhotoExportQuality
 import com.beykus.beygram.data.media.PhotoRotation
-import com.beykus.beygram.data.media.VideoCompressionPreferences
 import com.beykus.beygram.data.media.VideoCompressor
 import com.beykus.beygram.data.media.VideoLimitIssue
-import com.beykus.beygram.data.media.VideoQualityOption
+import com.beykus.beygram.data.media.VideoPlanReason
 import com.beykus.beygram.data.media.audioCompressionPlan
 import com.beykus.beygram.data.media.videoCompressionPlan
 import com.beykus.beygram.data.media.videoLimitIssue
@@ -104,9 +98,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
@@ -122,16 +117,7 @@ internal data class PhotoEditorSession(
     val keepOriginal: Boolean = false
 ) : java.io.Serializable
 
-/** Visible progress for one attachment that is being re-encoded before it can be sent. */
-internal enum class MediaProcessingKind { Video, Audio }
-
-internal data class MediaProcessing(
-    val path: String,
-    val fileName: String,
-    val progress: Float?,
-    val kind: MediaProcessingKind
-)
-
+/** Survives rotation with the cache path of a camera take whose import failed. */
 private val CaptureRetrySaver = Saver<CaptureRetryState, String>(
     save = { it.failedPaths.joinToString("\n") },
     restore = { CaptureRetryState(it.split('\n').filter(String::isNotBlank)) }
@@ -153,6 +139,7 @@ internal class AttachmentState(
     private val viewOnceState: MutableState<Boolean>,
     private val editorState: MutableState<PhotoEditorSession?>,
     private val captureRetry: MutableState<CaptureRetryState>,
+    private val qualityState: MutableState<HashMap<String, MediaPreparation>>,
     private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>,
     private val sendSticker: suspend (OutgoingMedia, MessageSendOptions) -> Result<Unit>,
     private val sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>
@@ -182,25 +169,22 @@ internal class AttachmentState(
         get() = viewOnceState.value
         set(value) { viewOnceState.value = value }
     var picker by mutableStateOf(AttachmentPicker.None)
-    var processing by mutableStateOf<MediaProcessing?>(null)
-        private set
     var notice by mutableStateOf<String?>(null)
         private set
     val canRetryCapture: Boolean get() = captureRetry.value.canRetry
-    var videoQuality by mutableStateOf(VideoCompressionPreferences(context).load())
-        private set
-    var audioQuality by mutableStateOf(AudioCompressionPreferences(context).load())
-        private set
     val pending: List<OutgoingMedia> get() = pendingState.value
     val error: String? get() = errorState.value
-    private val videoPreferences = VideoCompressionPreferences(context)
-    private val audioPreferences = AudioCompressionPreferences(context)
     private val compressor = VideoCompressor(context)
     private val audioCompressor = AudioCompressor(context)
-    private var compressionCancelled = false
-    private var compressionJob: Job? = null
     private var importJob: Job? = null
     private var editorJob: Job? = null
+    /** One Media3 job per staged file; changing a file's mode cancels only that file's job. */
+    private val qualityJobs = mutableMapOf<String, Job>()
+    private val qualityTokens = mutableMapOf<String, Int>()
+    private var qualityToken = 0
+    // Media3 Transformer requests hardware codecs; serializing transforms avoids exhausting a
+    // device's codec instances when several videos are selected at once.
+    private val qualityGate = Mutex()
     private val failedCapturePaths: List<String> get() = captureRetry.value.failedPaths
     private val nextFailedCapturePath: String? get() = captureRetry.value.nextPath
     var pickPhotos: () -> Unit = {}
@@ -210,21 +194,113 @@ internal class AttachmentState(
     var pickLocation: () -> Unit = {}
     var pickContact: () -> Unit = {}
     var pickDice: () -> Unit = {}
-    /** Secret chats do not support server-side polls; the chip disappears instead of failing. */
-    var allowsPolls: Boolean = true
+    /** False where Telegram rejects polls: secret chats and ordinary private chats with people. */
+    var allowsPolls by mutableStateOf(true)
+    /** A poll send failed and [extra] still holds the composed poll, so Retry/Cancel are shown. */
+    var extraSendFailed by mutableStateOf(false)
+        private set
+    private var lastExtraCaption = ""
+    private var lastExtraOptions = MessageSendOptions()
+
+    init {
+        // A configuration change must not resurrect a running Media3 job or a prepared file that
+        // has already disappeared. Interrupted files fall back to the untouched staged original.
+        val pendingPaths = pendingState.value.mapTo(HashSet()) { it.path }
+        val sanitized = HashMap<String, MediaPreparation>()
+        qualityState.value.forEach { (path, preparation) ->
+            if (path !in pendingPaths) return@forEach
+            val prepared = preparation.prepared?.takeIf { candidate ->
+                candidate.path.isNotBlank() && File(candidate.path).isFile
+            }
+            sanitized[path] = preparation.copy(
+                prepared = prepared,
+                processing = false,
+                progress = null
+            )
+        }
+        if (sanitized != qualityState.value) qualityState.value = sanitized
+        if (sanitized.values.any { it.delivery == MediaDeliveryMode.File }) {
+            viewOnceState.value = false
+        }
+        // An activity recreation cancels the Media3 job. Resume the explicitly selected mode from
+        // the still-staged original instead of silently sending a different quality.
+        val interrupted = pendingState.value.filter { item ->
+            val preparation = sanitized[item.path] ?: return@filter false
+            val delivery = item.kind != MediaKind.Video || preparation.delivery == MediaDeliveryMode.Media
+            preparation.mode != MediaQualityMode.Original && delivery &&
+                preparation.prepared == null && preparation.hint == null && preparation.error == null
+        }
+        if (interrupted.isNotEmpty()) {
+            scope.launch {
+                interrupted.forEach { item -> item.qualityKind()?.let { startQualityJob(item, it) } }
+            }
+        }
+    }
+
+    /** Per-file quality state. Every entry is keyed by the staged original's path. */
+    val preparations: Map<String, MediaPreparation> get() = qualityState.value
+
+    /** The exact media list the repository will receive, used for view-once and other policies. */
+    val outgoingPending: List<OutgoingMedia>
+        get() = pending.map { outgoingMediaFor(it, preparationFor(it)) }
+
+    val preparing: Boolean get() = preparations.values.any { it.processing }
 
     /** True while the panel replaces the plain composer (files, a location fix, or a prepared extra). */
     val active: Boolean get() = pending.isNotEmpty() || importing || extra != null || locating
 
     /** The normal Send button is enabled when the prepared attachment can be delivered. */
-    val canSend: Boolean get() = !sending && !importing && !locating && (pending.isNotEmpty() || extra != null)
+    val canSend: Boolean get() = !sending && !importing && !locating && !preparing && (pending.isNotEmpty() || extra != null)
+
+    fun preparationFor(item: OutgoingMedia): MediaPreparation? = preparationFor(preparations, item)
 
     fun toggleMenu() {
-        if (sending || importing) return
+        if (sending || importing || locating || extra != null) return
         if (picker != AttachmentPicker.None) {
             picker = AttachmentPicker.None
             menuOpen = false
         } else menuOpen = !menuOpen
+    }
+
+    /** The sticker/GIF entry next to the input opens the existing picker without duplicating sending. */
+    fun toggleStickerPicker() {
+        if (sending || importing || active) return
+        if (picker == AttachmentPicker.Stickers) closePicker() else openPicker(AttachmentPicker.Stickers)
+    }
+
+    fun closeMenu() {
+        if (sending) return
+        menuOpen = false
+        errorState.value = null
+    }
+
+    fun dismissTransientPanel() {
+        when {
+            picker != AttachmentPicker.None -> closePicker()
+            menuOpen -> closeMenu()
+        }
+    }
+
+    /** Runs one menu choice; every old type keeps its previous callback. */
+    fun performAction(action: AttachmentAction) {
+        if (sending || importing || locating) return
+        if (action.isChatObject && pending.isNotEmpty()) {
+            // A poll/contact/dice replaces the whole tray, so never do that behind the user's back.
+            errorState.value = context.getString(R.string.composer_menu_chat_unavailable)
+            menuOpen = false
+            return
+        }
+        menuOpen = false
+        when (action) {
+            AttachmentAction.Camera -> openCamera()
+            AttachmentAction.PhotoVideo -> pickPhotos()
+            AttachmentAction.File -> pickDocuments()
+            AttachmentAction.Audio -> pickAudio()
+            AttachmentAction.Location -> pickLocation()
+            AttachmentAction.Contact -> pickContact()
+            AttachmentAction.Poll -> pickPoll()
+            AttachmentAction.Dice -> pickDice()
+        }
     }
 
     fun openPicker(target: AttachmentPicker) {
@@ -242,7 +318,7 @@ internal class AttachmentState(
 
     /** A GIF becomes a normal pending attachment, so the caption limit, reply, topic and send options all apply. */
     fun addAnimation(media: OutgoingMedia) {
-        if (sending || importing) return
+        if (sending || importing || locating) return
         if (pending.size >= MAX_PENDING_ATTACHMENTS) {
             errorState.value = context.getString(R.string.composer_too_many_attachments)
             return
@@ -298,9 +374,9 @@ internal class AttachmentState(
                     }
                     pendingState.value = ArrayList(pending + prepared)
                     when {
-                        !asDocument && prepared.kind == MediaKind.Video -> maybeCompressVideo(prepared)
+                        !asDocument && prepared.kind == MediaKind.Video -> startQualityPreparation(prepared)
                         !asDocument && prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("audio/") ->
-                            maybeCompressAudio(prepared)
+                            startQualityPreparation(prepared)
                         !asDocument && prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("video/") ->
                             notice = context.getString(R.string.video_container_as_file)
                     }
@@ -313,7 +389,7 @@ internal class AttachmentState(
 
     /** Full-screen camera entry; it hands one cache file back and closes without leaving the chat. */
     fun openCamera() {
-        if (sending || importing) return
+        if (sending || importing || locating) return
         if (pending.size >= MediaLimits.MAX_ATTACHMENTS) {
             errorState.value = context.getString(R.string.composer_too_many_attachments)
             return
@@ -467,7 +543,7 @@ internal class AttachmentState(
                 file.delete()
                 clearFailedCapture(file.absolutePath)
                 when {
-                    prepared.kind == MediaKind.Video -> maybeCompressVideo(prepared)
+                    prepared.kind == MediaKind.Video -> startQualityPreparation(prepared)
                     prepared.kind == MediaKind.Document && prepared.mimeType.startsWith("video/") ->
                         notice = context.getString(R.string.video_container_as_file)
                 }
@@ -510,12 +586,14 @@ internal class AttachmentState(
     fun prepareExtra(draft: MessageExtraDraft) {
         if (sending || importing || locating) return
         importJob?.cancel()
+        clearQualityState()
         if (pending.isNotEmpty()) {
             val discarded = pending.toList()
             scope.launch { discarded.filter { it.path.isNotBlank() }.forEach { importer.discard(it) } }
         }
         pendingState.value = arrayListOf()
         extra = draft
+        extraSendFailed = false
         errorState.value = null
         menuOpen = false
     }
@@ -526,6 +604,10 @@ internal class AttachmentState(
      */
     fun beginLocationRequest(): Int? {
         if (sending || importing || locating) return null
+        if (pending.isNotEmpty()) {
+            errorState.value = context.getString(R.string.composer_menu_chat_unavailable)
+            return null
+        }
         val request = locationRequests.begin() ?: return null
         locating = true
         errorState.value = null
@@ -539,12 +621,14 @@ internal class AttachmentState(
         locating = false
         if (draft == null) return true
         importJob?.cancel()
+        clearQualityState()
         if (pending.isNotEmpty()) {
             val discarded = pending.toList()
             scope.launch { discarded.filter { it.path.isNotBlank() }.forEach { importer.discard(it) } }
         }
         pendingState.value = arrayListOf()
         extra = draft
+        extraSendFailed = false
         errorState.value = null
         menuOpen = false
         return true
@@ -558,189 +642,326 @@ internal class AttachmentState(
     fun removeExtra() {
         if (sending || importing) return
         extra = null
+        extraSendFailed = false
+        errorState.value = null
+    }
+
+    /** Repeats the failed poll send with the same caption/options; only an explicit tap can retry. */
+    fun retryExtra() {
+        if (!extraSendFailed || extra == null || sending || importing || locating) return
+        send(lastExtraCaption, lastExtraOptions) {}
+    }
+
+    /** Explicitly drops a poll that failed to send, instead of leaving a dead attachment in the composer. */
+    fun discardFailedExtra() {
+        if (sending || importing) return
+        extraSendFailed = false
+        errorState.value = null
+        extra = null
     }
 
     fun reportError(message: String?) {
         if (message != null) errorState.value = message
     }
 
-    fun remove(item: OutgoingMedia) {
-        if (sending || importing) return
-        pendingState.value = ArrayList(pending.filterNot { it.samePendingAttachment(item) })
-        if (item.path.isNotBlank()) scope.launch { importer.discard(item) }
-    }
-
-    /** Cycles the preset used for the next imported video; already staged files are never re-encoded silently. */
-    fun cycleVideoQuality() {
-        val next = when (videoQuality) {
-            VideoQualityOption.Compact -> VideoQualityOption.Balanced
-            VideoQualityOption.Balanced -> VideoQualityOption.Original
-            VideoQualityOption.Original -> VideoQualityOption.Compact
-        }
-        videoQuality = next
-        videoPreferences.save(next)
-        notice = context.getString(R.string.video_quality_notice, context.getString(next.labelRes()))
-    }
-
-    fun cycleAudioQuality() {
-        val next = when (audioQuality) {
-            AudioQualityOption.Compact -> AudioQualityOption.Balanced
-            AudioQualityOption.Balanced -> AudioQualityOption.Original
-            AudioQualityOption.Original -> AudioQualityOption.Compact
-        }
-        audioQuality = next
-        audioPreferences.save(next)
-        notice = context.getString(R.string.audio_quality_notice, context.getString(next.labelRes()))
-    }
-
     fun dismissNotice() {
         notice = null
     }
 
-    /** Stops the running compression but keeps the already staged original video. */
-    fun cancelCompression() {
-        if (processing == null) return
-        compressionCancelled = true
-        compressionJob?.cancel()
+    fun remove(item: OutgoingMedia) {
+        if (sending || importing) return
+        cancelQualityJob(item.path)
+        if (qualityState.value.containsKey(item.path)) {
+            qualityState.value = HashMap(qualityState.value).apply { remove(item.path) }
+        }
+        pendingState.value = ArrayList(pending.filterNot { it.samePendingAttachment(item) })
+        if (item.path.isNotBlank()) scope.launch { importer.discard(item) }
     }
 
     /**
-     * Applies the size/duration limits and, when needed, one Media3 Transformer pass. The original
-     * stays pending until the compressed file is adopted, so a failure or cancel loses nothing.
-     * Compression runs in its own job: cancelling it never aborts import of the remaining picks.
+     * Per-file quality selection. Changing one file never changes another file or a future import;
+     * the untouched original stays staged until the attachment is sent or removed.
      */
-    private suspend fun maybeCompressVideo(original: OutgoingMedia) {
-        val option = videoQuality
-        if (option == VideoQualityOption.Original) return
-        val source = File(original.path)
-        val info = runCatching { compressor.inspect(source, original.mimeType) }.getOrNull() ?: return
+    fun selectQuality(item: OutgoingMedia, mode: MediaQualityMode) {
+        if (sending || importing) return
+        val preparation = preparationFor(item) ?: return
+        val kind = item.qualityKind() ?: return
+        if (preparation.mode == mode) {
+            if (preparation.error != null) {
+                updateQuality(item.path) { it.copy(error = null, failedMode = null) }
+            }
+            return
+        }
+        cancelQualityJob(item.path)
+        updateQuality(item.path) {
+            it.copy(
+                mode = mode,
+                prepared = null,
+                processing = false,
+                progress = null,
+                hint = null,
+                failedMode = null,
+                error = null
+            )
+        }
+        startQualityJob(item, kind)
+    }
+
+    /** Video-only: keep Telegram's video-message semantics or send the exact original as a file. */
+    fun selectVideoDelivery(item: OutgoingMedia, delivery: MediaDeliveryMode) {
+        if (sending || importing || item.kind != MediaKind.Video) return
+        val preparation = preparationFor(item) ?: return
+        if (preparation.delivery == delivery) return
+        cancelQualityJob(item.path)
+        updateQuality(item.path) {
+            it.copy(
+                delivery = delivery,
+                prepared = null,
+                processing = false,
+                progress = null,
+                hint = null,
+                failedMode = null,
+                error = null
+            )
+        }
+        if (delivery == MediaDeliveryMode.File) viewOnce = false
+        startQualityJob(item, MediaQualityKind.Video)
+    }
+
+    /** Stops this file's transform and falls back to its staged original. */
+    fun cancelQualityPreparation(item: OutgoingMedia) {
+        val preparation = preparationFor(item) ?: return
+        if (sending) return
+        cancelQualityJob(item.path)
+        updateQuality(item.path) {
+            it.copy(
+                mode = MediaQualityMode.Original,
+                prepared = null,
+                processing = false,
+                progress = null,
+                hint = null,
+                failedMode = null,
+                error = null
+            )
+        }
+        notice = context.getString(R.string.composer_quality_cancelled)
+    }
+
+    fun retryQualityPreparation(item: OutgoingMedia) {
+        val preparation = preparationFor(item) ?: return
+        val kind = item.qualityKind() ?: return
+        if (sending || importing) return
+        val retryMode = preparation.failedMode ?: preparation.mode.takeIf { it != MediaQualityMode.Original }
+            ?: MediaQualityMode.Balanced
+        cancelQualityJob(item.path)
+        updateQuality(item.path) {
+            it.copy(
+                mode = retryMode,
+                prepared = null,
+                processing = false,
+                progress = null,
+                hint = null,
+                failedMode = null,
+                error = null
+            )
+        }
+        startQualityJob(item, kind)
+    }
+
+    /** Registers the per-file default and starts its preparation without touching other files. */
+    private fun startQualityPreparation(item: OutgoingMedia) {
+        val kind = item.qualityKind() ?: return
+        if (preparationFor(item) == null) {
+            qualityState.value = HashMap(qualityState.value).apply {
+                put(item.path, MediaPreparation(mode = MediaQualityMode.Balanced))
+            }
+        }
+        startQualityJob(item, kind)
+    }
+
+    private fun startQualityJob(item: OutgoingMedia, kind: MediaQualityKind) {
+        val preparation = preparationFor(item) ?: return
+        if (preparation.mode == MediaQualityMode.Original ||
+            (kind == MediaQualityKind.Video && preparation.delivery == MediaDeliveryMode.File)
+        ) {
+            updateQuality(item.path) { it.copy(processing = false, progress = null) }
+            return
+        }
+        cancelQualityJob(item.path)
+        val token = nextQualityToken(item.path)
+        val requested = preparation.mode
+        updateQuality(item.path) {
+            it.copy(processing = true, progress = null, prepared = null, hint = null, failedMode = null, error = null)
+        }
+        qualityJobs[item.path] = scope.launch {
+            try {
+                qualityGate.withLock {
+                    if (!qualityCurrent(item.path, token)) return@withLock
+                    when (kind) {
+                        MediaQualityKind.Video -> compressVideoQuality(item, requested, token)
+                        MediaQualityKind.Audio -> compressAudioQuality(item, requested, token)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (qualityCurrent(item.path, token)) {
+                    updateQuality(item.path) {
+                        it.copy(
+                            mode = MediaQualityMode.Original,
+                            prepared = null,
+                            processing = false,
+                            progress = null,
+                            hint = null,
+                            failedMode = requested,
+                            error = failure.userMessage(context, R.string.composer_quality_error)
+                        )
+                    }
+                    notice = context.getString(R.string.composer_quality_failed_original)
+                }
+            } finally {
+                if (qualityCurrent(item.path, token)) {
+                    updateQuality(item.path) { it.copy(processing = false, progress = null) }
+                    if (qualityTokens[item.path] == token) qualityJobs.remove(item.path)
+                }
+            }
+        }
+    }
+
+    private suspend fun compressVideoQuality(item: OutgoingMedia, mode: MediaQualityMode, token: Int) {
+        val source = File(item.path)
+        val info = runCatching { compressor.inspect(source, item.mimeType) }.getOrNull()
+        if (!qualityCurrent(item.path, token)) return
+        if (info == null) {
+            updateQuality(item.path) { it.copy(hint = MediaPreparationHint.UnknownMetadata) }
+            return
+        }
         val limit = videoLimitIssue(info)
         if (limit != null) {
-            // Keep the bytes, send them as a file and say why instead of failing the attachment.
-            replacePending(original, original.copy(kind = MediaKind.Document))
+            updateQuality(item.path) {
+                it.copy(
+                    mode = MediaQualityMode.Original,
+                    delivery = MediaDeliveryMode.File,
+                    prepared = null,
+                    hint = if (limit == VideoLimitIssue.TooLong) MediaPreparationHint.TooLongAsFile else MediaPreparationHint.TooLargeAsFile
+                )
+            }
+            viewOnce = false
             notice = context.getString(
                 if (limit == VideoLimitIssue.TooLong) R.string.video_too_long_as_file else R.string.video_too_large_as_file
             )
             return
         }
-        val plan = videoCompressionPlan(info, option)
-        if (!plan.transcode) return
-        compressionCancelled = false
-        processing = MediaProcessing(original.path, original.fileName, progress = 0f, kind = MediaProcessingKind.Video)
-        val output = File(source.parentFile, "compressed-${UUID.randomUUID()}.mp4")
-        // Never let a failed child cancel the composer scope: the failure is a normal result and the
-        // original attachment must stay usable.
-        val task = scope.async<Result<OutgoingMedia>> {
-            try {
-                compressor.compress(source, output, plan, info) { progress ->
-                    processing = processing?.copy(progress = progress)
-                }
-                Result.success(importer.adoptCompressedVideo(original, output))
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                Result.failure(failure)
+        val plan = videoCompressionPlan(info, mode.toVideoOption())
+        if (!plan.transcode) {
+            val hint = when (plan.reason) {
+                VideoPlanReason.AlreadyEfficient -> MediaPreparationHint.AlreadyEfficient
+                VideoPlanReason.UnknownMetadata -> MediaPreparationHint.UnknownMetadata
+                VideoPlanReason.NotWorthIt -> MediaPreparationHint.NotWorthIt
+                VideoPlanReason.OriginalRequested, VideoPlanReason.Transcode -> null
             }
-        }
-        compressionJob = task
-        try {
-            val compressed = task.await().getOrElse {
-                output.delete()
-                notice = context.getString(R.string.video_compression_failed_original)
-                return
-            }
-            // The composer may have been cleared while the transform finished; do not resurrect it.
-            coroutineContext.ensureActive()
-            replacePending(original, compressed)
-            File(original.path).takeIf { it.absolutePath != compressed.path }?.delete()
-            notice = context.getString(
-                R.string.video_compressed,
-                android.text.format.Formatter.formatShortFileSize(context, original.size),
-                android.text.format.Formatter.formatShortFileSize(context, compressed.size)
-            )
-        } catch (cancelled: CancellationException) {
-            output.delete()
-            // A leave-the-screen cancellation must keep propagating; an explicit cancel keeps the original.
-            if (!compressionCancelled) {
-                task.cancel()
-                throw cancelled
-            }
-            notice = context.getString(R.string.video_compression_cancelled)
-        } finally {
-            if (compressionJob === task) compressionJob = null
-            processing = null
-        }
-    }
-
-    private fun replacePending(original: OutgoingMedia, replacement: OutgoingMedia) {
-        pendingState.value = ArrayList(pending.map { if (it.path == original.path) replacement else it })
-    }
-
-    /**
-     * Same safe contract as video: only plain audio documents are candidates, tagged files and
-     * efficient files are kept, and the original stays pending until the AAC export is adopted.
-     * Voice/video notes never reach this method.
-     */
-    private suspend fun maybeCompressAudio(original: OutgoingMedia) {
-        if (original.kind != MediaKind.Document || !original.mimeType.startsWith("audio/")) return
-        val option = audioQuality
-        if (option == AudioQualityOption.Original) return
-        val source = File(original.path)
-        val info = runCatching { audioCompressor.inspect(source, original.mimeType) }.getOrNull() ?: return
-        val plan = audioCompressionPlan(info, option)
-        if (plan.reason == AudioPlanReason.MetadataPresent) {
-            notice = context.getString(R.string.audio_metadata_kept)
+            if (hint != null) updateQuality(item.path) { it.copy(hint = hint) }
             return
         }
-        if (!plan.transcode) return
-        compressionCancelled = false
-        processing = MediaProcessing(original.path, original.fileName, progress = 0f, kind = MediaProcessingKind.Audio)
-        val output = File(source.parentFile, "compressed-${UUID.randomUUID()}.mp4")
-        val task = scope.async<Result<OutgoingMedia>> {
-            try {
-                audioCompressor.compress(source, output, plan) { progress ->
-                    processing = processing?.copy(progress = progress)
-                }
-                Result.success(importer.adoptCompressedAudio(original, output))
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                Result.failure(failure)
-            }
-        }
-        compressionJob = task
+        val output = File(source.parentFile, "quality-${UUID.randomUUID()}.mp4")
         try {
-            val compressed = task.await().getOrElse {
-                output.delete()
-                notice = context.getString(R.string.audio_compression_failed_original)
-                return
+            compressor.compress(source, output, plan, info) { progress ->
+                if (qualityCurrent(item.path, token)) {
+                    updateQuality(item.path) { it.copy(progress = progress) }
+                }
             }
-            coroutineContext.ensureActive()
-            replacePending(original, compressed)
-            File(original.path).takeIf { it.absolutePath != compressed.path }?.delete()
+            if (!qualityCurrent(item.path, token)) return
+            val compressed = importer.adoptCompressedVideo(item, output)
+            if (!qualityCurrent(item.path, token)) return
+            updateQuality(item.path) {
+                it.copy(prepared = compressed, hint = null, failedMode = null, error = null)
+            }
             notice = context.getString(
-                R.string.audio_compressed,
-                android.text.format.Formatter.formatShortFileSize(context, original.size),
+                R.string.video_compressed,
+                android.text.format.Formatter.formatShortFileSize(context, item.size),
                 android.text.format.Formatter.formatShortFileSize(context, compressed.size)
             )
-        } catch (cancelled: CancellationException) {
-            output.delete()
-            if (!compressionCancelled) {
-                task.cancel()
-                throw cancelled
-            }
-            notice = context.getString(R.string.audio_compression_cancelled)
         } finally {
-            if (compressionJob === task) compressionJob = null
-            processing = null
+            if (output.exists()) output.delete()
         }
+    }
+
+    private suspend fun compressAudioQuality(item: OutgoingMedia, mode: MediaQualityMode, token: Int) {
+        val source = File(item.path)
+        val info = runCatching { audioCompressor.inspect(source, item.mimeType) }.getOrNull()
+        if (!qualityCurrent(item.path, token)) return
+        if (info == null) {
+            updateQuality(item.path) { it.copy(hint = MediaPreparationHint.UnknownMetadata) }
+            return
+        }
+        val plan = audioCompressionPlan(info, mode.toAudioOption())
+        if (!plan.transcode) {
+            val hint = when (plan.reason) {
+                AudioPlanReason.MetadataPresent -> MediaPreparationHint.MetadataPreserved
+                AudioPlanReason.AlreadyEfficient -> MediaPreparationHint.AlreadyEfficient
+                AudioPlanReason.UnknownMetadata -> MediaPreparationHint.UnknownMetadata
+                AudioPlanReason.NotWorthIt -> MediaPreparationHint.NotWorthIt
+                AudioPlanReason.OriginalRequested, AudioPlanReason.Transcode -> null
+            }
+            if (hint != null) updateQuality(item.path) { it.copy(hint = hint) }
+            return
+        }
+        val output = File(source.parentFile, "quality-${UUID.randomUUID()}.m4a")
+        try {
+            audioCompressor.compress(source, output, plan) { progress ->
+                if (qualityCurrent(item.path, token)) {
+                    updateQuality(item.path) { it.copy(progress = progress) }
+                }
+            }
+            if (!qualityCurrent(item.path, token)) return
+            val compressed = importer.adoptCompressedAudio(item, output)
+            if (!qualityCurrent(item.path, token)) return
+            updateQuality(item.path) {
+                it.copy(prepared = compressed, hint = null, failedMode = null, error = null)
+            }
+            notice = context.getString(
+                R.string.audio_compressed,
+                android.text.format.Formatter.formatShortFileSize(context, item.size),
+                android.text.format.Formatter.formatShortFileSize(context, compressed.size)
+            )
+        } finally {
+            if (output.exists()) output.delete()
+        }
+    }
+
+    private fun nextQualityToken(path: String): Int {
+        qualityToken++
+        qualityTokens[path] = qualityToken
+        return qualityToken
+    }
+
+    private fun cancelQualityJob(path: String) {
+        qualityToken++
+        qualityTokens[path] = qualityToken
+        qualityJobs.remove(path)?.cancel()
+    }
+
+    private fun qualityCurrent(path: String, token: Int): Boolean = qualityTokens[path] == token
+
+    private fun updateQuality(path: String, transform: (MediaPreparation) -> MediaPreparation) {
+        val current = qualityState.value[path] ?: return
+        val next = HashMap(qualityState.value)
+        next[path] = transform(current)
+        qualityState.value = next
+    }
+
+    private fun clearQualityState() {
+        qualityJobs.values.forEach { it.cancel() }
+        qualityJobs.clear()
+        qualityTokens.clear()
+        qualityState.value = HashMap()
     }
 
     fun discardAll() {
         if (sending) return
         cancelLocationRequest()
         importJob?.cancel()
-        compressionJob?.cancel()
+        clearQualityState()
         editorJob?.cancel()
         failedCapturePaths.forEach { File(it).delete() }
         captureRetry.value = CaptureRetryState.Empty
@@ -751,10 +972,9 @@ internal class AttachmentState(
         val discarded = pending.toList()
         pendingState.value = arrayListOf()
         extra = null
+        extraSendFailed = false
         importing = false
-        processing = null
         notice = null
-        compressionCancelled = false
         errorState.value = null
         menuOpen = false
         picker = AttachmentPicker.None
@@ -763,21 +983,30 @@ internal class AttachmentState(
     }
 
     fun send(caption: String, options: MessageSendOptions, onCaptionChange: (String) -> Unit) {
-        if (sending || importing || locating) return
+        if (sending || importing || locating || preparing) return
         val preparedExtra = extra
         if (preparedExtra != null) {
+            lastExtraCaption = caption
+            lastExtraOptions = options
+            // Claim the send slot before launching, so a double tap on Retry cannot start a second request.
+            sending = true
             scope.launch {
-                sending = true
+                extraSendFailed = false
                 errorState.value = null
                 try {
                     val result = sendExtra(preparedExtra, options)
                     if (result.isFailure) {
                         errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed)
+                        // Keep the prepared poll in the composer; a retry is always an explicit user action.
+                        extraSendFailed = preparedExtra is MessageExtraDraft.Poll
                     } else if (extra === preparedExtra) {
                         extra = null
                     }
                 } catch (cancelled: CancellationException) { throw cancelled }
-                catch (failure: Exception) { errorState.value = failure.userMessage(context, R.string.composer_send_failed) }
+                catch (failure: Exception) {
+                    errorState.value = failure.userMessage(context, R.string.composer_send_failed)
+                    extraSendFailed = preparedExtra is MessageExtraDraft.Poll
+                }
                 finally { sending = false }
             }
             return
@@ -788,12 +1017,23 @@ internal class AttachmentState(
             errorState.value = null
             var nextCaption = caption
             try {
-                val items = pending.toList()
-                val batches = if (items.size in 2..10 && items.all { it.kind == com.beykus.beygram.domain.model.MediaKind.Photo || it.kind == com.beykus.beygram.domain.model.MediaKind.Video }) listOf(items) else items.map { listOf(it) }
+                val originals = pending.toList()
+                val prepared = originals.map { item -> item to outgoingMediaFor(item, preparationFor(item)) }
+                val batches = if (prepared.size in 2..10 && prepared.all { (_, media) -> media.kind == MediaKind.Photo || media.kind == MediaKind.Video }) {
+                    listOf(prepared)
+                } else {
+                    prepared.map { listOf(it) }
+                }
                 for (batch in batches) {
-                    val result = sendMedia(batch, nextCaption, options)
+                    val result = sendMedia(batch.map { it.second }, nextCaption, options)
                     if (result.isFailure) { errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed); break }
-                    pendingState.value = ArrayList(pending.filterNot { item -> batch.any { it.samePendingAttachment(item) } })
+                    val sent = batch.map { it.first }
+                    pendingState.value = ArrayList(pending.filterNot { item -> sent.any { it.samePendingAttachment(item) } })
+                    if (sent.any { qualityState.value.containsKey(it.path) }) {
+                        val remainingQuality = HashMap(qualityState.value)
+                        sent.forEach { remainingQuality.remove(it.path) }
+                        qualityState.value = remainingQuality
+                    }
                     nextCaption = ""
                     onCaptionChange("")
                 }
@@ -831,11 +1071,15 @@ internal fun rememberAttachmentState(
     val captureRetry = rememberSaveable(accountId, chatId, stateSaver = CaptureRetrySaver) {
         mutableStateOf(CaptureRetryState.Empty)
     }
+    // Quality is per staged file, so it is saved next to the pending attachments and keyed by path.
+    val quality = rememberSaveable(accountId, chatId) {
+        mutableStateOf(HashMap<String, MediaPreparation>())
+    }
     val currentSend by rememberUpdatedState(sendMedia)
     val currentSticker by rememberUpdatedState(sendSticker)
     val currentSendExtra by rememberUpdatedState(sendExtra)
     val state = remember(accountId, chatId) {
-        AttachmentState(context, importer, scope, pending, error, viewOnce, editor, captureRetry,
+        AttachmentState(context, importer, scope, pending, error, viewOnce, editor, captureRetry, quality,
             sendMedia = { media, caption, options -> currentSend(media, caption, options) },
             sendSticker = { media, options -> currentSticker(media, options) },
             sendExtra = { draft, options -> currentSendExtra(draft, options) })
@@ -853,13 +1097,47 @@ internal fun rememberAttachmentState(
 internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
     val palette = beyGramPalette()
     val context = LocalContext.current
-    IconButton(onClick = state::toggleMenu, enabled = enabled && !state.sending && !state.importing && !state.locating,
-        modifier = Modifier.size(48.dp).semantics { contentDescription = context.getString(R.string.composer_attach_description) }) {
-        Icon(Icons.Rounded.AttachFile, contentDescription = null, tint = if (state.menuOpen || state.active || state.picker != AttachmentPicker.None) palette.accent else palette.textSecondary, modifier = Modifier.size(24.dp))
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    val available = enabled && !state.sending && !state.importing && !state.locating
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(
+            onClick = {
+                // The action grid and the pickers replace the keyboard, not the other way round.
+                focus.clearFocus()
+                keyboard?.hide()
+                state.toggleMenu()
+            },
+            enabled = available,
+            modifier = Modifier.size(48.dp).semantics { contentDescription = context.getString(R.string.composer_attach_description) }
+        ) {
+            Icon(
+                Icons.Rounded.AttachFile,
+                contentDescription = null,
+                tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        IconButton(
+            onClick = {
+                focus.clearFocus()
+                keyboard?.hide()
+                state.toggleStickerPicker()
+            },
+            enabled = available && !state.active,
+            modifier = Modifier.size(48.dp).semantics { contentDescription = context.getString(R.string.composer_open_stickers) }
+        ) {
+            Icon(
+                Icons.Rounded.EmojiEmotions,
+                contentDescription = null,
+                tint = if (state.picker != AttachmentPicker.None) palette.accent else palette.textSecondary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
     }
 }
 
-/** Inline strip above the input: type picker, sticker/GIF picker, then the list of prepared attachments. */
+/** Inline panel above the input: action grid, sticker/GIF picker, then the prepared attachments. */
 @Composable
 internal fun AttachmentPanel(
     state: AttachmentState,
@@ -872,13 +1150,19 @@ internal fun AttachmentPanel(
     allowViewOnce: Boolean = false
 ) {
     val palette = beyGramPalette()
-    val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
+    val configuration = LocalConfiguration.current
     val visible = state.menuOpen || state.active || state.picker != AttachmentPicker.None || state.error != null || state.notice != null || state.canRetryCapture
-    val viewOnceAvailable = ViewOncePolicy.canSend(state.pending, allowViewOnce, scheduled = false)
+    val viewOnceAvailable = ViewOncePolicy.canSend(state.outgoingPending, allowViewOnce, scheduled = false)
+    val maxListHeight = (configuration.screenHeightDp * 0.48f)
+        .dp.coerceIn(150.dp, 420.dp)
     LaunchedEffect(viewOnceAvailable, state.pending) {
         if (!viewOnceAvailable) state.viewOnce = false
+    }
+    var discardConfirm by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = state.menuOpen || state.picker != AttachmentPicker.None) {
+        state.dismissTransientPanel()
     }
     if (!visible) return
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
@@ -889,206 +1173,52 @@ internal fun AttachmentPanel(
                 downloadFile = onDownloadFile,
                 onSend = { state.sendStickerNow(it.toOutgoingMedia()) },
                 onOptions = { onStickerOptions(it.toOutgoingMedia()) },
-                onClose = state::closePicker
+                onClose = state::closePicker,
+                onOpenGifs = { state.openPicker(AttachmentPicker.Gifs) }
             )
             state.picker == AttachmentPicker.Gifs -> GifPickerPanel(
                 conversation = conversation,
                 observeFile = observeFile,
                 downloadFile = onDownloadFile,
                 onPick = { state.addAnimation(it.toOutgoingMedia()) },
-                onClose = state::closePicker
+                onClose = state::closePicker,
+                onOpenStickers = { state.openPicker(AttachmentPicker.Stickers) }
             )
-            !state.active -> Row(Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (state.menuOpen) {
-                    // The picker choices scroll independently on small screens or with large text.
-                    Row(
-                        modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TypeChip(Icons.Rounded.PhotoCamera, stringResource(R.string.composer_type_camera)) {
-                            state.menuOpen = false
-                            focus.clearFocus()
-                            keyboard?.hide()
-                            state.openCamera()
+            state.menuOpen -> AttachmentMenu(
+                allowsPolls = state.allowsPolls,
+                enabled = !state.sending && !state.importing && !state.locating,
+                chatObjectsEnabled = state.pending.isEmpty(),
+                onAction = state::performAction,
+                onClose = state::closeMenu
+            )
+            state.active -> PreparedAttachmentsPanel(
+                state = state,
+                caption = caption,
+                captionLimit = captionLimit,
+                observeFile = observeFile,
+                onDownloadFile = onDownloadFile,
+                viewOnceAvailable = viewOnceAvailable,
+                maxListHeight = maxListHeight,
+                onDiscardRequested = { discardConfirm = true }
+            )
+        }
+        state.error?.let { message ->
+            Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
+                Text(message, color = palette.danger, fontSize = 13.sp, modifier = Modifier.errorAnnouncement())
+                if (state.extraSendFailed) {
+                    Text(stringResource(R.string.poll_send_retained), color = palette.textSecondary, fontSize = 12.sp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = state::discardFailedExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                            Text(stringResource(R.string.common_cancel), color = palette.textSecondary)
                         }
-                        TypeChip(Icons.Rounded.Image, stringResource(R.string.composer_type_photo_video)) { state.menuOpen = false; state.pickPhotos() }
-                        TypeChip(Icons.Rounded.GraphicEq, stringResource(R.string.composer_type_audio)) { state.menuOpen = false; state.pickAudio() }
-                        TypeChip(Icons.Rounded.Description, stringResource(R.string.composer_type_file)) { state.menuOpen = false; state.pickDocuments() }
-                        TypeChip(Icons.Rounded.Face, stringResource(R.string.composer_type_stickers)) { state.openPicker(AttachmentPicker.Stickers) }
-                        TypeChip(Icons.Rounded.Animation, stringResource(R.string.composer_type_gif)) { state.openPicker(AttachmentPicker.Gifs) }
-                        if (state.allowsPolls) TypeChip(Icons.Rounded.Poll, stringResource(R.string.composer_type_poll)) { state.menuOpen = false; state.pickPoll() }
-                        TypeChip(Icons.Rounded.LocationOn, stringResource(R.string.composer_type_location)) { state.menuOpen = false; state.pickLocation() }
-                        TypeChip(Icons.Rounded.Person, stringResource(R.string.composer_type_contact)) { state.menuOpen = false; state.pickContact() }
-                        TypeChip(Icons.Rounded.Casino, stringResource(R.string.composer_type_dice)) { state.menuOpen = false; state.pickDice() }
-                        TypeChip(
-                            Icons.Rounded.Compress,
-                            stringResource(R.string.video_quality_chip, stringResource(state.videoQuality.labelRes()))
-                        ) {
-                            focus.clearFocus()
-                            keyboard?.hide()
-                            state.cycleVideoQuality()
-                        }
-                        TypeChip(
-                            Icons.Rounded.GraphicEq,
-                            stringResource(R.string.audio_quality_chip, stringResource(state.audioQuality.labelRes()))
-                        ) {
-                            focus.clearFocus()
-                            keyboard?.hide()
-                            state.cycleAudioQuality()
+                        TextButton(onClick = state::retryExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                            Text(stringResource(R.string.common_retry), color = palette.accent)
                         }
                     }
-                } else {
-                    Spacer(Modifier.weight(1f))
-                }
-                IconButton(onClick = { state.discardAll() }, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textSecondary)
-                }
-            }
-            else -> Column(Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (state.locating) {
-                            Row(
-                                Modifier.clip(RoundedCornerShape(14.dp)).background(palette.surface2)
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text(stringResource(R.string.chat_location_locating), color = palette.textPrimary,
-                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                        state.extra?.let { extra ->
-                            val label = extraLabel(extra)
-                            Row(
-                                Modifier.clip(RoundedCornerShape(14.dp)).background(palette.surface2)
-                                    .padding(start = 6.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    when (extra) {
-                                        is MessageExtraDraft.Poll -> Icons.Rounded.Poll
-                                        is MessageExtraDraft.Location -> Icons.Rounded.LocationOn
-                                        is MessageExtraDraft.Contact -> Icons.Rounded.Person
-                                        is MessageExtraDraft.Dice -> Icons.Rounded.Casino
-                                    },
-                                    contentDescription = null, tint = palette.accentInk,
-                                    modifier = Modifier.size(36.dp).background(palette.accentSoft, RoundedCornerShape(8.dp)).padding(8.dp)
-                                )
-                                Text(label, color = palette.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 8.dp).width(180.dp))
-                                AttachmentRemoveButton(
-                                    fileName = label,
-                                    enabled = !state.sending && !state.importing,
-                                    onClick = { state.removeExtra() }
-                                )
-                            }
-                        }
-                        state.pending.forEach { item ->
-                            Row(
-                                Modifier.clip(RoundedCornerShape(14.dp)).background(palette.surface2)
-                                    .padding(start = 6.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                PendingAttachmentPreview(item, observeFile, onDownloadFile)
-                                Column(Modifier.padding(horizontal = 8.dp).width(112.dp)) {
-                                    Text(item.fileName, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                    val details = listOfNotNull(item.kind.label(context), formatMediaSize(item.size).takeIf { item.size > 0 })
-                                    Text(details.joinToString(" · "), color = palette.textSecondary, fontSize = 12.sp, maxLines = 1)
-                                }
-                                if (item.kind == com.beykus.beygram.domain.model.MediaKind.Photo) {
-                                    IconButton(
-                                        onClick = { state.editPhoto(item) },
-                                        enabled = !state.sending && !state.importing,
-                                        modifier = Modifier.size(48.dp).semantics {
-                                            contentDescription = context.getString(R.string.composer_edit_photo_named, item.fileName)
-                                        }
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Edit, contentDescription = null,
-                                            tint = palette.textSecondary.copy(alpha = if (state.sending || state.importing) 0.38f else 1f),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                                AttachmentRemoveButton(
-                                    fileName = item.fileName,
-                                    enabled = !state.sending && !state.importing,
-                                    onClick = { state.remove(item) }
-                                )
-                            }
-                        }
-                        if (state.importing) CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent, strokeWidth = 2.dp)
-                    }
-                    IconButton(onClick = { state.discardAll() }, enabled = !state.sending, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Rounded.Close, stringResource(R.string.composer_cancel_attachments), tint = palette.textSecondary)
-                    }
-                }
-                val count = caption.codePointCount(0, caption.length)
-                if (viewOnceAvailable) {
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .toggleable(value = state.viewOnce, enabled = !state.sending, role = Role.Checkbox) { state.viewOnce = it }
-                            .padding(end = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(checked = state.viewOnce, onCheckedChange = null, enabled = !state.sending)
-                        Column(Modifier.weight(1f)) {
-                            Text(stringResource(R.string.composer_view_once), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                            Text(stringResource(R.string.composer_view_once_hint), color = palette.textSecondary, fontSize = 12.sp)
-                        }
-                    }
-                }
-                if (state.extra == null && !state.locating) {
-                    Text("$count / $captionLimit", color = if (count > captionLimit) palette.danger else palette.textSecondary, fontSize = 12.sp,
-                        modifier = Modifier.padding(start = 2.dp, bottom = 2.dp))
                 }
             }
         }
-        state.error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp).errorAnnouncement()) }
         Column(Modifier.padding(start = 14.dp)) {
-            state.processing?.let { progress ->
-                val fraction = progress.progress
-                val audio = progress.kind == MediaProcessingKind.Audio
-                Row(Modifier.fillMaxWidth().padding(end = 8.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (fraction != null) stringResource(
-                                if (audio) R.string.audio_compressing else R.string.video_compressing,
-                                (fraction * 100).toInt().coerceIn(0, 100)
-                            ) else stringResource(if (audio) R.string.audio_compressing_indeterminate else R.string.video_compressing_indeterminate),
-                            color = palette.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                            modifier = Modifier.errorAnnouncement()
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        if (fraction != null) {
-                            LinearProgressIndicator(
-                                progress = { fraction.coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = palette.accent,
-                                trackColor = palette.surface2
-                            )
-                        } else {
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = palette.accent,
-                                trackColor = palette.surface2
-                            )
-                        }
-                        Text(progress.fileName, color = palette.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    IconButton(onClick = { state.cancelCompression() }, modifier = Modifier.size(48.dp)) {
-                        Icon(
-                            Icons.Rounded.Close,
-                            stringResource(if (audio) R.string.audio_compression_cancel else R.string.video_compression_cancel),
-                            tint = palette.textSecondary
-                        )
-                    }
-                }
-            }
             if (state.canRetryCapture && !state.importing) {
                 Row(Modifier.fillMaxWidth().padding(end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -1114,6 +1244,205 @@ internal fun AttachmentPanel(
         }
         Spacer(Modifier.height(4.dp))
     }
+    if (discardConfirm) {
+        AlertDialog(
+            onDismissRequest = { discardConfirm = false },
+            title = { Text(stringResource(R.string.composer_attachments_clear_title)) },
+            text = { Text(stringResource(R.string.composer_attachments_clear_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    discardConfirm = false
+                    state.discardAll()
+                    focus.clearFocus()
+                    keyboard?.hide()
+                }) { Text(stringResource(R.string.composer_attachments_clear_confirm), color = palette.danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { discardConfirm = false }) { Text(stringResource(R.string.composer_attachments_clear_keep)) }
+            }
+        )
+    }
+}
+
+@Composable
+private fun PreparedAttachmentsPanel(
+    state: AttachmentState,
+    caption: String,
+    captionLimit: Int,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    onDownloadFile: (Int) -> Unit,
+    viewOnceAvailable: Boolean,
+    maxListHeight: androidx.compose.ui.unit.Dp,
+    onDiscardRequested: () -> Unit
+) {
+    val palette = beyGramPalette()
+    val enabled = !state.sending && !state.importing
+    val itemCount = state.pending.size + if (state.extra != null) 1 else 0
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 14.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(R.string.composer_attachments_title, itemCount, MAX_PENDING_ATTACHMENTS),
+            color = palette.textPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(onClick = onDiscardRequested, enabled = !state.sending, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Rounded.Close, stringResource(R.string.composer_attachments_clear_action), tint = palette.textSecondary)
+        }
+    }
+    Column(
+        Modifier.fillMaxWidth().heightIn(max = maxListHeight).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)
+    ) {
+        if (state.locating) {
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp))
+                    .background(palette.surface2).padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.chat_location_locating),
+                    color = palette.textPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+        state.extra?.let { extra ->
+            ExtraAttachmentCard(extra, enabled, onRemove = { state.removeExtra() })
+        }
+        state.pending.forEach { item ->
+            PendingAttachmentCard(state, item, observeFile, onDownloadFile, enabled)
+        }
+        if (state.importing) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent, strokeWidth = 2.dp)
+                Spacer(Modifier.width(10.dp))
+                Text(stringResource(R.string.composer_preparing), color = palette.textSecondary, fontSize = 13.sp)
+            }
+        }
+    }
+    if (viewOnceAvailable) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .toggleable(value = state.viewOnce, enabled = !state.sending, role = Role.Checkbox) { state.viewOnce = it }
+                .padding(horizontal = 14.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(checked = state.viewOnce, onCheckedChange = null, enabled = !state.sending)
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.composer_view_once), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.composer_view_once_hint), color = palette.textSecondary, fontSize = 12.sp)
+            }
+        }
+    }
+    if (state.extra == null && !state.locating) {
+        val count = caption.codePointCount(0, caption.length)
+        Text(
+            "$count / $captionLimit",
+            color = if (count > captionLimit) palette.danger else palette.textSecondary,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(start = 16.dp, bottom = 2.dp)
+        )
+    }
+}
+
+@Composable
+private fun ExtraAttachmentCard(extra: MessageExtraDraft, enabled: Boolean, onRemove: () -> Unit) {
+    val palette = beyGramPalette()
+    val label = extraLabel(extra)
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp))
+            .background(palette.surface2).padding(start = 6.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            when (extra) {
+                is MessageExtraDraft.Poll -> Icons.Rounded.Poll
+                is MessageExtraDraft.Location -> Icons.Rounded.LocationOn
+                is MessageExtraDraft.Contact -> Icons.Rounded.Person
+                is MessageExtraDraft.Dice -> Icons.Rounded.Casino
+            },
+            contentDescription = null,
+            tint = palette.accentInk,
+            modifier = Modifier.size(40.dp).background(palette.accentSoft, RoundedCornerShape(9.dp)).padding(9.dp)
+        )
+        Text(
+            label,
+            color = palette.textPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f).padding(horizontal = 10.dp)
+        )
+        AttachmentRemoveButton(fileName = label, enabled = enabled, onClick = onRemove)
+    }
+}
+
+@Composable
+private fun PendingAttachmentCard(
+    state: AttachmentState,
+    item: OutgoingMedia,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    onDownloadFile: (Int) -> Unit,
+    enabled: Boolean
+) {
+    val palette = beyGramPalette()
+    val context = LocalContext.current
+    val preparation = state.preparationFor(item)
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp))
+            .background(palette.surface2).padding(6.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PendingAttachmentPreview(item, observeFile, onDownloadFile)
+            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                Text(
+                    item.fileName,
+                    color = palette.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                val details = listOfNotNull(item.kind.label(context), formatMediaSize(item.size).takeIf { item.size > 0 })
+                Text(details.joinToString(" · "), color = palette.textSecondary, fontSize = 12.sp, maxLines = 1)
+            }
+            if (item.kind == MediaKind.Photo) {
+                IconButton(
+                    onClick = { state.editPhoto(item) },
+                    enabled = enabled,
+                    modifier = Modifier.size(48.dp).semantics {
+                        contentDescription = context.getString(R.string.composer_edit_photo_named, item.fileName)
+                    }
+                ) {
+                    Icon(
+                        Icons.Rounded.Edit,
+                        contentDescription = null,
+                        tint = palette.textSecondary.copy(alpha = if (enabled) 1f else 0.38f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            AttachmentRemoveButton(fileName = item.fileName, enabled = enabled, onClick = { state.remove(item) })
+        }
+        if (preparation != null) {
+            MediaQualityPanel(
+                item = item,
+                preparation = preparation,
+                enabled = enabled,
+                onModeSelected = { state.selectQuality(item, it) },
+                onDeliverySelected = { state.selectVideoDelivery(item, it) },
+                onCancel = { state.cancelQualityPreparation(item) },
+                onRetry = { state.retryQualityPreparation(item) }
+            )
+        }
+    }
 }
 
 /**
@@ -1122,12 +1451,12 @@ internal fun AttachmentPanel(
  */
 @Composable
 private fun PendingAttachmentPreview(item: OutgoingMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
-    val size = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))
+    val size = Modifier.size(40.dp).clip(RoundedCornerShape(9.dp))
     when {
         item.thumbnailPath != null -> LocalMediaImage(item.thumbnailPath, size)
         item.thumbnailRemoteFileId > 0 -> RemoteAttachmentThumbnail(item.thumbnailRemoteFileId, observeFile, downloadFile, size)
         else -> Icon(Icons.Rounded.Description, null, tint = beyGramPalette().accentInk,
-            modifier = Modifier.size(36.dp).background(beyGramPalette().accentSoft, RoundedCornerShape(8.dp)).padding(8.dp))
+            modifier = Modifier.size(40.dp).background(beyGramPalette().accentSoft, RoundedCornerShape(9.dp)).padding(9.dp))
     }
 }
 
@@ -1162,29 +1491,6 @@ internal fun AttachmentRemoveButton(fileName: String, enabled: Boolean, onClick:
         )
     }
 }
-
-@Composable
-private fun TypeChip(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, onClick: () -> Unit) {
-    val palette = beyGramPalette()
-    Row(Modifier.defaultMinSize(minHeight = 48.dp).clip(RoundedCornerShape(14.dp)).background(palette.accentSoft).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(title, color = palette.accentInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-private fun VideoQualityOption.labelRes(): Int = when (this) {
-    VideoQualityOption.Compact -> R.string.video_quality_compact
-    VideoQualityOption.Balanced -> R.string.video_quality_balanced
-    VideoQualityOption.Original -> R.string.video_quality_original
-}
-
-private fun AudioQualityOption.labelRes(): Int = when (this) {
-    AudioQualityOption.Compact -> R.string.audio_quality_compact
-    AudioQualityOption.Balanced -> R.string.audio_quality_balanced
-    AudioQualityOption.Original -> R.string.audio_quality_original
-}
-
 /**
  * Pure reservation gate for the asynchronous location fix. It makes late callbacks harmless and lets the attachment
  * state refuse competing choices while one fix owns the slot.

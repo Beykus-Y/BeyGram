@@ -124,9 +124,18 @@ interface ConversationRepository {
     suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     /** The account's recent sticker list; the first page is bounded by TDLib. */
     suspend fun recentStickers(): Result<List<StickerItem>>
+    /** Stickers explicitly marked as favorites by this account. */
+    suspend fun favoriteStickers(): Result<List<StickerItem>>
+    /** Adds or removes [sticker] from the account's favorite stickers; the picker updates only after TDLib confirms. */
+    suspend fun setStickerFavorite(sticker: StickerItem, favorite: Boolean): Result<Unit>
     /** Installed regular sticker sets; opening one fetches that set only when the user asks for it. */
     suspend fun installedStickerSets(): Result<List<StickerSetSummary>>
     suspend fun stickerSet(setId: Long): Result<StickerSetContent>
+    /**
+     * Adds [setId] to the account's installed sets or removes it. Archiving is not exposed here: opening a sticker
+     * from a chat only needs the installed state.
+     */
+    suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit>
     /** Sticker text search across sets. Pass 0 first, then [StickerSearchPage.nextOffset]. */
     suspend fun searchStickers(query: String, offset: Int = 0): Result<StickerSearchPage>
     /** GIFs explicitly saved by the user in this Telegram account. */
@@ -174,6 +183,11 @@ interface ConversationRepository {
     suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit>
     /** Rates the last recognition result as good or bad. Telegram uses it to improve recognition quality. */
     suspend fun rateSpeechRecognition(chatId: Long, messageId: Long, isGood: Boolean): Result<Unit>
+    /**
+     * Telegram's free recognition quota for this account. Null means TDLib has not reported it yet; an
+     * exhausted quota is represented by [SpeechRecognitionTrial.leftCount] equal to zero.
+     */
+    val speechRecognitionTrial: StateFlow<SpeechRecognitionTrial?>
     /** Place among the chat's attachments of the same kind; TDLib counts can be approximate in large chats. */
     suspend fun mediaPosition(chatId: Long, messageId: Long, kind: MediaKind): Result<MediaPosition>
     suspend fun editMessage(chatId: Long, messageId: Long, text: String, entities: List<MessageTextEntity> = emptyList()): Result<Unit>

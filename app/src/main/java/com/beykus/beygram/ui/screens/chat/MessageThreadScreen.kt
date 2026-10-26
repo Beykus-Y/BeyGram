@@ -61,6 +61,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -103,7 +104,8 @@ internal fun MessageThreadScreen(
     onBack: () -> Unit,
     onOpenProfile: (Long) -> Unit,
     /** Repository-backed automatic download for the shared media viewer. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -125,9 +127,10 @@ internal fun MessageThreadScreen(
     var sending by remember { mutableStateOf(false) }
     var sendError by remember { mutableStateOf<String?>(null) }
     var reactionTarget by remember { mutableStateOf<Pair<Long, ChatMessage>?>(null) }
-    var reactionOptions by remember { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    var reactionOptions by remember(conversation) { mutableStateOf<List<ReactionOption>>(emptyList()) }
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
     var selectedMediaChatId by remember { mutableStateOf(0L) }
+    var stickerSetId by remember { mutableStateOf<Long?>(null) }
     // A view-once message is deleted as soon as it is opened; keep its page for this viewer session.
     var retainedViewOnce by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
     var openedViewOnceIds by remember(channelChatId, postId) { mutableStateOf(emptySet<Long>()) }
@@ -207,7 +210,7 @@ internal fun MessageThreadScreen(
             replyTarget = messages.firstOrNull { it.id == replyTargetId }
         }
     }
-    LaunchedEffect(reactionTarget) {
+    LaunchedEffect(conversation, reactionTarget) {
         val target = reactionTarget ?: return@LaunchedEffect
         reactionOptions = conversation.availableReactions(target.first, target.second.id).getOrDefault(emptyList())
     }
@@ -387,6 +390,7 @@ internal fun MessageThreadScreen(
                             }
                         } else null,
                         onReaction = { option -> changeReaction(message.chatId, message, option, addToRecent = false) },
+                        onStickerOpen = { id -> stickerSetId = id },
                         observeCustomEmoji = conversation::observeCustomEmoji,
                         onPollVote = { chatId, messageId, choices ->
                             scope.launch {
@@ -405,7 +409,8 @@ internal fun MessageThreadScreen(
                         },
                         onAddPollOption = { chatId, messageId, text ->
                             conversation.addPollOption(chatId, messageId, text)
-                        }
+                        },
+                        onOpenMessageEntity = onOpenMessageEntity
                     )
                 }
                 if (loadingOlder) item(key = "older_loading") {
@@ -436,6 +441,7 @@ internal fun MessageThreadScreen(
                                 observeFile = observeFile,
                                 onDownloadFile = downloadFile,
                                 onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId; if (root.isViewOnce) retainedViewOnce = root },
+                                onStickerOpen = { media -> stickerSetId = media.stickerSetId },
                                 onPlayed = { conversation.openMessageContent(channelChatId, root.id) },
                                 onActions = { reactionTarget = channelChatId to root },
                                 onReplyClick = ::jump,
@@ -459,7 +465,8 @@ internal fun MessageThreadScreen(
                                 onAddPollOption = { messageId, text ->
                                     conversation.addPollOption(channelChatId, messageId, text)
                                 },
-                                onRetry = {}
+                                onRetry = {},
+                                onOpenMessageEntity = onOpenMessageEntity
                             )
                         }
                     }
@@ -470,7 +477,7 @@ internal fun MessageThreadScreen(
         reactionTarget?.let { (chatId, message) ->
             MessageReactionPicker(
                 options = reactionOptions,
-                chosen = message.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option },
+                chosen = message.reactions.filter { it.isChosen && !it.isPaid }.mapTo(hashSetOf()) { it.option },
                 observeCustomEmoji = conversation::observeCustomEmoji,
                 observeFile = observeFile,
                 downloadFile = downloadFile,
@@ -600,6 +607,13 @@ internal fun MessageThreadScreen(
             )
         }
     }
+    StickerSetBrowser(
+        setId = stickerSetId,
+        conversation = conversation,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        onDismiss = { stickerSetId = null }
+    )
 }
 
 @Composable
@@ -619,7 +633,9 @@ private fun ThreadCommentRow(
     onPollStop: (chatId: Long, messageId: Long) -> Unit,
     onLoadPollVoters: suspend (chatId: Long, messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>,
     onAddPollOption: suspend (chatId: Long, messageId: Long, text: String) -> Result<Unit>,
-    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>
+    onStickerOpen: (Long) -> Unit,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp), verticalAlignment = Alignment.Top) {
@@ -648,6 +664,7 @@ private fun ThreadCommentRow(
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
                 onOpen = { onOpenMedia() },
+                onStickerOpen = { media -> onStickerOpen(media.stickerSetId) },
                 onPlayed = onPlayed,
                 onActions = onActions,
                 onReplyClick = onReplyClick,
@@ -661,7 +678,8 @@ private fun ThreadCommentRow(
                 onLoadPollVoters = { messageId, optionIndex, offset ->
                     onLoadPollVoters(message.chatId, messageId, optionIndex, offset)
                 },
-                onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) }
+                onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) },
+                onOpenMessageEntity = onOpenMessageEntity
             )
         }
     }

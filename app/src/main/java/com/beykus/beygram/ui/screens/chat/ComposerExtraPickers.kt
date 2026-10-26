@@ -23,10 +23,10 @@ import kotlinx.coroutines.launch
  * composable body stays under the JVM method size limit; each choice ends in [AttachmentState.prepareExtra].
  */
 @Composable
-internal fun ComposerExtraPickers(chatId: Long, isSecret: Boolean, conversation: ConversationRepository, attachments: AttachmentState) {
+internal fun ComposerExtraPickers(chatId: Long, pollsAllowed: Boolean, conversation: ConversationRepository, attachments: AttachmentState) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    attachments.allowsPolls = !isSecret
+    attachments.allowsPolls = pollsAllowed
     var pollComposerOpen by remember(chatId) { mutableStateOf(false) }
     var contactPickerOpen by remember(chatId) { mutableStateOf(false) }
     var dicePickerOpen by remember(chatId) { mutableStateOf(false) }

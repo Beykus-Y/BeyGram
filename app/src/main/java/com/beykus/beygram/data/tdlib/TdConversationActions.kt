@@ -319,38 +319,11 @@ internal class TdConversationActions(
     }.onFailure { recordSendFailure("text", it) }
 
     /** A poll carries its own question and options; no caption is involved, so only the send options are checked. */
-    suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = conversationResult<Unit> {
+    suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = pollResult<Unit> {
         requireFutureSchedule(options)
         val value = poll.normalized()
         value.problem()?.let { throw UserMessageException(it.message()) }
-        val content = TdApi.InputMessagePoll().apply {
-            question = formattedText(value.question, emptyList())
-            this.options = value.options.map { option ->
-                TdApi.InputPollOption().apply {
-                    text = formattedText(option, emptyList())
-                    media = null
-                }
-            }.toTypedArray()
-            description = null
-            media = null
-            isAnonymous = value.isAnonymous || value.isQuiz
-            allowsMultipleAnswers = value.allowsMultipleAnswers
-            // Telegram quizzes are answered once; regular polls let the user change an answer.
-            allowsRevoting = !value.isQuiz
-            membersOnly = false
-            countryCodes = emptyArray()
-            shuffleOptions = false
-            hideResultsUntilCloses = false
-            type = if (value.isQuiz) TdApi.InputPollTypeQuiz().apply {
-                correctOptionIds = value.correctOptionIndices.sorted().toIntArray()
-                explanation = value.explanation.takeIf { it.isNotBlank() }?.let { formattedText(it, emptyList()) }
-                explanationMedia = null
-            } else TdApi.InputPollTypeRegular().apply { allowAddingOptions = false }
-            openPeriod = 0
-            closeDate = 0
-            isClosed = false
-        }
-        send(chatId, content, replyId, forumTopicId, options)
+        send(chatId, inputMessagePoll(value), replyId, forumTopicId, options)
     }.onFailure { recordSendFailure("poll", it) }
 
     suspend fun sendLocation(chatId: Long, point: GeoPoint, live: Boolean, replyId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = conversationResult<Unit> {
@@ -675,7 +648,7 @@ internal class TdConversationActions(
     /**
      * Reactions the user can add to the message, in the picker's order: TDLib's top, recent and popular reactions, then the chat's
      * own list, or every active emoji when the chat allows all of them. Premium-only ones are left out for users without Premium,
-     * and so are custom emoji, which only Premium users can add.
+     * and so are custom emoji, which only Premium users can add. Paid reactions are display-only, so the picker never offers them.
      */
     suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>> = conversationResult<List<ReactionOption>> {
         val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_ROW_SIZE))
@@ -687,8 +660,11 @@ internal class TdConversationActions(
      * Removes [reaction] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
      * chosen reaction in the server's order makes room, and it comes back if the new reaction can't be added.
      * [addToRecent] is set only for a reaction picked from the extended menu. Returns the message's reactions after the change.
+     * A paid reaction is rejected before any request: spending Stars requires the separate confirmation flow that this tap path
+     * does not have.
      */
     suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
+        if (reaction.isPaid) throw UserMessageException(UiText.Res(R.string.chat_reaction_paid_confirmation_required))
         reactionLocks.withLock(chatId to messageId) {
             val chosen = request(TdApi.GetMessage(chatId, messageId)).interactionInfo?.reactions?.reactions.orEmpty()
                 .filter { it.isChosen && it.type !is TdApi.ReactionTypePaid }
@@ -865,6 +841,39 @@ private fun PollOptionAddProblem.message(): UiText = when (this) {
     )
 }
 
+/** Builds TDLib's native poll content. Kept separate from the request so its parameters are testable. */
+internal fun inputMessagePoll(poll: OutgoingPoll): TdApi.InputMessagePoll {
+    val value = poll.normalized()
+    return TdApi.InputMessagePoll().apply {
+        question = formattedText(value.question, emptyList())
+        this.options = value.options.map { option ->
+            TdApi.InputPollOption().apply {
+                text = formattedText(option, emptyList())
+                media = null
+            }
+        }.toTypedArray()
+        description = null
+        media = null
+        // Quizzes are anonymous in Telegram; regular polls keep the composer choice.
+        isAnonymous = value.isAnonymous || value.isQuiz
+        allowsMultipleAnswers = value.allowsMultipleAnswers
+        // Telegram quizzes are answered once; regular polls let the user change an answer.
+        allowsRevoting = !value.isQuiz
+        membersOnly = false
+        countryCodes = emptyArray()
+        shuffleOptions = false
+        hideResultsUntilCloses = false
+        type = if (value.isQuiz) TdApi.InputPollTypeQuiz().apply {
+            correctOptionIds = value.correctOptionIndices.sorted().toIntArray()
+            explanation = value.explanation.takeIf { it.isNotBlank() }?.let { formattedText(it, emptyList()) }
+            explanationMedia = null
+        } else TdApi.InputPollTypeRegular().apply { allowAddingOptions = false }
+        openPeriod = 0
+        closeDate = 0
+        isClosed = false
+    }
+}
+
 /** TDLib scheduling state for a Unix timestamp in seconds; null keeps an immediate send. */
 internal fun scheduledState(atSeconds: Long?): TdApi.MessageSchedulingState? =
     atSeconds?.let { TdApi.MessageSchedulingStateSendAtDate(it.toInt(), 0) }
@@ -1030,18 +1039,44 @@ private fun recordMediaAccepted(kind: String) = recordAppEvent(
 /** Пишем каждый сбой отправки. Проверка до запроса (пустой текст, ответ недоступен) без причины TDLib получает local_check. */
 private fun recordSendFailure(kind: String, error: Throwable) {
     val cause = error.cause
+    val tdlibError = cause as? TdRequestError
     val reason = when {
-        cause is TdRequestError -> "tdlib_${cause.code}"
+        tdlibError != null -> "tdlib_${tdlibError.code}"
         cause == null && error is UserMessageException -> "local_check"
         else -> (cause ?: error).javaClass.simpleName
+    }
+    val attrs = buildMap {
+        put("kind", kind)
+        put("reason", reason)
+        // The original TDLib code/message explains server-side refusals. redactedTdlibMessage keeps diagnostics
+        // free of poll text and personal data while preserving TDLib's fixed ASCII error phrases.
+        tdlibError?.let { failure ->
+            put("tdlib_code", failure.code.toString())
+            redactedTdlibMessage(failure.message)?.let { put("tdlib_message", it) }
+        }
     }
     recordAppEvent(
         kind = EventKind.TDLIB,
         code = "send_request_failed",
         text = "Отправка не удалась: $kind, причина: $reason",
         severity = Severity.ERROR,
-        attrs = mapOf("kind" to kind, "reason" to reason)
+        attrs = attrs
     )
+}
+
+/**
+ * Diagnostics-safe copy of a TDLib server message. TDLib error strings are fixed phrases, but quoted fragments and
+ * non-ASCII text are removed anyway so no poll question/option or personal data can reach the event log.
+ */
+internal fun redactedTdlibMessage(message: String?): String? {
+    if (message.isNullOrBlank()) return null
+    val withoutQuoted = message.replace(Regex("\"[^\"]*\""), "<text>")
+    return withoutQuoted
+        .filter { it.code in 0x20..0x7E }
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(160)
+        .ifBlank { null }
 }
 
 /** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */

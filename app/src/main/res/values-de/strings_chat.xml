@@ -62,6 +62,9 @@
     <string name="chat_forward_failed">Nachricht konnte nicht weitergeleitet werden</string>
     <string name="chat_history_load_older">Frühere Nachrichten laden</string>
     <string name="chat_link_failed">Link konnte nicht geöffnet werden</string>
+    <string name="message_link_username_failed">%1$s konnte nicht geöffnet werden</string>
+    <string name="chat_bot_start">Bot starten</string>
+    <string name="chat_bot_start_failed">Bot konnte nicht gestartet werden</string>
     <string name="chat_media_position">%1$d von %2$d</string>
     <string name="chat_message">Nachricht</string>
     <string name="chat_message_forwarded">Nachricht weitergeleitet</string>
@@ -136,6 +139,9 @@
     <string name="chat_contact_send_failed">Der Kontakt konnte nicht gesendet werden</string>
     <string name="chat_dice_rolling">Wird gewürfelt…</string>
     <string name="chat_dice_result">Ergebnis: %1$d</string>
+    <string name="chat_dice_jackpot">Jackpot!</string>
+    <string name="chat_dice_not_sent">Nicht gesendet</string>
+    <string name="chat_dice_a11y">%1$s, %2$s</string>
     <string name="chat_dice_send_failed">Der Würfel konnte nicht gesendet werden</string>
     <string name="chat_unsupported_message">Dieser Nachrichtentyp wird noch nicht unterstützt</string>
     <string name="chat_unsupported_hint">Aktualisieren Sie BeyGram oder öffnen Sie den Chat in Telegram, um den Inhalt zu sehen.</string>

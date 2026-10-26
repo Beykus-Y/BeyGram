@@ -1,7 +1,10 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +23,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -40,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
@@ -68,6 +73,7 @@ internal fun MessageActionsBar(
     onDelete: () -> Unit,
     onTogglePin: () -> Unit,
     onCopyLink: () -> Unit = {},
+    onCopyEntity: (() -> Unit)? = null,
     onForward: () -> Unit = {},
     onForwardCopy: () -> Unit = {},
     onSelect: () -> Unit = {},
@@ -91,6 +97,12 @@ internal fun MessageActionsBar(
                             Icon(Icons.Rounded.MoreVert, stringResource(R.string.message_action_more), tint = palette.accent)
                         }
                         DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                            onCopyEntity?.let { copy ->
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.message_action_copy_entity)) },
+                                    onClick = { moreOpen = false; copy() }
+                                )
+                            }
                             if (canPin) DropdownMenuItem(
                                 text = { Text(stringResource(if (isPinned) R.string.message_action_unpin else R.string.message_action_pin)) },
                                 onClick = { moreOpen = false; onTogglePin() }
@@ -131,6 +143,45 @@ internal fun MessageActionsBar(
 @Composable
 private fun ActionIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, tint: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
     IconButton(onClick = onClick) { Icon(icon, description, tint = tint) }
+}
+
+/**
+ * A long press cannot select a single link inside a bubble without breaking message actions, so this explicit list
+ * copies the exact entity the reader chose. Values are already normalized by the caller.
+ */
+@Composable
+internal fun MessageLinkCopyDialog(links: List<String>, onCopy: (String) -> Unit, onDismiss: () -> Unit) {
+    val palette = beyGramPalette()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.message_action_copy_entity)) },
+        text = {
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                links.forEach { value ->
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .clickable(role = Role.Button) { onCopy(value) }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            value,
+                            color = palette.accentInk,
+                            fontSize = 15.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(Icons.Rounded.ContentCopy, null, tint = palette.accent, modifier = Modifier.size(20.dp))
+                    }
+                    HorizontalDivider(color = palette.divider)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close), color = palette.accent) }
+        }
+    )
 }
 
 /** Inline delete confirmation shown above the input field. */

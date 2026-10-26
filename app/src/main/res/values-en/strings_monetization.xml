@@ -49,6 +49,15 @@
     <string name="premium_purchase_unavailable_title">External checkout unavailable</string>
     <string name="premium_purchase_unavailable_body">Telegram did not offer a safe external checkout page for this plan. The app does not request card details.</string>
     <string name="premium_load_error">Could not load Premium information</string>
+    <string name="premium_load_error_body">Check your Telegram connection and try again.</string>
+    <string name="premium_loading_title">Loading Telegram Premium…</string>
+    <string name="premium_loading_body">Requesting your status, plans and prices from Telegram. This usually takes a few seconds.</string>
+    <string name="premium_loading_progress">Loading Premium information</string>
+    <string name="premium_refresh_failed_title">Could not refresh the data</string>
+    <string name="premium_stale_title">Premium details expired</string>
+    <string name="premium_refresh_failed_body">Showing the last confirmed details. Checkout is temporarily unavailable until the refresh succeeds.</string>
+    <string name="premium_stale_body">Status and plan details are out of date and hidden. Refresh to see current terms again.</string>
+    <string name="premium_data_stale">Premium details are out of date. Refreshing them before you continue.</string>
 
     <string name="premium_gift_code_title">Activate a gift</string>
     <string name="premium_gift_code_hint">Enter a Telegram Premium gift code or a t.me/giftcode/… link. Telegram checks the code; the app does not store it.</string>

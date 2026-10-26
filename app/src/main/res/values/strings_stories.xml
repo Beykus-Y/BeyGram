@@ -13,6 +13,11 @@
     <string name="stories_resume">Продолжить</string>
     <string name="stories_loading">Загрузка истории…</string>
     <string name="stories_unavailable">История недоступна</string>
+    <string name="stories_unavailable_body">История удалена или срок её действия истёк.</string>
+    <string name="stories_offline_title">Нет соединения</string>
+    <string name="stories_offline_body">Не удалось связаться с Telegram. Проверьте подключение и повторите.</string>
+    <string name="stories_offline_cached">Нет соединения. Показана сохранённая история.</string>
+    <string name="stories_download_offline">Файл истории не загружен. Подключитесь к сети и повторите.</string>
     <string name="stories_retry">Повторить</string>
     <string name="stories_media_unsupported">Этот формат истории пока не поддерживается</string>
     <string name="stories_image_failed">Не удалось показать фото</string>

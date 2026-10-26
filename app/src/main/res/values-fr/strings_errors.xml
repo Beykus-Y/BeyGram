@@ -143,6 +143,8 @@
     <string name="err_telegram_not_running">Telegram n’est pas encore actif sur cet appareil.</string>
     <string name="err_username_format">Nom d’utilisateur : 5 à 32 lettres latines, chiffres et _, commençant par une lettre</string>
     <string name="err_username_invalid">Nom d’utilisateur invalide</string>
+    <string name="err_username_not_found">Nom d’utilisateur introuvable</string>
+    <string name="chat_unknown_title">Discussion</string>
     <string name="err_username_purchase">Ce nom d’utilisateur est disponible uniquement à l’achat</string>
     <string name="err_username_taken">Ce nom d’utilisateur est déjà pris</string>
     <string name="err_vpn_core_bad_response">Le proxy a renvoyé une réponse invalide</string>

@@ -85,10 +85,16 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     fun refreshActiveStories()
     /** Loads the next page when the story bar reaches its end. */
     fun loadMoreActiveStories()
+    /** Last published metadata of one author, kept while the viewer reconnects. */
+    fun cachedActiveStory(chatId: Long): ChatStories?
     /** Terminal results of PostStory, including the later upload success/failure update. */
     val storyPostEvents: SharedFlow<StoryPostEvent>
     /** Full story content is requested only when the viewer opens it. */
     suspend fun loadStory(posterChatId: Long, storyId: Int): Result<StoryDetail>
+    /** Detail of a story already loaded in this process; used when the network is unavailable. */
+    fun cachedStory(posterChatId: Long, storyId: Int): StoryDetail?
+    /** Directly checks the active list; an empty success is the only confirmation that all stories are gone. */
+    suspend fun confirmActiveStoryIds(posterChatId: Long): Result<Set<Int>>
     /** Informs TDLib that the story is being viewed; the unread marker is updated optimistically. */
     suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit>
     suspend fun closeStory(posterChatId: Long, storyId: Int): Result<Unit>

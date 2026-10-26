@@ -13,6 +13,11 @@
     <string name="stories_resume">Resume</string>
     <string name="stories_loading">Loading story…</string>
     <string name="stories_unavailable">Story unavailable</string>
+    <string name="stories_unavailable_body">The story was deleted or has expired.</string>
+    <string name="stories_offline_title">No connection</string>
+    <string name="stories_offline_body">Could not reach Telegram. Check your connection and try again.</string>
+    <string name="stories_offline_cached">No connection. Showing the saved story.</string>
+    <string name="stories_download_offline">The story file is not downloaded. Connect to the internet and try again.</string>
     <string name="stories_retry">Retry</string>
     <string name="stories_media_unsupported">This story format is not supported yet</string>
     <string name="stories_image_failed">Could not show the photo</string>

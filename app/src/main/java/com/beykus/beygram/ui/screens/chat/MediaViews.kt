@@ -111,6 +111,7 @@ import kotlinx.coroutines.flow.first
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.GrowingPlaybackSource
@@ -135,7 +136,6 @@ import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -320,14 +320,20 @@ internal fun MediaPreview(
     onPlayed: () -> Unit = {},
     origin: PlaybackOrigin? = null,
     transcriptionRequestPending: Boolean = false,
-    transcriptionRequestError: String? = null,
+    transcriptionRequestError: SpeechRecognitionFailure? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
     onRateTranscription: ((Boolean) -> Unit)? = null,
+    speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
     /** A per-message view-once attachment: conceal it until the viewer is opened, even outside secret chats. */
     viewOnce: Boolean = false,
     /** Repository-backed automatic download; when absent the same local policy gates [downloadFile]. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    /**
+     * Opens the sticker's set. Without it a sticker tap does nothing: a sticker must never fall back to the generic
+     * media viewer, which has no sticker actions of its own.
+     */
+    onStickerOpen: (() -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -427,6 +433,7 @@ internal fun MediaPreview(
             transcriptionRated = transcriptionRated,
             onTranscribe = onTranscribe,
             onRateTranscription = onRateTranscription,
+            speechRecognitionUi = speechRecognitionUi,
             growing = partialGrowing)
         return
     }
@@ -437,11 +444,17 @@ internal fun MediaPreview(
             transcriptionRated = transcriptionRated,
             onTranscribe = onTranscribe,
             onRateTranscription = onRateTranscription,
+            speechRecognitionUi = speechRecognitionUi,
             autoDownloadFile = autoDownload)
         return
     }
     if (media.kind == MediaKind.Sticker) {
-        StickerPreview(media, file, thumb, downloadFile, onOpen, onLongPress, autoDownloadFile = autoDownload)
+        StickerPreview(
+            media, file, thumb, downloadFile,
+            onOpen = onStickerOpen ?: {},
+            onLongPress = onLongPress,
+            autoDownloadFile = autoDownload
+        )
         return
     }
     if (isVisual) {

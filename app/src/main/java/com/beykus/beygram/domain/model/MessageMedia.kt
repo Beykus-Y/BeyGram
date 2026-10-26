@@ -33,12 +33,20 @@ data class MessageMedia(
     val transcriptionText: String = "",
     /** Non-null while recognition is running; may hold the partial text TDLib has already produced. */
     val transcriptionPending: String? = null,
-    /** Friendly failure for the last recognition attempt; null when no error is known. */
-    val transcriptionError: UiText? = null,
+    /** Structured reason for the last recognition attempt; null when no error is known. */
+    val transcriptionError: SpeechRecognitionFailure? = null,
     /** The sender marked the video as fast-start streamable; playback may begin from a partial local file. */
     val supportsStreaming: Boolean = false,
     /** The message belongs to a secret chat; such content is never auto-downloaded off the visible feed. */
-    val isSecretChat: Boolean = false
+    val isSecretChat: Boolean = false,
+    /** TDLib's sticker-set id from MessageSticker, used to open the pack instead of a generic media viewer. */
+    val stickerSetId: Long = 0,
+    /** Identifier of this sticker inside [stickerSetId]; zero when TDLib did not provide one. */
+    val stickerId: Long = 0,
+    /** Emoji TDLib associated with the sticker; empty for non-sticker media and some old stickers. */
+    val stickerEmoji: String = "",
+    /** The sticker may only be sent by an account with Telegram Premium. */
+    val isPremiumSticker: Boolean = false
 ) {
     /** True while TDLib is still recognizing this voice/video note. */
     val isTranscribing: Boolean get() = transcriptionPending != null

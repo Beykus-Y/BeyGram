@@ -25,6 +25,11 @@ data class ChatPreview(
     val isMarkedAsUnread: Boolean = false,
     /** False when the user may not write here: a channel they do not administer, or a group that restricts them. */
     val canPost: Boolean = true,
+    /**
+     * Telegram accepts polls here: a group/channel with the poll right, Saved Messages, or a private bot chat.
+     * Ordinary private chats with people are excluded because TDLib rejects polls there.
+     */
+    val canSendPolls: Boolean = true,
     /** True for a channel owner or administrator, independently of the separate permission to post messages. */
     val isChannelAdmin: Boolean = false,
     /** TDLib main-list position; zero means the chat is outside the main list. */

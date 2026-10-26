@@ -72,6 +72,90 @@ data class PremiumPlan(
             isUpgrade == other.isUpgrade
 }
 
+/** Telegram changes plans, prices and payment links server-side; older cached details are not usable. */
+const val PREMIUM_INFO_MAX_AGE_MS: Long = 5 * 60_000L
+
+/**
+ * One successful Premium read, bound to the account that produced it. Status, plans and prices
+ * are account-specific, so a snapshot must never survive an account switch or outlive its TTL.
+ */
+data class PremiumSnapshot(
+    val accountId: String,
+    val info: PremiumInfo,
+    val loadedAtMillis: Long
+) {
+    fun isFreshAt(nowMillis: Long): Boolean =
+        accountId.isNotBlank() &&
+            loadedAtMillis > 0L &&
+            nowMillis >= loadedAtMillis &&
+            nowMillis - loadedAtMillis <= PREMIUM_INFO_MAX_AGE_MS
+
+    fun isUsableFor(accountId: String, nowMillis: Long): Boolean =
+        this.accountId == accountId && isFreshAt(nowMillis)
+}
+
+/**
+ * Explicit Premium screen state. A distinct [Loading] value prevents a slow read from looking
+ * like "Premium has no plans"; [Failed] keeps the reason visible instead of an empty background.
+ */
+sealed interface PremiumLoadState {
+    data object Loading : PremiumLoadState
+
+    data class Ready(
+        val snapshot: PremiumSnapshot,
+        val refreshing: Boolean = false,
+        /** The last refresh failed; cached details may stay visible, but checkout must stay blocked. */
+        val refreshError: UiText? = null
+    ) : PremiumLoadState
+
+    data object Unsupported : PremiumLoadState
+
+    data class Failed(val reason: UiText) : PremiumLoadState
+}
+
+fun PremiumLoadState.startingRefresh(): PremiumLoadState = when (this) {
+    is PremiumLoadState.Ready -> copy(refreshing = true, refreshError = null)
+    else -> PremiumLoadState.Loading
+}
+
+fun premiumLoadSucceeded(accountId: String, info: PremiumInfo, nowMillis: Long): PremiumLoadState.Ready =
+    PremiumLoadState.Ready(PremiumSnapshot(accountId, info, nowMillis))
+
+fun PremiumLoadState.failed(
+    accountId: String,
+    reason: UiText,
+    unsupported: Boolean = false
+): PremiumLoadState {
+    if (unsupported) return PremiumLoadState.Unsupported
+    val cached = (this as? PremiumLoadState.Ready)?.snapshot
+    if (cached == null || cached.accountId != accountId) return PremiumLoadState.Failed(reason)
+    // Keep the same account's snapshot even when it expired: the Premium screen must keep the
+    // independently-owned gift-code workflow composed. Stale prices are hidden by the UI and
+    // isUsableFor/needsRefresh/canCheckout keep them non-actionable until a refresh succeeds.
+    return PremiumLoadState.Ready(cached, refreshing = false, refreshError = reason)
+}
+
+/** True when the displayed snapshot expired without a failed refresh and should be re-read. */
+fun PremiumLoadState.needsRefresh(accountId: String, nowMillis: Long): Boolean =
+    this is PremiumLoadState.Ready &&
+        !refreshing &&
+        refreshError == null &&
+        !snapshot.isUsableFor(accountId, nowMillis)
+
+/** Checkout requires fresh, confirmed server data from the same account. */
+fun PremiumLoadState.canCheckout(accountId: String, nowMillis: Long): Boolean =
+    this is PremiumLoadState.Ready &&
+        !refreshing &&
+        refreshError == null &&
+        snapshot.isUsableFor(accountId, nowMillis)
+
+/**
+ * Status, feature and price details are visible only while the same account's snapshot is fresh.
+ * The gift-code workflow may stay composed independently when this returns false.
+ */
+fun PremiumLoadState.showsPremiumDetails(accountId: String, nowMillis: Long): Boolean =
+    this is PremiumLoadState.Ready && snapshot.isUsableFor(accountId, nowMillis)
+
 /** Server-side information about a Premium gift code; the code itself is never part of this model. */
 data class PremiumGiftCodeInfo(
     val creatorName: String?,

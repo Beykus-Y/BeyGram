@@ -190,12 +190,31 @@ internal class OutgoingMediaImporter(context: Context, private val accountId: St
     ): OutgoingMedia {
         if (source.length() <= 0L) throw UserMessageException(UiText.Res(R.string.err_media_file_empty))
         return when {
-            asDocument -> OutgoingMedia(source.absolutePath, name, mime, MediaKind.Document, size = source.length())
+            asDocument -> OutgoingMedia(
+                source.absolutePath, name, mime, MediaKind.Document,
+                durationSeconds = if (mime.startsWith("audio/")) audioDurationSeconds(source) else 0,
+                size = source.length()
+            )
             mime.startsWith("image/") -> preparePhoto(source, directory, mime, squarePhoto)
             mime.startsWith("video/") -> prepareVideo(source, directory, mime, name)
+            mime.startsWith("audio/") -> OutgoingMedia(
+                source.absolutePath, name, mime, MediaKind.Document,
+                durationSeconds = audioDurationSeconds(source),
+                size = source.length()
+            )
             else -> OutgoingMedia(source.absolutePath, name, mime, MediaKind.Document, size = source.length())
         }
     }
+
+    /** Audio documents carry no media metadata in TDLib, so read the duration once for the composer. */
+    private fun audioDurationSeconds(source: File): Int = runCatching {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(source.absolutePath)
+            val ms = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            ceil(ms / 1000.0).toInt()
+        } finally { retriever.release() }
+    }.getOrDefault(0)
 
     private fun preparePhoto(source: File, directory: File, mime: String, square: Boolean): OutgoingMedia {
         val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(source)) { decoder, info, _ ->

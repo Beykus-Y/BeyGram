@@ -44,6 +44,15 @@
     <string name="premium_purchase_unavailable_title">Pago externo no disponible</string>
     <string name="premium_purchase_unavailable_body">Telegram no ofreció una página de pago externa segura para este plan. La aplicación no solicita datos de tarjeta.</string>
     <string name="premium_load_error">No se pudo cargar la información de Premium</string>
+    <string name="premium_load_error_body">Comprueba la conexión con Telegram e inténtalo de nuevo.</string>
+    <string name="premium_loading_title">Cargando Telegram Premium…</string>
+    <string name="premium_loading_body">Solicitando a Telegram el estado, los planes y los precios. Suele tardar unos segundos.</string>
+    <string name="premium_loading_progress">Cargando información de Premium</string>
+    <string name="premium_refresh_failed_title">No se pudieron actualizar los datos</string>
+    <string name="premium_stale_title">Los datos de Premium han caducado</string>
+    <string name="premium_refresh_failed_body">Se muestran los últimos datos confirmados. La compra no está disponible hasta que se actualicen.</string>
+    <string name="premium_stale_body">El estado y los planes están desactualizados y se han ocultado. Actualiza la pantalla para ver las condiciones actuales.</string>
+    <string name="premium_data_stale">Los datos de Premium están desactualizados. Se actualizarán antes de continuar.</string>
     <string name="premium_gift_code_title">Activar un regalo</string>
     <string name="premium_gift_code_hint">Introduce un código de regalo de Telegram Premium o un enlace t.me/giftcode/… Telegram comprueba el código; la aplicación no lo guarda.</string>
     <string name="premium_gift_code_label">Código de regalo</string>

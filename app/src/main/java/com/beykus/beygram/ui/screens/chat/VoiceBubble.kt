@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.GrowingPlaybackSource
 import com.beykus.beygram.playback.PlaybackOrigin
@@ -52,10 +53,11 @@ internal fun VoiceBubble(
     onLongPress: (() -> Unit)?,
     origin: PlaybackOrigin? = null,
     transcriptionRequestPending: Boolean = false,
-    transcriptionRequestError: String? = null,
+    transcriptionRequestError: SpeechRecognitionFailure? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
     onRateTranscription: ((Boolean) -> Unit)? = null,
+    speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
     /** Live growing source for a partially downloaded voice note; null uses the completed file. */
     growing: GrowingPlaybackSource? = null
 ) {
@@ -196,6 +198,7 @@ internal fun VoiceBubble(
             rated = transcriptionRated,
             onRequest = onTranscribe,
             onRate = onRateTranscription,
+            ui = speechRecognitionUi,
             modifier = Modifier.fillMaxWidth()
         )
     }

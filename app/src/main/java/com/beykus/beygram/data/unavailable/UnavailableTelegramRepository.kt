@@ -48,6 +48,7 @@ import com.beykus.beygram.domain.model.MessageThreadPage
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.MessageLimits
+import com.beykus.beygram.domain.model.SpeechRecognitionTrial
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MessageReaction
 import com.beykus.beygram.domain.model.ReactionOption
@@ -137,8 +138,11 @@ class UnavailableTelegramRepository : TelegramRepository {
     override val activeStories: StateFlow<List<ChatStories>> = noStories
     override fun refreshActiveStories() {}
     override fun loadMoreActiveStories() {}
+    override fun cachedActiveStory(chatId: Long): ChatStories? = null
     override val storyPostEvents: SharedFlow<StoryPostEvent> = noStoryPosts
     override suspend fun loadStory(posterChatId: Long, storyId: Int): Result<StoryDetail> = unavailable()
+    override fun cachedStory(posterChatId: Long, storyId: Int): StoryDetail? = null
+    override suspend fun confirmActiveStoryIds(posterChatId: Long): Result<Set<Int>> = unavailable()
     override suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
     override suspend fun closeStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
     override suspend fun storyReactions(): Result<List<ReactionOption>> = Result.success(emptyList())
@@ -171,6 +175,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override val myProfile: StateFlow<ProfileState> = noProfile
     override val bioLengthLimit: StateFlow<Int> = MutableStateFlow(70).asStateFlow()
     override val messageLimits: StateFlow<MessageLimits> = MutableStateFlow(MessageLimits()).asStateFlow()
+    override val speechRecognitionTrial: StateFlow<SpeechRecognitionTrial?> =
+        MutableStateFlow<SpeechRecognitionTrial?>(null).asStateFlow()
     override val notifications: StateFlow<TelegramNotifications> = MutableStateFlow(TelegramNotifications()).asStateFlow()
     override val notificationPresentation: StateFlow<NotificationPresentation> = MutableStateFlow(NotificationPresentation()).asStateFlow()
 
@@ -445,8 +451,11 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun contacts(): Result<List<ContactPreview>> = Result.success(emptyList())
     override suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
     override suspend fun recentStickers(): Result<List<StickerItem>> = unavailable()
+    override suspend fun favoriteStickers(): Result<List<StickerItem>> = unavailable()
+    override suspend fun setStickerFavorite(sticker: StickerItem, favorite: Boolean): Result<Unit> = unavailable()
     override suspend fun installedStickerSets(): Result<List<StickerSetSummary>> = unavailable()
     override suspend fun stickerSet(setId: Long): Result<StickerSetContent> = unavailable()
+    override suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit> = unavailable()
     override suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = unavailable()
     override suspend fun savedAnimations(): Result<List<AnimationItem>> = unavailable()
     override suspend fun recentAnimations(offset: String): Result<AnimationPage> = unavailable()

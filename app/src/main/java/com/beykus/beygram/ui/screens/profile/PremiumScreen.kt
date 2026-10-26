@@ -29,7 +29,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -42,10 +41,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +57,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +70,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
 import com.beykus.beygram.domain.model.PremiumCheckoutEvent
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
@@ -78,21 +82,31 @@ import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
 import com.beykus.beygram.domain.model.PremiumGiftCodeStep
 import com.beykus.beygram.domain.model.PremiumGiftCodeValidation
 import com.beykus.beygram.domain.model.PremiumInfo
+import com.beykus.beygram.domain.model.PremiumLoadState
 import com.beykus.beygram.domain.model.PremiumPlan
 import com.beykus.beygram.domain.model.PremiumPlanBlock
+import com.beykus.beygram.domain.model.TelegramConnectionState
+import com.beykus.beygram.domain.model.canCheckout
+import com.beykus.beygram.domain.model.failed
 import com.beykus.beygram.domain.model.formatPriceMinorUnits
+import com.beykus.beygram.domain.model.needsRefresh
 import com.beykus.beygram.domain.model.next
 import com.beykus.beygram.domain.model.normalizePremiumGiftCode
 import com.beykus.beygram.domain.model.premiumGiftDuration
+import com.beykus.beygram.domain.model.premiumLoadSucceeded
 import com.beykus.beygram.domain.model.premiumPlanBlock
+import com.beykus.beygram.domain.model.showsPremiumDetails
+import com.beykus.beygram.domain.model.startingRefresh
 import com.beykus.beygram.domain.model.validatePremiumGiftCode
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.accessibility.statusAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.DateFormat
@@ -100,6 +114,33 @@ import java.util.Date
 
 @Composable
 fun PremiumScreen(
+    accountId: String,
+    connectionState: TelegramConnectionState,
+    load: suspend () -> Result<PremiumInfo>,
+    checkGiftCode: suspend (String) -> Result<PremiumGiftCodeInfo>,
+    applyGiftCode: suspend (String) -> PremiumGiftCodeApplyOutcome,
+    purchaseLink: suspend (PremiumPlan) -> PremiumCheckoutOutcome,
+    onBack: () -> Unit
+) {
+    // A switch between two live accounts keeps this route composed; all read and checkout state
+    // must be rebuilt for the new account instead of reusing the previous account's snapshot.
+    key(accountId) {
+        PremiumScreenSession(
+            accountId = accountId,
+            connectionState = connectionState,
+            load = load,
+            checkGiftCode = checkGiftCode,
+            applyGiftCode = applyGiftCode,
+            purchaseLink = purchaseLink,
+            onBack = onBack
+        )
+    }
+}
+
+@Composable
+private fun PremiumScreenSession(
+    accountId: String,
+    connectionState: TelegramConnectionState,
     load: suspend () -> Result<PremiumInfo>,
     checkGiftCode: suspend (String) -> Result<PremiumGiftCodeInfo>,
     applyGiftCode: suspend (String) -> PremiumGiftCodeApplyOutcome,
@@ -110,24 +151,34 @@ fun PremiumScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    var info by remember { mutableStateOf<PremiumInfo?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var unsupported by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var loadState by remember { mutableStateOf<PremiumLoadState>(PremiumLoadState.Loading) }
     var reload by remember { mutableIntStateOf(0) }
+    // A cancelled read must not publish its late result over a newer one.
+    var generation by remember { mutableIntStateOf(0) }
     var checkout by remember { mutableStateOf<PremiumCheckoutStep>(PremiumCheckoutStep.Idle) }
     var checkoutGeneration by remember { mutableIntStateOf(0) }
     var notice by remember { mutableStateOf<PaymentNotice?>(null) }
     var previousPremium by remember { mutableStateOf<Boolean?>(null) }
     var checkAfterReturn by remember { mutableStateOf(false) }
     // The browser can outlive this composition; only flags survive rotation. The URL never does.
-    var awaitingExternal by rememberSaveable { mutableStateOf(false) }
-    var leftApp by rememberSaveable { mutableStateOf(false) }
+    var awaitingExternal by rememberSaveable(accountId) { mutableStateOf(false) }
+    var leftApp by rememberSaveable(accountId) { mutableStateOf(false) }
     val checkoutBusy = awaitingExternal ||
         checkout is PremiumCheckoutStep.Confirming ||
         checkout is PremiumCheckoutStep.Preparing ||
         checkout is PremiumCheckoutStep.LinkReady ||
         checkout is PremiumCheckoutStep.AwaitingReturn
+    // Re-evaluate freshness while the screen stays open; stale prices must not remain actionable.
+    var nowMillis by remember(accountId) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(accountId) {
+        while (true) {
+            delay(PREMIUM_CLOCK_TICK_MS)
+            nowMillis = System.currentTimeMillis()
+        }
+    }
+    val readyState = loadState as? PremiumLoadState.Ready
+    val loading = loadState is PremiumLoadState.Loading || readyState?.refreshing == true
+    val stale = readyState != null && !loadState.showsPremiumDetails(accountId, nowMillis)
 
     fun refreshAfterPayment() {
         checkoutGeneration++
@@ -138,11 +189,36 @@ fun PremiumScreen(
         reload++
     }
 
+    // The previous connected flag is per account and never shared through rotation.
+    var wasConnected by remember(accountId) {
+        mutableStateOf(connectionState == TelegramConnectionState.Connected)
+    }
+    LaunchedEffect(connectionState) {
+        val connected = connectionState == TelegramConnectionState.Connected
+        val regained = connected && !wasConnected
+        wasConnected = connected
+        if (regained &&
+            !checkoutBusy &&
+            loadState.canRetryWithoutUser()
+        ) {
+            reload++
+        }
+    }
+
+    val latestLoadState by rememberUpdatedState(loadState)
+    val latestConnectionState by rememberUpdatedState(connectionState)
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> if (awaitingExternal) leftApp = true
-                Lifecycle.Event.ON_RESUME -> if (awaitingExternal && leftApp) refreshAfterPayment()
+                Lifecycle.Event.ON_RESUME -> when {
+                    awaitingExternal && leftApp -> refreshAfterPayment()
+                    // A read that failed while the app was in the background gets one fresh attempt
+                    // as soon as the connection is usable again.
+                    latestConnectionState == TelegramConnectionState.Connected &&
+                        latestLoadState.canRetryWithoutUser() -> reload++
+                    else -> Unit
+                }
                 else -> Unit
             }
         }
@@ -150,42 +226,72 @@ fun PremiumScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    // An expired snapshot is no longer shown and is re-read without user action.
+    LaunchedEffect(loadState, nowMillis, checkoutBusy) {
+        if (!checkoutBusy && loadState.needsRefresh(accountId, nowMillis)) reload++
+    }
+
     BackHandler(onBack = onBack)
     LaunchedEffect(reload) {
         val afterPayment = checkAfterReturn
         checkAfterReturn = false
-        loading = true
-        error = null
-        unsupported = false
-        try {
+        val currentGeneration = ++generation
+        val previous = loadState
+        loadState = previous.startingRefresh()
+        val result = try {
             load()
-                .onSuccess { loaded ->
-                    info = loaded
-                    if (afterPayment) {
-                        notice = if (previousPremium == false && loaded.isPremium) {
-                            PaymentNotice(context.getString(R.string.premium_purchase_success), PaymentTone.Success)
-                        } else {
-                            PaymentNotice(context.getString(R.string.premium_purchase_refreshed), PaymentTone.Neutral)
-                        }
-                    }
-                    previousPremium = loaded.isPremium
-                }
-                .onFailure { failure ->
-                    if (failure is MonetizationUnavailableException) unsupported = true
-                    else error = failure.userMessage(context, R.string.premium_load_error)
-                    if (afterPayment) {
-                        notice = PaymentNotice(context.getString(R.string.premium_purchase_refreshed), PaymentTone.Neutral)
-                    }
-                }
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } finally {
-            loading = false
+        } catch (error: Exception) {
+            Result.failure(error)
         }
+        // A late response from a cancelled reload must not overwrite the newer state.
+        if (generation != currentGeneration) return@LaunchedEffect
+        result.fold(
+            onSuccess = { loaded ->
+                val loadedAt = System.currentTimeMillis()
+                // Align the freshness clock with the read; otherwise a snapshot can look "future"
+                // relative to a clock captured before the request started.
+                nowMillis = loadedAt
+                loadState = premiumLoadSucceeded(accountId, loaded, loadedAt)
+                if (afterPayment) {
+                    notice = if (previousPremium == false && loaded.isPremium) {
+                        PaymentNotice(context.getString(R.string.premium_purchase_success), PaymentTone.Success)
+                    } else {
+                        PaymentNotice(context.getString(R.string.premium_purchase_refreshed), PaymentTone.Neutral)
+                    }
+                }
+                previousPremium = loaded.isPremium
+            },
+            onFailure = { failure ->
+                val unsupported = failure is MonetizationUnavailableException
+                val reason = (failure as? UserMessageException)?.text
+                    ?: UiText.Res(R.string.premium_load_error_body)
+                loadState = previous.failed(
+                    accountId = accountId,
+                    reason = reason,
+                    unsupported = unsupported
+                )
+                if (afterPayment) {
+                    notice = PaymentNotice(
+                        context.getString(R.string.premium_purchase_refreshed),
+                        PaymentTone.Neutral
+                    )
+                }
+            }
+        )
     }
 
     fun selectPlan(plan: PremiumPlan) {
-        if (loading || checkoutBusy || premiumPlanBlock(plan, checkout) != null) return
+        if (checkoutBusy || premiumPlanBlock(plan, checkout) != null) return
+        val ready = loadState as? PremiumLoadState.Ready ?: return
+        if (!loadState.canCheckout(accountId, System.currentTimeMillis())) {
+            if (!ready.refreshing) {
+                notice = PaymentNotice(context.getString(R.string.premium_data_stale), PaymentTone.Neutral)
+                reload++
+            }
+            return
+        }
         notice = null
         checkout = checkout.next(PremiumCheckoutEvent.Select(plan))
     }
@@ -198,6 +304,12 @@ fun PremiumScreen(
     fun confirmCheckout() {
         val confirming = checkout as? PremiumCheckoutStep.Confirming ?: return
         if (awaitingExternal) return
+        if (!loadState.canCheckout(accountId, System.currentTimeMillis())) {
+            checkout = checkout.next(PremiumCheckoutEvent.Dismiss)
+            notice = PaymentNotice(context.getString(R.string.premium_data_stale), PaymentTone.Neutral)
+            reload++
+            return
+        }
         checkout = checkout.next(PremiumCheckoutEvent.Confirm)
         val generation = ++checkoutGeneration
         scope.launch {
@@ -217,7 +329,8 @@ fun PremiumScreen(
                     val ready = checkout.next(PremiumCheckoutEvent.Ready(outcome.url))
                     if (ready !is PremiumCheckoutStep.LinkReady) return@launch
                     checkout = ready
-                    previousPremium = info?.isPremium ?: previousPremium
+                    previousPremium = (loadState as? PremiumLoadState.Ready)?.snapshot?.info?.isPremium
+                        ?: previousPremium
                     if (openExternalPaymentPage(context, outcome.url.value)) {
                         checkout = checkout.next(PremiumCheckoutEvent.Opened)
                         awaitingExternal = true
@@ -280,25 +393,31 @@ fun PremiumScreen(
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
             }
         }
-        when {
-            info == null && unsupported -> MonetizationCenteredState(
-                title = stringResource(R.string.monetization_unsupported_title),
-                body = stringResource(R.string.monetization_unsupported_body)
-            )
-            info == null && error != null -> MonetizationCenteredState(
-                title = stringResource(R.string.premium_load_error),
-                body = error.orEmpty(),
-                isError = true,
-                onRetry = { reload++ }
-            )
-            info == null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = palette.accent)
+        when (val current = loadState) {
+            PremiumLoadState.Loading -> Box(Modifier.weight(1f).fillMaxWidth()) {
+                PremiumLoadingSkeleton()
             }
-            else -> PremiumContent(
-                info = info!!,
-                refreshError = error,
-                unsupported = unsupported,
-                loading = loading,
+            PremiumLoadState.Unsupported -> Box(Modifier.weight(1f).fillMaxWidth()) {
+                MonetizationCenteredState(
+                    title = stringResource(R.string.monetization_unsupported_title),
+                    body = stringResource(R.string.monetization_unsupported_body),
+                    onRetry = { reload++ }
+                )
+            }
+            is PremiumLoadState.Failed -> Box(Modifier.weight(1f).fillMaxWidth()) {
+                MonetizationCenteredState(
+                    title = stringResource(R.string.premium_load_error),
+                    body = current.reason.resolve(context),
+                    isError = true,
+                    onRetry = { reload++ }
+                )
+            }
+            is PremiumLoadState.Ready -> PremiumContent(
+                info = current.snapshot.info,
+                refreshError = current.refreshError?.resolve(context),
+                stale = stale,
+                loading = current.refreshing,
+                canPurchase = loadState.canCheckout(accountId, nowMillis),
                 checkout = checkout,
                 awaitingExternal = awaitingExternal,
                 notice = notice,
@@ -324,8 +443,9 @@ fun PremiumScreen(
 private fun PremiumContent(
     info: PremiumInfo,
     refreshError: String?,
-    unsupported: Boolean,
+    stale: Boolean,
     loading: Boolean,
+    canPurchase: Boolean,
     checkout: PremiumCheckoutStep,
     awaitingExternal: Boolean,
     notice: PaymentNotice?,
@@ -337,27 +457,45 @@ private fun PremiumContent(
 ) {
     val palette = beyGramPalette()
     val scrollState = rememberScrollState()
+    val loadingProgress = stringResource(R.string.premium_loading_progress)
+    val staleBody = stringResource(R.string.premium_stale_body)
+    val refreshBody = stringResource(R.string.premium_refresh_failed_body)
+    val staleTitle = stringResource(R.string.premium_stale_title)
+    val refreshFailedTitle = stringResource(R.string.premium_refresh_failed_title)
+    val busy = loading || awaitingExternal ||
+        checkout is PremiumCheckoutStep.Confirming ||
+        checkout is PremiumCheckoutStep.Preparing ||
+        checkout is PremiumCheckoutStep.LinkReady ||
+        checkout is PremiumCheckoutStep.AwaitingReturn
     LaunchedEffect(notice) {
         if (notice != null) scrollState.animateScrollTo(0)
     }
     // A plain scroll container keeps the gift-code workflow and its coroutine composed while
     // the user inspects features and plans; a lazy item would discard both when scrolled away.
     Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(bottom = 24.dp)) {
-        if (refreshError != null) {
-            Text(
-                refreshError,
-                color = palette.danger,
-                fontSize = 14.sp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp).errorAnnouncement()
+        if (loading) {
+            LinearProgressIndicator(
+                Modifier.fillMaxWidth()
+                    .semantics { contentDescription = loadingProgress }
+                    .statusAnnouncement(),
+                color = palette.accent
+            )
+        }
+        val warningBody = when {
+            stale -> listOfNotNull(refreshError, staleBody).joinToString("\n")
+            refreshError != null -> refreshError + "\n" + refreshBody
+            else -> null
+        }
+        if (warningBody != null) {
+            MonetizationStateCard(
+                title = if (refreshError == null) staleTitle else refreshFailedTitle,
+                body = warningBody,
+                tone = MonetizationTone.Warning,
+                onRetry = if (busy) null else onRetry,
+                announce = true
             )
         }
         notice?.let { PaymentNoticeCard(it) }
-        if (unsupported) {
-            MonetizationStateCard(
-                title = stringResource(R.string.monetization_unsupported_title),
-                body = stringResource(R.string.monetization_unsupported_body)
-            )
-        }
         if (awaitingExternal || checkout is PremiumCheckoutStep.AwaitingReturn) {
             MonetizationStateCard(
                 title = stringResource(R.string.premium_purchase_opened_title),
@@ -366,101 +504,161 @@ private fun PremiumContent(
                 retryLabel = R.string.premium_purchase_check
             )
         }
-        MonetizationCard {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp).semantics(mergeDescendants = true) {}) {
-                Text(
-                    stringResource(R.string.premium_status_heading),
-                    color = palette.textSecondary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    stringResource(if (info.isPremium) R.string.premium_status_active else R.string.premium_status_inactive),
-                    color = if (info.isPremium) palette.accentInk else palette.textPrimary,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                if (info.statusText.isNotBlank()) {
+        if (!stale) {
+            MonetizationCard {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp).semantics(mergeDescendants = true) {}) {
+                    Text(
+                        stringResource(R.string.premium_status_heading),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(if (info.isPremium) R.string.premium_status_active else R.string.premium_status_inactive),
+                        color = if (info.isPremium) palette.accentInk else palette.textPrimary,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (info.statusText.isNotBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(info.statusText, color = palette.textPrimary, fontSize = 15.sp)
+                    }
                     Spacer(Modifier.height(6.dp))
-                    Text(info.statusText, color = palette.textPrimary, fontSize = 15.sp)
+                    Text(
+                        stringResource(R.string.premium_status_source_hint),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp
+                    )
                 }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    stringResource(R.string.premium_status_source_hint),
-                    color = palette.textSecondary,
-                    fontSize = 13.sp
-                )
             }
         }
+        // Keep this section composed even when stale details are hidden: it owns the entered
+        // code and the coroutine of an in-flight check/apply, which must not be cancelled by a
+        // status refresh or TTL expiry.
         PremiumGiftCodeSection(
             checkCode = checkGiftCode,
             applyCode = applyGiftCode,
             onActivated = onRetry
         )
-        MonetizationSectionHeader(stringResource(R.string.premium_features_title))
-        if (info.features.isEmpty()) {
-            Text(
-                stringResource(R.string.premium_features_empty),
-                color = palette.textSecondary,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-            )
-        } else {
-            MonetizationCard {
-                info.features.forEachIndexed { index, feature ->
-                    if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 18.dp))
-                    Text(
-                        stringResource(premiumFeatureLabel(feature)),
-                        color = palette.textPrimary,
-                        fontSize = 15.sp,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)
-                    )
-                }
-            }
-        }
-        MonetizationSectionHeader(stringResource(R.string.premium_plans_title))
-        if (info.plans.isEmpty()) {
-            Text(
-                stringResource(R.string.premium_plans_empty),
-                color = palette.textSecondary,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-            )
-        } else {
-            val hasAnyExternalLink = info.plans.any { it.hasExternalPaymentLink }
-            if (!hasAnyExternalLink) {
-                MonetizationStateCard(
-                    title = stringResource(R.string.premium_purchase_unavailable_title),
-                    body = stringResource(R.string.premium_purchase_unavailable_body),
-                    tone = MonetizationTone.Warning
+        if (!stale) {
+            MonetizationSectionHeader(stringResource(R.string.premium_features_title))
+            if (info.features.isEmpty()) {
+                Text(
+                    stringResource(R.string.premium_features_empty),
+                    color = palette.textSecondary,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                 )
             } else {
-                MonetizationStateCard(
-                    title = stringResource(R.string.premium_purchase_browser_title),
-                    body = stringResource(R.string.premium_purchase_browser_body)
-                )
+                MonetizationCard {
+                    info.features.forEachIndexed { index, feature ->
+                        if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 18.dp))
+                        Text(
+                            stringResource(premiumFeatureLabel(feature)),
+                            color = palette.textPrimary,
+                            fontSize = 15.sp,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)
+                        )
+                    }
+                }
             }
-            MonetizationCard {
-                info.plans.forEachIndexed { index, plan ->
-                    if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 18.dp))
-                    PremiumPlanRow(
-                        plan = plan,
-                        block = premiumPlanBlock(plan, checkout)
-                            ?: if (loading) PremiumPlanBlock.Busy else null,
-                        onSelect = { onSelectPlan(plan) }
+            MonetizationSectionHeader(stringResource(R.string.premium_plans_title))
+            if (info.plans.isEmpty()) {
+                Text(
+                    stringResource(R.string.premium_plans_empty),
+                    color = palette.textSecondary,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+            } else {
+                val hasAnyExternalLink = info.plans.any { it.hasExternalPaymentLink }
+                if (!hasAnyExternalLink) {
+                    MonetizationStateCard(
+                        title = stringResource(R.string.premium_purchase_unavailable_title),
+                        body = stringResource(R.string.premium_purchase_unavailable_body),
+                        tone = MonetizationTone.Warning
                     )
+                } else {
+                    MonetizationStateCard(
+                        title = stringResource(R.string.premium_purchase_browser_title),
+                        body = stringResource(R.string.premium_purchase_browser_body)
+                    )
+                }
+                MonetizationCard {
+                    info.plans.forEachIndexed { index, plan ->
+                        if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 18.dp))
+                        PremiumPlanRow(
+                            plan = plan,
+                            block = premiumPlanBlock(plan, checkout)
+                                ?: if (loading || !canPurchase) PremiumPlanBlock.Busy else null,
+                            onSelect = { onSelectPlan(plan) }
+                        )
+                    }
                 }
             }
         }
-        if (loading) {
-            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent)
-            }
+    }
+}
+
+/** Useful progress and a content-shaped skeleton instead of an empty dark screen with a spinner. */
+@Composable
+private fun PremiumLoadingSkeleton() {
+    val palette = beyGramPalette()
+    val loadingProgress = stringResource(R.string.premium_loading_progress)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+        Column(
+            Modifier.fillMaxWidth().padding(16.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(palette.surface)
+                .padding(horizontal = 18.dp, vertical = 16.dp)
+                .semantics(mergeDescendants = true) {}
+                .statusAnnouncement()
+        ) {
+            Text(
+                stringResource(R.string.premium_loading_title),
+                color = palette.textPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.semantics { heading() }
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.premium_loading_body),
+                color = palette.textSecondary,
+                fontSize = 14.sp,
+                lineHeight = 20.sp
+            )
+            Spacer(Modifier.height(14.dp))
+            LinearProgressIndicator(
+                Modifier.fillMaxWidth().semantics { contentDescription = loadingProgress },
+                color = palette.accent
+            )
         }
-        if (refreshError != null) {
-            TextButton(onClick = onRetry, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.common_retry))
+        MonetizationSectionHeader(stringResource(R.string.premium_status_heading))
+        PremiumSkeletonCard(rows = 2)
+        MonetizationSectionHeader(stringResource(R.string.premium_features_title))
+        PremiumSkeletonCard(rows = 4)
+        MonetizationSectionHeader(stringResource(R.string.premium_plans_title))
+        PremiumSkeletonCard(rows = 3)
+    }
+}
+
+@Composable
+private fun PremiumSkeletonCard(rows: Int) {
+    val palette = beyGramPalette()
+    MonetizationCard {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            repeat(rows) { index ->
+                Box(
+                    Modifier.fillMaxWidth(if (index % 2 == 1) 0.64f else 0.9f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(palette.surface2)
+                )
             }
         }
     }
@@ -984,7 +1182,8 @@ internal fun MonetizationStateCard(
     body: String,
     tone: MonetizationTone = MonetizationTone.Neutral,
     onRetry: (() -> Unit)? = null,
-    @StringRes retryLabel: Int = R.string.common_retry
+    @StringRes retryLabel: Int = R.string.common_retry,
+    announce: Boolean = false
 ) {
     val palette = beyGramPalette()
     val background = when (tone) {
@@ -999,12 +1198,14 @@ internal fun MonetizationStateCard(
         MonetizationTone.Success -> palette.successText
         MonetizationTone.Neutral -> palette.textPrimary
     }
+    val announcement = if (announce) Modifier.statusAnnouncement() else Modifier
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(background)
             .padding(horizontal = 18.dp, vertical = 16.dp)
             .semantics(mergeDescendants = true) {}
+            .then(announcement)
     ) {
         Text(title, color = titleColor, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
@@ -1093,3 +1294,13 @@ internal fun premiumFeatureLabel(feature: PremiumFeatureKind): Int = when (featu
     PremiumFeatureKind.VoiceRecognition -> R.string.premium_feature_voice_recognition
     PremiumFeatureKind.Other -> R.string.premium_feature_other
 }
+
+/** A failed or expired read can be retried automatically when connectivity returns. */
+private fun PremiumLoadState.canRetryWithoutUser(): Boolean = when (this) {
+    is PremiumLoadState.Ready -> refreshError != null && !refreshing
+    is PremiumLoadState.Failed, PremiumLoadState.Unsupported -> true
+    PremiumLoadState.Loading -> false
+}
+
+/** Freshness is re-checked without re-reading on every frame. */
+private const val PREMIUM_CLOCK_TICK_MS = 30_000L

@@ -45,6 +45,13 @@
     <string name="poll_error_correct_missing">Choose the correct answer</string>
     <string name="poll_error_correct_invalid">The correct answer is not among the options</string>
     <string name="poll_error_correct_count">A single-answer quiz needs exactly one correct option</string>
+    <string name="poll_send_failed">Could not send the poll</string>
+    <string name="poll_send_private_chat">Telegram does not allow polls in private chats with people. Share polls in groups, channels, Saved Messages or bot chats.</string>
+    <string name="poll_send_chat_unsupported">Polls cannot be created in this chat.</string>
+    <string name="poll_send_channel_anonymous">Only anonymous polls can be posted in a channel.</string>
+    <string name="poll_send_rights_missing">You do not have permission to create polls in this chat. Check the chat permissions.</string>
+    <string name="poll_send_invalid">Telegram rejected the poll settings. Check the question, answer options and correct answer.</string>
+    <string name="poll_send_retained">The poll is saved. Retry sending it or remove it.</string>
     <string name="contact_picker_title">Send a contact</string>
     <string name="contact_picker_search">Search contacts</string>
     <string name="contact_picker_empty">There are no contacts in the Telegram address book</string>
@@ -97,6 +104,7 @@
     <string name="message_action_copy_text">Copy text</string>
     <string name="message_action_more">More</string>
     <string name="message_action_copy_link">Copy link</string>
+    <string name="message_action_copy_entity">Copy link/username</string>
     <string name="message_action_forward_copy">Forward without author</string>
     <string name="message_action_forward">Forward</string>
     <string name="message_action_select">Select messages</string>
@@ -124,6 +132,7 @@
     <string name="forward_topic_general">General</string>
     <string name="message_link">Message link</string>
     <string name="message_link_copied">Link copied</string>
+    <string name="message_entity_copied">Copied</string>
     <string name="err_message_link_unavailable">This message has no available link</string>
     <string name="message_action_edit">Edit</string>
     <string name="message_action_edit_caption">Edit caption</string>

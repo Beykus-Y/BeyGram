@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
@@ -86,7 +87,8 @@ internal fun StickerPickerPanel(
     downloadFile: (Int) -> Unit,
     onSend: (StickerItem) -> Unit,
     onOptions: (StickerItem) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onOpenGifs: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -226,7 +228,8 @@ internal fun StickerPickerPanel(
                 else -> stringResource(R.string.sticker_picker_title)
             },
             onBack = if (viewingSet != null && query.isBlank()) ({ viewingSet = null; setContent = null; setError = null }) else null,
-            onClose = onClose
+            onClose = onClose,
+            onOpenGifs = onOpenGifs
         )
         OutlinedTextField(
             value = query,
@@ -325,7 +328,7 @@ internal fun StickerPickerPanel(
 }
 
 @Composable
-private fun StickerHeader(title: String, onBack: (() -> Unit)?, onClose: () -> Unit) {
+private fun StickerHeader(title: String, onBack: (() -> Unit)?, onClose: () -> Unit, onOpenGifs: (() -> Unit)?) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp).padding(start = 4.dp, end = 4.dp, top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         if (onBack != null) {
@@ -335,6 +338,13 @@ private fun StickerHeader(title: String, onBack: (() -> Unit)?, onClose: () -> U
         } else Spacer(Modifier.width(8.dp))
         Text(title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        if (onOpenGifs != null) {
+            TextButton(onClick = onOpenGifs, modifier = Modifier.heightIn(min = 48.dp)) {
+                Icon(Icons.Rounded.Animation, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.composer_type_gif), color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
         IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Rounded.Close, stringResource(R.string.sticker_picker_close), tint = palette.textSecondary)
         }
@@ -357,12 +367,13 @@ private fun PickerTab(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StickerGrid(
+internal fun StickerGrid(
     stickers: List<StickerItem>,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onClick: (StickerItem) -> Unit,
-    onLongClick: (StickerItem) -> Unit,
+    /** Null makes the grid read-only, for a set opened from a view without a send target. */
+    onClick: ((StickerItem) -> Unit)?,
+    onLongClick: ((StickerItem) -> Unit)? = null,
     footer: (@Composable () -> Unit)? = null
 ) {
     LazyVerticalGrid(
@@ -373,7 +384,11 @@ private fun StickerGrid(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         items(stickers, key = { it.key }) { item ->
-            StickerCell(item, observeFile, downloadFile, onClick = { onClick(item) }, onLongClick = { onLongClick(item) })
+            StickerCell(
+                item, observeFile, downloadFile,
+                onClick = onClick?.let { action -> { action(item) } },
+                onLongClick = onLongClick?.let { action -> { action(item) } }
+            )
         }
         if (footer != null) {
             item(span = { GridItemSpan(maxLineSpan) }, key = "footer") { footer() }
@@ -386,21 +401,26 @@ private fun StickerCell(
     item: StickerItem,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
     val emoji = item.emoji.ifBlank { stringResource(R.string.media_kind_sticker) }
     val description = stringResource(R.string.sticker_picker_item_description, emoji)
+    val clickModifier = if (onClick == null && onLongClick == null) {
+        Modifier
+    } else {
+        Modifier.combinedClickable(
+            role = Role.Button,
+            onClickLabel = if (onClick != null) stringResource(R.string.common_send) else null,
+            onLongClickLabel = if (onLongClick != null) stringResource(R.string.sticker_picker_send_options) else null,
+            onClick = onClick ?: {},
+            onLongClick = onLongClick
+        )
+    }
     Box(
         Modifier.size(68.dp).clip(RoundedCornerShape(12.dp))
-            .combinedClickable(
-                role = Role.Button,
-                onClickLabel = stringResource(R.string.common_send),
-                onLongClickLabel = stringResource(R.string.sticker_picker_send_options),
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
+            .then(clickModifier)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
@@ -414,7 +434,7 @@ private fun StickerCell(
 
 /** Draws one sticker and downloads only its own preview. The caller owns the clickable surface. */
 @Composable
-private fun StickerArtwork(
+internal fun StickerArtwork(
     item: StickerItem,
     modifier: Modifier,
     observeFile: (Int) -> StateFlow<MediaFileState>,
@@ -484,19 +504,19 @@ private fun StickerSetRow(
 }
 
 @Composable
-private fun PickerCenter(content: @Composable () -> Unit) {
+internal fun PickerCenter(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
 }
 
 @Composable
-private fun PickerEmpty(text: String) {
+internal fun PickerEmpty(text: String) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Text(text, color = beyGramPalette().textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
     }
 }
 
 @Composable
-private fun PickerError(text: String, onRetry: () -> Unit) {
+internal fun PickerError(text: String, onRetry: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp).errorAnnouncement(), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center) {
         Text(text, color = beyGramPalette().danger, fontSize = 14.sp, textAlign = TextAlign.Center)

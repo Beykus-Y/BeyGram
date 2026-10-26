@@ -152,7 +152,67 @@ data class MessageContactInfo(
         get() = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { phone }
 }
 
-data class MessageDiceInfo(val emoji: String, val value: Int = 0)
+/** One animated sticker supplied by TDLib for a dice throw. [fileId] is already registered in the media store. */
+data class DiceStickerAsset(
+    val fileId: Int,
+    val mimeType: String = "",
+    val width: Int = 0,
+    val height: Int = 0
+)
+
+/**
+ * The initial (still throwing) or final (server result) presentation of a dice message. A slot machine is a
+ * composition of five transparent stickers that TDLib supplies separately; a regular dice is a single sticker.
+ */
+sealed interface MessageDiceState {
+    data class Regular(val sticker: DiceStickerAsset) : MessageDiceState
+
+    data class SlotMachine(
+        val background: DiceStickerAsset,
+        val lever: DiceStickerAsset,
+        val leftReel: DiceStickerAsset,
+        val centerReel: DiceStickerAsset,
+        val rightReel: DiceStickerAsset
+    ) : MessageDiceState {
+        /** TDLib's sticker fields in a stable order: background, handle, then the three reels. */
+        val layers: List<DiceStickerAsset> get() = listOf(background, lever, leftReel, centerReel, rightReel)
+    }
+
+    val assets: List<DiceStickerAsset>
+        get() = when (this) {
+            is Regular -> listOf(sticker)
+            is SlotMachine -> layers
+        }
+}
+
+/**
+ * A Telegram dice/game message. [value] is zero until the server result is known; [finalState] is the matching
+ * result animation. The initial state must not be shown after a result, because its last frame is not the outcome.
+ */
+data class MessageDiceInfo(
+    val emoji: String,
+    val value: Int = 0,
+    val initialState: MessageDiceState? = null,
+    val finalState: MessageDiceState? = null
+) {
+    val hasFinalValue: Boolean get() = value > 0
+
+    /** The result animation when the server answered, otherwise the throw animation. Never mixed. */
+    val displayState: MessageDiceState?
+        get() = if (hasFinalValue) finalState else initialState
+
+    val fallbackEmoji: String get() = emoji.ifBlank { "🎲" }
+
+    val isSlotMachine: Boolean
+        get() = emoji == "🎰" || sequenceOf(initialState, finalState).any { it is MessageDiceState.SlotMachine }
+
+    val isJackpot: Boolean get() = isSlotMachine && value == SLOT_MACHINE_JACKPOT
+
+    companion object {
+        /** Telegram's 777 slot result. */
+        const val SLOT_MACHINE_JACKPOT = 64
+    }
+}
 
 /** Everything that is not a photo/video/document/audio/sticker/voice note or plain text. */
 sealed interface MessageSpecialContent {

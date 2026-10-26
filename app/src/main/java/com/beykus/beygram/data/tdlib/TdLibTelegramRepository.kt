@@ -33,6 +33,10 @@ import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageTranslation
+import com.beykus.beygram.domain.model.SpeechRecognitionException
+import com.beykus.beygram.domain.model.SpeechRecognitionFailure
+import com.beykus.beygram.domain.model.SpeechRecognitionFailureReason
+import com.beykus.beygram.domain.model.SpeechRecognitionTrial
 import com.beykus.beygram.domain.model.MessageDraft
 import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.MessageThreadPage
@@ -59,6 +63,7 @@ import com.beykus.beygram.domain.model.StickerItem
 import com.beykus.beygram.domain.model.StickerSearchPage
 import com.beykus.beygram.domain.model.StickerSetContent
 import com.beykus.beygram.domain.model.StickerSetSummary
+import com.beykus.beygram.domain.model.normalizedPublicUsername
 import com.beykus.beygram.data.media.VideoNoteSendTracking
 import com.beykus.beygram.data.media.AutoDownloadDecision
 import com.beykus.beygram.data.media.AutoDownloadNetwork
@@ -372,6 +377,10 @@ class TdLibTelegramRepository private constructor(
     private val _connectionState = MutableStateFlow(TelegramConnectionState.Unknown)
     override val connectionState: StateFlow<TelegramConnectionState> = _connectionState.asStateFlow()
 
+    /** Free recognition quota reported by this account's TDLib; null until Telegram has sent it. */
+    private val speechTrialStore = SpeechRecognitionTrialStore()
+    override val speechRecognitionTrial: StateFlow<SpeechRecognitionTrial?> get() = speechTrialStore.state
+
     private val authScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var authTimeoutJob: Job? = null
 
@@ -433,7 +442,12 @@ class TdLibTelegramRepository private constructor(
     private val cancelledAutoDownloads = ConcurrentHashMap.newKeySet<Int>()
     private var autoDownloadSettingsJob: Job? = null
     private val autoDownloadNetworkMonitor = AutoDownloadNetworkMonitor(appContext, authScope, ::reevaluateAutoDownloads)
-    private val mediaMapper = TdMediaMapper(mediaFiles)
+    private val profiles = TdProfiles({ client }, mediaFiles)
+    private val mediaMapper = TdMediaMapper(
+        mediaFiles,
+        { speechTrialStore.state.value },
+        { profiles.me.value.info?.isPremium == true }
+    )
     private val stickerCatalog = TdStickerCatalog(tdRequests, mediaFiles)
 
     init {
@@ -471,7 +485,6 @@ class TdLibTelegramRepository private constructor(
             }
         })
     }
-    private val profiles = TdProfiles({ client }, mediaFiles)
     private val stories = TdStories({ client }, profiles, mediaFiles, accountId, File(appContext.filesDir, "uploads"))
     private val groupAdministration = TdGroupAdministration(tdRequests, profiles)
     private val privacy = TdPrivacy({ client }, profiles)
@@ -597,8 +610,11 @@ class TdLibTelegramRepository private constructor(
     override val activeStories: StateFlow<List<ChatStories>> = stories.items
     override fun refreshActiveStories() = stories.refreshActive()
     override fun loadMoreActiveStories() = stories.loadMoreActive()
+    override fun cachedActiveStory(chatId: Long) = stories.cachedActiveStory(chatId)
     override val storyPostEvents: SharedFlow<StoryPostEvent> = stories.postEvents
     override suspend fun loadStory(posterChatId: Long, storyId: Int) = stories.story(posterChatId, storyId)
+    override fun cachedStory(posterChatId: Long, storyId: Int) = stories.cachedStory(posterChatId, storyId)
+    override suspend fun confirmActiveStoryIds(posterChatId: Long) = stories.activeStoryIds(posterChatId)
     override suspend fun openStory(posterChatId: Long, storyId: Int) = stories.openStory(posterChatId, storyId)
     override suspend fun closeStory(posterChatId: Long, storyId: Int) = stories.closeStory(posterChatId, storyId)
     override suspend fun storyReactions() = stories.availableReactions()
@@ -1146,9 +1162,12 @@ class TdLibTelegramRepository private constructor(
     }
 
     override suspend fun resolvePublicChat(username: String): Result<Long> = requestResult {
-        val cleaned = username.trim().removePrefix("@")
-        require(cleaned.isNotEmpty()) { "Empty public username" }
+        // Bots, users, channels and public groups all resolve through the same lookup; the 5-character profile
+        // rule must not reject a legacy bot username such as @gif.
+        val cleaned = normalizedPublicUsername(username)
+            ?: throw UserMessageException(UiText.Res(R.string.err_username_invalid))
         val chat = tdRequests(TdApi.SearchPublicChat(cleaned))
+        if (chat.id == 0L) throw UserMessageException(UiText.Res(R.string.err_username_not_found))
         handleNewChat(chat)
         chat.id
     }
@@ -1471,13 +1490,22 @@ class TdLibTelegramRepository private constructor(
             if (translated.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_translation_failed))
             translated.toMessageTranslation(toLanguageCode)
         }
-    override suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit> = speechRecognitionResult {
-        if (resolveIsSecretChat(chatId)) throw UserMessageException(UiText.Res(R.string.err_transcription_secret_chat))
-        tdRequests(TdApi.RecognizeSpeech(chatId, messageId))
-        Unit
-    }
+    override suspend fun recognizeSpeech(chatId: Long, messageId: Long): Result<Unit> =
+        speechRecognitionResult(
+            { speechTrialStore.state.value },
+            { profiles.me.value.info?.isPremium == true }
+        ) {
+            if (resolveIsSecretChat(chatId)) throw SpeechRecognitionException(
+                SpeechRecognitionFailure(SpeechRecognitionFailureReason.SecretChat)
+            )
+            tdRequests(TdApi.RecognizeSpeech(chatId, messageId))
+            Unit
+        }
     override suspend fun rateSpeechRecognition(chatId: Long, messageId: Long, isGood: Boolean): Result<Unit> =
-        speechRecognitionResult {
+        speechRecognitionResult(
+            { speechTrialStore.state.value },
+            { profiles.me.value.info?.isPremium == true }
+        ) {
             tdRequests(TdApi.RateSpeechRecognition(chatId, messageId, isGood))
             Unit
         }
@@ -2264,8 +2292,13 @@ class TdLibTelegramRepository private constructor(
     }
 
     override suspend fun recentStickers(): Result<List<StickerItem>> = stickerCatalog.recentStickers()
+    override suspend fun favoriteStickers(): Result<List<StickerItem>> = stickerCatalog.favoriteStickers()
+    override suspend fun setStickerFavorite(sticker: StickerItem, favorite: Boolean): Result<Unit> =
+        stickerCatalog.setStickerFavorite(sticker, favorite)
     override suspend fun installedStickerSets(): Result<List<StickerSetSummary>> = stickerCatalog.installedStickerSets()
     override suspend fun stickerSet(setId: Long): Result<StickerSetContent> = stickerCatalog.stickerSet(setId)
+    override suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit> =
+        stickerCatalog.changeStickerSet(setId, installed)
     override suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = stickerCatalog.searchStickers(query, offset)
     override suspend fun savedAnimations(): Result<List<AnimationItem>> = stickerCatalog.savedAnimations()
     override suspend fun recentAnimations(offset: String): Result<AnimationPage> = stickerCatalog.recentAnimations(offset)
@@ -2456,7 +2489,7 @@ class TdLibTelegramRepository private constructor(
             }
             is TdApi.UpdateMessageContent -> {
                 val secretChat = isSecretChat(update.chatId)
-                val attachment = mediaMapper.media(update.newContent)?.let {
+                val attachment = mediaMapper.media(update.newContent, freshSpeechError = true)?.let {
                     if (secretChat) it.copy(isSecretChat = true) else it
                 }
                 val service = serviceMessages.text(update.newContent)
@@ -2501,7 +2534,14 @@ class TdLibTelegramRepository private constructor(
                     it.copy(reactions = messageReactions(update.interactionInfo), replyCount = replyCount ?: it.replyCount)
                 }
             }
+            // Bots receive anonymous reactions as a raw list without interaction info; keep such messages current too.
+            is TdApi.UpdateMessageReactions -> {
+                val reactions = messageReactionsFrom(update.reactions.orEmpty())
+                messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = reactions) }
+                updateForumMessage(update.chatId, update.messageId) { it.copy(reactions = reactions) }
+            }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
+            is TdApi.UpdateSpeechRecognitionTrial -> speechTrialStore.update(update)
             is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)
             is TdApi.UpdateSupergroup, is TdApi.UpdateBasicGroup -> chatCache.keys.toList().forEach(::refreshPostingRight)
@@ -2672,6 +2712,8 @@ class TdLibTelegramRepository private constructor(
     // ---- Авторизация ---------------------------------------------------------
 
     private fun handleAuthorizationState(state: TdApi.AuthorizationState) {
+        // Quota data belongs to a signed-in account only. TDLib re-sends it after the next login.
+        if (state !is TdApi.AuthorizationStateReady) speechTrialStore.clear()
         ConnectionEventLog.shared.record("Вход в аккаунт: ${state.authLogLabel()}")
         StructuredEventLog.shared.record(
             kind = EventKind.TDLIB,
@@ -2988,14 +3030,15 @@ class TdLibTelegramRepository private constructor(
         publishChat(chatId)
     }
 
-    /** Republishes the chat only when its posting right changed, so unrelated group updates do not wake its observers. */
+    /** Republishes the chat only when a posting/poll right changed, so unrelated group updates do not wake its observers. */
     private fun refreshPostingRight(chatId: Long) {
         val existing = chatCache[chatId] ?: return
         val chat = profiles.chat(chatId) ?: return
         val canPost = profiles.canPost(chat)
+        val canSendPolls = profiles.canSendPolls(chat)
         val isChannelAdmin = profiles.isChannelAdministrator(chat)
-        if (canPost == existing.canPost && isChannelAdmin == existing.isChannelAdmin) return
-        chatCache[chatId] = existing.copy(canPost = canPost, isChannelAdmin = isChannelAdmin)
+        if (canPost == existing.canPost && canSendPolls == existing.canSendPolls && isChannelAdmin == existing.isChannelAdmin) return
+        chatCache[chatId] = existing.copy(canPost = canPost, canSendPolls = canSendPolls, isChannelAdmin = isChannelAdmin)
         publishChat(chatId)
     }
 
@@ -3177,7 +3220,10 @@ class TdLibTelegramRepository private constructor(
 
     private fun TdApi.Chat.toChatPreview(): ChatPreview? {
         val saved = type.let { it is TdApi.ChatTypePrivate && profiles.isSelf(it.userId) }
-        val chatTitle = if (saved) appContext.getString(R.string.saved_messages_title) else title.ifBlank { return null }
+        // A just-resolved bot or user may arrive before its display name; a blank title must not hide the chat.
+        val privateName = (type as? TdApi.ChatTypePrivate)?.let { profiles.senderName(TdApi.MessageSenderUser(it.userId)) }.orEmpty()
+        val chatTitle = if (saved) appContext.getString(R.string.saved_messages_title)
+        else title.ifBlank { privateName }.ifBlank { appContext.getString(R.string.chat_unknown_title) }
         val mainPosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListMain }
         val archivePosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListArchive }
         val folderPositions = positions.orEmpty().mapNotNull { position ->
@@ -3208,6 +3254,7 @@ class TdLibTelegramRepository private constructor(
             lastMessageSendState = lastMessage?.sendingState.toSendState(),
             lastReadOutboxMessageId = lastReadOutboxMessageId,
             canPost = profiles.canPost(this),
+            canSendPolls = profiles.canSendPolls(this),
             isChannelAdmin = profiles.isChannelAdministrator(this),
             photo = profiles.photo(photo),
             folderPositions = folderPositions
