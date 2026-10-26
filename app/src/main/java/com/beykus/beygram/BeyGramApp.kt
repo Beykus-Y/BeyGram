@@ -1312,6 +1312,8 @@ private fun BeyGramAppContent(
             folderSnapshot = folders,
             folderChats = folderLists,
             folderLoadStates = folderLoading,
+            connectionState = connectionState,
+            accountId = selectedAccountId,
             onFolderLoadMore = { id ->
                 archiveSettingsScope.launch { repository.loadMoreFolderChats(id) }
             },

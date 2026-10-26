@@ -306,6 +306,10 @@
     <string name="chats_section_pinned">ЗАКРЕПЛЁННЫЕ</string>
     <string name="chats_start_conversation">Начните общение</string>
     <string name="chats_title">Сообщения</string>
+    <string name="chats_connection_a11y">Связь с Telegram: %1$s</string>
+    <string name="chats_connection_connecting">Подключение…</string>
+    <string name="chats_connection_updating">Обновление…</string>
+    <string name="chats_connection_waiting_network">Ожидание сети</string>
     <string name="chats_detail_empty_title">Выберите чат</string>
     <string name="chats_detail_empty_hint">Откройте переписку из списка — она появится здесь.</string>
     <string name="saved_messages_title">Избранное</string>
