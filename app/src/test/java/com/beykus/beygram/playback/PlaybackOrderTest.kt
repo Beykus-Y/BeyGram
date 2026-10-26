@@ -119,6 +119,6 @@ class PlaybackOrderTest {
         assertEquals(listOf(2, 0, 1), order.toIndexOrder())
         assertEquals(2, order.firstIndex)
         assertEquals(1, order.lastIndex)
-        assertEquals(2, order.length)
+        assertEquals(3, order.length)
     }
 }
