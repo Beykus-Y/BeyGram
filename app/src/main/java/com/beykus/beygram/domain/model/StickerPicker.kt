@@ -28,8 +28,8 @@ data class StickerItem(
     /** Premium sticker: only accounts with Telegram Premium may send it. */
     val premium: Boolean = false
 ) {
-    /** Stable identity across search pages: a sticker id is only unique inside its set. */
-    val key: String get() = "$setId:$stickerId:$fileId"
+    /** Stable identity across search pages: a sticker id is unique inside its set and survives a refreshed file id. */
+    val key: String get() = if (stickerId != 0L) "$setId:$stickerId" else "$setId:$fileId"
 
     fun toOutgoingMedia(): OutgoingMedia = OutgoingMedia(
         path = "",

@@ -31,6 +31,16 @@ internal class TdStickerCatalog(
         request(TdApi.GetRecentStickers(false)).stickers.orEmpty().mapNotNull { it?.toStickerItem(::register) }
     }
 
+    suspend fun favoriteStickers(): Result<List<StickerItem>> = requestResult {
+        request(TdApi.GetFavoriteStickers()).stickers.orEmpty().mapNotNull { it?.toStickerItem(::register) }
+    }
+
+    suspend fun setStickerFavorite(sticker: StickerItem, favorite: Boolean): Result<Unit> = requestResult {
+        val input = TdApi.InputFileId(sticker.fileId)
+        if (favorite) request(TdApi.AddFavoriteSticker(input)) else request(TdApi.RemoveFavoriteSticker(input))
+        Unit
+    }
+
     suspend fun installedStickerSets(): Result<List<StickerSetSummary>> = requestResult {
         request(TdApi.GetInstalledStickerSets(TdApi.StickerTypeRegular())).sets.orEmpty()
             .mapNotNull { it?.toStickerSetSummary(::register) }
