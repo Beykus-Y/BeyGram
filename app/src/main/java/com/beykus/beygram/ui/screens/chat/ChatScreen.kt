@@ -1891,6 +1891,7 @@ fun ChatScreen(
         observeFile = observeFile,
         downloadFile = onDownloadFile,
         attachments = attachments,
+        canSend = canPostHere,
         onDismiss = { openStickerSetId = null }
     )
     val forwardIds = when {

@@ -62,6 +62,7 @@ internal fun StickerSetOverlay(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     attachments: AttachmentState,
+    canSend: Boolean,
     onDismiss: () -> Unit
 ) {
     val set = setId ?: return
@@ -70,12 +71,15 @@ internal fun StickerSetOverlay(
         conversation = conversation,
         observeFile = observeFile,
         downloadFile = downloadFile,
-        onSend = { item ->
-            if (!attachments.sending && !attachments.importing) {
-                attachments.sendStickerNow(item.toOutgoingMedia())
-                onDismiss()
+        // A channel without posting rights, a closed topic or a closed secret chat stays browse-only.
+        onSend = if (canSend) {
+            { item ->
+                if (!attachments.sending && !attachments.importing) {
+                    attachments.sendStickerNow(item.toOutgoingMedia())
+                    onDismiss()
+                }
             }
-        },
+        } else null,
         onDismiss = onDismiss
     )
 }
