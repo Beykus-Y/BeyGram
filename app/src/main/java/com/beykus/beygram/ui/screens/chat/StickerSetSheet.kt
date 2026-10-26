@@ -81,6 +81,29 @@ internal fun StickerSetOverlay(
 }
 
 /**
+ * Read-only set browser for views without a composer, such as a discussion thread or the original-message dialog.
+ * The grid still shows and downloads previews, while sending stays in the chat that owns the message.
+ */
+@Composable
+internal fun StickerSetBrowser(
+    setId: Long?,
+    conversation: ConversationRepository,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val set = setId ?: return
+    StickerSetSheet(
+        setId = set,
+        conversation = conversation,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        onSend = null,
+        onDismiss = onDismiss
+    )
+}
+
+/**
  * Information about the sticker set behind a message. The user can browse it, send one of its stickers, and add or
  * remove the set. The sheet is independent from [StickerPickerPanel]: both share the grid and artwork primitives, but
  * this screen only fetches the one set TDLib identified for the tapped sticker.
@@ -92,7 +115,8 @@ internal fun StickerSetSheet(
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onSend: (StickerItem) -> Unit,
+    /** Null keeps the set readable when the caller has no chat to send into. */
+    onSend: ((StickerItem) -> Unit)?,
     onDismiss: () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -151,12 +175,13 @@ internal fun StickerSetSheet(
     }
 
     fun send(item: StickerItem) {
+        val action = onSend ?: return
         if (item.premium && premium == false) {
             notice = premiumNotice
             return
         }
         notice = null
-        onSend(item)
+        action(item)
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = palette.surface) {
@@ -225,7 +250,7 @@ internal fun StickerSetSheet(
                             stickers = current.stickers,
                             observeFile = observeFile,
                             downloadFile = downloadFile,
-                            onClick = ::send
+                            onClick = if (onSend != null) ::send else null
                         )
                     }
                 }

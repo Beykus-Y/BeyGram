@@ -128,6 +128,7 @@ internal fun MessageThreadScreen(
     var reactionOptions by remember { mutableStateOf<List<ReactionOption>>(emptyList()) }
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
     var selectedMediaChatId by remember { mutableStateOf(0L) }
+    var stickerSetId by remember { mutableStateOf<Long?>(null) }
     // A view-once message is deleted as soon as it is opened; keep its page for this viewer session.
     var retainedViewOnce by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
     var openedViewOnceIds by remember(channelChatId, postId) { mutableStateOf(emptySet<Long>()) }
@@ -387,6 +388,7 @@ internal fun MessageThreadScreen(
                             }
                         } else null,
                         onReaction = { option -> changeReaction(message.chatId, message, option, addToRecent = false) },
+                        onStickerOpen = { id -> stickerSetId = id },
                         observeCustomEmoji = conversation::observeCustomEmoji,
                         onPollVote = { chatId, messageId, choices ->
                             scope.launch {
@@ -436,6 +438,7 @@ internal fun MessageThreadScreen(
                                 observeFile = observeFile,
                                 onDownloadFile = downloadFile,
                                 onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId; if (root.isViewOnce) retainedViewOnce = root },
+                                onStickerOpen = { media -> stickerSetId = media.stickerSetId },
                                 onPlayed = { conversation.openMessageContent(channelChatId, root.id) },
                                 onActions = { reactionTarget = channelChatId to root },
                                 onReplyClick = ::jump,
@@ -600,6 +603,13 @@ internal fun MessageThreadScreen(
             )
         }
     }
+    StickerSetBrowser(
+        setId = stickerSetId,
+        conversation = conversation,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        onDismiss = { stickerSetId = null }
+    )
 }
 
 @Composable
@@ -619,6 +629,7 @@ private fun ThreadCommentRow(
     onPollStop: (chatId: Long, messageId: Long) -> Unit,
     onLoadPollVoters: suspend (chatId: Long, messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>,
     onAddPollOption: suspend (chatId: Long, messageId: Long, text: String) -> Result<Unit>,
+    onStickerOpen: (Long) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>
 ) {
     val palette = beyGramPalette()
@@ -648,6 +659,7 @@ private fun ThreadCommentRow(
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
                 onOpen = { onOpenMedia() },
+                onStickerOpen = { media -> onStickerOpen(media.stickerSetId) },
                 onPlayed = onPlayed,
                 onActions = onActions,
                 onReplyClick = onReplyClick,

@@ -361,7 +361,8 @@ internal fun StickerGrid(
     stickers: List<StickerItem>,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onClick: (StickerItem) -> Unit,
+    /** Null makes the grid read-only, for a set opened from a view without a send target. */
+    onClick: ((StickerItem) -> Unit)?,
     onLongClick: ((StickerItem) -> Unit)? = null,
     footer: (@Composable () -> Unit)? = null
 ) {
@@ -375,7 +376,7 @@ internal fun StickerGrid(
         items(stickers, key = { it.key }) { item ->
             StickerCell(
                 item, observeFile, downloadFile,
-                onClick = { onClick(item) },
+                onClick = onClick?.let { action -> { action(item) } },
                 onLongClick = onLongClick?.let { action -> { action(item) } }
             )
         }
@@ -390,22 +391,26 @@ private fun StickerCell(
     item: StickerItem,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
     val emoji = item.emoji.ifBlank { stringResource(R.string.media_kind_sticker) }
     val description = stringResource(R.string.sticker_picker_item_description, emoji)
-    val longClickLabel = if (onLongClick != null) stringResource(R.string.sticker_picker_send_options) else null
+    val clickModifier = if (onClick == null && onLongClick == null) {
+        Modifier
+    } else {
+        Modifier.combinedClickable(
+            role = Role.Button,
+            onClickLabel = if (onClick != null) stringResource(R.string.common_send) else null,
+            onLongClickLabel = if (onLongClick != null) stringResource(R.string.sticker_picker_send_options) else null,
+            onClick = onClick ?: {},
+            onLongClick = onLongClick
+        )
+    }
     Box(
         Modifier.size(68.dp).clip(RoundedCornerShape(12.dp))
-            .combinedClickable(
-                role = Role.Button,
-                onClickLabel = stringResource(R.string.common_send),
-                onLongClickLabel = longClickLabel,
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
+            .then(clickModifier)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
