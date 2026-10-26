@@ -55,8 +55,27 @@
 
     <string name="account_security_phone_title">Telefonnummer</string>
     <string name="account_security_phone_current">Aktuelle Nummer: %1$s</string>
-    <string name="account_security_phone_unavailable_title">Nummernwechsel nicht verfügbar</string>
-    <string name="account_security_phone_unavailable_body">Telegram erlaubt den Nummernwechsel nur in offiziellen Android- und iOS-Apps. BeyGram kann diesen Vorgang nicht sicher ausführen: Ändern Sie die Nummer in der offiziellen Telegram-App, dann wird sie hier aktualisiert. Konto, Chats und andere Geräte bleiben erhalten.</string>
+    <string name="account_security_phone_description">Die Nummer dient der Anmeldung. Beim Wechsel bleiben Chats, Kontakte, Gruppen und andere Geräte erhalten.</string>
+    <string name="account_security_phone_change">Nummer ändern</string>
+    <string name="account_security_phone_dialog_title">Telefonnummer ändern</string>
+    <string name="account_security_phone_dialog_body">Chats, Kontakte, Gruppen, Cloud-Daten und andere angemeldete Geräte bleiben erhalten. Ihre Kontakte sehen die neue Nummer. Der Code wird an die NEUE Nummer gesendet, nicht an die aktuelle.</string>
+    <string name="account_security_phone_new_label">Neue Telefonnummer</string>
+    <string name="account_security_phone_invalid">Geben Sie die vollständige Nummer mit Ländervorwahl ein</string>
+    <string name="account_security_phone_send_code">Code abrufen</string>
+    <string name="account_security_phone_code_sent">Code an %1$s gesendet</string>
+    <string name="account_security_phone_delivery_app">Der Code kam in Telegram auf einem Gerät an, auf dem diese Nummer bereits angemeldet ist.</string>
+    <string name="account_security_phone_delivery_sms">Der Code wurde per SMS an die neue Nummer gesendet.</string>
+    <string name="account_security_phone_delivery_call">Sie erhalten einen Anruf, der Ihnen den Code vorliest.</string>
+    <string name="account_security_phone_delivery_flash_call">Es kommt ein kurzer Anruf. Der Code steht in der Nummer des Anrufers.</string>
+    <string name="account_security_phone_delivery_missed_call">Es kommt ein Anruf, den Sie nicht annehmen müssen. Der Code steht in der Nummer des Anrufers.</string>
+    <string name="account_security_phone_delivery_fragment">Der Code wird für diese Nummer auf der Fragment-Website angezeigt.</string>
+    <string name="account_security_phone_delivery_other">Der Code wurde auf anderem Weg gesendet. Prüfen Sie Nachrichten und Anrufe auf der neuen Nummer.</string>
+    <string name="account_security_phone_code_label">Code</string>
+    <string name="account_security_phone_confirm">Bestätigen</string>
+    <string name="account_security_phone_resend">Code erneut senden</string>
+    <string name="account_security_phone_changed">Telefonnummer geändert</string>
+    <string name="account_security_phone_banned">Diese Nummer ist in Telegram gesperrt</string>
+    <string name="account_security_phone_change_refused">Telegram hat die Nummeränderung in dieser App nicht erlaubt. Wenn der Fehler wiederholt auftritt, ändern Sie die Nummer in der offiziellen Telegram-App. Hier wird sie dann automatisch aktualisiert.</string>
 
     <string name="account_security_delete_title">Konto löschen</string>
     <string name="account_security_delete_description">Löscht das Konto auf den Telegram-Servern zusammen mit Cloud-Chats, Kontakten und Gruppenmitgliedschaften. Das ist keine normale Abmeldung auf diesem Gerät.</string>

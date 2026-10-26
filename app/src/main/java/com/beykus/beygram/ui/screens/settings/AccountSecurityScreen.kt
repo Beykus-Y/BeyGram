@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.CloudPasswordState
 import com.beykus.beygram.domain.model.NewPasswordValidation
+import com.beykus.beygram.domain.model.PhoneChangeCode
 import com.beykus.beygram.domain.model.isValidRecoveryEmail
 import com.beykus.beygram.domain.model.matchesDeletionConfirmation
 import com.beykus.beygram.domain.model.normalizeRecoveryEmail
@@ -69,6 +70,7 @@ private enum class AccountSecurityDialog {
     AddRecoveryEmail,
     ChangeRecoveryEmail,
     RemoveRecoveryEmail,
+    ChangePhone,
     DeleteAccount
 }
 
@@ -101,6 +103,8 @@ fun AccountSecurityScreen(
     var dialog by remember(accountId) { mutableStateOf<AccountSecurityDialog?>(null) }
     var refresh by remember(accountId) { mutableIntStateOf(0) }
     var deletedOnServer by remember(accountId) { mutableStateOf(false) }
+    // Non-null while a phone-number change waits for its code; the dialog switches to the code step.
+    var phoneChange by remember(accountId) { mutableStateOf<PhoneChangeCode?>(null) }
     // The app may still be deleting after this Activity is recreated. Never offer a
     // second destructive request or allow leaving while that process-owned job runs.
     val effectiveBusy = busy || deletionRunning
@@ -133,6 +137,7 @@ fun AccountSecurityScreen(
         if (!effectiveBusy) {
             dialog = null
             actionError = null
+            phoneChange = null
         }
     }
 
@@ -251,6 +256,78 @@ fun AccountSecurityScreen(
 
     fun cancelRecoveryEmailChange() {
         runStateAction(null) { repository.cancelRecoveryEmailChange() }
+    }
+
+    fun sendPhoneCode(phone: String) {
+        if (effectiveBusy) return
+        busy = true
+        actionError = null
+        notice = null
+        scope.launch {
+            try {
+                repository.sendPhoneChangeCode(phone).fold(
+                    { sent -> phoneChange = sent },
+                    { failure ->
+                        actionError = failure.userMessage(context, R.string.account_security_action_failed)
+                    }
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                actionError = failure.userMessage(context, R.string.account_security_action_failed)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    fun resendPhoneCode() {
+        if (effectiveBusy) return
+        busy = true
+        actionError = null
+        scope.launch {
+            try {
+                repository.resendPhoneChangeCode().fold(
+                    { resent -> phoneChange = resent },
+                    { failure ->
+                        actionError = failure.userMessage(context, R.string.account_security_action_failed)
+                    }
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                actionError = failure.userMessage(context, R.string.account_security_action_failed)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    fun confirmPhoneCode(code: String) {
+        if (effectiveBusy) return
+        busy = true
+        actionError = null
+        notice = null
+        scope.launch {
+            try {
+                repository.checkPhoneChangeCode(code).fold(
+                    {
+                        phoneChange = null
+                        dialog = null
+                        notice = context.getString(R.string.account_security_phone_changed)
+                    },
+                    { failure ->
+                        actionError = failure.userMessage(context, R.string.account_security_action_failed)
+                    }
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                actionError = failure.userMessage(context, R.string.account_security_action_failed)
+            } finally {
+                busy = false
+            }
+        }
     }
 
     fun deleteAccount(password: String) {
@@ -384,7 +461,13 @@ fun AccountSecurityScreen(
                     )
                 }
             }
-            item { PhoneNumberCard(currentPhone) }
+            item {
+                PhoneNumberCard(
+                    currentPhone = currentPhone,
+                    busy = effectiveBusy,
+                    onChange = { dialog = AccountSecurityDialog.ChangePhone; actionError = null }
+                )
+            }
             item {
                 DeleteAccountCard(
                     deletedOnServer = deletedOnServer,
@@ -450,6 +533,15 @@ fun AccountSecurityScreen(
             error = actionError,
             onDismiss = { closeDialog() },
             onConfirm = { password, _ -> submitRecoveryEmail(password, "", remove = true) }
+        )
+        AccountSecurityDialog.ChangePhone -> PhoneNumberChangeDialog(
+            pending = phoneChange,
+            busy = effectiveBusy,
+            error = actionError,
+            onDismiss = { closeDialog() },
+            onRequestCode = { sendPhoneCode(it) },
+            onResend = { resendPhoneCode() },
+            onConfirm = { confirmPhoneCode(it) }
         )
         AccountSecurityDialog.DeleteAccount -> DeleteAccountDialog(
             hasPassword = state?.hasPassword == true,
@@ -637,7 +729,7 @@ private fun PendingRecoveryEmailCard(
 }
 
 @Composable
-private fun PhoneNumberCard(currentPhone: String) {
+private fun PhoneNumberCard(currentPhone: String, busy: Boolean, onChange: () -> Unit) {
     val palette = beyGramPalette()
     SecurityCard(stringResource(R.string.account_security_phone_title)) {
         if (currentPhone.isNotBlank()) {
@@ -648,16 +740,17 @@ private fun PhoneNumberCard(currentPhone: String) {
             )
         }
         Text(
-            stringResource(R.string.account_security_phone_unavailable_title),
-            color = palette.warningText,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 15.sp
-        )
-        Text(
-            stringResource(R.string.account_security_phone_unavailable_body),
+            stringResource(R.string.account_security_phone_description),
             color = palette.textSecondary,
             fontSize = 14.sp
         )
+        Button(
+            onClick = onChange,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(R.string.account_security_phone_change))
+        }
     }
 }
 

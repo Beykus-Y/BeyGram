@@ -953,6 +953,9 @@ class TdLibTelegramRepository private constructor(
     override suspend fun confirmRecoveryEmail(code: String) = accountSecurity.confirmRecoveryEmail(code)
     override suspend fun resendRecoveryEmailCode() = accountSecurity.resendRecoveryEmailCode()
     override suspend fun cancelRecoveryEmailChange() = accountSecurity.cancelRecoveryEmailChange()
+    override suspend fun sendPhoneChangeCode(phoneNumber: String) = accountSecurity.sendPhoneChangeCode(phoneNumber)
+    override suspend fun resendPhoneChangeCode() = accountSecurity.resendPhoneChangeCode()
+    override suspend fun checkPhoneChangeCode(code: String) = accountSecurity.checkPhoneChangeCode(code)
     override suspend fun deleteTelegramAccount(password: String): Result<Unit> {
         if (!isLegacyAccount) return accountSecurity.deleteAccount(password)
         // DeleteAccount destroys the legacy authorization and closes the client rather

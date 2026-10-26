@@ -55,8 +55,27 @@
 
     <string name="account_security_phone_title">Phone number</string>
     <string name="account_security_phone_current">Current number: %1$s</string>
-    <string name="account_security_phone_unavailable_title">Phone number change is unavailable</string>
-    <string name="account_security_phone_unavailable_body">Telegram allows changing a phone number only in official Android and iOS apps. BeyGram cannot safely perform this operation: change the number in the official Telegram app and it will update here. The account, chats and other devices are preserved.</string>
+    <string name="account_security_phone_description">The number is used to sign in. Changing it keeps your chats, contacts, groups and other devices.</string>
+    <string name="account_security_phone_change">Change number</string>
+    <string name="account_security_phone_dialog_title">Change phone number</string>
+    <string name="account_security_phone_dialog_body">Chats, contacts, groups, cloud data and other signed-in devices are kept. People in your contacts will see the new number. The code is sent to the NEW number, not the current one.</string>
+    <string name="account_security_phone_new_label">New phone number</string>
+    <string name="account_security_phone_invalid">Enter the full number, including the country code</string>
+    <string name="account_security_phone_send_code">Get code</string>
+    <string name="account_security_phone_code_sent">Code sent to %1$s</string>
+    <string name="account_security_phone_delivery_app">The code came to Telegram on a device where this number is already signed in.</string>
+    <string name="account_security_phone_delivery_sms">The code was sent by SMS to the new number.</string>
+    <string name="account_security_phone_delivery_call">You will get a call that reads out the code.</string>
+    <string name="account_security_phone_delivery_flash_call">A short call will come in. The code is in the number that calls.</string>
+    <string name="account_security_phone_delivery_missed_call">A missed call will come in. The code is in the number that calls.</string>
+    <string name="account_security_phone_delivery_fragment">The code is shown on the Fragment website for this number.</string>
+    <string name="account_security_phone_delivery_other">The code was sent another way. Check messages and calls on the new number.</string>
+    <string name="account_security_phone_code_label">Code</string>
+    <string name="account_security_phone_confirm">Confirm</string>
+    <string name="account_security_phone_resend">Send the code again</string>
+    <string name="account_security_phone_changed">Phone number changed</string>
+    <string name="account_security_phone_banned">This number is blocked in Telegram</string>
+    <string name="account_security_phone_change_refused">Telegram did not allow the number change in this app. If the error keeps appearing, change the number in the official Telegram app; it will update here automatically.</string>
 
     <string name="account_security_delete_title">Delete account</string>
     <string name="account_security_delete_description">Deletes the account on Telegram servers together with cloud chats, contacts and group memberships. This is not a regular sign-out on this device.</string>

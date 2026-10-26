@@ -55,8 +55,27 @@
 
     <string name="account_security_phone_title">Номер телефона</string>
     <string name="account_security_phone_current">Текущий номер: %1$s</string>
-    <string name="account_security_phone_unavailable_title">Смена номера недоступна</string>
-    <string name="account_security_phone_unavailable_body">Telegram разрешает менять номер только официальным приложениям Android и iOS. BeyGram не может безопасно выполнить эту операцию: смените номер в официальном Telegram, и он обновится здесь. Аккаунт, чаты и другие устройства сохранятся.</string>
+    <string name="account_security_phone_description">Номер нужен для входа в аккаунт. При смене номера чаты, контакты, группы и другие устройства сохраняются.</string>
+    <string name="account_security_phone_change">Сменить номер</string>
+    <string name="account_security_phone_dialog_title">Сменить номер телефона</string>
+    <string name="account_security_phone_dialog_body">Чаты, контакты, группы, облачные данные и другие устройства с этим аккаунтом сохранятся. Люди из ваших контактов увидят новый номер. Код придёт на новый номер, а не на текущий.</string>
+    <string name="account_security_phone_new_label">Новый номер телефона</string>
+    <string name="account_security_phone_invalid">Введите номер полностью, с кодом страны</string>
+    <string name="account_security_phone_send_code">Получить код</string>
+    <string name="account_security_phone_code_sent">Код отправлен на %1$s</string>
+    <string name="account_security_phone_delivery_app">Код пришёл в Telegram на устройство, где уже выполнен вход с этим номером.</string>
+    <string name="account_security_phone_delivery_sms">Код пришёл SMS-сообщением на новый номер.</string>
+    <string name="account_security_phone_delivery_call">Вам позвонят и продиктуют код.</string>
+    <string name="account_security_phone_delivery_flash_call">Поступит короткий звонок. Код указан в номере, с которого позвонили.</string>
+    <string name="account_security_phone_delivery_missed_call">Поступит пропущенный звонок. Код указан в номере, с которого позвонили.</string>
+    <string name="account_security_phone_delivery_fragment">Код показан на сайте Fragment для этого номера.</string>
+    <string name="account_security_phone_delivery_other">Код отправлен другим способом. Проверьте сообщения и звонки на новом номере.</string>
+    <string name="account_security_phone_code_label">Код</string>
+    <string name="account_security_phone_confirm">Подтвердить</string>
+    <string name="account_security_phone_resend">Отправить код ещё раз</string>
+    <string name="account_security_phone_changed">Номер телефона изменён</string>
+    <string name="account_security_phone_banned">Этот номер заблокирован в Telegram</string>
+    <string name="account_security_phone_change_refused">Telegram не разрешил сменить номер в этом приложении. Если ошибка повторяется, смените номер в официальном приложении Telegram — здесь он обновится сам.</string>
 
     <string name="account_security_delete_title">Удаление аккаунта</string>
     <string name="account_security_delete_description">Удаляет аккаунт на серверах Telegram вместе с облачными чатами, контактами и членством в группах. Это не обычный выход из аккаунта на этом устройстве.</string>
