@@ -47,4 +47,9 @@ class RussianPluralTest {
         assertEquals("few", pluralForm("ru", 22, "one", "few", "many"))
         assertEquals("many", pluralForm("ru", 25, "one", "few", "many"))
     }
+
+    @Test fun pluralFormUnsupportedLanguageFallsBackToRussianStrings() {
+        assertEquals("few", pluralForm("ja", 2, "one", "few", "many"))
+        assertEquals("one", pluralForm("ja", 21, "one", "few", "many"))
+    }
 }

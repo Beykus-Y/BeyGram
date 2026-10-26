@@ -15,11 +15,11 @@ internal fun <T> russianPlural(count: Int, one: T, few: T, many: T): T {
 }
 
 /**
- * Форма числа по языку интерфейса: русские правила для ru/uk/be, во французском 0 и 1 — «one»,
- * в остальных языках (en, de, es) «one» только для 1, иначе «many».
+ * Форма числа по языку интерфейса: во французском 0 и 1 — «one», в en/de/es «one» только для 1, иначе «many».
+ * Любой другой язык показывает строки из values/ (русские), поэтому для него русские правила.
  */
 internal fun <T> pluralForm(language: String, count: Int, one: T, few: T, many: T): T = when (language) {
-    "ru", "uk", "be" -> russianPlural(count, one, few, many)
+    "en", "de", "es" -> if (count == 1) one else many
     "fr" -> if (count == 0 || count == 1) one else many
-    else -> if (count == 1) one else many
+    else -> russianPlural(count, one, few, many)
 }
