@@ -138,5 +138,8 @@ private fun Exception.isFloodWait(): Boolean = message?.contains("FLOOD_WAIT") =
 
 private fun requestErrorText(error: Exception): UiText = when {
     error.isFloodWait() -> UiText.Res(R.string.err_tdlib_flood_wait)
+    error.message?.contains("USERNAME_NOT_OCCUPIED") == true ||
+        error.message?.contains("username not found", ignoreCase = true) == true ->
+        UiText.Res(R.string.err_username_not_found)
     else -> UiText.Res(R.string.err_tdlib_action_failed)
 }

@@ -1,8 +1,15 @@
 package com.beykus.beygram.ui.screens.chat
 
 import java.net.URI
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
@@ -16,12 +23,17 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.input.pointer.changedToCancel
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.*
@@ -32,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.deeplink.messageEntityLink
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -66,8 +80,10 @@ internal fun FormattedMessageText(
     observeCustomEmoji: ObserveCustomEmoji? = null,
     observeFile: ObserveMediaFile? = null,
     downloadFile: DownloadMediaFile? = null,
+    onOpenEntity: ((MessageEntityLink) -> Unit)? = null,
+    entityClicksEnabled: Boolean = true,
     modifier: Modifier = Modifier
-) = FormattedMessageText(message.text, message.entities, message.id, observeCustomEmoji, observeFile, downloadFile, modifier)
+) = FormattedMessageText(message.text, message.entities, message.id, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled, modifier)
 
 /** Used for inline translations, whose text and entities are not fields of the original [ChatMessage]. */
 @Composable
@@ -78,12 +94,14 @@ internal fun FormattedMessageText(
     observeCustomEmoji: ObserveCustomEmoji? = null,
     observeFile: ObserveMediaFile? = null,
     downloadFile: DownloadMediaFile? = null,
+    onOpenEntity: ((MessageEntityLink) -> Unit)? = null,
+    entityClicksEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val palette = beyGramPalette()
     val parts = remember(text, entities) { splitMessageText(text, entities) }
     if (parts.size == 1 && parts.single().block == null) {
-        RichTextPart(messageId, parts.single(), observeCustomEmoji, observeFile, downloadFile, modifier)
+        RichTextPart(messageId, parts.single(), observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled, modifier)
         return
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -92,7 +110,7 @@ internal fun FormattedMessageText(
                 when (part.block) {
                     TextStyleKind.Quote -> Box(Modifier.clip(RoundedCornerShape(6.dp)).background(palette.accent.copy(alpha = 0.12f))) {
                         Row(Modifier.padding(start = 11.dp, end = 25.dp, top = 6.dp, bottom = 6.dp)) {
-                            RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile)
+                            RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled)
                         }
                         Box(Modifier.matchParentSize().drawWithContent {
                             drawRect(palette.accent, size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height))
@@ -101,9 +119,9 @@ internal fun FormattedMessageText(
                             modifier = Modifier.align(Alignment.TopEnd).padding(end = 5.dp, top = 1.dp))
                     }
                     TextStyleKind.Pre -> Box(Modifier.clip(RoundedCornerShape(6.dp)).background(palette.textSecondary.copy(alpha = 0.09f)).padding(8.dp)) {
-                        RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile)
+                        RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled)
                     }
-                    else -> RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile)
+                    else -> RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled)
                 }
             }
         }
@@ -117,12 +135,13 @@ private fun RichTextPart(
     observeCustomEmoji: ObserveCustomEmoji?,
     observeFile: ObserveMediaFile?,
     downloadFile: DownloadMediaFile?,
+    onOpenEntity: ((MessageEntityLink) -> Unit)?,
+    entityClicksEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     val palette = beyGramPalette()
     val messageSize = LocalMessageTextSize.current
     val lineSpacing = LocalMessageLineSpacing.current
-    val uri = LocalUriHandler.current
     val context = LocalContext.current
     var revealed by remember(messageId, part) { mutableStateOf(false) }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -141,6 +160,18 @@ private fun RichTextPart(
             }
         }
     }
+    // A link hidden under an unrevealed spoiler is not tappable; a revealed spoiler exposes its links again.
+    val actions = remember(part.text, entities, hidden, entityClicksEnabled) {
+        if (!entityClicksEnabled) emptyList() else entities.mapNotNull { entity ->
+            val end = entity.offset + entity.length
+            val link = messageEntityLink(entity, part.text) ?: return@mapNotNull null
+            if (hidden.any { it.offset < end && it.offset + it.length > entity.offset }) return@mapNotNull null
+            MessageEntityAction(entity.offset, end, link)
+        }
+    }
+    val spoilers = remember(entities, hidden, entityClicksEnabled) {
+        if (entityClicksEnabled) hidden else emptyList()
+    }
     val annotated = buildAnnotatedString {
         // Inline content uses the original glyphs as alternate text, so every offset and style below stays unchanged.
         var cursor = 0
@@ -154,21 +185,6 @@ private fun RichTextPart(
             val start = entity.offset
             val end = start + entity.length
             addStyle(entitySpan(entity.kind, palette.accentInk, palette.textSecondary), start, end)
-            val text = part.text.substring(start, end)
-            val target = when (entity.kind) {
-                TextStyleKind.Url -> entity.argument.ifEmpty { text }
-                TextStyleKind.Mention -> "https://t.me/${text.removePrefix("@")}" 
-                TextStyleKind.MentionName -> "tg://user?id=${entity.argument}"
-                TextStyleKind.Email -> "mailto:$text"
-                TextStyleKind.Phone -> "tel:$text"
-                else -> null
-            }
-            if (target != null && hidden.none { it.offset < end && it.offset + it.length > start }) {
-                addLink(LinkAnnotation.Clickable("url:$start", styles = TextLinkStyles(style = SpanStyle(color = palette.accentInk))) {
-                    val safe = safeMessageUrl(target)
-                    if (safe == null || runCatching { uri.openUri(safe) }.isFailure) Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
-                }, start, end)
-            }
         }
         val underline = entities.filter { it.kind == TextStyleKind.Underline }
         entities.filter { it.kind == TextStyleKind.Strike }.forEach { strike -> underline.forEach {
@@ -178,10 +194,6 @@ private fun RichTextPart(
         } }
         hidden.forEach {
             addStyle(SpanStyle(color = Color.Transparent, background = Color.Transparent, textDecoration = TextDecoration.None), it.offset, it.offset + it.length)
-            addLink(LinkAnnotation.Clickable("spoiler:${it.offset}", styles = TextLinkStyles(
-                style = SpanStyle(color = Color.Transparent, background = Color.Transparent, textDecoration = TextDecoration.None),
-                pressedStyle = SpanStyle(color = Color.Transparent, background = Color.Transparent)
-            )) { revealed = true }, it.offset, it.offset + it.length)
         }
     }
     val observeEmoji = observeCustomEmoji
@@ -199,11 +211,31 @@ private fun RichTextPart(
                 }
             }
         }
-    val accessibility = if (hidden.isEmpty()) Modifier else Modifier.clearAndSetSemantics {
-        text = AnnotatedString(masked)
-        onClick(context.getString(R.string.chat_reveal_spoiler)) { revealed = true; true }
+    val accessibility = when {
+        hidden.isNotEmpty() -> Modifier.clearAndSetSemantics {
+            text = AnnotatedString(masked)
+            onClick(context.getString(R.string.chat_reveal_spoiler)) { revealed = true; true }
+        }
+        actions.isEmpty() -> Modifier
+        else -> Modifier.semantics {
+            customActions = actions.map { action ->
+                CustomAccessibilityAction(
+                    context.getString(R.string.a11y_open_link, action.link.accessibilityLabel())
+                ) {
+                    openMessageEntity(context, action.link, onOpenEntity)
+                    true
+                }
+            }
+        }
     }
-    Text(annotated, modifier = modifier.then(accessibility).drawWithContent {
+    val tapModifier = Modifier.messageEntityTapHandler(
+        layout = { layout },
+        actions = actions,
+        spoilers = spoilers,
+        onLink = { link -> openMessageEntity(context, link, onOpenEntity) },
+        onRevealSpoiler = { revealed = true }
+    )
+    Text(annotated, modifier = modifier.then(accessibility).then(tapModifier).drawWithContent {
         drawContent()
         val result = layout ?: return@drawWithContent
         hidden.forEach { entity ->
@@ -230,6 +262,135 @@ private fun RichTextPart(
 }
 
 private fun inlineEmojiId(run: InlineCustomEmojiRun): String = "custom-emoji:${run.customEmojiId}:${run.offset}"
+
+internal data class MessageEntityAction(val start: Int, val end: Int, val link: MessageEntityLink)
+
+/** The entity under a tap. A visible link wins over a spoiler range; hidden links never reach the action list. */
+internal sealed interface MessageEntityTap {
+    data class Link(val action: MessageEntityAction) : MessageEntityTap
+    data object Spoiler : MessageEntityTap
+}
+
+internal fun messageEntityTapAt(
+    offset: Int,
+    actions: List<MessageEntityAction>,
+    spoilers: List<IntRange>
+): MessageEntityTap? {
+    actions.firstOrNull { offset in it.start until it.end }?.let { return MessageEntityTap.Link(it) }
+    return spoilers.firstOrNull { offset in it }?.let { MessageEntityTap.Spoiler }
+}
+
+private fun MessageEntityLink.accessibilityLabel(): String = when (this) {
+    is MessageEntityLink.PublicChat -> "@$username"
+    is MessageEntityLink.User -> "tg://user?id=$userId"
+    is MessageEntityLink.TelegramMessage -> url
+    is MessageEntityLink.TelegramInvite -> url
+    is MessageEntityLink.ExternalUrl -> url
+    is MessageEntityLink.Email -> address
+    is MessageEntityLink.Phone -> number
+    is MessageEntityLink.TelegramPhone -> phone
+}
+
+/**
+ * Entity taps are detected without LinkAnnotation on purpose: its tap detector consumes every down event and would
+ * block the bubble's long press. Here the down is left for the parent; only a completed short tap on an entity is
+ * consumed, while a long press or a drag stays with the message menu, selection mode and the scrolling list.
+ */
+private fun Modifier.messageEntityTapHandler(
+    layout: () -> TextLayoutResult?,
+    actions: List<MessageEntityAction>,
+    spoilers: List<MessageTextEntity>,
+    onLink: (MessageEntityLink) -> Unit,
+    onRevealSpoiler: () -> Unit
+): Modifier {
+    if (actions.isEmpty() && spoilers.isEmpty()) return this
+    return pointerInput(actions, spoilers) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val currentLayout = layout() ?: return@awaitEachGesture
+            val offset = currentLayout.getOffsetForPosition(down.position)
+            if (down.position.x < 0f || down.position.y < 0f ||
+                down.position.x > currentLayout.size.width.toFloat() || down.position.y > currentLayout.size.height.toFloat()
+            ) return@awaitEachGesture
+            val tap = messageEntityTapAt(
+                offset,
+                actions,
+                spoilers.map { it.offset until it.offset + it.length }
+            ) ?: return@awaitEachGesture
+
+            var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
+            var moved = false
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (change.changedToUp()) { up = change; break }
+                if (change.changedToCancel()) break
+                val delta = change.positionChange()
+                if (delta.x * delta.x + delta.y * delta.y > viewConfiguration.touchSlop * viewConfiguration.touchSlop) { moved = true; break }
+                if (change.uptimeMillis - down.uptimeMillis > viewConfiguration.longPressTimeoutMillis) break
+            }
+            if (!moved && up != null && !up.isConsumed &&
+                up.uptimeMillis - down.uptimeMillis <= viewConfiguration.longPressTimeoutMillis
+            ) {
+                up.consume()
+                when (tap) {
+                    is MessageEntityTap.Link -> onLink(tap.action.link)
+                    MessageEntityTap.Spoiler -> onRevealSpoiler()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A Telegram entity is opened by the chat's TDLib navigation when available; everything else goes to exactly one
+ * external handler. The chat callback performs the lookup, so a tap never silently becomes a browser page or nothing.
+ */
+private fun openMessageEntity(context: Context, link: MessageEntityLink, handler: ((MessageEntityLink) -> Unit)?) {
+    when (link) {
+        is MessageEntityLink.ExternalUrl -> openWithSystemHandler(context, link.url)
+        is MessageEntityLink.Email -> openWithSystemHandler(context, "mailto:${link.address}")
+        is MessageEntityLink.Phone -> openWithSystemHandler(context, "tel:${link.number.filter { it.isDigit() || it == '+' }}")
+        is MessageEntityLink.PublicChat -> {
+            if (handler != null) handler(link)
+            else openWithSystemHandler(context, "https://t.me/${link.username}")
+        }
+        is MessageEntityLink.User -> {
+            if (handler != null) handler(link)
+            else openWithSystemHandler(context, "tg://user?id=${link.userId}")
+        }
+        is MessageEntityLink.TelegramMessage -> {
+            if (handler != null) handler(link)
+            else openWithSystemHandler(context, link.url)
+        }
+        is MessageEntityLink.TelegramInvite -> {
+            if (handler != null) handler(link)
+            else openWithSystemHandler(context, link.url)
+        }
+        is MessageEntityLink.TelegramPhone -> {
+            if (handler != null) handler(link)
+            else openWithSystemHandler(context, "https://t.me/+${link.phone.removePrefix("+")}")
+        }
+    }
+}
+
+private fun openWithSystemHandler(context: Context, target: String) {
+    val safe = safeMessageUrl(target)
+    if (safe == null) {
+        Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
+        return
+    }
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(safe))
+    // A non-Activity context (a dialog's window, an application context) needs its own task for ACTION_VIEW.
+    if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
+    } catch (_: Exception) {
+        Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
+    }
+}
 
 /**
  * One animated custom emoji in the text flow. The placeholder keeps the original emoji as its alternate text, so a

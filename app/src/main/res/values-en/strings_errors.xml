@@ -150,6 +150,8 @@
     <string name="err_telegram_not_running">Telegram is not running on this device yet.</string>
     <string name="err_username_format">Username: 5–32 Latin letters, digits and _, starting with a letter</string>
     <string name="err_username_invalid">Invalid username</string>
+    <string name="err_username_not_found">Username not found</string>
+    <string name="chat_unknown_title">Chat</string>
     <string name="err_username_purchase">This username is only available for purchase</string>
     <string name="err_username_taken">This username is already taken</string>
     <string name="err_vpn_core_bad_response">Proxy returned an invalid response</string>

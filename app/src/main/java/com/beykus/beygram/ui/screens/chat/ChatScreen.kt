@@ -69,6 +69,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
+import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.deeplink.copyableMessageLinks
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.domain.search.appendDistinctBy
@@ -131,6 +133,8 @@ fun ChatScreen(
     chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
     onServiceUser: (Long) -> Unit = {},
+    /** A formatter link that belongs to Telegram: the host resolves it in-app instead of opening a browser. */
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
     /** Opens a private chat for a contact card's "Message" action; defaults to the profile route. */
     onOpenUserChat: (Long) -> Unit = onServiceUser,
     /** Opens the channel post's comment thread; only channel posts with a linked discussion group call it. */
@@ -271,6 +275,7 @@ fun ChatScreen(
         }
     }
     var error by remember { mutableStateOf<String?>(null) }
+    var copyLinks by remember(chat.id) { mutableStateOf<List<String>>(emptyList()) }
     var botCommandMenu by remember(chat.id) { mutableStateOf<BotCommandMenu?>(null) }
     var botCommandMenuOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
     var inlineSending by remember(chat.id) { mutableStateOf(false) }
@@ -1336,6 +1341,9 @@ fun ChatScreen(
                     closeActions()
                 }
             },
+            onCopyEntity = if (actionMessage.isViewOnce || chat.hasProtectedContent) null else copyableMessageLinks(actionMessage.text, actionMessage.entities)
+                .takeIf { it.isNotEmpty() }
+                ?.let { values -> { copyLinks = values; closeActions() } },
             onForward = { forwardAsCopy = false; forwardId = actionMessage.id; closeActions() },
             onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() },
             onSelect = { enterSelection(actionMessage) },
@@ -1442,7 +1450,8 @@ fun ChatScreen(
                                     commentsBar = albumComments?.let { post ->
                                         { ChannelCommentsBar(listItem.messages.maxOfOrNull { it.replyCount } ?: 0) { onOpenComments(post) } }
                                     },
-                                    onAutoDownloadFile = onAutoDownloadFile)
+                                    onAutoDownloadFile = onAutoDownloadFile,
+                                    onOpenMessageEntity = onOpenMessageEntity)
                             }
                         }
                     }
@@ -1528,7 +1537,8 @@ fun ChatScreen(
                                 onToggleSelection = { toggleSelection(message) },
                                 commentsBar = if (showsChannelComments(chat.isChannel, message.isChannelPost, linkedDiscussionChatId)) {
                                     { ChannelCommentsBar(message.replyCount) { onOpenComments(message) } }
-                                } else null)
+                                } else null,
+                                onOpenMessageEntity = onOpenMessageEntity)
                         }
                         }
                     }
@@ -1684,6 +1694,15 @@ fun ChatScreen(
             if (secretChatClosed) stringResource(R.string.secret_chat_closed_composer) else stringResource(R.string.chat_read_only)
         )
         if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        // A bot with no outgoing message yet gets an explicit /start action, independent of inline mode or Mini Apps.
+        if (info?.kind == ProfileKind.Bot && !editing && !recordingActive && !attachments.active &&
+            !history.isLoading && history.messages.none { it.isOutgoing }
+        ) BotStartBar(
+            conversation = conversation,
+            chatId = chat.id,
+            forumTopicId = forumTopicId,
+            onError = { error = it.userMessage(context, R.string.chat_bot_start_failed) }
+        )
         if (!recordingActive && !editing && !attachments.active) BotInlineResultsPanel(
             chatId = chat.id,
             text = draft,
@@ -1941,7 +1960,16 @@ fun ChatScreen(
         },
         onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
     )
-    contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile) }
+    contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }
+    if (copyLinks.isNotEmpty()) MessageLinkCopyDialog(
+        links = copyLinks,
+        onCopy = { value ->
+            clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.message_action_copy_entity), value))
+            Toast.makeText(context, context.getString(R.string.message_entity_copied), Toast.LENGTH_SHORT).show()
+            copyLinks = emptyList()
+        },
+        onDismiss = { copyLinks = emptyList() }
+    )
     if (pinConfirm && actionMessage != null) AlertDialog(
         onDismissRequest = { pinConfirm = false },
         title = { Text(stringResource(R.string.chat_pin_channel_title)) },
@@ -2182,7 +2210,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onStopLiveLocation: ((ChatMessage) -> Unit)? = null,
     onWriteContact: ((Long) -> Unit)? = null,
     onLoadPollVoters: (suspend (messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>)? = null,
-    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null
+    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -2309,7 +2338,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     onAddPollOption = onAddPollOption
                                 )
                             }
-                            if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile)
+                            if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
                             message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile) }
                             translation?.let { state ->
                                 TranslationBlock(

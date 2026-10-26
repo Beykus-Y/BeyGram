@@ -364,6 +364,7 @@
     <string name="a11y_state_paused">En pausa</string>
     <string name="a11y_state_loading">Cargando</string>
     <string name="a11y_message_actions">Acciones del mensaje</string>
+    <string name="a11y_open_link">Abrir %1$s</string>
     <string name="a11y_open_attachment">Abrir adjunto</string>
     <string name="chat_comments_leave">Dejar un comentario</string>
     <plurals name="chat_comments_count"><item quantity="one">%d comentario</item><item quantity="other">%d comentarios</item></plurals>

@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -105,7 +106,8 @@ internal fun MessageAlbumBubble(
     onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     selectionMode: Boolean = false,
     selected: Boolean = false,
-    onToggleSelection: () -> Unit = {}
+    onToggleSelection: () -> Unit = {},
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     if (messages.isEmpty()) return
     val palette = beyGramPalette()
@@ -186,7 +188,7 @@ internal fun MessageAlbumBubble(
                                     onClick = { if (selectionMode) onToggleSelection() },
                                     onLongClick = { if (selectionMode) onToggleSelection() else onActions(captionMessage.id) }
                                 ).padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp)) {
-                                    captions.forEach { FormattedMessageText(it, observeCustomEmoji, observeFile, onDownloadFile) }
+                                    captions.forEach { FormattedMessageText(it, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode) }
                                 }
                             }
                         }

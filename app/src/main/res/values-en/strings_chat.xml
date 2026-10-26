@@ -62,6 +62,9 @@
     <string name="chat_forward_failed">Could not forward message</string>
     <string name="chat_history_load_older">Load earlier messages</string>
     <string name="chat_link_failed">Could not open link</string>
+    <string name="message_link_username_failed">Could not open %1$s</string>
+    <string name="chat_bot_start">Start bot</string>
+    <string name="chat_bot_start_failed">Could not start the bot</string>
     <string name="chat_media_position">%1$d of %2$d</string>
     <string name="chat_message">Message</string>
     <string name="chat_message_forwarded">Message forwarded</string>

@@ -638,6 +638,8 @@
     <string name="err_tdlib_request_timeout">Telegram не ответил вовремя. Попробуйте ещё раз.</string>
     <string name="err_username_format">Имя пользователя: 5–32 латинских символа, цифры и _, начинается с буквы</string>
     <string name="err_username_invalid">Недопустимое имя пользователя</string>
+    <string name="err_username_not_found">Такого имени пользователя нет</string>
+    <string name="chat_unknown_title">Чат</string>
     <string name="err_username_purchase">Это имя пользователя доступно только для покупки</string>
     <string name="err_username_taken">Это имя пользователя уже занято</string>
     <string name="err_telegram_not_running">Telegram на этом устройстве пока не запущен.</string>
@@ -724,6 +726,7 @@
     <string name="message_action_copy_text">Копировать текст</string>
     <string name="message_action_more">Ещё</string>
     <string name="message_action_copy_link">Копировать ссылку</string>
+    <string name="message_action_copy_entity">Копировать ссылку/ник</string>
     <string name="message_action_forward">Переслать</string>
     <string name="message_action_forward_copy">Переслать без автора</string>
     <string name="message_action_select">Выбрать сообщения</string>
@@ -751,6 +754,7 @@
     <string name="forward_topic_general">Основная тема</string>
     <string name="message_link">Ссылка на сообщение</string>
     <string name="message_link_copied">Ссылка скопирована</string>
+    <string name="message_entity_copied">Скопировано</string>
     <string name="err_message_link_unavailable">У этого сообщения нет доступной ссылки</string>
     <string name="message_action_edit">Редактировать</string>
     <string name="message_action_edit_caption">Изменить подпись</string>
@@ -1204,6 +1208,9 @@
     <string name="chat_pinned_retry">Повторить</string>
     <string name="chat_pinned_message">Сообщение</string>
     <string name="chat_link_failed">Не удалось открыть ссылку</string>
+    <string name="message_link_username_failed">Не удалось открыть %1$s</string>
+    <string name="chat_bot_start">Запустить бота</string>
+    <string name="chat_bot_start_failed">Не удалось запустить бота</string>
     <string name="chat_bot_copied">Текст скопирован</string>
     <string name="chat_bot_failed">Не удалось выполнить действие бота</string>
     <string name="chat_bot_unsupported">Эта кнопка недоступна в BeyGram; откройте её в Telegram</string>
@@ -1802,6 +1809,7 @@
     <string name="a11y_state_paused">Пауза</string>
     <string name="a11y_state_loading">Загрузка</string>
     <string name="a11y_message_actions">Действия с сообщением</string>
+    <string name="a11y_open_link">Открыть %1$s</string>
     <string name="a11y_open_attachment">Открыть вложение</string>
     <string name="deep_link_invite_title">Приглашение в чат</string>
     <string name="deep_link_invite_message">Войти в «%1$s»?</string>

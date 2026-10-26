@@ -343,6 +343,7 @@
     <string name="a11y_media_download">Herunterladen: %1$s</string>
     <string name="a11y_media_open">Öffnen: %1$s</string>
     <string name="a11y_message_actions">Nachrichtenaktionen</string>
+    <string name="a11y_open_link">%1$s öffnen</string>
     <string name="a11y_open_attachment">Anhang öffnen</string>
     <string name="a11y_profile_photo_open">Profilfoto öffnen</string>
     <string name="a11y_state_loading">Wird geladen</string>

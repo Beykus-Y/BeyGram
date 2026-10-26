@@ -60,6 +60,9 @@
     <string name="chat_forward_failed">Impossible de transférer le message</string>
     <string name="chat_history_load_older">Charger les messages précédents</string>
     <string name="chat_link_failed">Impossible d’ouvrir le lien</string>
+    <string name="message_link_username_failed">Impossible d’ouvrir %1$s</string>
+    <string name="chat_bot_start">Démarrer le bot</string>
+    <string name="chat_bot_start_failed">Impossible de démarrer le bot</string>
     <string name="chat_media_position">%1$d sur %2$d</string>
     <string name="chat_message">Message</string>
     <string name="chat_message_forwarded">Message transféré</string>

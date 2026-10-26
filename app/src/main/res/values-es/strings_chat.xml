@@ -25,6 +25,9 @@
     <string name="chat_forward_failed">No se pudo reenviar el mensaje</string>
     <string name="chat_history_load_older">Cargar mensajes anteriores</string>
     <string name="chat_link_failed">No se pudo abrir el enlace</string>
+    <string name="message_link_username_failed">No se pudo abrir %1$s</string>
+    <string name="chat_bot_start">Iniciar bot</string>
+    <string name="chat_bot_start_failed">No se pudo iniciar el bot</string>
     <string name="chat_media_position">%1$d de %2$d</string>
     <string name="chat_message">Mensaje</string>
     <string name="chat_message_forwarded">Mensaje reenviado</string>
