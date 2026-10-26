@@ -18,6 +18,8 @@ import android.util.LruCache
 import android.webkit.MimeTypeMap
 import android.widget.ImageView
 import androidx.compose.foundation.Image
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -125,13 +127,18 @@ import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
-import com.beykus.beygram.ui.screens.playback.TrackArtwork
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
+import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import com.beykus.beygram.ui.components.TrafficUsageBadge
 import com.beykus.beygram.ui.screens.playback.NowPlayingControls
 import com.beykus.beygram.ui.screens.playback.ViewerNowPlayingColors
+import com.beykus.beygram.ui.screens.playback.MusicPlaybackStatus
+import com.beykus.beygram.ui.screens.playback.MusicPlayerLauncher
+import com.beykus.beygram.ui.screens.playback.MUSIC_CARD_ARTWORK_DP
+import com.beykus.beygram.ui.screens.playback.musicCardStatus
+import com.beykus.beygram.ui.screens.playback.rememberMusicCardPlayback
+import com.beykus.beygram.ui.screens.playback.rememberPlaybackFraction
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -141,6 +148,7 @@ import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.roundToInt
 
 internal fun MediaKind.label(context: Context): String = when (this) {
     MediaKind.Photo -> context.getString(R.string.media_kind_photo)
@@ -160,6 +168,38 @@ internal fun MediaKind.label(context: Context): String = when (this) {
 }
 
 internal fun duration(seconds: Int) = "%d:%02d".format(seconds / 60, seconds % 60)
+
+/** The visual state of the music bubble button, animated when the transport changes. */
+private enum class MusicCardPlayVisual { Play, Pause, Replay, Download, Loading }
+
+/** Actual played fraction in the bubble; a leaf so the card does not read the 250 ms state stream itself. */
+@Composable
+private fun MusicCardProgress() {
+    val fraction = rememberPlaybackFraction()
+    LinearProgressIndicator(
+        progress = { fraction },
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp).height(2.dp),
+        color = beyGramPalette().accent,
+        trackColor = Color.Transparent
+    )
+}
+
+@Composable
+private fun musicCardStatusText(status: MusicPlaybackStatus, downloadProgress: Float): String? = when (status) {
+    MusicPlaybackStatus.Downloading -> if (downloadProgress > 0f) {
+        stringResource(R.string.music_card_downloading, (downloadProgress * 100f).roundToInt())
+    } else {
+        stringResource(R.string.music_card_downloading_unknown)
+    }
+    MusicPlaybackStatus.Buffering -> stringResource(R.string.music_card_buffering)
+    MusicPlaybackStatus.Playing -> stringResource(R.string.music_card_playing)
+    MusicPlaybackStatus.Paused -> stringResource(R.string.music_card_paused)
+    MusicPlaybackStatus.Ended -> stringResource(R.string.music_card_ended)
+    MusicPlaybackStatus.Failed -> stringResource(R.string.music_card_failed)
+    MusicPlaybackStatus.NotDownloaded -> stringResource(R.string.music_card_not_downloaded)
+    MusicPlaybackStatus.Unavailable -> stringResource(R.string.music_card_unavailable)
+    MusicPlaybackStatus.Ready -> null
+}
 
 /** Декодированные картинки до 1024 px держатся в памяти, пока их не вытеснят: повторный вход в композицию (прокрутка, возврат в чат) не декодирует файл заново. Полноразмерные картинки просмотрщика сюда не попадают. */
 private object DecodedImageCache {
@@ -511,45 +551,151 @@ internal fun MediaPreview(
             )
         }
     } else if (media.kind == MediaKind.Audio) {
-        val playingFlow = remember(media.fileId, accountId, origin) {
-            val key = media.playbackKey(accountId, origin)
-            PlaybackEngine.state.map { it.item?.key == key && it.playing }.distinctUntilChanged()
-        }
-        val musicPlaying by playingFlow.collectAsStateWithLifecycle(initialValue = false)
+        val playbackKey = remember(media.fileId, accountId, origin) { media.playbackKey(accountId, origin) }
+        val card = rememberMusicCardPlayback(playbackKey)
+        val status = musicCardStatus(
+            playback = card,
+            isDownloading = file.isDownloading,
+            waitingForDownload = waitingForAudio,
+            hasPlayableSource = audioPath != null,
+            downloadFailed = file.error != null
+        )
         val title = media.title.ifBlank { media.fileName.ifBlank { stringResource(R.string.media_kind_audio) } }
+        val artist = media.performer.trim()
         val cover = if (thumbId != media.fileId) thumb.localPath else null
-        val playLabel = stringResource(if (musicPlaying) R.string.common_pause else R.string.common_play)
+        val meta = listOfNotNull(
+            duration(media.durationSeconds).takeIf { media.durationSeconds > 0 },
+            formatMediaSize(file.size).takeIf { it.isNotBlank() }
+        ).joinToString(" · ")
+        val statusText = musicCardStatusText(
+            status = status,
+            downloadProgress = file.downloadProgress
+        )
+        val playLabel = when {
+            status == MusicPlaybackStatus.Downloading || status == MusicPlaybackStatus.NotDownloaded ->
+                stringResource(R.string.music_card_play_download)
+            status == MusicPlaybackStatus.Unavailable -> stringResource(R.string.music_card_play_download)
+            status == MusicPlaybackStatus.Failed -> stringResource(R.string.player_retry)
+            status == MusicPlaybackStatus.Ended -> stringResource(R.string.player_replay)
+            card.playing -> stringResource(R.string.common_pause)
+            else -> stringResource(R.string.common_play)
+        }
+        val openLabel = stringResource(R.string.player_mini_open)
         val longPressLabel = stringResource(R.string.a11y_message_actions)
+        val reducedMotion = systemReducedMotion()
         Row(
             Modifier.width(280.dp).clip(RoundedCornerShape(12.dp))
-                .combinedClickable(onClickLabel = playLabel, onLongClickLabel = longPressLabel, onClick = { playAudio() }, onLongClick = onLongPress)
+                .combinedClickable(
+                    onClickLabel = if (card.isCurrent) openLabel else playLabel,
+                    onLongClickLabel = longPressLabel,
+                    onClick = { if (card.isCurrent) MusicPlayerLauncher.open() else playAudio() },
+                    onLongClick = onLongPress
+                )
                 .padding(top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TrackArtwork(artworkPath = cover, audioPath = audioPath, modifier = Modifier.size(44.dp),
-                background = palette.accentSoft, tint = palette.accentInk)
-            Spacer(Modifier.width(8.dp))
+            TrackArtwork(
+                artworkPath = cover,
+                audioPath = audioPath,
+                modifier = Modifier.size(MUSIC_CARD_ARTWORK_DP.dp),
+                background = palette.accentSoft,
+                tint = palette.accentInk,
+                cornerRadius = 10.dp,
+                border = palette.divider.copy(alpha = 0.55f)
+            )
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(media.performer.ifBlank {
-                    formatMediaSize(file.size) + if (media.durationSeconds > 0) " · " + duration(media.durationSeconds) else ""
-                }, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (media.performer.isNotBlank() && media.durationSeconds > 0) {
-                    Text(duration(media.durationSeconds), color = palette.textSecondary, fontSize = 11.sp)
+                Text(
+                    title,
+                    color = palette.textPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    artist.ifBlank { meta },
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 1.dp)
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (artist.isNotBlank() && meta.isNotBlank()) {
+                        Text(meta, color = palette.textSecondary, fontSize = 11.sp, maxLines = 1)
+                    }
+                    if (statusText != null) {
+                        if (artist.isNotBlank() && meta.isNotBlank()) {
+                            Text(" · ", color = palette.textSecondary, fontSize = 11.sp)
+                        }
+                        Text(
+                            statusText,
+                            color = when (status) {
+                                MusicPlaybackStatus.Failed, MusicPlaybackStatus.Unavailable -> palette.danger
+                                MusicPlaybackStatus.Playing -> palette.accentInk
+                                else -> palette.textSecondary
+                            },
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
                 if (file.isDownloading || file.isUploading) {
-                    LinearProgressIndicator(progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                    LinearProgressIndicator(
+                        progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    )
+                } else if (card.isCurrent) {
+                    MusicCardProgress()
                 }
             }
-            IconButton(onClick = { playAudio() }, modifier = Modifier.size(48.dp)) {
-                if (file.isDownloading || waitingForAudio) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = palette.accent)
-                } else {
-                    Icon(if (musicPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = stringResource(if (musicPlaying) R.string.common_pause else R.string.common_play),
-                        tint = palette.accentInk)
+            IconButton(
+                onClick = { playAudio() },
+                modifier = Modifier.size(48.dp).semantics { contentDescription = playLabel }
+            ) {
+                val visual = when {
+                    status == MusicPlaybackStatus.Downloading -> MusicCardPlayVisual.Loading
+                    status == MusicPlaybackStatus.Buffering -> MusicCardPlayVisual.Loading
+                    status == MusicPlaybackStatus.NotDownloaded -> MusicCardPlayVisual.Download
+                    status == MusicPlaybackStatus.Failed || status == MusicPlaybackStatus.Ended -> MusicCardPlayVisual.Replay
+                    status == MusicPlaybackStatus.Unavailable -> MusicCardPlayVisual.Download
+                    card.playing -> MusicCardPlayVisual.Pause
+                    else -> MusicCardPlayVisual.Play
+                }
+                Crossfade(
+                    targetState = visual,
+                    animationSpec = tween(durationMillis = if (reducedMotion) 0 else 150),
+                    label = "musicCardButton"
+                ) { shown ->
+                    when (shown) {
+                        MusicCardPlayVisual.Loading -> CircularProgressIndicator(
+                            Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = palette.accent
+                        )
+                        MusicCardPlayVisual.Download -> Icon(
+                            Icons.Rounded.Download,
+                            null,
+                            tint = palette.accentInk
+                        )
+                        MusicCardPlayVisual.Replay -> Icon(
+                            Icons.Rounded.Replay,
+                            null,
+                            tint = palette.accentInk
+                        )
+                        MusicCardPlayVisual.Pause -> Icon(
+                            Icons.Rounded.Pause,
+                            null,
+                            tint = palette.accentInk
+                        )
+                        MusicCardPlayVisual.Play -> Icon(
+                            Icons.Rounded.PlayArrow,
+                            null,
+                            tint = palette.accentInk
+                        )
+                    }
                 }
             }
             IconButton(onClick = onOpen, modifier = Modifier.size(48.dp)) {
