@@ -185,6 +185,8 @@ dependencies {
     implementation(libs.androidx.annotation)
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.webkit)
+    // Installs the baseline profile packaged in the APK (src/main/baseline-prof.txt) ahead of the first launch.
+    implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.ui)
