@@ -423,6 +423,9 @@ fun MessageMedia.playbackItem(
 /** Скорость без лишнего нуля: «1» и «2», но «0.5» и «1.5». */
 internal fun speedLabel(speed: Float): String = if (speed % 1f == 0f) speed.toInt().toString() else speed.toString()
 
+/** Whether restarting the current item with Previous should resume playback after the seek to zero. */
+internal fun PlaybackState.restartResumeIntent(): Boolean = playing || intentPlaying
+
 /** Music and voice/video note speeds never affect each other. */
 internal fun playbackSpeedFor(kind: MediaKind, musicSpeed: Float, voiceSpeed: Float): Float =
     if (kind == MediaKind.Audio) musicSpeed else voiceSpeed

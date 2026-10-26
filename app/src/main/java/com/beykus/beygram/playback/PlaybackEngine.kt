@@ -936,8 +936,27 @@ object PlaybackEngine {
         val state = _state.value
         // Previous restarts the current track when it is already a few seconds in; otherwise it goes to the previous item.
         if (!state.ended && state.positionMs >= PREVIOUS_RESTART_THRESHOLD_MS) {
+            val resume = state.restartResumeIntent()
+            // A deferred growing-file seek must not resurrect the old position when the download completes.
+            clearDeferredSeek()
+            pendingStartFraction = 0f
             target.seekTo(0L)
-            _state.update { it.copy(positionMs = 0L, ended = false, failed = false) }
+            if (resume) {
+                if (target.playbackState == Player.STATE_IDLE) target.prepare()
+                if (state.item?.systemPrivate != true) startPlaybackService()
+                target.play()
+                startProgress()
+            }
+            _state.update {
+                it.copy(
+                    positionMs = 0L,
+                    ended = false,
+                    failed = false,
+                    playing = target.isPlaying,
+                    intentPlaying = resume,
+                    isBuffering = target.playbackState == Player.STATE_BUFFERING
+                ).withTimelineNavigation(target)
+            }
             return
         }
         val wasPlaying = state.playing || state.intentPlaying || state.ended

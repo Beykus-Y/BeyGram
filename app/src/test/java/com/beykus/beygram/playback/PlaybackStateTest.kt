@@ -40,4 +40,12 @@ class PlaybackStateTest {
         assertTrue(state.intentPlaying)
         assertTrue(state.isBuffering)
     }
+
+    @Test
+    fun previousRestartPreservesPlaybackIntent() {
+        val item = PlaybackItem("Audio:1", MediaKind.Audio, "/music.ogg", "Music", durationSeconds = 180)
+        assertTrue(PlaybackState(item = item, playing = false, intentPlaying = true).restartResumeIntent())
+        assertTrue(PlaybackState(item = item, playing = true, intentPlaying = false).restartResumeIntent())
+        assertFalse(PlaybackState(item = item, playing = false, intentPlaying = false).restartResumeIntent())
+    }
 }
