@@ -531,7 +531,18 @@ object PlaybackEngine {
     }
 
     private fun registerSource(item: PlaybackItem, source: PlaybackQueueSource?) {
-        PlaybackSources.register(item.systemMediaId, PlaybackSourceHandle(item, source))
+        PlaybackSources.register(
+            item.systemMediaId,
+            PlaybackSourceHandle(item, source) { resolved ->
+                // Resolved on the Media3 loader thread; publish the state snapshot on the main dispatcher.
+                scope.launch { publishResolvedSource(resolved) }
+            }
+        )
+    }
+
+    private fun publishResolvedSource(resolved: PlaybackItem) {
+        _state.update { it.withResolvedSource(resolved) }
+        PlaybackSources.update(resolved.systemMediaId, resolved)
     }
 
     private fun resolvedItem(item: PlaybackItem): PlaybackItem {
@@ -676,7 +687,14 @@ object PlaybackEngine {
         updateAudioSessionId()
     }
 
-    private fun rebuildTimeline(queue: List<PlaybackItem>, index: Int, positionMs: Long, play: Boolean) {
+    @OptIn(UnstableApi::class)
+    private fun rebuildTimeline(
+        queue: List<PlaybackItem>,
+        index: Int,
+        positionMs: Long,
+        play: Boolean,
+        playbackOrder: List<Int>? = null
+    ) {
         if (queue.isEmpty() || index !in queue.indices) return
         val target = exo ?: return
         transitionToken++
@@ -688,6 +706,9 @@ object PlaybackEngine {
         val item = resolvedItem(queue[index])
         val resolvedQueue = queue.map { if (it.key == item.key) item else it }
         target.setMediaItems(resolvedQueue.map(::mediaItemFor), index, positionMs.coerceAtLeast(0L))
+        if (playbackOrder != null && playbackOrder.size == resolvedQueue.size) {
+            target.setShuffleOrder(PlaybackShuffleOrder(playbackOrder))
+        }
         applyPlayerModes(target, music = item.isMusic && !item.systemPrivate)
         applySpeed(target, item)
         target.prepare()
@@ -931,17 +952,30 @@ object PlaybackEngine {
     }
 
     /** Inserts [item] after the current item and keeps the current position. */
+    @OptIn(UnstableApi::class)
     fun playNext(item: PlaybackItem, source: PlaybackQueueSource? = null) {
         if (item.systemPrivate || !item.isMusic) return
         val state = _state.value
         val current = state.item ?: return
-        if (current.systemPrivate || !current.isMusic) return
+        if (current.systemPrivate || !current.isMusic || item.key == current.key) return
         if (source != null) queueSource = source
         val shouldPlay = state.playing || state.intentPlaying
+        val target = exo
         val base = state.queue.ifEmpty { listOf(current) }
-        val currentKey = current.key
+        if (state.shuffleEnabled && target != null) {
+            val currentIndex = target.currentMediaItemIndex.takeIf { it in base.indices }
+                ?: state.queueIndex.takeIf { it in base.indices }
+                ?: base.indexOfFirst { it.key == current.key }
+            if (currentIndex < 0) return
+            val existing = base.indexOfFirst { it.key == item.key }
+            val oldOrder = runCatching { target.shuffleOrder.toIndexOrder() }
+                .getOrDefault(base.indices.toList())
+            val inserted = queueAfterPlayNext(base, currentIndex, item, existing, oldOrder)
+            rebuildTimeline(inserted.queue, inserted.queueIndex, state.positionMs, shouldPlay, inserted.playbackOrder)
+            return
+        }
         val queue = base.filterNot { it.key == item.key }.toMutableList()
-        val currentIndex = queue.indexOfFirst { it.key == currentKey }.takeIf { it >= 0 } ?: 0
+        val currentIndex = queue.indexOfFirst { it.key == current.key }.takeIf { it >= 0 } ?: 0
         queue.add((currentIndex + 1).coerceIn(0, queue.size), item)
         rebuildTimeline(queue, currentIndex, state.positionMs, shouldPlay)
     }
@@ -977,6 +1011,15 @@ object PlaybackEngine {
         rebuildTimeline(queue, index.coerceIn(queue.indices), state.positionMs, state.playing || state.intentPlaying)
     }
 
+    /**
+     * Legacy kind-based selector retained for external callers. Inline voice/video-note controls must call
+     * [setVoiceSpeed] explicitly; music controls call [setMusicSpeed].
+     */
+    @Deprecated(
+        message = "Use setMusicSpeed or setVoiceSpeed explicitly",
+        replaceWith = ReplaceWith("setMusicSpeed(speed) or setVoiceSpeed(speed)"),
+        level = DeprecationLevel.WARNING
+    )
     fun setSpeed(speed: Float) {
         if (speed !in PLAYBACK_SPEED_OPTIONS) return
         val kind = _state.value.item?.kind

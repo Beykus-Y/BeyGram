@@ -79,6 +79,7 @@ import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackState
+import com.beykus.beygram.playback.playbackSpeedFor
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -405,9 +406,20 @@ internal fun NowPlayingControls(
             )
         }
         Text(stringResource(R.string.player_speed), color = colors.secondary, fontSize = 12.sp, modifier = Modifier.padding(top = 16.dp))
+        val selectedSpeed = playbackSpeedFor(item.kind, state.musicSpeed, state.voiceSpeed)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp).alpha(if (enabled) 1f else 0.4f),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PLAYBACK_SPEED_OPTIONS.forEach { speed -> SpeedChip(speed = speed, selected = state.speed == speed, enabled = enabled, colors = colors) }
+            PLAYBACK_SPEED_OPTIONS.forEach { speed ->
+                SpeedChip(
+                    speed = speed,
+                    selected = selectedSpeed == speed,
+                    enabled = enabled,
+                    colors = colors,
+                    onSelect = {
+                        if (item.kind == MediaKind.Audio) PlaybackEngine.setMusicSpeed(speed) else PlaybackEngine.setVoiceSpeed(speed)
+                    }
+                )
+            }
         }
     }
 }
@@ -417,7 +429,7 @@ private fun totalSeconds(state: PlaybackState): Int =
     if (state.durationMs > 0) (state.durationMs / 1000).toInt() else state.item?.durationSeconds ?: 0
 
 @Composable
-private fun SpeedChip(speed: Float, selected: Boolean, enabled: Boolean, colors: NowPlayingColors) {
+private fun SpeedChip(speed: Float, selected: Boolean, enabled: Boolean, colors: NowPlayingColors, onSelect: () -> Unit) {
     Text(
         stringResource(R.string.player_speed_option, speedLabel(speed)),
         color = if (selected) colors.accentInk else colors.primary,
@@ -425,7 +437,7 @@ private fun SpeedChip(speed: Float, selected: Boolean, enabled: Boolean, colors:
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.clip(RoundedCornerShape(16.dp))
             .background(if (selected) colors.accent else colors.accentSoft)
-            .clickable(enabled = enabled) { PlaybackEngine.setSpeed(speed) }
+            .clickable(enabled = enabled, onClick = onSelect)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     )
 }

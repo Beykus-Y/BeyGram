@@ -148,11 +148,18 @@ class PlaybackQueuePolicyTest {
     }
 
     @Test
-    fun focusLossKeepsIntentButUserAndNoisyPausesClearIt() {
-        assertTrue(
+    fun focusLossKeepsIntentOnlyWhileItIsTransient() {
+        assertFalse(
             intentAfterPlayWhenReadyChange(
                 previousIntent = true,
                 playWhenReady = false,
+                reason = Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
+            )
+        )
+        assertTrue(
+            intentAfterPlayWhenReadyChange(
+                previousIntent = true,
+                playWhenReady = true,
                 reason = Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
             )
         )

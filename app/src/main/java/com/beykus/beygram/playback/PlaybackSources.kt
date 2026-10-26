@@ -49,7 +49,8 @@ internal data class ResolvedPlaybackSource(val path: String, val growing: Growin
  */
 internal class PlaybackSourceHandle(
     @Volatile var item: PlaybackItem,
-    private val queueSource: PlaybackQueueSource?
+    private val queueSource: PlaybackQueueSource?,
+    private val onResolved: ((PlaybackItem) -> Unit)? = null
 ) {
     fun resolve(): ResolvedPlaybackSource? {
         val current = item
@@ -65,6 +66,18 @@ internal class PlaybackSourceHandle(
             null
         }
         return ResolvedPlaybackSource(path, growing)
+    }
+
+    /**
+     * The data source resolves lazily while playing. Publish the real path/growing callbacks once so the UI can
+     * distinguish a pending track from a growing Ogg/Opus source without changing item identity or queue order.
+     */
+    fun publish(resolved: ResolvedPlaybackSource) {
+        val current = item
+        if (current.path == resolved.path && current.growing === resolved.growing) return
+        val updated = current.copy(path = resolved.path, growing = resolved.growing)
+        item = updated
+        onResolved?.invoke(updated)
     }
 
     fun request() {
@@ -151,6 +164,7 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
             ?: throw IOException("No playback source registered for this item")
         if (!handle.canResolve()) throw IOException("No account-scoped playback source for this item")
         val resolved = awaitSource(handle)
+        handle.publish(resolved)
         val opened = RandomAccessFile(resolved.path, "r")
         opened.seek(dataSpec.position.coerceAtLeast(0L))
         file = opened

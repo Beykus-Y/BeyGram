@@ -175,7 +175,14 @@ internal fun MusicPlayerSheet(
                         modifier = Modifier.weight(1f),
                         player = current,
                         onOpenQueue = { panel = PlayerPanel.Queue },
-                        onOpenEqualizer = onOpenEqualizer,
+                        onOpenEqualizer = onOpenEqualizer?.let { open ->
+                            {
+                                // Close the modal sheet before navigating to the equalizer route; otherwise it stays
+                                // on top of the new screen and Back returns to an already-open player.
+                                onDismiss()
+                                open()
+                            }
+                        },
                         onShowInChat = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } }
                     )
                 }

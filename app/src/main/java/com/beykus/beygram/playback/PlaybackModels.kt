@@ -257,6 +257,64 @@ internal fun queueForPlayback(items: List<PlaybackItem>, index: Int): PlaybackQu
     return if (visibleIndex >= 0) PlaybackQueue(visible, visibleIndex) else PlaybackQueue()
 }
 
+/** Publishes a lazily resolved path/growing source without changing item identity, queue order or index. */
+internal fun PlaybackState.withResolvedSource(resolved: PlaybackItem): PlaybackState {
+    fun merge(current: PlaybackItem): PlaybackItem =
+        if (current.key == resolved.key) current.copy(path = resolved.path, growing = resolved.growing) else current
+    val updatedItem = item?.let { merge(it) }
+    val updatedQueue = queue.map { merge(it) }
+    if (updatedItem == item && updatedQueue == queue) return this
+    return copy(item = updatedItem, queue = updatedQueue)
+}
+
+/** New original queue and the actual shuffled playback order after inserting an item for Play Next. */
+internal data class PlayNextQueueResult(
+    val queue: List<PlaybackItem>,
+    val queueIndex: Int,
+    val playbackOrder: List<Int>
+)
+
+/**
+ * Inserts [item] directly after the current item in both the visible [queue] and the actual shuffled playback order.
+ * [shuffleOrder] contains original queue indices in playback order; [existingIndex] is removed first when the item is
+ * already queued. The result's [playbackOrder] is a permutation of the new queue indices.
+ */
+internal fun queueAfterPlayNext(
+    queue: List<PlaybackItem>,
+    currentIndex: Int,
+    item: PlaybackItem,
+    existingIndex: Int,
+    shuffleOrder: List<Int>
+): PlayNextQueueResult {
+    val current = queue.getOrNull(currentIndex)
+        ?: return PlayNextQueueResult(queue, currentIndex, queue.indices.toList())
+    val removedIndex = existingIndex.takeIf { it in queue.indices && it != currentIndex }
+    val withoutItem = queue.filterIndexed { index, _ -> index != removedIndex }
+    val currentAfter = withoutItem.indexOfFirst { it.key == current.key }.coerceAtLeast(0)
+    val insertAt = (currentAfter + 1).coerceIn(0, withoutItem.size)
+    val newQueue = withoutItem.toMutableList().apply { add(insertAt, item) }
+    val newItemIndex = insertAt
+
+    val oldToNew = HashMap<Int, Int>(queue.size)
+    for (oldIndex in queue.indices) {
+        if (oldIndex == removedIndex) continue
+        val newIndex = newQueue.indexOfFirst { it.key == queue[oldIndex].key }
+        if (newIndex >= 0) oldToNew[oldIndex] = newIndex
+    }
+    var order = shuffleOrder
+        .filter { it in queue.indices && it != removedIndex }
+        .mapNotNull { oldToNew[it] }
+        .distinct()
+    val newCurrentIndex = oldToNew[currentIndex] ?: currentAfter
+    if (order.size != newQueue.size - 1 || newCurrentIndex !in order) {
+        order = newQueue.indices.filter { it != newItemIndex }
+    }
+    val currentOrderIndex = order.indexOf(newCurrentIndex)
+    val insertOrderAt = if (currentOrderIndex >= 0) currentOrderIndex + 1 else order.size
+    val playbackOrder = order.toMutableList().apply { add(insertOrderAt, newItemIndex) }
+    return PlayNextQueueResult(newQueue, newCurrentIndex, playbackOrder)
+}
+
 /** Позиция, с которой продолжается файл [key]: прерванная музыка возвращается к своему месту, остальные файлы идут с начала. */
 internal fun resumePositionMs(waiting: InterruptedMusic?, key: String): Long = waiting?.takeIf { it.item.key == key }?.positionMs ?: 0L
 
@@ -402,13 +460,13 @@ internal fun shouldHandleEnded(endedKey: String?, currentKey: String?, endedToke
     endedKey != null && endedKey == currentKey && endedToken == currentToken
 
 /**
- * User pause and a noisy route must clear intent; a temporary audio-focus loss keeps the user's intent so the system can
- * resume after a call, without turning a deliberate pause into autoplay.
+ * User pause and a noisy route must clear intent. A temporary audio-focus loss keeps the user's intent so the system
+ * can resume after a call, but a permanent loss makes ExoPlayer report playWhenReady=false: clear the intent so music
+ * never starts by itself after the user regains the device.
  */
 internal fun intentAfterPlayWhenReadyChange(previousIntent: Boolean, playWhenReady: Boolean, reason: Int): Boolean =
     when (reason) {
-        // A transient focus loss suppresses output without erasing the user's intent; a deliberate pause/noisy route
-        // arrives with playWhenReady=false and a different reason.
-        Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS -> previousIntent
+        // Transient loss keeps playWhenReady=true while ExoPlayer suppresses output. Permanent loss pauses the player.
+        Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS -> if (playWhenReady) previousIntent else false
         else -> playWhenReady
     }
