@@ -311,6 +311,7 @@ fun StoryViewerScreen(
     var paused by remember(current?.storyId) { mutableStateOf(false) }
     var progress by remember(current?.storyId) { mutableFloatStateOf(0f) }
     var progressRestart by remember(current?.storyId) { mutableIntStateOf(0) }
+    var advancePendingStoryId by remember(posterChatId) { mutableIntStateOf(0) }
     var videoReady by remember(current?.storyId) { mutableStateOf(false) }
     var videoPlaying by remember(current?.storyId) { mutableStateOf(false) }
     var showReactions by remember { mutableStateOf(false) }
@@ -344,25 +345,35 @@ fun StoryViewerScreen(
     // TDLib marks a story as read only after OpenStory succeeds. Wait until the media is actually on
     // screen; otherwise a failed or offline load must not consume the unread marker.
     var openedStoryId by remember(posterChatId) { mutableIntStateOf(0) }
+    var dispatchedStoryId by remember(posterChatId) { mutableIntStateOf(0) }
     LaunchedEffect(posterChatId, current?.storyId, detail != null, mediaReady, connected, resumed, retry, openedStoryId) {
         val storyId = current?.storyId ?: return@LaunchedEffect
         if (!connected || detail == null || !mediaReady || !resumed || openedStoryId == storyId) {
             return@LaunchedEffect
         }
-        if (repository.openStory(posterChatId, storyId).isSuccess) openedStoryId = storyId
+        // Mark the request before awaiting it: TDLib may process OpenStory after the coroutine is
+        // cancelled, so leaving must still send the matching CloseStory.
+        dispatchedStoryId = storyId
+        if (repository.openStory(posterChatId, storyId).isSuccess) {
+            openedStoryId = storyId
+        } else if (dispatchedStoryId == storyId) {
+            dispatchedStoryId = 0
+        }
     }
-    // CloseStory is sent only when leaving an actually opened story. A connection blip does not
-    // restart this effect, so the open story and its playback position survive it.
-    val latestOpenedStoryId by rememberUpdatedState(openedStoryId)
+    // CloseStory is sent only for a story whose open was dispatched or completed. A connection blip
+    // does not restart this effect, so the open story and its playback position survive it.
     LaunchedEffect(posterChatId, current?.storyId, detail != null) {
         val storyId = current?.storyId ?: return@LaunchedEffect
         if (detail == null) return@LaunchedEffect
         try {
             awaitCancellation()
         } finally {
-            if (latestOpenedStoryId == storyId) {
+            val dispatched = dispatchedStoryId == storyId
+            val opened = openedStoryId == storyId
+            if (dispatched || opened) {
                 withContext(NonCancellable) { repository.closeStory(posterChatId, storyId) }
                 // Allow OpenStory for this story again if the user navigates back to it.
+                if (dispatchedStoryId == storyId) dispatchedStoryId = 0
                 if (openedStoryId == storyId) openedStoryId = 0
             }
         }
@@ -394,12 +405,28 @@ fun StoryViewerScreen(
         val at = latestStories.indexOfFirst { it.storyId == latestVisibleStoryId }
         when {
             at in 0 until latestStories.lastIndex -> {
+                advancePendingStoryId = 0
                 index = at + 1
                 visibleStory = latestStories[at + 1]
             }
             at >= 0 && at == latestStories.lastIndex -> closeCompleted()
             // The open story is not in the current list page. Keep it instead of closing on a
-            // temporary network/empty-list response; a later confirmation decides what to do.
+            // temporary network/empty-list response; advance when the list includes it again.
+            else -> latestVisibleStoryId?.let { advancePendingStoryId = it }
+        }
+    }
+    LaunchedEffect(current?.storyId) {
+        advancePendingStoryId = 0
+    }
+    LaunchedEffect(current?.storyId, currentIndex, advancePendingStoryId, stories) {
+        val storyId = current?.storyId ?: return@LaunchedEffect
+        if (advancePendingStoryId != storyId || currentIndex < 0) return@LaunchedEffect
+        advancePendingStoryId = 0
+        if (currentIndex < stories.lastIndex) {
+            index = currentIndex + 1
+            visibleStory = stories[currentIndex + 1]
+        } else {
+            closeViewer(StoryViewerCloseReason.Completed)
         }
     }
 
@@ -524,6 +551,8 @@ fun StoryViewerScreen(
         return
     }
 
+    val latestGoPrevious by rememberUpdatedState(goPrevious)
+    val latestGoNext by rememberUpdatedState(goNext)
     Box(
         Modifier.fillMaxSize().background(Color.Black),
         contentAlignment = Alignment.Center
@@ -538,7 +567,11 @@ fun StoryViewerScreen(
                     },
                     onLongPress = {},
                     onTap = { offset ->
-                        if (storyTapTarget(offset.x, size.width) == StoryTapTarget.Previous) goPrevious() else goNext()
+                        if (storyTapTarget(offset.x, size.width) == StoryTapTarget.Previous) {
+                            latestGoPrevious()
+                        } else {
+                            latestGoNext()
+                        }
                     }
                 )
             }
@@ -558,12 +591,14 @@ fun StoryViewerScreen(
                     val at = stories.indexOfFirst { it.storyId == ended }
                     when {
                         at in 0 until stories.lastIndex -> {
+                            advancePendingStoryId = 0
                             index = at + 1
                             visibleStory = stories[at + 1]
                         }
                         at >= 0 && at == stories.lastIndex ->
                             closeViewer(StoryViewerCloseReason.Completed)
-                        // The story is not in the latest page; do not treat an incomplete list as the end.
+                        else -> if (ended != null) advancePendingStoryId = ended
+                        // The story is not in the latest page; advance when the list includes it again.
                     }
                 },
                 restartToken = progressRestart,
