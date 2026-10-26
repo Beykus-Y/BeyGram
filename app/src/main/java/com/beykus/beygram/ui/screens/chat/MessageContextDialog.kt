@@ -101,7 +101,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                     items(context!!.messages, key = { it.id }) { message ->
                         MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = {
                             selected = message
-                            viewerItem = message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce) }
+                            viewerItem = message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, message.chatId) }
                             viewerChatId = message.chatId
                         }, onStickerOpen = { media -> stickerSetId = media.stickerSetId },
                             onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },

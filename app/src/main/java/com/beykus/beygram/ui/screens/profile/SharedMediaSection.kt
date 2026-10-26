@@ -141,6 +141,7 @@ internal fun SharedMediaSection(
     }
 
     SharedMediaViewer(media = tabs.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
+        chatId = chatId,
         observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened, autoDownloadFile = autoDownloadFile)
@@ -175,6 +176,7 @@ internal fun SharedMediaViewer(
     confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
     forwardMessage: suspend (Long, Long) -> Result<Unit> = { _, _ -> Result.failure(IllegalStateException()) }, chats: List<ChatPreview> = emptyList(),
     onContentOpened: (Long) -> Unit = {},
+    chatId: Long = 0L,
     /** Repository-backed automatic download; keeps viewer preview/full requests cancellable by policy. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
@@ -187,7 +189,7 @@ internal fun SharedMediaViewer(
     var forwardError by remember(media) { mutableStateOf<String?>(null) }
     val selected = viewing
     val pages = media.messages.mapNotNull { message ->
-        message.media?.takeUnless { it.isSecret }?.let { MediaViewerItem(message.id, it) }
+        message.media?.takeUnless { it.isSecret }?.let { MediaViewerItem(message.id, it, chatId = chatId.takeIf { id -> id > 0L }) }
     }
     // Права на сообщение нужны кнопкам просмотрщика: сохранение и пересылка показываются, только если Telegram их разрешает.
     LaunchedEffect(selected) {

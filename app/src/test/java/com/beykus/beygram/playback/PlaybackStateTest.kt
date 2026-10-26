@@ -2,6 +2,8 @@ package com.beykus.beygram.playback
 
 import com.beykus.beygram.domain.model.MediaKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackStateTest {
@@ -28,5 +30,14 @@ class PlaybackStateTest {
         assertEquals("2", speedLabel(2f))
         assertEquals("0.5", speedLabel(0.5f))
         assertEquals("1.5", speedLabel(1.5f))
+    }
+
+    @Test
+    fun bufferingVoiceNoteKeepsResumeIntentWithoutBeingAudible() {
+        val item = PlaybackItem("Voice:1", MediaKind.Voice, "/voice.ogg", "Voice", durationSeconds = 10)
+        val state = PlaybackState(item = item, playing = false, intentPlaying = true, isBuffering = true)
+        assertFalse(state.playing)
+        assertTrue(state.intentPlaying)
+        assertTrue(state.isBuffering)
     }
 }

@@ -23,6 +23,10 @@ data class PlaybackOrigin(
     val accountId: String = LEGACY_PLAYBACK_ACCOUNT_ID
 )
 
+/** Viewer pages carry the same chat/message/account origin as the bubble that started playback. */
+internal fun messagePlaybackOrigin(chatId: Long?, messageId: Long, accountId: String): PlaybackOrigin? =
+    chatId?.let { PlaybackOrigin(it, messageId, accountId) }
+
 /**
  * A file that TDLib is still downloading. Reads are bounded by [readablePrefix]; the player waits
  * for the next chunk (or fails after a timeout) instead of treating the current EOF as the end.

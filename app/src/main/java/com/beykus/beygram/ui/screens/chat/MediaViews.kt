@@ -124,6 +124,7 @@ import com.beykus.beygram.playback.isMp4AudioMime
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackState
+import com.beykus.beygram.playback.messagePlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
@@ -731,8 +732,14 @@ internal class MediaViewerActions(
     val onForward: () -> Unit, val onEdit: () -> Unit, val onDelete: () -> Unit
 )
 
-/** Вложение в листаемом просмотрщике; [messageId] нужен для отметки «просмотрено» и действий над сообщением. */
-internal data class MediaViewerItem(val messageId: Long, val media: MessageMedia, val viewOnce: Boolean = false)
+/** Вложение в листаемом просмотрщике; [messageId] нужен для отметки «просмотрено» и действий над сообщением.
+ * [chatId] keeps the same account/chat/message playback identity when an audio/voice item is opened from its bubble. */
+internal data class MediaViewerItem(
+    val messageId: Long,
+    val media: MessageMedia,
+    val viewOnce: Boolean = false,
+    val chatId: Long? = null
+)
 
 /** Фото и видео листаются вместе, и счётчик «N из M» считает их тоже вместе. */
 internal val viewerSwipeKinds = setOf(MediaKind.Photo, MediaKind.Video)
@@ -1068,7 +1075,16 @@ private fun MediaViewerPage(
                 else TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
             (media.kind == MediaKind.Audio || media.kind == MediaKind.Voice) && audioPath != null ->
-                AudioInPlayer(media, audioPath, if (previewId != null) thumb.localPath else null, active, growingAudio, accountId, item.viewOnce) { currentOnViewed(item.messageId) }
+                AudioInPlayer(
+                    media,
+                    audioPath,
+                    if (previewId != null) thumb.localPath else null,
+                    active,
+                    growingAudio,
+                    accountId,
+                    item.viewOnce,
+                    messagePlaybackOrigin(item.chatId, item.messageId, accountId)
+                ) { currentOnViewed(item.messageId) }
             path == null -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                 if (file.isDownloading) CircularProgressIndicator()
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
@@ -1484,10 +1500,19 @@ private fun AudioInPlayer(
     growing: GrowingPlaybackSource?,
     accountId: String,
     viewOnce: Boolean,
+    origin: PlaybackOrigin?,
     onViewed: () -> Unit
 ) {
     val context = LocalContext.current
-    val item = media.playbackItem(path, media.kind.label(context), artworkPath = artworkPath, growing = growing, accountId = accountId, viewOnce = viewOnce)
+    val item = media.playbackItem(
+        path,
+        media.kind.label(context),
+        origin = origin,
+        artworkPath = artworkPath,
+        growing = growing,
+        accountId = accountId,
+        viewOnce = viewOnce
+    )
     val state by PlaybackEngine.state.collectAsStateWithLifecycle()
     val currentOnViewed by rememberUpdatedState(onViewed)
     // Файл отмечается просмотренным, когда начинает играть: открытие просмотрщика само по себе ничего не запускает.

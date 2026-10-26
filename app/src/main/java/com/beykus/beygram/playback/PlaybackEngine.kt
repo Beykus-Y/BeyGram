@@ -771,13 +771,20 @@ object PlaybackEngine {
 
     /** Отметка для файла, который продолжают после паузы: вызывается, когда он начнёт играть, даже если пузырь уже ушёл с экрана. */
     fun resume(key: String, onStarted: () -> Unit) {
+        if (_state.value.item?.key != key) return
         startedCallback = key to onStarted
         if (deferredSeek?.key == key) {
             deferredSeek = deferredSeek?.copy(resume = true)
             _state.update { it.copy(intentPlaying = true) }
             return
         }
-        togglePlayPause()
+        val target = controls ?: return
+        // This is an explicit resume request, not a toggle. A voice note that is still buffering already has
+        // intentPlaying=true; calling togglePlayPause() here would pause it instead of letting it continue.
+        _state.update { it.copy(failed = false, intentPlaying = true) }
+        if (_state.value.item?.systemPrivate != true) startPlaybackService()
+        target.play()
+        prefetchNext()
     }
 
     /** Пауза или продолжение. Конец файла и ошибку обрабатывает обёртка плеера, поэтому системные кнопки ведут себя так же. */

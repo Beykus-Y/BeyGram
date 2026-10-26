@@ -5,6 +5,7 @@ import com.beykus.beygram.domain.model.MessageMedia
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -60,6 +61,19 @@ class PlaybackIdentityTest {
         assertEquals("Artist", item.performer)
         assertEquals(item.key, item.occurrenceId)
         assertEquals(item.key, audio().playbackKey("secondary", origin))
+    }
+
+    @Test
+    fun viewerOriginMatchesTheBubblePlaybackIdentity() {
+        val media = audio()
+        val bubbleOrigin = PlaybackOrigin(1L, 10L, "account")
+        val viewerOrigin = messagePlaybackOrigin(chatId = 1L, messageId = 10L, accountId = "account")
+        assertEquals(bubbleOrigin, viewerOrigin)
+        assertEquals(
+            media.playbackKey("account", bubbleOrigin),
+            media.playbackKey("account", viewerOrigin)
+        )
+        assertNull(messagePlaybackOrigin(chatId = null, messageId = 10L, accountId = "account"))
     }
 
     @Test
