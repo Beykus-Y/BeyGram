@@ -168,6 +168,75 @@ class EqualizerSessionControllerTest {
     }
 
     @Test
+    fun failedAttachRetriesOnTheSameSessionAfterBackoffAndRecovers() {
+        var nowMs = 0L
+        val factory = FakeFactory().apply { failure = IllegalStateException("temporary platform failure") }
+        val controller = EqualizerSessionController(factory, nowMs = { nowMs })
+
+        controller.onSession(12, settings())
+        assertEquals(EqualizerConnection.Failed, controller.state.connection)
+        assertEquals(listOf(12), factory.createdSessions)
+        assertTrue(factory.effects.isEmpty())
+        assertEquals(1_000L, controller.nextRetryDelayMs())
+
+        // A settings change during the backoff window must not hammer the effect service.
+        controller.onSession(12, settings(preset = EqualizerPreset.Rock))
+        nowMs = 999L
+        controller.onSession(12, settings(preset = EqualizerPreset.Rock))
+        assertEquals(listOf(12), factory.createdSessions)
+        assertEquals(1L, controller.nextRetryDelayMs())
+
+        // The platform recovered; the same session is reattached after the backoff expires.
+        factory.failure = null
+        nowMs = 1_000L
+        controller.onSession(12, settings(preset = EqualizerPreset.Rock))
+
+        assertEquals(listOf(12, 12), factory.createdSessions)
+        assertEquals(1, factory.effects.size)
+        assertFalse(factory.effects.single().closed)
+        assertEquals(EqualizerConnection.Attached, controller.state.connection)
+        assertEquals(12, controller.state.audioSessionId)
+        assertNull(controller.nextRetryDelayMs())
+    }
+
+    @Test
+    fun failedApplyAlsoRecoversOnTheSameSessionAfterBackoff() {
+        var nowMs = 0L
+        val factory = FakeFactory()
+        val controller = EqualizerSessionController(factory, nowMs = { nowMs })
+        controller.onSession(9, settings())
+        val first = factory.effects.single()
+        first.failLevels = true
+
+        controller.onSession(9, settings(preset = EqualizerPreset.Rock))
+        assertTrue(first.closed)
+        assertEquals(EqualizerConnection.Failed, controller.state.connection)
+        assertEquals(1_000L, controller.nextRetryDelayMs())
+
+        controller.onSession(9, settings(preset = EqualizerPreset.Pop))
+        assertEquals("Backoff must suppress an immediate retry", listOf(9), factory.createdSessions)
+
+        nowMs = 1_000L
+        controller.onSession(9, settings(preset = EqualizerPreset.Pop))
+        assertEquals(listOf(9, 9), factory.createdSessions)
+        assertEquals(2, factory.effects.size)
+        assertFalse(factory.effects.last().closed)
+        assertEquals(EqualizerConnection.Attached, controller.state.connection)
+        assertEquals(9, controller.state.audioSessionId)
+    }
+
+    @Test
+    fun retryBackoffGrowsAndIsBounded() {
+        assertEquals(1_000L, retryDelayMs(1))
+        assertEquals(2_000L, retryDelayMs(2))
+        assertEquals(4_000L, retryDelayMs(3))
+        assertEquals(8_000L, retryDelayMs(4))
+        assertEquals(16_000L, retryDelayMs(5))
+        assertEquals(30_000L, retryDelayMs(6))
+        assertEquals(30_000L, retryDelayMs(12))
+    }
+
+    @Test
     fun failedParameterUpdateReleasesTheEffectAndFallsBack() {
         val factory = FakeFactory()
         val controller = EqualizerSessionController(factory)
