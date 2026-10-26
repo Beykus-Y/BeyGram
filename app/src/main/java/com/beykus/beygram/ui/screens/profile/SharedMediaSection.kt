@@ -70,6 +70,8 @@ import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.playback.TrackArtwork
+import com.beykus.beygram.ui.screens.playback.rememberMusicCardPlayback
 import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
@@ -419,19 +421,35 @@ internal fun SharedMusicRow(
 ) {
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
+    val palette = beyGramPalette()
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val label = stringResource(R.string.media_kind_audio)
     val you = stringResource(R.string.search_you)
     val meta = listOf(if (message.isOutgoing) you else message.senderName, formatSearchDate(message.dateSeconds)).filter { it.isNotBlank() }.joinToString(" · ")
     val title = media.title.ifBlank { media.fileName.ifBlank { label } }
-    val details = listOf(media.performer, if (media.durationSeconds > 0) duration(media.durationSeconds) else "", meta).filter { it.isNotBlank() }.joinToString(" · ")
+    val origin = remember(chatId, message.id, accountId) { PlaybackOrigin(chatId, message.id, accountId) }
+    val playbackKey = remember(media.fileId, accountId, origin) { media.playbackKey(accountId, origin) }
+    val card = rememberMusicCardPlayback(playbackKey)
+    val statusLabel = when {
+        card.failed -> stringResource(R.string.music_card_failed)
+        card.ended -> stringResource(R.string.music_card_ended)
+        card.playing -> stringResource(R.string.music_card_playing)
+        card.buffering -> stringResource(R.string.music_card_buffering)
+        card.isCurrent -> stringResource(R.string.music_card_paused)
+        else -> ""
+    }
+    val details = listOf(
+        media.performer,
+        if (media.durationSeconds > 0) duration(media.durationSeconds) else "",
+        meta,
+        statusLabel
+    ).filter { it.isNotBlank() }.joinToString(" · ")
     SharedRow(
         Icons.Rounded.MusicNote, title, details,
         onClick = {
             when (val action = sharedRowAction(media, file.localPath)) {
                 SharedRowAction.ShowInChat -> onOpenMessage(message.id)
                 else -> {
-                    val origin = PlaybackOrigin(chatId, message.id, accountId)
                     // Текущий трек берём с путём из нажатия: его файл мог только что скачаться, а состояние ещё не дошло.
                     val path = (action as? SharedRowAction.Open)?.path.orEmpty()
                     val current = media.playbackItem(
@@ -455,7 +473,19 @@ internal fun SharedMusicRow(
                 }
             }
         },
-        onShowInChat = { onOpenMessage(message.id) }
+        onShowInChat = { onOpenMessage(message.id) },
+        leading = {
+            TrackArtwork(
+                artworkPath = null,
+                audioPath = file.localPath,
+                modifier = Modifier.size(44.dp),
+                background = palette.accentSoft,
+                tint = palette.accentInk,
+                symbolSize = 20.dp,
+                cornerRadius = 10.dp,
+                border = palette.divider.copy(alpha = 0.55f)
+            )
+        }
     )
 }
 
@@ -496,10 +526,22 @@ private fun SharedLinkRow(message: ChatMessage, meta: String, onOpenMessage: (Lo
 }
 
 @Composable
-private fun SharedRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, onShowInChat: () -> Unit, onTitleClick: (() -> Unit)? = null) {
+private fun SharedRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    onShowInChat: () -> Unit,
+    onTitleClick: (() -> Unit)? = null,
+    leading: (@Composable () -> Unit)? = null
+) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(11.dp))
+        if (leading != null) {
+            Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { leading() }
+        } else {
+            Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(11.dp))
+        }
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
             // Заголовок со спойлером раскрывается нажатием на сам заголовок, остальная строка по-прежнему ведёт в чат.
             val titleModifier = if (onTitleClick != null) Modifier.clickable(role = Role.Button, onClick = onTitleClick) else Modifier
