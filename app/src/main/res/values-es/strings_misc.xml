@@ -138,6 +138,13 @@
     <string name="poll_error_correct_missing">Elige la respuesta correcta</string>
     <string name="poll_error_correct_invalid">La respuesta correcta no está entre las opciones</string>
     <string name="poll_error_correct_count">Un cuestionario de respuesta única necesita exactamente una opción correcta</string>
+    <string name="poll_send_failed">No se pudo enviar la encuesta</string>
+    <string name="poll_send_private_chat">Telegram no permite encuestas en chats privados con personas. Comparte encuestas en grupos, canales, Mensajes guardados o chats con bots.</string>
+    <string name="poll_send_chat_unsupported">No se pueden crear encuestas en este chat.</string>
+    <string name="poll_send_channel_anonymous">En un canal solo se pueden publicar encuestas anónimas.</string>
+    <string name="poll_send_rights_missing">No tienes permiso para crear encuestas en este chat. Comprueba los permisos del chat.</string>
+    <string name="poll_send_invalid">Telegram rechazó los ajustes de la encuesta. Comprueba la pregunta, las opciones de respuesta y la respuesta correcta.</string>
+    <string name="poll_send_retained">La encuesta está guardada. Reintenta el envío o elimínala.</string>
     <string name="contact_picker_title">Enviar un contacto</string>
     <string name="contact_picker_search">Buscar contactos</string>
     <string name="contact_picker_empty">No hay contactos en la libreta de Telegram</string>

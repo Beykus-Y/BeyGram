@@ -6,9 +6,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatPostingRightsTest {
-    private fun chat(isChannel: Boolean = false, canSend: Boolean = true) = TdApi.Chat().apply {
+    private fun chat(isChannel: Boolean = false, canSend: Boolean = true, canPolls: Boolean = true) = TdApi.Chat().apply {
         type = TdApi.ChatTypeSupergroup(1L, isChannel)
-        permissions = TdApi.ChatPermissions().apply { canSendBasicMessages = canSend }
+        permissions = TdApi.ChatPermissions().apply {
+            canSendBasicMessages = canSend
+            canSendPolls = canPolls
+        }
     }
 
     private fun admin(canPost: Boolean) = TdApi.ChatMemberStatusAdministrator().apply {
@@ -64,5 +67,34 @@ class ChatPostingRightsTest {
     @Test
     fun unknownStatusKeepsComposer() {
         assertTrue(chat(isChannel = true, canSend = false).canPostMessages(null))
+    }
+
+    @Test
+    fun groupMemberNeedsTheSeparatePollPermission() {
+        assertTrue(chat(canPolls = true).canSendPolls(TdApi.ChatMemberStatusMember()))
+        assertFalse(chat(canPolls = false).canSendPolls(TdApi.ChatMemberStatusMember()))
+        assertTrue(chat(canPolls = false).canSendPolls(admin(canPost = false)))
+    }
+
+    @Test
+    fun restrictedMemberNeedsThePollPermissionToo() {
+        val allowed = TdApi.ChatPermissions().apply {
+            canSendBasicMessages = true
+            canSendPolls = true
+        }
+        val denied = TdApi.ChatPermissions().apply {
+            canSendBasicMessages = true
+            canSendPolls = false
+        }
+        assertTrue(chat().canSendPolls(TdApi.ChatMemberStatusRestricted(true, 0, allowed)))
+        assertFalse(chat().canSendPolls(TdApi.ChatMemberStatusRestricted(true, 0, denied)))
+    }
+
+    @Test
+    fun channelPollsFollowThePostingRightInsteadOfMemberPermissions() {
+        assertTrue(chat(isChannel = true, canPolls = false).canSendPolls(TdApi.ChatMemberStatusCreator()))
+        assertTrue(chat(isChannel = true, canPolls = false).canSendPolls(admin(canPost = true)))
+        assertFalse(chat(isChannel = true, canPolls = true).canSendPolls(admin(canPost = false)))
+        assertFalse(chat(isChannel = true, canPolls = true).canSendPolls(TdApi.ChatMemberStatusMember()))
     }
 }

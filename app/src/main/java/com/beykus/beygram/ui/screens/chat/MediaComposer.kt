@@ -43,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -210,8 +211,13 @@ internal class AttachmentState(
     var pickLocation: () -> Unit = {}
     var pickContact: () -> Unit = {}
     var pickDice: () -> Unit = {}
-    /** Secret chats do not support server-side polls; the chip disappears instead of failing. */
-    var allowsPolls: Boolean = true
+    /** False where Telegram rejects polls: secret chats and ordinary private chats with people. */
+    var allowsPolls by mutableStateOf(true)
+    /** A poll send failed and [extra] still holds the composed poll, so Retry/Cancel are shown. */
+    var extraSendFailed by mutableStateOf(false)
+        private set
+    private var lastExtraCaption = ""
+    private var lastExtraOptions = MessageSendOptions()
 
     /** True while the panel replaces the plain composer (files, a location fix, or a prepared extra). */
     val active: Boolean get() = pending.isNotEmpty() || importing || extra != null || locating
@@ -516,6 +522,7 @@ internal class AttachmentState(
         }
         pendingState.value = arrayListOf()
         extra = draft
+        extraSendFailed = false
         errorState.value = null
         menuOpen = false
     }
@@ -545,6 +552,7 @@ internal class AttachmentState(
         }
         pendingState.value = arrayListOf()
         extra = draft
+        extraSendFailed = false
         errorState.value = null
         menuOpen = false
         return true
@@ -557,6 +565,22 @@ internal class AttachmentState(
 
     fun removeExtra() {
         if (sending || importing) return
+        extra = null
+        extraSendFailed = false
+        errorState.value = null
+    }
+
+    /** Repeats the failed poll send with the same caption/options; only an explicit tap can retry. */
+    fun retryExtra() {
+        if (!extraSendFailed || extra == null || sending || importing || locating) return
+        send(lastExtraCaption, lastExtraOptions) {}
+    }
+
+    /** Explicitly drops a poll that failed to send, instead of leaving a dead attachment in the composer. */
+    fun discardFailedExtra() {
+        if (sending || importing) return
+        extraSendFailed = false
+        errorState.value = null
         extra = null
     }
 
@@ -751,6 +775,7 @@ internal class AttachmentState(
         val discarded = pending.toList()
         pendingState.value = arrayListOf()
         extra = null
+        extraSendFailed = false
         importing = false
         processing = null
         notice = null
@@ -766,18 +791,27 @@ internal class AttachmentState(
         if (sending || importing || locating) return
         val preparedExtra = extra
         if (preparedExtra != null) {
+            lastExtraCaption = caption
+            lastExtraOptions = options
+            // Claim the send slot before launching, so a double tap on Retry cannot start a second request.
+            sending = true
             scope.launch {
-                sending = true
+                extraSendFailed = false
                 errorState.value = null
                 try {
                     val result = sendExtra(preparedExtra, options)
                     if (result.isFailure) {
                         errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed)
+                        // Keep the prepared poll in the composer; a retry is always an explicit user action.
+                        extraSendFailed = preparedExtra is MessageExtraDraft.Poll
                     } else if (extra === preparedExtra) {
                         extra = null
                     }
                 } catch (cancelled: CancellationException) { throw cancelled }
-                catch (failure: Exception) { errorState.value = failure.userMessage(context, R.string.composer_send_failed) }
+                catch (failure: Exception) {
+                    errorState.value = failure.userMessage(context, R.string.composer_send_failed)
+                    extraSendFailed = preparedExtra is MessageExtraDraft.Poll
+                }
                 finally { sending = false }
             }
             return
@@ -1048,7 +1082,22 @@ internal fun AttachmentPanel(
                 }
             }
         }
-        state.error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp).errorAnnouncement()) }
+        state.error?.let { message ->
+            Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
+                Text(message, color = palette.danger, fontSize = 13.sp, modifier = Modifier.errorAnnouncement())
+                if (state.extraSendFailed) {
+                    Text(stringResource(R.string.poll_send_retained), color = palette.textSecondary, fontSize = 12.sp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = state::discardFailedExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                            Text(stringResource(R.string.common_cancel), color = palette.textSecondary)
+                        }
+                        TextButton(onClick = state::retryExtra, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                            Text(stringResource(R.string.common_retry), color = palette.accent)
+                        }
+                    }
+                }
+            }
+        }
         Column(Modifier.padding(start = 14.dp)) {
             state.processing?.let { progress ->
                 val fraction = progress.progress

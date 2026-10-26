@@ -444,7 +444,15 @@ fun ChatScreen(
     // View-once is a regular-private-chat photo/video feature. TDLib rejects per-message self-destruct in secret chats,
     // groups, channels and Saved Messages, so those keep only the separate chat-wide TTL controls.
     val allowViewOnce = !chat.isSecret && !chat.isGroup && !chat.isChannel && !chat.isSavedMessages
-    ComposerExtraPickers(chat.id, chat.isSecret, conversation, attachments)
+    // TDLib accepts polls only in groups/channels with the poll right, in Saved Messages and in private bot chats.
+    // Ordinary private chats with people must not offer the composer, or the send would only fail server-side.
+    val pollsAllowed = when {
+        chat.isSecret -> false
+        chat.isSavedMessages -> true
+        chat.isGroup || chat.isChannel -> chat.canSendPolls
+        else -> chat.canSendPolls || info?.kind == ProfileKind.Bot
+    }
+    ComposerExtraPickers(chat.id, pollsAllowed, conversation, attachments)
     val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, accountId = accountId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.

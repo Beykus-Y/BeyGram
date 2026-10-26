@@ -2997,14 +2997,15 @@ class TdLibTelegramRepository private constructor(
         publishChat(chatId)
     }
 
-    /** Republishes the chat only when its posting right changed, so unrelated group updates do not wake its observers. */
+    /** Republishes the chat only when a posting/poll right changed, so unrelated group updates do not wake its observers. */
     private fun refreshPostingRight(chatId: Long) {
         val existing = chatCache[chatId] ?: return
         val chat = profiles.chat(chatId) ?: return
         val canPost = profiles.canPost(chat)
+        val canSendPolls = profiles.canSendPolls(chat)
         val isChannelAdmin = profiles.isChannelAdministrator(chat)
-        if (canPost == existing.canPost && isChannelAdmin == existing.isChannelAdmin) return
-        chatCache[chatId] = existing.copy(canPost = canPost, isChannelAdmin = isChannelAdmin)
+        if (canPost == existing.canPost && canSendPolls == existing.canSendPolls && isChannelAdmin == existing.isChannelAdmin) return
+        chatCache[chatId] = existing.copy(canPost = canPost, canSendPolls = canSendPolls, isChannelAdmin = isChannelAdmin)
         publishChat(chatId)
     }
 
@@ -3217,6 +3218,7 @@ class TdLibTelegramRepository private constructor(
             lastMessageSendState = lastMessage?.sendingState.toSendState(),
             lastReadOutboxMessageId = lastReadOutboxMessageId,
             canPost = profiles.canPost(this),
+            canSendPolls = profiles.canSendPolls(this),
             isChannelAdmin = profiles.isChannelAdministrator(this),
             photo = profiles.photo(photo),
             folderPositions = folderPositions
