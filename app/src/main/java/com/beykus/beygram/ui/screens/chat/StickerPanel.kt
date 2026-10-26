@@ -72,6 +72,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -106,6 +108,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 private val PANEL_MIN_HEIGHT = 220.dp
 private val PANEL_MAX_HEIGHT = 420.dp
@@ -327,14 +330,14 @@ private fun StickerPanel(
         if (view.tab == StickerPanelTab.Gifs) R.string.gif_panel_search else R.string.sticker_panel_search
     )
     val density = LocalDensity.current
-    val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
-    // composerReserve is the measured height of the composer column below the panel. It already includes the IME and the
-    // navigation bar padding. 0.dp means it has not been measured yet, so the older estimate with the IME height is used.
+    val windowHeightPx = LocalWindowInfo.current.containerSize.height
+    val windowHeight = with(density) { windowHeightPx.toDp() }
+    // Everything below the panel (reply banner, typing row, mini player, input row, IME and navigation bar), measured from
+    // the panel's own bottom edge in the window. Until the first layout, [composerReserve] and the IME give an estimate.
+    var belowPanelPx by remember { mutableIntStateOf(0) }
     val imeHeight = with(density) { WindowInsets.ime.getBottom(density).toDp() }
-    val availableHeight = (
-        if (composerReserve > 0.dp) windowHeight - composerReserve
-        else windowHeight - imeHeight - 80.dp
-    ).coerceAtLeast(MIN_PANEL_WITH_KEYBOARD)
+    val belowPanel = if (belowPanelPx > 0) with(density) { belowPanelPx.toDp() } else imeHeight + composerReserve
+    val availableHeight = (windowHeight - belowPanel).coerceAtLeast(MIN_PANEL_WITH_KEYBOARD)
     val panelHeight = (windowHeight * 0.62f)
         .coerceIn(PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT)
         .coerceAtMost(availableHeight)
@@ -587,7 +590,16 @@ private fun StickerPanel(
     // A preview sheet owns Back itself while it is open.
     BackHandler(enabled = view.canGoBack && overlay == null) { navigateBack() }
 
-    Column(Modifier.fillMaxWidth().heightIn(max = panelHeight).background(palette.surface)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { coordinates ->
+                val below = (windowHeightPx - coordinates.boundsInWindow().bottom).roundToInt().coerceAtLeast(0)
+                if (below != belowPanelPx) belowPanelPx = below
+            }
+            .heightIn(max = panelHeight)
+            .background(palette.surface)
+    ) {
         if (view.searchActive) {
             StickerPanelSearchHeader(
                 query = view.query,

@@ -116,6 +116,7 @@ internal class DiceAnimationPlaybackStore(
         if (clock() - entry.startedAt > continuationWindowMillis) {
             entry.state = State.Done
             entry.finishedAt = clock()
+            persist()
             return false
         }
         return true

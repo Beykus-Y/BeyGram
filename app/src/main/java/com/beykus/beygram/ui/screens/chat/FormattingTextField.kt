@@ -25,9 +25,10 @@ import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 @Composable
 internal fun FormattingTextField(value: String, entities: List<MessageTextEntity>, onChange: (String) -> Unit,
     onEntitiesChange: (List<MessageTextEntity>) -> Unit, placeholder: String, locked: Boolean, isError: Boolean, modifier: Modifier,
-    focusRequest: Int = 0) {
+    focusRequest: Int = 0, cursor: ComposerCursor? = null) {
     var field by remember { mutableStateOf(TextFieldValue(value)) }
-    val current = if (field.text == value) field else TextFieldValue(value, TextRange(value.length))
+    // Text set from outside keeps the cursor an outside edit chose (see [ComposerCursor]); otherwise it goes to the end.
+    val current = if (field.text == value) field else TextFieldValue(value, cursor?.selectionFor(value) ?: TextRange(value.length))
     var format by remember { mutableStateOf(false) }
     var linkDialog by remember { mutableStateOf(false) }
     var link by remember { mutableStateOf("") }
@@ -55,6 +56,7 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
                 onChange(next.text)
             }
             field = next
+            cursor?.update(next.text, next.selection)
         }, modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 40.dp).focusRequester(focusRequester).appendTextContextMenuComponents {
                 if (!current.selection.collapsed) item(FormatSelectionKey, formatLabel) {
                     range = current.selection
