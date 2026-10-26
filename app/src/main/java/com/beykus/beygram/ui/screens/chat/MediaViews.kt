@@ -248,8 +248,12 @@ private fun decodeVideoPosterFrame(path: String, maxDimension: Int): Bitmap? = r
     val retriever = MediaMetadataRetriever()
     try {
         retriever.setDataSource(path)
-        retriever.getScaledFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, maxDimension, maxDimension)
-            ?: retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: maxDimension
+        val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: maxDimension
+        val (frameWidth, frameHeight) = fitVideoPosterSize(width, height, maxDimension)
+        retriever.getScaledFrameAtTime(
+            0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, frameWidth, frameHeight
+        ) ?: retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
     } finally {
         retriever.release()
     }
