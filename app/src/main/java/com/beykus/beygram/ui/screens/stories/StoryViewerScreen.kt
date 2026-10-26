@@ -148,11 +148,15 @@ fun StoryViewerScreen(
             if (next !== snapshot) snapshot = next
         }
     }
-    LaunchedEffect(posterChatId, initialRetry, connected, snapshot == null) {
+    LaunchedEffect(posterChatId, initialRetry, connection, snapshot == null) {
         if (snapshot != null) return@LaunchedEffect
         initialTimedOut = false
         repository.refreshActiveStories()
-        if (connected) {
+        // WaitingForNetwork/Unknown already show the offline state. For Connecting/Updating a
+        // stalled reconnect must still leave the spinner after the same bounded wait.
+        if (connection != TelegramConnectionState.WaitingForNetwork &&
+            connection != TelegramConnectionState.Unknown
+        ) {
             delay(8_000)
             if (snapshot == null) initialTimedOut = true
         }
@@ -225,16 +229,11 @@ fun StoryViewerScreen(
     }
 
     // A partial list can omit the open story. Verify it directly before leaving the cached frame
-    // on screen forever; only an explicitly confirmed absence moves or closes the viewer.
-    var checkedMissingStoryId by remember(posterChatId) { mutableIntStateOf(0) }
-    LaunchedEffect(current?.storyId, currentIndex, connected) {
+    // on screen forever; only an explicitly confirmed absence moves or closes the viewer. The
+    // effect is keyed by the list so an unknown result is retried after reconnecting or refreshing.
+    LaunchedEffect(current?.storyId, currentIndex, connected, storyIds) {
         val storyId = current?.storyId ?: return@LaunchedEffect
-        if (currentIndex >= 0) {
-            checkedMissingStoryId = 0
-            return@LaunchedEffect
-        }
-        if (!connected || stories.isEmpty() || checkedMissingStoryId == storyId) return@LaunchedEffect
-        checkedMissingStoryId = storyId
+        if (!connected || currentIndex >= 0 || stories.isEmpty()) return@LaunchedEffect
         confirmUnavailable(storyId)
     }
 
