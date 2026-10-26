@@ -49,6 +49,15 @@
     <string name="premium_purchase_unavailable_title">Externe Zahlung nicht verfügbar</string>
     <string name="premium_purchase_unavailable_body">Telegram hat für diesen Tarif keine sichere externe Zahlungsseite angeboten. Die App fragt keine Kartendaten ab.</string>
     <string name="premium_load_error">Premium-Daten konnten nicht geladen werden</string>
+    <string name="premium_load_error_body">Prüfe die Verbindung zu Telegram und versuche es erneut.</string>
+    <string name="premium_loading_title">Telegram Premium wird geladen…</string>
+    <string name="premium_loading_body">Status, Tarife und Preise werden von Telegram abgerufen. Das dauert normalerweise einige Sekunden.</string>
+    <string name="premium_loading_progress">Premium-Daten werden geladen</string>
+    <string name="premium_refresh_failed_title">Daten konnten nicht aktualisiert werden</string>
+    <string name="premium_stale_title">Premium-Daten sind veraltet</string>
+    <string name="premium_refresh_failed_body">Es werden die zuletzt bestätigten Daten angezeigt. Der Kauf ist bis zur erfolgreichen Aktualisierung vorübergehend nicht verfügbar.</string>
+    <string name="premium_stale_body">Status- und Tarifdaten sind veraltet und ausgeblendet. Aktualisiere den Bildschirm, um die aktuellen Bedingungen wieder zu sehen.</string>
+    <string name="premium_data_stale">Die Premium-Daten sind veraltet. Sie werden vor dem Fortfahren aktualisiert.</string>
 
     <string name="premium_gift_code_title">Geschenk aktivieren</string>
     <string name="premium_gift_code_hint">Geben Sie einen Telegram-Premium-Geschenkcode oder einen Link t.me/giftcode/… ein. Telegram prüft den Code; die App speichert ihn nicht.</string>
