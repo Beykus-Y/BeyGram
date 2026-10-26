@@ -13,6 +13,11 @@
     <string name="stories_resume">Fortsetzen</string>
     <string name="stories_loading">Story wird geladen…</string>
     <string name="stories_unavailable">Story nicht verfügbar</string>
+    <string name="stories_unavailable_body">Die Story wurde gelöscht oder ist abgelaufen.</string>
+    <string name="stories_offline_title">Keine Verbindung</string>
+    <string name="stories_offline_body">Telegram ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.</string>
+    <string name="stories_offline_cached">Keine Verbindung. Die gespeicherte Story wird angezeigt.</string>
+    <string name="stories_download_offline">Die Story-Datei wurde nicht heruntergeladen. Stelle eine Verbindung her und versuche es erneut.</string>
     <string name="stories_retry">Erneut versuchen</string>
     <string name="stories_media_unsupported">Dieses Story-Format wird noch nicht unterstützt</string>
     <string name="stories_image_failed">Foto konnte nicht angezeigt werden</string>

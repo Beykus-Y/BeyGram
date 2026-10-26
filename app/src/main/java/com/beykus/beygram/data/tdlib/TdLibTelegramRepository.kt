@@ -597,8 +597,11 @@ class TdLibTelegramRepository private constructor(
     override val activeStories: StateFlow<List<ChatStories>> = stories.items
     override fun refreshActiveStories() = stories.refreshActive()
     override fun loadMoreActiveStories() = stories.loadMoreActive()
+    override fun cachedActiveStory(chatId: Long) = stories.cachedActiveStory(chatId)
     override val storyPostEvents: SharedFlow<StoryPostEvent> = stories.postEvents
     override suspend fun loadStory(posterChatId: Long, storyId: Int) = stories.story(posterChatId, storyId)
+    override fun cachedStory(posterChatId: Long, storyId: Int) = stories.cachedStory(posterChatId, storyId)
+    override suspend fun confirmActiveStoryIds(posterChatId: Long) = stories.activeStoryIds(posterChatId)
     override suspend fun openStory(posterChatId: Long, storyId: Int) = stories.openStory(posterChatId, storyId)
     override suspend fun closeStory(posterChatId: Long, storyId: Int) = stories.closeStory(posterChatId, storyId)
     override suspend fun storyReactions() = stories.availableReactions()

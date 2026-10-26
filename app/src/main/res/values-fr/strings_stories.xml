@@ -13,6 +13,11 @@
     <string name="stories_resume">Reprendre</string>
     <string name="stories_loading">Chargement de la story…</string>
     <string name="stories_unavailable">Story indisponible</string>
+    <string name="stories_unavailable_body">La story a été supprimée ou a expiré.</string>
+    <string name="stories_offline_title">Aucune connexion</string>
+    <string name="stories_offline_body">Impossible de joindre Telegram. Vérifiez votre connexion et réessayez.</string>
+    <string name="stories_offline_cached">Aucune connexion. La story enregistrée est affichée.</string>
+    <string name="stories_download_offline">Le fichier de la story n’a pas été téléchargé. Connectez-vous à Internet et réessayez.</string>
     <string name="stories_retry">Réessayer</string>
     <string name="stories_media_unsupported">Ce format de story n’est pas encore pris en charge</string>
     <string name="stories_image_failed">Impossible d’afficher la photo</string>

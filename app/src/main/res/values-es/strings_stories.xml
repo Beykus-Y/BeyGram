@@ -13,6 +13,11 @@
     <string name="stories_resume">Reanudar</string>
     <string name="stories_loading">Cargando historia…</string>
     <string name="stories_unavailable">Historia no disponible</string>
+    <string name="stories_unavailable_body">La historia se ha eliminado o ha caducado.</string>
+    <string name="stories_offline_title">Sin conexión</string>
+    <string name="stories_offline_body">No se pudo conectar con Telegram. Comprueba tu conexión e inténtalo de nuevo.</string>
+    <string name="stories_offline_cached">Sin conexión. Se muestra la historia guardada.</string>
+    <string name="stories_download_offline">El archivo de la historia no se ha descargado. Conéctate a internet e inténtalo de nuevo.</string>
     <string name="stories_retry">Reintentar</string>
     <string name="stories_media_unsupported">Este formato de historia aún no es compatible</string>
     <string name="stories_image_failed">No se pudo mostrar la foto</string>

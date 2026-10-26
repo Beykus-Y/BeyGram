@@ -76,12 +76,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
-import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.StoryDetail
 import com.beykus.beygram.domain.model.StoryMediaKind
 import com.beykus.beygram.domain.model.StoryPreview
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.TelegramAvatar
@@ -101,6 +101,8 @@ import java.util.Date
 /**
  * Full-screen story viewer. It loads the current story and neighbor previews only, pauses while the
  * user holds the screen, and reports OpenStory/CloseStory to TDLib so the unread marker is real.
+ * A temporary network or active-list change keeps the open story pinned; only a confirmed empty
+ * active list may close the viewer automatically.
  */
 @Composable
 fun StoryViewerScreen(
@@ -110,80 +112,163 @@ fun StoryViewerScreen(
     onClose: () -> Unit
 ) {
     SecureStoryWindow()
-    BackHandler { onClose() }
 
     val bars by repository.activeStories.collectAsStateWithLifecycle()
-    var snapshot by remember(posterChatId) { mutableStateOf<ChatStories?>(null) }
-    var missing by remember(posterChatId) { mutableStateOf(false) }
-    LaunchedEffect(posterChatId, bars) {
-        val entry = bars.firstOrNull { it.chatId == posterChatId }
-        if (entry != null) {
-            snapshot = entry
-        } else if (snapshot != null) {
-            // The sender left the active story list (all stories expired/deleted or blocked).
-            onClose()
-        }
+    val connection by repository.connectionState.collectAsStateWithLifecycle()
+    val connected = connection == TelegramConnectionState.Connected
+
+    // The entry is kept even after the author leaves the visible bar: an empty list update is not
+    // enough proof that the stories were deleted, and the viewer must survive a network failure.
+    var snapshot by remember(posterChatId) {
+        mutableStateOf(repository.cachedActiveStory(posterChatId))
     }
-    LaunchedEffect(posterChatId) {
-        repository.refreshActiveStories()
-        delay(8_000)
-        if (snapshot == null) missing = true
-    }
+    var initialTimedOut by remember(posterChatId) { mutableStateOf(false) }
+    var initialRetry by remember(posterChatId) { mutableIntStateOf(0) }
 
     val stories = snapshot?.stories.orEmpty()
     val storyIds = stories.map { it.storyId }
     var index by remember(posterChatId) { mutableIntStateOf(-1) }
-    var visibleStoryId by remember(posterChatId) { mutableIntStateOf(0) }
-    LaunchedEffect(storyIds, initialStoryId) {
-        if (stories.isEmpty()) return@LaunchedEffect
-        if (visibleStoryId > 0) {
-            val resolved = storyIndexAfterUpdate(stories, index, visibleStoryId)
-            if (resolved < 0) {
-                onClose()
-                return@LaunchedEffect
-            }
-            index = resolved
-            visibleStoryId = stories[resolved].storyId
-        } else {
-            val target = if (index !in stories.indices) {
-                storyInitialIndex(stories, snapshot?.maxReadStoryId ?: 0, initialStoryId)
-            } else {
-                index.coerceIn(0, stories.lastIndex)
-            }
-            index = target
-            visibleStoryId = stories[target].storyId
+    var visibleStory by remember(posterChatId) { mutableStateOf<StoryPreview?>(null) }
+
+    var closing by remember(posterChatId) { mutableStateOf(false) }
+    val latestStoryCount by rememberUpdatedState(stories.size)
+    val latestOnClose by rememberUpdatedState(onClose)
+    val closeViewer: (StoryViewerCloseReason) -> Unit = { reason ->
+        if (!closing) {
+            closing = true
+            logStoryViewerClose(reason, latestStoryCount)
+            latestOnClose()
         }
     }
-    LaunchedEffect(index) {
-        if (index in stories.indices) visibleStoryId = stories[index].storyId
+    BackHandler { closeViewer(StoryViewerCloseReason.Back) }
+
+    LaunchedEffect(posterChatId, bars) {
+        val entry = bars.firstOrNull { it.chatId == posterChatId }
+        storyViewerEntryUpdate(snapshot, entry)?.let { next ->
+            if (next !== snapshot) snapshot = next
+        }
     }
-    val current = stories.getOrNull(index)
+    LaunchedEffect(posterChatId, initialRetry, connected, snapshot == null) {
+        if (snapshot != null) return@LaunchedEffect
+        initialTimedOut = false
+        repository.refreshActiveStories()
+        if (connected) {
+            delay(8_000)
+            if (snapshot == null) initialTimedOut = true
+        }
+    }
+    val authorStillListed = bars.any { it.chatId == posterChatId }
+    LaunchedEffect(posterChatId, authorStillListed, connected, snapshot != null) {
+        if (!needsStoryRemovalConfirmation(snapshot != null, authorStillListed, connected)) return@LaunchedEffect
+        // A page replacement can briefly omit the author. Confirm directly and keep the viewer open
+        // unless TDLib answers twice that the active list is actually empty.
+        delay(1_000)
+        if (bars.any { it.chatId == posterChatId }) return@LaunchedEffect
+        if (confirmStoryListState { repository.confirmActiveStoryIds(posterChatId) } == StoryListConfirmation.Gone) {
+            closeViewer(StoryViewerCloseReason.Unavailable)
+        }
+    }
+
+    LaunchedEffect(storyIds, initialStoryId) {
+        val next = storyViewerPinnedStory(
+            stories,
+            visibleStory,
+            initialStoryId,
+            snapshot?.maxReadStoryId ?: 0
+        )
+        if (next == null) return@LaunchedEffect
+        val found = stories.indexOfFirst { it.storyId == next.storyId }
+        if (found >= 0) {
+            index = found
+            visibleStory = stories[found]
+        } else if (visibleStory == null) {
+            // The pinned story is not in the current page yet; keep it while the list is refreshed.
+            visibleStory = next
+        }
+    }
+    val current = visibleStory
+    val currentIndex = stories.indexOfFirst { it.storyId == current?.storyId }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var detail by remember(posterChatId, current?.storyId) { mutableStateOf<StoryDetail?>(null) }
+    var detail by remember(posterChatId, current?.storyId) {
+        mutableStateOf(current?.storyId?.let { repository.cachedStory(posterChatId, it) })
+    }
     var loading by remember(posterChatId, current?.storyId) { mutableStateOf(false) }
     var loadError by remember(posterChatId, current?.storyId) { mutableStateOf<String?>(null) }
+    var cachedNotice by remember(posterChatId, current?.storyId) { mutableStateOf(false) }
     var retry by remember(posterChatId, current?.storyId) { mutableIntStateOf(0) }
-    LaunchedEffect(posterChatId, current?.storyId, retry) {
+    var notice by remember { mutableStateOf<String?>(null) }
+
+    suspend fun confirmUnavailable(storyId: Int) {
+        if (repository.connectionState.value != TelegramConnectionState.Connected) return
+        when (val confirmation = confirmStoryListState { repository.confirmActiveStoryIds(posterChatId) }) {
+            StoryListConfirmation.Gone -> closeViewer(StoryViewerCloseReason.Unavailable)
+            is StoryListConfirmation.Present -> {
+                if (storyId in confirmation.storyIds) return
+                val at = stories.indexOfFirst { it.storyId == storyId }
+                val next = stories.getOrNull(at + 1) ?: stories.getOrNull(at - 1)
+                if (next != null && next.storyId != storyId) {
+                    index = stories.indexOf(next)
+                    visibleStory = next
+                } else {
+                    repository.refreshActiveStories()
+                    if (detail == null) {
+                        loadError = context.getString(R.string.stories_unavailable)
+                    } else {
+                        notice = context.getString(R.string.stories_unavailable)
+                    }
+                }
+            }
+            StoryListConfirmation.Unknown -> Unit
+        }
+    }
+
+    // A partial list can omit the open story. Verify it directly before leaving the cached frame
+    // on screen forever; only an explicitly confirmed absence moves or closes the viewer.
+    var checkedMissingStoryId by remember(posterChatId) { mutableIntStateOf(0) }
+    LaunchedEffect(current?.storyId, currentIndex, connected) {
         val storyId = current?.storyId ?: return@LaunchedEffect
+        if (currentIndex >= 0) {
+            checkedMissingStoryId = 0
+            return@LaunchedEffect
+        }
+        if (!connected || stories.isEmpty() || checkedMissingStoryId == storyId) return@LaunchedEffect
+        checkedMissingStoryId = storyId
+        confirmUnavailable(storyId)
+    }
+
+    LaunchedEffect(posterChatId, current?.storyId, retry, connected) {
+        val storyId = current?.storyId ?: return@LaunchedEffect
+        if (detail == null) {
+            repository.cachedStory(posterChatId, storyId)?.let {
+                detail = it
+                cachedNotice = true
+            }
+        }
+        if (!connected) {
+            loading = false
+            if (detail == null) {
+                loadError = context.getString(R.string.stories_offline_body)
+            } else {
+                cachedNotice = true
+            }
+            return@LaunchedEffect
+        }
         loading = true
         loadError = null
         val result = repository.loadStory(posterChatId, storyId)
         loading = false
-        result.onSuccess { detail = it }
-            .onFailure { loadError = it.userMessage(context, R.string.stories_unavailable) }
-    }
-
-    // The current story is open only after its content loads; leaving it sends CloseStory.
-    LaunchedEffect(posterChatId, current?.storyId, detail != null) {
-        val storyId = current?.storyId ?: return@LaunchedEffect
-        if (detail == null) return@LaunchedEffect
-        try {
-            repository.openStory(posterChatId, storyId)
-            awaitCancellation()
-        } finally {
-            withContext(NonCancellable) { repository.closeStory(posterChatId, storyId) }
+        result.onSuccess {
+            detail = it
+            cachedNotice = false
+        }.onFailure { error ->
+            if (detail != null) {
+                cachedNotice = true
+            } else {
+                loadError = error.userMessage(context, R.string.stories_unavailable)
+            }
+            confirmUnavailable(storyId)
         }
     }
 
@@ -192,8 +277,9 @@ fun StoryViewerScreen(
         onDispose { downloaded.toList().forEach(repository::cancelFileDownload) }
     }
     // Current full file first, then neighbor thumbnails; never a neighbor's full video.
-    LaunchedEffect(posterChatId, current?.storyId, detail?.media?.fileId) {
+    LaunchedEffect(posterChatId, current?.storyId, detail?.media?.fileId, connected) {
         val media = detail?.media ?: return@LaunchedEffect
+        if (!connected) return@LaunchedEffect
         fun request(targets: List<StoryPrefetchTarget>) {
             val keep = targets.map { it.fileId }.toSet()
             (downloaded - keep).forEach(repository::cancelFileDownload)
@@ -206,8 +292,12 @@ fun StoryViewerScreen(
         request(storyPrefetchTargets(media, null, null))
         val previousId = stories.getOrNull(index - 1)?.storyId
         val nextId = stories.getOrNull(index + 1)?.storyId
-        val previous = previousId?.let { repository.loadStory(posterChatId, it).getOrNull() }
-        val next = nextId?.let { repository.loadStory(posterChatId, it).getOrNull() }
+        val previous = previousId?.let {
+            repository.cachedStory(posterChatId, it) ?: repository.loadStory(posterChatId, it).getOrNull()
+        }
+        val next = nextId?.let {
+            repository.cachedStory(posterChatId, it) ?: repository.loadStory(posterChatId, it).getOrNull()
+        }
         request(storyPrefetchTargets(media, previous?.media, next?.media))
     }
 
@@ -235,7 +325,6 @@ fun StoryViewerScreen(
     var editSaving by remember { mutableStateOf(false) }
     var editError by remember { mutableStateOf<String?>(null) }
     var editCaptionLimit by remember { mutableIntStateOf(1_024) }
-    var notice by remember { mutableStateOf<String?>(null) }
     val reducedMotion = rememberReducedMotion()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var resumed by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
@@ -252,12 +341,38 @@ fun StoryViewerScreen(
         StoryMediaKind.Video -> fullFile.localPath != null && videoReady
         null -> false
     }
+
+    // TDLib marks a story as read only after OpenStory succeeds. Wait until the media is actually on
+    // screen; otherwise a failed or offline load must not consume the unread marker.
+    var openedStoryId by remember(posterChatId) { mutableIntStateOf(0) }
+    LaunchedEffect(posterChatId, current?.storyId, detail != null, mediaReady, connected, resumed, retry) {
+        val storyId = current?.storyId ?: return@LaunchedEffect
+        if (!connected || detail == null || !mediaReady || !resumed || openedStoryId == storyId) {
+            return@LaunchedEffect
+        }
+        if (repository.openStory(posterChatId, storyId).isSuccess) openedStoryId = storyId
+    }
+    // CloseStory is sent only when leaving an actually opened story. A connection blip does not
+    // restart this effect, so the open story and its playback position survive it.
+    val latestOpenedStoryId by rememberUpdatedState(openedStoryId)
+    LaunchedEffect(posterChatId, current?.storyId, detail != null) {
+        val storyId = current?.storyId ?: return@LaunchedEffect
+        if (detail == null) return@LaunchedEffect
+        try {
+            awaitCancellation()
+        } finally {
+            if (latestOpenedStoryId == storyId) {
+                withContext(NonCancellable) { repository.closeStory(posterChatId, storyId) }
+            }
+        }
+    }
+
     val storyActive = detail != null && loadError == null && mediaReady && resumed && !paused && !dialogOpen
     val canPlay = storyActive && (media?.kind != StoryMediaKind.Video || videoPlaying)
     val duration = storyDurationMillis(detail)
-    val closeLatest by rememberUpdatedState(onClose)
-    val storyCount = stories.size
-    val latestStoryCount by rememberUpdatedState(storyCount)
+    val latestStories by rememberUpdatedState(stories)
+    val latestVisibleStoryId by rememberUpdatedState(current?.storyId)
+    val closeCompleted by rememberUpdatedState { closeViewer(StoryViewerCloseReason.Completed) }
     LaunchedEffect(current?.storyId, detail?.media?.fileId, canPlay, duration, progressRestart) {
         if (!canPlay) return@LaunchedEffect
         var elapsed = (progress * duration).coerceAtLeast(0f)
@@ -275,7 +390,16 @@ fun StoryViewerScreen(
             }
             if (next >= 1f) break
         }
-        if (index < latestStoryCount - 1) index++ else closeLatest()
+        val at = latestStories.indexOfFirst { it.storyId == latestVisibleStoryId }
+        when {
+            at in 0 until latestStories.lastIndex -> {
+                index = at + 1
+                visibleStory = latestStories[at + 1]
+            }
+            at >= 0 && at == latestStories.lastIndex -> closeCompleted()
+            // The open story is not in the current list page. Keep it instead of closing on a
+            // temporary network/empty-list response; a later confirmation decides what to do.
+        }
     }
 
     LaunchedEffect(notice) {
@@ -298,13 +422,47 @@ fun StoryViewerScreen(
     }
 
     val goPrevious: () -> Unit = {
-        if (index > 0) index-- else {
-            progress = 0f
-            progressRestart++
+        when {
+            currentIndex > 0 -> {
+                index = currentIndex - 1
+                visibleStory = stories[currentIndex - 1]
+            }
+            currentIndex == 0 -> {
+                progress = 0f
+                progressRestart++
+            }
+            stories.isNotEmpty() -> {
+                val target = (index - 1).coerceIn(0, stories.lastIndex)
+                if (target == index) {
+                    progress = 0f
+                    progressRestart++
+                } else {
+                    index = target
+                    visibleStory = stories[target]
+                }
+            }
+            else -> {
+                progress = 0f
+                progressRestart++
+            }
         }
     }
     val goNext: () -> Unit = {
-        if (index < latestStoryCount - 1) index++ else closeLatest()
+        when {
+            currentIndex in 0 until stories.lastIndex -> {
+                index = currentIndex + 1
+                visibleStory = stories[currentIndex + 1]
+            }
+            currentIndex >= 0 && currentIndex == stories.lastIndex ->
+                closeViewer(StoryViewerCloseReason.Completed)
+            stories.isNotEmpty() -> {
+                val target = (index + 1).coerceIn(0, stories.lastIndex)
+                index = target
+                visibleStory = stories[target]
+            }
+            // An empty list is not a confirmed end of the stories; keep the viewer open.
+            else -> Unit
+        }
     }
 
     var reactions by remember { mutableStateOf<List<ReactionOption>?>(null) }
@@ -326,6 +484,11 @@ fun StoryViewerScreen(
     var deleting by remember { mutableStateOf(false) }
 
     val entry = snapshot
+    val progressIndex = if (currentIndex >= 0) {
+        currentIndex
+    } else {
+        index.coerceIn(0, (stories.size - 1).coerceAtLeast(0))
+    }
     val title = when {
         entry == null -> ""
         entry.isSelf -> stringResource(R.string.stories_you)
@@ -342,15 +505,20 @@ fun StoryViewerScreen(
     val editingStory = detail?.takeIf { editStoryId != 0 && it.storyId == editStoryId }
     val editingCanEditPrivacy = entry?.isSelf == true && editingStory?.canSetPrivacySettings == true
 
-    if (stories.isEmpty()) {
+    if (current == null) {
+        val phase = if (entry != null) {
+            StoryViewerEmptyPhase.Unavailable
+        } else {
+            storyViewerEmptyPhase(connection, initialTimedOut)
+        }
         StoryEmptyView(
-            missing = missing || entry != null,
+            phase = phase,
             title = title,
             onRetry = {
-                missing = false
-                repository.refreshActiveStories()
+                initialTimedOut = false
+                initialRetry++
             },
-            onClose = onClose
+            onClose = { closeViewer(StoryViewerCloseReason.CloseButton) }
         )
         return
     }
@@ -381,12 +549,20 @@ fun StoryViewerScreen(
                 fullFile = fullFile,
                 thumbnailFile = thumbnailFile,
                 playing = storyActive,
+                offline = !connected,
                 onReady = { videoReady = true },
                 onPlayingChanged = { videoPlaying = it },
                 onEnded = {
                     val ended = current?.storyId
-                    if (ended != null && stories.getOrNull(index)?.storyId == ended) {
-                        if (index < latestStoryCount - 1) index++ else closeLatest()
+                    val at = stories.indexOfFirst { it.storyId == ended }
+                    when {
+                        at in 0 until stories.lastIndex -> {
+                            index = at + 1
+                            visibleStory = stories[at + 1]
+                        }
+                        at >= 0 && at == stories.lastIndex ->
+                            closeViewer(StoryViewerCloseReason.Completed)
+                        // The story is not in the latest page; do not treat an incomplete list as the end.
                     }
                 },
                 restartToken = progressRestart,
@@ -400,7 +576,7 @@ fun StoryViewerScreen(
         }
 
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            StoryProgressRow(stories.size, index) { progress }
+            StoryProgressRow(stories.size, progressIndex) { progress }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -435,7 +611,10 @@ fun StoryViewerScreen(
                         }
                     }
                 }
-                IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
+                IconButton(
+                    onClick = { closeViewer(StoryViewerCloseReason.CloseButton) },
+                    modifier = Modifier.size(48.dp)
+                ) {
                     Icon(Icons.Rounded.Close, stringResource(R.string.stories_close), tint = Color.White)
                 }
             }
@@ -453,7 +632,11 @@ fun StoryViewerScreen(
                 Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.42f)).padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = goPrevious, enabled = index > 0, modifier = Modifier.size(48.dp)) {
+                IconButton(
+                    onClick = goPrevious,
+                    enabled = currentIndex > 0 || (currentIndex < 0 && stories.isNotEmpty()),
+                    modifier = Modifier.size(48.dp)
+                ) {
                     Icon(Icons.Rounded.SkipPrevious, stringResource(R.string.stories_previous), tint = Color.White)
                 }
                 IconButton(onClick = { paused = !paused }, modifier = Modifier.size(48.dp)) {
@@ -463,7 +646,7 @@ fun StoryViewerScreen(
                         tint = Color.White
                     )
                 }
-                IconButton(onClick = goNext, modifier = Modifier.size(48.dp)) {
+                IconButton(onClick = goNext, enabled = stories.isNotEmpty(), modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Rounded.SkipNext, stringResource(R.string.stories_next), tint = Color.White)
                 }
                 Spacer(Modifier.weight(1f))
@@ -504,6 +687,28 @@ fun StoryViewerScreen(
             }
         }
 
+        if (cachedNotice) {
+            Row(
+                Modifier.align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(bottom = 110.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xE62A2D34))
+                    .padding(start = 14.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
+                    .errorAnnouncement(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    stringResource(R.string.stories_offline_cached),
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                TextButton(onClick = { retry++ }) {
+                    Text(stringResource(R.string.stories_retry), color = Color.White)
+                }
+            }
+        }
         notice?.let {
             Text(
                 it,
@@ -633,7 +838,7 @@ fun StoryViewerScreen(
                             repository.deleteStory(posterChatId, deleteStoryId)
                                 .onSuccess {
                                     notice = context.getString(R.string.stories_deleted)
-                                    onClose()
+                                    closeViewer(StoryViewerCloseReason.Deleted)
                                 }
                                 .onFailure {
                                     deleting = false
@@ -661,6 +866,7 @@ private fun StoryContent(
     fullFile: MediaFileState,
     thumbnailFile: MediaFileState,
     playing: Boolean,
+    offline: Boolean,
     onReady: () -> Unit,
     onPlayingChanged: (Boolean) -> Unit,
     onEnded: () -> Unit,
@@ -672,7 +878,7 @@ private fun StoryContent(
     val media = detail?.media
     when {
         loadError != null -> Column(
-            Modifier.fillMaxWidth().padding(32.dp),
+            Modifier.fillMaxWidth().padding(32.dp).errorAnnouncement(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(loadError, color = Color.White, fontSize = 16.sp)
@@ -695,32 +901,42 @@ private fun StoryContent(
         }
         media.kind == StoryMediaKind.Photo -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
-            if (fullFile.error != null && fullFile.localPath == null) {
-                StoryDownloadError(fullFile, onRetryDownload)
-            }
+            storyDownloadMessage(fullFile, offline)?.let { StoryDownloadError(it, onRetryDownload) }
         }
         else -> {
             val path = fullFile.localPath
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (path == null) StoryPhoto(fullFile, thumbnailFile, media.minithumbnail)
                 else StoryVideo(path, playing, onFailure, onReady, onPlayingChanged, onEnded, restartToken)
-                if (fullFile.error != null && fullFile.localPath == null) {
-                    StoryDownloadError(fullFile, onRetryDownload)
-                }
+                storyDownloadMessage(fullFile, offline)?.let { StoryDownloadError(it, onRetryDownload) }
             }
         }
     }
 }
 
 @Composable
+private fun storyDownloadMessage(file: MediaFileState, offline: Boolean): String? = when {
+    file.localPath != null -> null
+    offline -> stringResource(R.string.stories_download_offline)
+    file.error != null -> file.error?.resolve().orEmpty()
+    else -> null
+}
+
+@Composable
 internal fun StoryDownloadError(file: MediaFileState, onRetry: () -> Unit) {
+    StoryDownloadError(file.error?.resolve().orEmpty(), onRetry)
+}
+
+@Composable
+internal fun StoryDownloadError(message: String, onRetry: () -> Unit) {
     Column(
         Modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xE62A2D34))
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .errorAnnouncement(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            file.error?.resolve().orEmpty(),
+            message,
             color = Color.White,
             fontSize = 14.sp,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -762,19 +978,70 @@ private fun StoryProgressRow(count: Int, index: Int, progress: () -> Float) {
 }
 
 @Composable
-private fun StoryEmptyView(missing: Boolean, title: String, onRetry: () -> Unit, onClose: () -> Unit) {
+private fun StoryEmptyView(
+    phase: StoryViewerEmptyPhase,
+    title: String,
+    onRetry: () -> Unit,
+    onClose: () -> Unit
+) {
     Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-            Text(
-                if (missing) stringResource(R.string.stories_unavailable) else stringResource(R.string.stories_loading),
-                color = Color.White,
-                fontSize = 17.sp
-            )
-            if (!title.isBlank()) {
-                Text(title, color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(32.dp).errorAnnouncement()
+        ) {
+            when (phase) {
+                StoryViewerEmptyPhase.Loading -> {
+                    CircularProgressIndicator(color = Color.White)
+                    Text(
+                        stringResource(R.string.stories_loading),
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
+                StoryViewerEmptyPhase.Offline -> {
+                    Text(
+                        stringResource(R.string.stories_offline_title),
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.semantics { heading() }
+                    )
+                    Text(
+                        stringResource(R.string.stories_offline_body),
+                        color = Color.White.copy(alpha = 0.78f),
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                StoryViewerEmptyPhase.Unavailable -> {
+                    Text(
+                        stringResource(R.string.stories_unavailable),
+                        color = Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.semantics { heading() }
+                    )
+                    Text(
+                        stringResource(R.string.stories_unavailable_body),
+                        color = Color.White.copy(alpha = 0.78f),
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
             }
-            if (missing) {
-                TextButton(onClick = onRetry) { Text(stringResource(R.string.stories_retry), color = Color.White) }
+            if (!title.isBlank()) {
+                Text(
+                    title,
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+            if (phase != StoryViewerEmptyPhase.Loading) {
+                TextButton(onClick = onRetry) {
+                    Text(stringResource(R.string.stories_retry), color = Color.White)
+                }
             }
             TextButton(onClick = onClose) { Text(stringResource(R.string.common_close), color = Color.White) }
         }

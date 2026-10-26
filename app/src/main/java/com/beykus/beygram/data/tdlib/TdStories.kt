@@ -68,6 +68,10 @@ internal class TdStories(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private val active = mutableMapOf<Long, TdApi.ChatActiveStories>()
+    /** Metadata of the last successfully published entries, kept for a viewer opened during a list refresh. */
+    private val lastKnownActive = mutableMapOf<Long, ChatStories>()
+    /** Full details already shown or prefetched by the viewer; they make the viewer usable offline. */
+    private val storyCache = object : LinkedHashMap<Pair<Long, Int>, StoryDetail>(16, 0.75f, true) {}
     private val hiddenStories = mutableSetOf<Pair<Long, Int>>()
     private val readOverrides = mutableMapOf<Long, Int>()
     private val requestedChats = mutableSetOf<Long>()
@@ -119,6 +123,8 @@ internal class TdStories(
         synchronized(lock) {
             generation++
             active.clear()
+            lastKnownActive.clear()
+            storyCache.clear()
             hiddenStories.clear()
             readOverrides.clear()
             requestedChats.clear()
@@ -210,7 +216,10 @@ internal class TdStories(
             }
             is TdApi.UpdateChatPhoto, is TdApi.UpdateChatTitle -> publish()
             is TdApi.UpdateStoryDeleted -> {
-                synchronized(lock) { hiddenStories += update.storyPosterChatId to update.storyId }
+                synchronized(lock) {
+                    hiddenStories += update.storyPosterChatId to update.storyId
+                    forgetStory(update.storyPosterChatId, update.storyId)
+                }
                 publish()
             }
             is TdApi.UpdateStoryPostSucceeded -> {
@@ -361,11 +370,58 @@ internal class TdStories(
                 canBeArchived = raw.canBeArchived
             )
         }
-        _items.value = orderedStoryBar(entries)
+        val ordered = orderedStoryBar(entries)
+        _items.value = ordered
+        synchronized(lock) {
+            ordered.forEach { lastKnownActive[it.chatId] = it }
+        }
+    }
+
+    /** Last published metadata for a chat; used when the viewer opens while the list is being refreshed. */
+    fun cachedActiveStory(chatId: Long): ChatStories? = synchronized(lock) { lastKnownActive[chatId] }
+
+    /** Last successfully loaded detail; lets the viewer show an already downloaded story offline. */
+    fun cachedStory(posterChatId: Long, storyId: Int): StoryDetail? =
+        synchronized(lock) { storyCache[posterChatId to storyId] }
+
+    /**
+     * Direct check for the viewer. A successful empty set means the server confirmed that the chat
+     * has no active stories; a failure is an unknown state and must not close the viewer.
+     */
+    suspend fun activeStoryIds(posterChatId: Long): Result<Set<Int>> = storyRequest {
+        val activeStories = requests(TdApi.GetChatActiveStories(posterChatId))
+        // Any returned story keeps the viewer open; only a truly empty answer is evidence of removal.
+        activeStories.stories.orEmpty()
+            .filterNot { it.isLive }
+            .map { it.storyId }
+            .toSet()
+    }
+
+    private fun cacheStory(detail: StoryDetail) {
+        synchronized(lock) {
+            storyCache[detail.posterChatId to detail.storyId] = detail
+            while (storyCache.size > MAX_CACHED_STORY_DETAILS) {
+                val iterator = storyCache.entries.iterator()
+                if (!iterator.hasNext()) break
+                iterator.next()
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun forgetStory(posterChatId: Long, storyId: Int) {
+        storyCache.remove(posterChatId to storyId)
+        val entry = lastKnownActive[posterChatId] ?: return
+        val remaining = entry.stories.filterNot { it.storyId == storyId }
+        if (remaining.isEmpty()) {
+            lastKnownActive.remove(posterChatId)
+        } else {
+            lastKnownActive[posterChatId] = entry.copy(stories = remaining)
+        }
     }
 
     suspend fun story(posterChatId: Long, storyId: Int): Result<StoryDetail> = storyRequest {
-        requests(TdApi.GetStory(posterChatId, storyId, false)).toDetail()
+        requests(TdApi.GetStory(posterChatId, storyId, false)).toDetail().also(::cacheStory)
     }
 
     suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit> = storyRequest {
@@ -409,7 +465,10 @@ internal class TdStories(
 
     suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit> = storyRequest {
         requests(TdApi.DeleteStory(posterChatId, storyId))
-        synchronized(lock) { hiddenStories += posterChatId to storyId }
+        synchronized(lock) {
+            hiddenStories += posterChatId to storyId
+            forgetStory(posterChatId, storyId)
+        }
         publish()
     }
 
@@ -1264,6 +1323,7 @@ internal class TdStories(
         const val RECENT_STORY_WINDOW_MS = 2 * 60_000L
         const val ARCHIVE_PAGE_SIZE = 100
         const val MAX_ACTIVE_STORY_PAGES = 5
+        const val MAX_CACHED_STORY_DETAILS = 64
         const val PREVIEW_MIN_SIDE = 320
         const val DEFAULT_CAPTION_LENGTH = 1_024
         const val MAX_CAPTION_LENGTH = 4_096
