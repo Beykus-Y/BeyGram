@@ -3,8 +3,8 @@ package com.beykus.beygram.ui.screens.chat
 import androidx.compose.runtime.saveable.listSaver
 import com.beykus.beygram.domain.model.StickerItem
 
-/** Top-level tabs of the unified sticker/GIF panel. */
-internal enum class StickerPanelTab { Stickers, Gifs }
+/** Top-level tabs of the unified panel: standard emoji, sticker packs and GIFs. The saved view stores tab names, not ordinals. */
+internal enum class StickerPanelTab { Emoji, Stickers, Gifs }
 
 /** Sticker sources inside the Stickers tab. */
 internal enum class StickerPanelSection { Recent, Favorites, Pack }
@@ -45,9 +45,11 @@ internal data class StickerPanelView(
         query = ""
     )
 
-    fun openSearch(): StickerPanelView = copy(searchOpen = true)
+    // The Emoji tab has no search, so opening or typing a query there leaves the view unchanged.
+    fun openSearch(): StickerPanelView = if (tab == StickerPanelTab.Emoji) this else copy(searchOpen = true)
 
-    fun updateQuery(text: String): StickerPanelView = copy(searchOpen = true, query = text)
+    fun updateQuery(text: String): StickerPanelView =
+        if (tab == StickerPanelTab.Emoji) this else copy(searchOpen = true, query = text)
 
     fun closeSearch(): StickerPanelView = copy(searchOpen = false, query = "")
 
@@ -69,22 +71,41 @@ internal val StickerPanelViewSaver = listSaver<StickerPanelView, Any>(
         )
     },
     restore = { saved ->
-        val tab = enumValue(saved[0] as String, StickerPanelTab.Stickers)
-        val section = enumValue(saved[1] as String, StickerPanelSection.Recent)
-        val setId = (saved[2] as Long).takeIf { it >= 0L }
-        StickerPanelView(
-            tab = tab,
-            section = when {
-                section == StickerPanelSection.Pack && setId == null -> StickerPanelSection.Recent
-                tab == StickerPanelTab.Gifs && section == StickerPanelSection.Pack -> StickerPanelSection.Recent
-                else -> section
-            },
-            selectedSetId = if (tab == StickerPanelTab.Gifs) null else setId,
+        restoreStickerPanelView(
+            tab = enumValue(saved[0] as String, StickerPanelTab.Stickers),
+            section = enumValue(saved[1] as String, StickerPanelSection.Recent),
+            setId = (saved[2] as Long).takeIf { it >= 0L },
             searchOpen = saved[3] as Boolean,
             query = saved[4] as String
         )
     }
 )
+
+/**
+ * Rebuilds a view from its saved fields and normalizes combinations the UI can no longer reach: a pack needs its id,
+ * GIFs have no packs, and the Emoji tab is always its plain root without search.
+ */
+internal fun restoreStickerPanelView(
+    tab: StickerPanelTab,
+    section: StickerPanelSection,
+    setId: Long?,
+    searchOpen: Boolean,
+    query: String
+): StickerPanelView {
+    val emojiRoot = tab == StickerPanelTab.Emoji
+    return StickerPanelView(
+        tab = tab,
+        section = when {
+            emojiRoot -> StickerPanelSection.Recent
+            section == StickerPanelSection.Pack && setId == null -> StickerPanelSection.Recent
+            tab == StickerPanelTab.Gifs && section == StickerPanelSection.Pack -> StickerPanelSection.Recent
+            else -> section
+        },
+        selectedSetId = if (tab == StickerPanelTab.Gifs || emojiRoot) null else setId,
+        searchOpen = searchOpen && !emojiRoot,
+        query = if (emojiRoot) "" else query
+    )
+}
 
 private inline fun <reified T : Enum<T>> enumValue(name: String, fallback: T): T =
     enumValues<T>().firstOrNull { it.name == name } ?: fallback

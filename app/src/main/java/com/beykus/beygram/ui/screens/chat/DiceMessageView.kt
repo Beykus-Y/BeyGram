@@ -2,6 +2,9 @@ package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
 import android.os.PowerManager
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,12 +23,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -60,6 +65,7 @@ import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.beyGramPalette
 import java.io.File
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -71,6 +77,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 private val DICE_CARD_SIZE = 136.dp
 private const val DICE_ANIMATION_TIMEOUT_MILLIS = 15_000L
 private const val DICE_FALLBACK_REVEAL_MILLIS = 8_000L
+// The throw of a WebM dice: the static preview spins in from a smaller size, overshoots slightly and settles.
+private const val DICE_THROW_MILLIS = 600
+private const val DICE_THROW_START_SCALE = 0.35f
+private const val DICE_THROW_SPIN_DEGREES = -180f
 
 /** Keeps the throw identity across the temporary-to-server message id replacement in one remember block. */
 @Composable
@@ -95,12 +105,16 @@ internal fun DiceMessageCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    // Finished throws must survive an app restart. Attaching is idempotent, so every visible throw may ask for it.
+    remember(context) { diceAnimationPlayback.attach(SharedPreferencesDicePlaybackPersistence(context)) }
     val accountId = LocalPlaybackAccountId.current
     val motion = systemMotionEnabled() && !rememberPowerSaveMode(context)
     val effectiveId = diceAnimationId.takeIf { it != 0L } ?: message.id
     val key = remember(accountId, message.chatId, effectiveId) {
         DiceAnimationKey(accountId, message.chatId, effectiveId)
     }
+    // The effects below outlive the composition that started them, so they read the id the row has now.
+    val currentMessageId by rememberUpdatedState(message.id)
     val displayState = dice.displayState
     val nowSeconds = System.currentTimeMillis() / 1000L
     val recentOutgoing = message.isOutgoing && message.sendState != MessageSendState.Failed &&
@@ -110,13 +124,17 @@ internal fun DiceMessageCard(
     val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
 
     val files = if (observeFile != null && downloadFile != null) {
-        rememberDiceFiles(displayState?.assets.orEmpty(), observeFile, downloadFile, autoDownload)
+        rememberDiceFiles(diceFileAssets(displayState), observeFile, downloadFile, autoDownload)
     } else {
         emptyMap()
     }
     val playable = when (val state = displayState) {
-        is MessageDiceState.Regular ->
-            state.sticker.mimeType == TGS_MIME && files[state.sticker.fileId]?.localPath != null
+        is MessageDiceState.Regular -> when (state.sticker.mimeType) {
+            TGS_MIME -> files[state.sticker.fileId]?.localPath != null
+            // A WebM sticker is never played; its static preview carries the throw as a Compose transition.
+            WEBM_MIME -> state.sticker.staticPreviewFileId()?.let { files[it]?.localPath } != null
+            else -> false
+        }
         is MessageDiceState.SlotMachine ->
             state.layers.all { it.mimeType == TGS_MIME && files[it.fileId]?.localPath != null }
         null -> false
@@ -146,7 +164,7 @@ internal fun DiceMessageCard(
         if (!canPlay) {
             // Reduced motion consumes a live throw immediately: toggling the setting back must not replay it.
             if (!motion && (eligible || diceAnimationPlayback.canBegin(key, eligible = false))) {
-                diceAnimationPlayback.finish(key)
+                consumeDiceThrow(key, currentMessageId)
             }
             return@LaunchedEffect
         }
@@ -165,7 +183,12 @@ internal fun DiceMessageCard(
             diceAnimationLimiter.release()
         }
         animationDone = true
-        if (dice.hasFinalValue) diceAnimationPlayback.finish(key)
+        if (dice.hasFinalValue) consumeDiceThrow(key, currentMessageId)
+    }
+
+    // A confirmed send can replace the temporary id after the throw already finished; the restart only knows the new id.
+    LaunchedEffect(currentMessageId, key) {
+        if (diceAnimationPlayback.isDone(key)) consumeDiceThrow(key, currentMessageId)
     }
 
     val resultText = when {
@@ -209,10 +232,86 @@ internal fun DiceMessageCard(
     }
 }
 
-/** Formats that can show a real dice visual on this device; WebM has no inline renderer with alpha support. */
+/** Formats that can show a real dice visual on this device. A WebM sticker counts only with its static preview. */
 private fun MessageDiceState.canAnimateInline(): Boolean = when (this) {
-    is MessageDiceState.Regular -> sticker.mimeType == TGS_MIME || sticker.mimeType == WEBP_MIME
+    is MessageDiceState.Regular -> sticker.mimeType == TGS_MIME || sticker.mimeType == WEBP_MIME ||
+        (sticker.mimeType == WEBM_MIME && sticker.staticPreviewFileId() != null)
     is MessageDiceState.SlotMachine -> layers.all { it.mimeType == TGS_MIME }
+}
+
+/**
+ * The static thumbnail of a WebM dice sticker: a WebP or JPEG with the final face and its alpha channel. Without one,
+ * a WebM dice keeps the emoji and the server result.
+ */
+private fun DiceStickerAsset.staticPreviewFileId(): Int? = thumbnailFileId
+
+/** The stickers whose files must be downloaded before [state] can be drawn. A WebM video is never played, so only its preview is fetched. */
+private fun diceFileAssets(state: MessageDiceState?): List<DiceStickerAsset> = when (state) {
+    null -> emptyList()
+    is MessageDiceState.Regular -> if (state.sticker.mimeType == WEBM_MIME) {
+        // ImageDecoder recognises WebP and JPEG by their content, so the nominal type only has to name an image.
+        listOfNotNull(state.sticker.staticPreviewFileId()?.let { DiceStickerAsset(fileId = it, mimeType = WEBP_MIME) })
+    } else {
+        listOf(state.sticker)
+    }
+    is MessageDiceState.SlotMachine -> state.layers
+}
+
+/**
+ * Marks a throw as consumed under its original id and under the id its row has now. A confirmed send replaces the
+ * temporary id, and after a restart only the server id is known, so both are remembered.
+ */
+private fun consumeDiceThrow(key: DiceAnimationKey, currentMessageId: Long) {
+    diceAnimationPlayback.finish(key)
+    if (currentMessageId != key.messageId) diceAnimationPlayback.finish(key.copy(messageId = currentMessageId))
+}
+
+/**
+ * The settled face of a WebM dice with a short throw: it spins in, overshoots and lands. [animating] is the playback
+ * claim, and [playing] pauses the throw while the chat is in the background, so a resumed throw continues from the same
+ * frame. Without a claim the settled face is shown at once, which is what a reopened chat shows.
+ */
+@Composable
+private fun DiceThrowPreview(
+    path: String,
+    animating: Boolean,
+    playing: Boolean,
+    onFinished: () -> Unit,
+    modifier: Modifier
+) {
+    val progress = remember(path) { Animatable(if (animating) 0f else 1f) }
+    val finished by rememberUpdatedState(onFinished)
+    LaunchedEffect(path, animating, playing) {
+        if (!animating) {
+            progress.snapTo(1f)
+            return@LaunchedEffect
+        }
+        if (!playing) return@LaunchedEffect
+        if (progress.value < 1f) {
+            val remainingMillis = (DICE_THROW_MILLIS * (1f - progress.value)).roundToInt()
+            progress.animateTo(1f, tween(durationMillis = remainingMillis, easing = LinearEasing))
+        }
+        finished()
+    }
+    LocalMediaImage(
+        path = path,
+        modifier = modifier.graphicsLayer {
+            val eased = easeOutBack(progress.value)
+            val scale = DICE_THROW_START_SCALE + (1f - DICE_THROW_START_SCALE) * eased
+            scaleX = scale
+            scaleY = scale
+            rotationZ = (1f - eased) * DICE_THROW_SPIN_DEGREES
+        },
+        fit = true
+    )
+}
+
+/** Overshooting ease-out: the value rises past 1 and returns to it, which gives the landing its small bounce. */
+private fun easeOutBack(t: Float): Float {
+    val c1 = 1.70158f
+    val c3 = c1 + 1f
+    val u = t - 1f
+    return 1f + c3 * u * u * u + c1 * u * u
 }
 
 /**
@@ -261,6 +360,7 @@ private fun DiceVisual(
         is MessageDiceState.Regular -> RegularDiceVisual(
             asset = state.sticker,
             file = files[state.sticker.fileId],
+            preview = state.sticker.staticPreviewFileId()?.let { files[it] },
             animating = animating,
             playing = playing,
             motion = motion,
@@ -287,6 +387,7 @@ private fun DiceVisual(
 private fun RegularDiceVisual(
     asset: DiceStickerAsset,
     file: MediaFileState?,
+    preview: MediaFileState?,
     animating: Boolean,
     playing: Boolean,
     motion: Boolean,
@@ -295,6 +396,24 @@ private fun RegularDiceVisual(
     onFailed: () -> Unit,
     modifier: Modifier
 ) {
+    if (asset.mimeType == WEBM_MIME) {
+        // The VP9 video loses its alpha channel on Android, so it is never decoded. The static preview keeps the alpha
+        // and the final face. Still artwork is not motion, so it stays visible under reduced motion, which only skips
+        // the transition.
+        val previewPath = preview?.localPath
+        if (previewPath == null) {
+            fallback()
+        } else {
+            DiceThrowPreview(
+                path = previewPath,
+                animating = animating,
+                playing = playing,
+                onFinished = onFinished,
+                modifier = modifier
+            )
+        }
+        return
+    }
     val path = file?.localPath
     if (path == null) {
         fallback()
@@ -333,8 +452,6 @@ private fun RegularDiceVisual(
         } else {
             fallback()
         }
-        // WebM dice stickers have no platform renderer that preserves the alpha channel; the emoji and the
-        // server result are more honest than an empty box.
         else -> fallback()
     }
 }

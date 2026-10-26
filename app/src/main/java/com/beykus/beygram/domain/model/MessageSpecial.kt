@@ -157,7 +157,9 @@ data class DiceStickerAsset(
     val fileId: Int,
     val mimeType: String = "",
     val width: Int = 0,
-    val height: Int = 0
+    val height: Int = 0,
+    /** Static WebP/JPEG preview; WebM dice show it because the platform decoder drops the video's alpha channel. */
+    val thumbnailFileId: Int? = null
 )
 
 /**

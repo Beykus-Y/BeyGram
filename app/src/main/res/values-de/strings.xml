@@ -527,6 +527,7 @@
     <string name="sticker_set_unavailable">Dieser Sticker gehört zu keinem Sticker-Set</string>
     <string name="sticker_panel_entry">Sticker und GIFs</string>
     <string name="sticker_panel_title">Sticker und GIFs</string>
+    <string name="sticker_panel_tab_emoji">Emoji</string>
     <string name="sticker_panel_tab_stickers">Sticker</string>
     <string name="sticker_panel_tab_gifs">GIFs</string>
     <string name="sticker_panel_recent">Neueste</string>
@@ -577,4 +578,14 @@
     <string name="gif_panel_add_caption">Mit Bildunterschrift hinzufügen</string>
     <string name="gif_panel_duration">%1$d s</string>
     <string name="gif_panel_label">GIF</string>
+    <string name="emoji_category_recent">Zuletzt verwendet</string>
+    <string name="emoji_category_smileys">Smileys &amp; Personen</string>
+    <string name="emoji_category_animals">Tiere &amp; Natur</string>
+    <string name="emoji_category_food">Essen &amp; Trinken</string>
+    <string name="emoji_category_activity">Aktivitäten</string>
+    <string name="emoji_category_travel">Reisen &amp; Orte</string>
+    <string name="emoji_category_objects">Objekte</string>
+    <string name="emoji_category_symbols">Symbole</string>
+    <string name="emoji_category_flags">Flaggen</string>
+    <string name="emoji_backspace">Löschen</string>
 </resources>

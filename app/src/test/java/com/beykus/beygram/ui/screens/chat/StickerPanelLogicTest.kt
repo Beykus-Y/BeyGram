@@ -160,4 +160,72 @@ class StickerPanelLogicTest {
         assertEquals(1, (ready as PickerLoad.Ready<List<StickerItem>>).value.size)
         assertEquals("offline", (failed as PickerLoad.Failed).message)
     }
+
+    @Test
+    fun emojiIsTheFirstTabButStickersStayTheDefault() {
+        assertEquals(
+            listOf(StickerPanelTab.Emoji, StickerPanelTab.Stickers, StickerPanelTab.Gifs),
+            StickerPanelTab.entries.toList()
+        )
+        assertEquals(StickerPanelTab.Stickers, StickerPanelView().tab)
+    }
+
+    @Test
+    fun switchingToEmojiLeavesPacksAndSearchBehind() {
+        val view = StickerPanelView()
+            .openPack(9L)
+            .openSearch()
+            .updateQuery("cat")
+            .switchTab(StickerPanelTab.Emoji)
+
+        assertEquals(StickerPanelTab.Emoji, view.tab)
+        assertEquals(StickerPanelSection.Recent, view.section)
+        assertNull(view.selectedSetId)
+        assertFalse(view.searchActive)
+        assertEquals("", view.query)
+    }
+
+    @Test
+    fun theEmojiTabHasNoSearchSoOpeningOrTypingLeavesTheViewUnchanged() {
+        val emoji = StickerPanelView().switchTab(StickerPanelTab.Emoji)
+
+        assertEquals(emoji, emoji.openSearch())
+        assertEquals(emoji, emoji.updateQuery("cat"))
+        assertFalse(emoji.searchActive)
+    }
+
+    @Test
+    fun backOnTheEmojiRootAsksTheCallerToCloseThePanel() {
+        val emoji = StickerPanelView().switchTab(StickerPanelTab.Emoji)
+
+        assertFalse(emoji.canGoBack)
+        assertNull(emoji.back())
+    }
+
+    @Test
+    fun restoringTheEmojiTabAlwaysLandsOnItsPlainRoot() {
+        val restored = restoreStickerPanelView(
+            tab = StickerPanelTab.Emoji,
+            section = StickerPanelSection.Favorites,
+            setId = 5L,
+            searchOpen = true,
+            query = "cat"
+        )
+
+        assertEquals(StickerPanelView(tab = StickerPanelTab.Emoji), restored)
+    }
+
+    @Test
+    fun restoringAPackNeedsItsIdAndGifsNeverKeepOne() {
+        val withoutId = restoreStickerPanelView(StickerPanelTab.Stickers, StickerPanelSection.Pack, null, false, "")
+        assertEquals(StickerPanelSection.Recent, withoutId.section)
+
+        val withId = restoreStickerPanelView(StickerPanelTab.Stickers, StickerPanelSection.Pack, 4L, false, "")
+        assertEquals(StickerPanelSection.Pack, withId.section)
+        assertEquals(4L, withId.selectedSetId)
+
+        val gifs = restoreStickerPanelView(StickerPanelTab.Gifs, StickerPanelSection.Pack, 4L, false, "")
+        assertEquals(StickerPanelSection.Recent, gifs.section)
+        assertNull(gifs.selectedSetId)
+    }
 }

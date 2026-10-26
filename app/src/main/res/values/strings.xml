@@ -403,6 +403,7 @@
     <string name="composer_type_stickers">Стикеры</string>
     <string name="sticker_panel_entry">Стикеры и GIF</string>
     <string name="sticker_panel_title">Стикеры и GIF</string>
+    <string name="sticker_panel_tab_emoji">Эмодзи</string>
     <string name="sticker_panel_tab_stickers">Стикеры</string>
     <string name="sticker_panel_tab_gifs">GIF</string>
     <string name="sticker_panel_recent">Недавние</string>
@@ -453,6 +454,16 @@
     <string name="gif_panel_add_caption">Добавить с подписью</string>
     <string name="gif_panel_duration">%1$d с</string>
     <string name="gif_panel_label">GIF</string>
+    <string name="emoji_category_recent">Недавние</string>
+    <string name="emoji_category_smileys">Смайлики и люди</string>
+    <string name="emoji_category_animals">Животные и природа</string>
+    <string name="emoji_category_food">Еда и напитки</string>
+    <string name="emoji_category_activity">Активности</string>
+    <string name="emoji_category_travel">Путешествия и места</string>
+    <string name="emoji_category_objects">Предметы</string>
+    <string name="emoji_category_symbols">Символы</string>
+    <string name="emoji_category_flags">Флаги</string>
+    <string name="emoji_backspace">Удалить</string>
     <string name="gif_picker_add">Добавить GIF во вложения</string>
     <string name="gif_picker_close">Закрыть GIF</string>
     <string name="gif_picker_empty_recent">В ваших чатах пока нет GIF</string>

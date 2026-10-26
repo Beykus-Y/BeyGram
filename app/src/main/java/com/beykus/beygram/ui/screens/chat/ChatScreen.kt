@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -113,6 +114,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.text.BreakIterator
 
 /** More than one transition can be in flight, but an accidental tap storm must not create an unbounded overlay. */
 private const val MAX_ACTIVE_COMPOSER_LAUNCHES = 4
@@ -519,7 +521,6 @@ fun ChatScreen(
     LaunchedEffect(
         stickerPanelOpen,
         attachments.menuOpen,
-        attachments.picker,
         attachments.active,
         canPostHere,
         threadOpen,
@@ -545,7 +546,7 @@ fun ChatScreen(
             forwardId != null || contextChatId != 0L || scheduledMessagesOpen || chatSettingsOpen ||
             exportOpen || translationPickerId != null ||
             sendOptionsOpen || sending || inlineSending ||
-            attachments.menuOpen || attachments.picker != AttachmentPicker.None || attachments.active ||
+            attachments.menuOpen || attachments.active ||
             editId != null || searching || selectionMode || videoNote.active || audioNote.active
         ) {
             stickerPanelOpen = false
@@ -616,6 +617,9 @@ fun ChatScreen(
     // Composer Launch is a spatial overlay; the real row stays hidden until the overlay lands on it.
     val composerLaunches = remember(chat.id, forumTopicId) { mutableStateListOf<ComposerLaunch>() }
     var composerFieldBounds by remember { mutableStateOf<Rect?>(null) }
+    // Measured height of the whole composer column (input, reply and bot rows, system insets); the sticker panel sits above it.
+    // Kept as a State object: only ChatComposerPanel reads it, so IME animation frames do not recompose ChatScreen.
+    val composerHeightPx = remember { mutableIntStateOf(0) }
     var launchOverlayBounds by remember { mutableStateOf<Rect?>(null) }
     var composerLaunchCounter by remember { mutableLongStateOf(0L) }
     var composerDraftLaunchKey by remember { mutableStateOf<Long?>(null) }
@@ -944,6 +948,22 @@ fun ChatScreen(
         }
     }
     fun closeEdit() { editId = null; editText = ""; editError = null }
+    /**
+     * Emoji and backspace from the sticker panel change the text the way a typed change does: formatting ranges are
+     * adjusted first, then the text changes. A send that holds the draft ignores them, as it ignores typing.
+     */
+    fun editComposerText(transform: (String) -> String) {
+        if (hidingComposerForLaunch) return
+        if (editMessage != null) {
+            val next = transform(editText)
+            editEntities = adjustTextEntities(editText, next, editEntities)
+            editText = next
+        } else {
+            val next = transform(draft)
+            updateDraft { it.copy(entities = adjustTextEntities(draft, next, it.entities)) }
+            typedDraft(next)
+        }
+    }
     LaunchedEffect(actionMessage) {
         if (actionMessage == null) { deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     }
@@ -994,7 +1014,7 @@ fun ChatScreen(
         val kind = (currentMessages.firstOrNull { it.id == id } ?: mediaWindow.messages.firstOrNull { it.id == id })?.media?.kind
         viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
-    BackHandler(enabled = !threadOpen && (stickerPanelOpen || searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || attachments.picker != AttachmentPicker.None || selectionMode)) {
+    BackHandler(enabled = !threadOpen && (stickerPanelOpen || searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || selectionMode)) {
         when {
             selectionDeleteOpen -> { selectionDeleteOpen = false; selectionDeleteError = null }
             selectionForwardOpen -> { selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
@@ -1004,12 +1024,11 @@ fun ChatScreen(
             actionMessage != null -> closeActions()
             editMessage != null -> closeEdit()
             stickerPanelOpen -> stickerPanelOpen = false
-            attachments.picker != AttachmentPicker.None -> attachments.closePicker()
             else -> attachments.discardAll()
         }
     }
     BackHandler(enabled = openStickerSetId != null) { openStickerSetId = null }
-    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && attachments.picker == AttachmentPicker.None && !searching && openStickerSetId == null && !stickerPanelOpen, onBack = onBack)
+    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching && openStickerSetId == null && !stickerPanelOpen, onBack = onBack)
     BackHandler(enabled = !threadOpen && (videoNote.active || audioNote.active)) {
         videoNote.stopForRecovery()
         audioNote.stopForRecovery()
@@ -1315,7 +1334,6 @@ fun ChatScreen(
         if (secretChatClosed || editId != null || inlineSending) return
         pendingSticker?.let { sticker ->
             pendingSticker = null
-            attachments.closePicker()
             attachments.sendStickerWithOptions(sticker, options)
             return
         }
@@ -1746,6 +1764,7 @@ fun ChatScreen(
                 replyId = replyId,
                 forumTopicId = forumTopicId,
                 scope = scope,
+                composerHeightPx = composerHeightPx,
                 onReplyConsumed = { sentReplyId ->
                     if (sentReplyId != null) {
                         updateDraft { current ->
@@ -1758,6 +1777,8 @@ fun ChatScreen(
                     sendOptionsOpen = true
                 },
                 onSendError = { message -> error = message },
+                onInsertEmoji = { emoji -> editComposerText { appendEmoji(it, emoji) } },
+                onDeleteBackward = { editComposerText(::deleteLastGrapheme) },
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )
             if (replyId != null) Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1796,7 +1817,7 @@ fun ChatScreen(
         if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar(
             if (secretChatClosed) stringResource(R.string.secret_chat_closed_composer) else stringResource(R.string.chat_read_only)
         )
-        if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.onSizeChanged { composerHeightPx.intValue = it.height }.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
         // A bot with no outgoing message in its whole history gets an explicit /start action, independent of inline mode or Mini Apps.
         if (info?.kind == ProfileKind.Bot && !editing && !recordingActive && !attachments.active &&
             !history.isLoading && !history.hasOlderMessages && history.messages.none { it.isOutgoing }
@@ -1841,7 +1862,6 @@ fun ChatScreen(
                                 stickerPanelOpen = false
                             } else if (!busy && !attachments.active) {
                                 attachments.menuOpen = false
-                                attachments.closePicker()
                                 stickerPanelOpen = true
                             }
                         }
@@ -2193,11 +2213,18 @@ private fun ChatComposerPanel(
     replyId: Long?,
     forumTopicId: Long,
     scope: CoroutineScope,
+    composerHeightPx: IntState,
     onReplyConsumed: (Long?) -> Unit,
     onStickerOptions: (OutgoingMedia) -> Unit,
     onSendError: (String) -> Unit,
+    onInsertEmoji: (String) -> Unit,
+    onDeleteBackward: () -> Unit,
     onCloseStickerPanel: () -> Unit
 ) {
+    // ChatScreen reports the composer column's measured size; 0 means no layout has happened yet.
+    val density = LocalDensity.current
+    val measured = composerHeightPx.intValue
+    val composerReserve = if (measured > 0) with(density) { measured.toDp() } else 0.dp
     if (stickerPanelOpen) {
         StickerPanelHost(
             conversation = conversation,
@@ -2207,7 +2234,7 @@ private fun ChatComposerPanel(
             observeFile = observeFile,
             downloadFile = onDownloadFile,
             scope = scope,
-            composerReserve = if (replyId != null) 144.dp else 80.dp,
+            composerReserve = composerReserve,
             onReplyConsumed = onReplyConsumed,
             onAnimationAttach = { animation ->
                 attachments.addAnimation(animation.toOutgoingMedia())
@@ -2218,6 +2245,8 @@ private fun ChatComposerPanel(
                 onCloseStickerPanel()
             },
             onSendError = onSendError,
+            onInsertEmoji = onInsertEmoji,
+            onDeleteBackward = onDeleteBackward,
             onClose = onCloseStickerPanel
         )
     } else {
@@ -2225,10 +2254,8 @@ private fun ChatComposerPanel(
             state = attachments,
             caption = draft,
             captionLimit = captionLimit,
-            conversation = conversation,
             observeFile = observeFile,
             onDownloadFile = onDownloadFile,
-            onStickerOptions = onStickerOptions,
             allowViewOnce = allowViewOnce
         )
     }
@@ -2617,4 +2644,18 @@ internal fun ServiceMessageChip(text: String, userId: Long = 0L, onOpenUser: (Lo
                 .padding(horizontal = 13.dp, vertical = 7.dp)
         )
     }
+}
+
+/** Appends an emoji picked in the sticker panel. The caller adjusts formatting ranges, as it does for a typed change. */
+internal fun appendEmoji(text: String, emoji: String): String = text + emoji
+
+/**
+ * Removes the last user-perceived character. BreakIterator keeps a surrogate pair, a combining mark or a ZWJ emoji
+ * sequence together, so one backspace removes one visible symbol.
+ */
+internal fun deleteLastGrapheme(text: String): String {
+    if (text.isEmpty()) return text
+    val boundaries = BreakIterator.getCharacterInstance()
+    boundaries.setText(text)
+    return text.substring(0, boundaries.preceding(text.length).coerceAtLeast(0))
 }

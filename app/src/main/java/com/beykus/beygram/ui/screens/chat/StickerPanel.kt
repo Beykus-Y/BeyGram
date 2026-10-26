@@ -113,9 +113,10 @@ private val MIN_PANEL_WITH_KEYBOARD = 96.dp
 private const val SEARCH_DEBOUNCE_MS = 350L
 
 /**
- * Unified sticker/GIF panel opened from the composer. Stickers are sent on tap; a long press opens a preview with
- * explicit send options, favorites and pack navigation. GIFs are sent on tap and can be staged with a caption from the
- * preview. The panel is inline (not an attach-menu page), so the conversation stays visible and insets keep working.
+ * Unified emoji, sticker and GIF panel opened from the composer. Emoji are inserted into the draft and the panel stays
+ * open. Stickers are sent on tap; a long press opens a preview with explicit send options, favorites and pack navigation.
+ * GIFs are sent on tap and can be staged with a caption from the preview. The panel is inline (not an attach-menu page),
+ * so the conversation stays visible and insets keep working.
  */
 
 /** Draws the sticker/GIF entry next to the composer and keeps the keyboard out of the way when the panel opens. */
@@ -172,6 +173,8 @@ internal fun StickerPanelHost(
     onAnimationAttach: (AnimationItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
     onSendError: (String) -> Unit,
+    onInsertEmoji: (String) -> Unit,
+    onDeleteBackward: () -> Unit,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -239,6 +242,8 @@ internal fun StickerPanelHost(
                 }
             },
             onAttachAnimation = onAnimationAttach,
+            onInsertEmoji = onInsertEmoji,
+            onDeleteBackward = onDeleteBackward,
             onClose = onClose
         )
     }
@@ -257,6 +262,8 @@ private fun StickerPanel(
     onStickerOptions: (StickerItem) -> Unit,
     onSendAnimation: (AnimationItem) -> Unit,
     onAttachAnimation: (AnimationItem) -> Unit,
+    onInsertEmoji: (String) -> Unit,
+    onDeleteBackward: () -> Unit,
     onClose: () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -298,6 +305,9 @@ private fun StickerPanel(
     var favoriteBusyKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var searchGeneration by remember { mutableIntStateOf(0) }
     var overlay by remember { mutableStateOf<StickerPanelOverlay?>(null) }
+    // Recent emoji are shared by the whole app; the list is read again each time the panel is opened.
+    val emojiStore = remember(context) { RecentEmojiStore(context) }
+    var recentEmoji by remember(emojiStore) { mutableStateOf(emojiStore.load()) }
 
     val premiumNotice = stringResource(R.string.sticker_panel_premium_locked)
     val favoriteKeys: Set<String> = remember(favoritesState) {
@@ -309,17 +319,22 @@ private fun StickerPanel(
         view.searchActive -> stringResource(R.string.sticker_panel_search_results)
         view.section == StickerPanelSection.Pack -> packTitle.ifBlank { stringResource(R.string.sticker_panel_title) }
         view.section == StickerPanelSection.Favorites -> stringResource(R.string.sticker_panel_favorites)
+        view.tab == StickerPanelTab.Emoji -> stringResource(R.string.sticker_panel_tab_emoji)
         view.tab == StickerPanelTab.Gifs -> stringResource(R.string.sticker_panel_tab_gifs)
         else -> stringResource(R.string.sticker_panel_title)
     }
     val searchPlaceholder = stringResource(
-        if (view.tab == StickerPanelTab.Stickers) R.string.sticker_panel_search else R.string.gif_panel_search
+        if (view.tab == StickerPanelTab.Gifs) R.string.gif_panel_search else R.string.sticker_panel_search
     )
     val density = LocalDensity.current
     val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
-    // The panel sits outside the composer's imePadding(), so reserve the IME and the input row explicitly.
+    // composerReserve is the measured height of the composer column below the panel. It already includes the IME and the
+    // navigation bar padding. 0.dp means it has not been measured yet, so the older estimate with the IME height is used.
     val imeHeight = with(density) { WindowInsets.ime.getBottom(density).toDp() }
-    val availableHeight = (windowHeight - imeHeight - composerReserve).coerceAtLeast(MIN_PANEL_WITH_KEYBOARD)
+    val availableHeight = (
+        if (composerReserve > 0.dp) windowHeight - composerReserve
+        else windowHeight - imeHeight - 80.dp
+    ).coerceAtLeast(MIN_PANEL_WITH_KEYBOARD)
     val panelHeight = (windowHeight * 0.62f)
         .coerceIn(PANEL_MIN_HEIGHT, PANEL_MAX_HEIGHT)
         .coerceAtMost(availableHeight)
@@ -405,6 +420,7 @@ private fun StickerPanel(
         gifSearchState = PickerLoad.Loading
         delay(SEARCH_DEBOUNCE_MS)
         when (view.tab) {
+            StickerPanelTab.Emoji -> Unit
             StickerPanelTab.Stickers -> conversation.searchStickers(needle, 0).fold(
                 onSuccess = { stickerSearchState = PickerLoad.Ready(it.copy(stickers = it.stickers.distinctBy { sticker -> sticker.key })) },
                 onFailure = { stickerSearchState = PickerLoad.Failed(it.userMessage(context, R.string.sticker_panel_load_failed)) }
@@ -440,7 +456,14 @@ private fun StickerPanel(
         }
     }
 
-    fun requestSend(item: StickerItem) {        if (item.premium && premium == false) {
+    fun insertEmoji(emoji: String) {
+        notice = null
+        recentEmoji = emojiStore.record(emoji)
+        onInsertEmoji(emoji)
+    }
+
+    fun requestSend(item: StickerItem) {
+        if (item.premium && premium == false) {
             notice = premiumNotice
             return
         }
@@ -582,6 +605,7 @@ private fun StickerPanel(
             StickerPanelHeader(
                 title = title,
                 canGoBack = view.canGoBack,
+                showSearch = view.tab != StickerPanelTab.Emoji,
                 onBack = ::navigateBack,
                 onSearch = { notice = null; view = view.openSearch() },
                 onClose = ::closePanel
@@ -600,6 +624,12 @@ private fun StickerPanel(
         )
         if (displayError != null) PanelNotice(displayError)
         when (view.tab) {
+            StickerPanelTab.Emoji -> EmojiPanel(
+                recents = recentEmoji,
+                onEmoji = ::insertEmoji,
+                onBackspace = onDeleteBackward,
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            )
             StickerPanelTab.Stickers -> {
                 if (!view.searchActive) {
                     StickerSectionStrip(
@@ -710,6 +740,7 @@ private fun StickerPanel(
 private fun StickerPanelHeader(
     title: String,
     canGoBack: Boolean,
+    showSearch: Boolean,
     onBack: () -> Unit,
     onSearch: () -> Unit,
     onClose: () -> Unit
@@ -733,8 +764,10 @@ private fun StickerPanelHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
-        IconButton(onClick = onSearch, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.Rounded.Search, stringResource(R.string.sticker_panel_search), tint = palette.textSecondary)
+        if (showSearch) {
+            IconButton(onClick = onSearch, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.Search, stringResource(R.string.sticker_panel_search), tint = palette.textSecondary)
+            }
         }
         IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Rounded.Close, stringResource(R.string.sticker_panel_close), tint = palette.textSecondary)
@@ -804,6 +837,12 @@ private fun StickerPanelTabs(selected: StickerPanelTab, onSelect: (StickerPanelT
             .background(palette.surface2)
             .padding(4.dp)
     ) {
+        PanelTab(
+            label = stringResource(R.string.sticker_panel_tab_emoji),
+            selected = selected == StickerPanelTab.Emoji,
+            onClick = { onSelect(StickerPanelTab.Emoji) },
+            modifier = Modifier.weight(1f)
+        )
         PanelTab(
             label = stringResource(R.string.sticker_panel_tab_stickers),
             selected = selected == StickerPanelTab.Stickers,
