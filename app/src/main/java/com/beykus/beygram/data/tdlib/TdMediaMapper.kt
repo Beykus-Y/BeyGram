@@ -153,7 +153,13 @@ internal class TdMediaMapper(
                 transcriptionText = transcription.text, transcriptionPending = transcription.pendingText, transcriptionError = transcription.error)
         }
         is TdApi.MessageSticker -> content.sticker.let {
-            MessageMedia(MediaKind.Sticker, register(it.sticker), thumbnail(it.thumbnail), "", stickerMimeType(it.format), it.width, it.height)
+            MessageMedia(
+                MediaKind.Sticker, register(it.sticker), thumbnail(it.thumbnail), "", stickerMimeType(it.format), it.width, it.height,
+                stickerSetId = it.setId,
+                stickerId = it.id,
+                stickerEmoji = it.emoji.orEmpty(),
+                isPremiumSticker = content.isPremium
+            )
         }
         else -> null
     }

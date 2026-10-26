@@ -44,6 +44,20 @@ internal class TdStickerCatalog(
         content
     }
 
+    /**
+     * Adds or removes a set. The cached copy is dropped before the request: the caller may be cancelled while TDLib
+     * still commits the change, so keeping the old installed flag would make the next opening show a stale button.
+     */
+    suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit> = requestResult {
+        synchronized(cacheLock) { setCache.remove(setId) }
+        request(TdApi.ChangeStickerSet(setId, installed, false))
+        // A concurrent GetStickerSet may have populated the cache while the mutation was in flight.
+        synchronized(cacheLock) {
+            setCache[setId]?.let { setCache[setId] = it.copy(isInstalled = installed) }
+        }
+        Unit
+    }
+
     suspend fun searchStickers(query: String, offset: Int): Result<StickerSearchPage> = requestResult {
         val page = request(TdApi.SearchStickers(TdApi.StickerTypeRegular(), "", query, emptyArray<String>(), offset, STICKER_PAGE_SIZE))
         val found = page.stickers.orEmpty()

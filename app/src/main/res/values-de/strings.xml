@@ -514,4 +514,14 @@
     <string name="app_lock_biometric_locked">Biometrie ist vorübergehend gesperrt. Gib die PIN ein.</string>
     <string name="chat_reaction_paid_description">Sterne-Reaktion, %1$d Sterne</string>
     <string name="chat_reaction_paid_confirmation_required">Bezahlte Reaktionen können nur nach Bestätigung gesendet werden</string>
+    <string name="sticker_set_add">Set hinzufügen</string>
+    <string name="sticker_set_add_failed">Sticker-Set konnte nicht hinzugefügt werden</string>
+    <string name="sticker_set_empty">Dieses Set enthält keine verfügbaren Sticker</string>
+    <string name="sticker_set_installed">Set installiert</string>
+    <string name="sticker_set_load_failed">Sticker-Set konnte nicht geöffnet werden</string>
+    <string name="sticker_set_not_installed">Set nicht installiert</string>
+    <string name="sticker_set_remove">Set entfernen</string>
+    <string name="sticker_set_remove_failed">Sticker-Set konnte nicht entfernt werden</string>
+    <string name="sticker_set_title">Sticker-Set</string>
+    <string name="sticker_set_unavailable">Dieser Sticker gehört zu keinem Sticker-Set</string>
 </resources>

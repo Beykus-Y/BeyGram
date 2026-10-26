@@ -127,6 +127,11 @@ interface ConversationRepository {
     /** Installed regular sticker sets; opening one fetches that set only when the user asks for it. */
     suspend fun installedStickerSets(): Result<List<StickerSetSummary>>
     suspend fun stickerSet(setId: Long): Result<StickerSetContent>
+    /**
+     * Adds [setId] to the account's installed sets or removes it. Archiving is not exposed here: opening a sticker
+     * from a chat only needs the installed state.
+     */
+    suspend fun changeStickerSet(setId: Long, installed: Boolean): Result<Unit>
     /** Sticker text search across sets. Pass 0 first, then [StickerSearchPage.nextOffset]. */
     suspend fun searchStickers(query: String, offset: Int = 0): Result<StickerSearchPage>
     /** GIFs explicitly saved by the user in this Telegram account. */

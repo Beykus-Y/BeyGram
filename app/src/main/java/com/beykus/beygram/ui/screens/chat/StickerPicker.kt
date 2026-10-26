@@ -357,12 +357,13 @@ private fun PickerTab(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StickerGrid(
+internal fun StickerGrid(
     stickers: List<StickerItem>,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onClick: (StickerItem) -> Unit,
-    onLongClick: (StickerItem) -> Unit,
+    /** Null makes the grid read-only, for a set opened from a view without a send target. */
+    onClick: ((StickerItem) -> Unit)?,
+    onLongClick: ((StickerItem) -> Unit)? = null,
     footer: (@Composable () -> Unit)? = null
 ) {
     LazyVerticalGrid(
@@ -373,7 +374,11 @@ private fun StickerGrid(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         items(stickers, key = { it.key }) { item ->
-            StickerCell(item, observeFile, downloadFile, onClick = { onClick(item) }, onLongClick = { onLongClick(item) })
+            StickerCell(
+                item, observeFile, downloadFile,
+                onClick = onClick?.let { action -> { action(item) } },
+                onLongClick = onLongClick?.let { action -> { action(item) } }
+            )
         }
         if (footer != null) {
             item(span = { GridItemSpan(maxLineSpan) }, key = "footer") { footer() }
@@ -386,21 +391,26 @@ private fun StickerCell(
     item: StickerItem,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
     val emoji = item.emoji.ifBlank { stringResource(R.string.media_kind_sticker) }
     val description = stringResource(R.string.sticker_picker_item_description, emoji)
+    val clickModifier = if (onClick == null && onLongClick == null) {
+        Modifier
+    } else {
+        Modifier.combinedClickable(
+            role = Role.Button,
+            onClickLabel = if (onClick != null) stringResource(R.string.common_send) else null,
+            onLongClickLabel = if (onLongClick != null) stringResource(R.string.sticker_picker_send_options) else null,
+            onClick = onClick ?: {},
+            onLongClick = onLongClick
+        )
+    }
     Box(
         Modifier.size(68.dp).clip(RoundedCornerShape(12.dp))
-            .combinedClickable(
-                role = Role.Button,
-                onClickLabel = stringResource(R.string.common_send),
-                onLongClickLabel = stringResource(R.string.sticker_picker_send_options),
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
+            .then(clickModifier)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
@@ -414,7 +424,7 @@ private fun StickerCell(
 
 /** Draws one sticker and downloads only its own preview. The caller owns the clickable surface. */
 @Composable
-private fun StickerArtwork(
+internal fun StickerArtwork(
     item: StickerItem,
     modifier: Modifier,
     observeFile: (Int) -> StateFlow<MediaFileState>,
@@ -484,19 +494,19 @@ private fun StickerSetRow(
 }
 
 @Composable
-private fun PickerCenter(content: @Composable () -> Unit) {
+internal fun PickerCenter(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
 }
 
 @Composable
-private fun PickerEmpty(text: String) {
+internal fun PickerEmpty(text: String) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Text(text, color = beyGramPalette().textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
     }
 }
 
 @Composable
-private fun PickerError(text: String, onRetry: () -> Unit) {
+internal fun PickerError(text: String, onRetry: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp).errorAnnouncement(), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center) {
         Text(text, color = beyGramPalette().danger, fontSize = 14.sp, textAlign = TextAlign.Center)

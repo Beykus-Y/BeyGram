@@ -514,4 +514,14 @@
     <string name="app_lock_biometric_locked">Biometrics are temporarily locked. Enter the PIN.</string>
     <string name="chat_reaction_paid_description">Stars reaction, %1$d Stars</string>
     <string name="chat_reaction_paid_confirmation_required">Paid reactions can only be sent after confirmation</string>
+    <string name="sticker_set_add">Add set</string>
+    <string name="sticker_set_add_failed">Couldn\'t add the sticker set</string>
+    <string name="sticker_set_empty">This set has no available stickers</string>
+    <string name="sticker_set_installed">Set installed</string>
+    <string name="sticker_set_load_failed">Couldn\'t open the sticker set</string>
+    <string name="sticker_set_not_installed">Set not installed</string>
+    <string name="sticker_set_remove">Remove set</string>
+    <string name="sticker_set_remove_failed">Couldn\'t remove the sticker set</string>
+    <string name="sticker_set_title">Sticker set</string>
+    <string name="sticker_set_unavailable">This sticker is not part of a sticker set</string>
 </resources>

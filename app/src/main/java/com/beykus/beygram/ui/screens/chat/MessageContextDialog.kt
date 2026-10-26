@@ -37,6 +37,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf<ChatMessage?>(null) }
+    var stickerSetId by remember { mutableStateOf<Long?>(null) }
     var viewerItem by remember { mutableStateOf<MediaViewerItem?>(null) }
     var viewerChatId by remember { mutableStateOf(0L) }
     var openedViewOnceIds by remember(chatId, targetId) { mutableStateOf(emptySet<Long>()) }
@@ -95,7 +96,8 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                             selected = message
                             viewerItem = message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce) }
                             viewerChatId = message.chatId
-                        }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
+                        }, onStickerOpen = { media -> stickerSetId = media.stickerSetId },
+                            onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
                             onPollVote = { messageId, choices ->
                                 reactionScope.launch {
                                     conversation.votePoll(message.chatId, messageId, choices)
@@ -122,6 +124,13 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
             }
         }
     }
+    StickerSetBrowser(
+        setId = stickerSetId,
+        conversation = conversation,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        onDismiss = { stickerSetId = null }
+    )
     // The viewer keeps its own opened page; deleting the live message must not dismiss it mid-view.
     val activeItem = viewerItem
     if (activeItem != null) {
