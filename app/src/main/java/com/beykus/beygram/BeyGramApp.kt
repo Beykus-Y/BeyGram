@@ -803,27 +803,28 @@ private fun BeyGramAppContent(
     var inAppInviteToken by remember { mutableStateOf(0L) }
     fun openLinkedChat(chatId: Long, messageId: Long = 0L, topicId: Long = 0L) {
         val fromChat = routeName == AppRoute.Chat.name || routeName == AppRoute.MessageThread.name
-        if (fromChat && selectedChatId != chatId) {
+        val sameChat = selectedChatId == chatId
+        if (fromChat && !sameChat) {
             linkReturnChatId = selectedChatId
             linkReturnTopicChatId = selectedTopicChatId
             linkReturnTopicId = selectedForumTopicId
             linkReturnChatBackRouteName = chatBackRouteName
             linkReturnRouteName = routeName
-        } else {
+        } else if (!fromChat) {
             linkReturnChatId = 0L
             linkReturnTopicChatId = 0L
             linkReturnTopicId = 0L
             linkReturnChatBackRouteName = null
             linkReturnRouteName = null
         }
+        // A link to the already open chat only moves the focus; it must keep the origin saved by the link that
+        // brought the reader here. Only an actual chat switch needs the chat-list fallback.
+        if (!sameChat) chatBackRouteName = AppRoute.Chats.name
         selectedChatId = chatId
         selectedTopicChatId = if (topicId > 0L) chatId else 0L
         selectedForumTopicId = topicId
         trustedForumTopicId = topicId
         chatFocusMessageId = messageId
-        // Back is normally resolved by the one saved link-return entry; this fallback must still leave the chat
-        // even if that entry was lost (for example after process recreation).
-        chatBackRouteName = AppRoute.Chats.name
         routeName = AppRoute.Chat.name
     }
     fun openDeepLinkChat(chatId: Long, messageId: Long = 0L, topicId: Long = 0L) {
