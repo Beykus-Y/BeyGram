@@ -94,6 +94,7 @@ import com.beykus.beygram.domain.model.PremiumPlan
 import com.beykus.beygram.domain.model.StarTopUpOption
 import com.beykus.beygram.domain.model.StarsTopUpOutcome
 import com.beykus.beygram.domain.model.StarTransactionsPage
+import com.beykus.beygram.domain.model.StarBalance
 import com.beykus.beygram.domain.model.StarsInfo
 import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.repository.TelegramRepository
@@ -492,6 +493,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun messageLink(chatId: Long, messageId: Long, inMessageThread: Boolean): Result<String> = unavailable()
     override suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>> = unavailable()
     override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = unavailable()
+    override suspend fun addPaidReaction(chatId: Long, messageId: Long, starCount: Long, isAnonymous: Boolean): Result<Unit> = unavailable()
+    override suspend fun starBalance(): Result<StarBalance> = monetizationUnavailable()
     override fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?> = MutableStateFlow<CustomEmoji?>(null).asStateFlow()
     override fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?> = MutableStateFlow<MessageEffect?>(null).asStateFlow()
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> = unavailable()

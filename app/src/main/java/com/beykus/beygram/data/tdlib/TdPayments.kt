@@ -306,6 +306,11 @@ internal class TdPayments(private val requests: TdRequests) {
         }
     }
 
+    /** The balance alone, read the way [starsInfo] reads it; the paid reaction dialog needs it before any Stars are spent. */
+    suspend fun starBalance(): Result<StarBalance> = monetizationResult {
+        currentBalanceOrNull() ?: throw UserMessageException(UiText.Res(R.string.stars_load_error))
+    }
+
     suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = monetizationResult {
         starTransactionsPage(offset = offset, limit = PAGE_SIZE)
     }

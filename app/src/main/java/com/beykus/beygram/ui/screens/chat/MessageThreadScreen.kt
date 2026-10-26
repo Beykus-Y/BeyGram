@@ -128,6 +128,10 @@ internal fun MessageThreadScreen(
     var sendError by remember { mutableStateOf<String?>(null) }
     var reactionTarget by remember { mutableStateOf<Pair<Long, ChatMessage>?>(null) }
     var reactionOptions by remember(conversation) { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    // A Stars reaction on the post leaves the post copy stale, so the post is reloaded once TDLib confirms it.
+    val paidReactions = rememberPaidReactions(conversation) {
+        scope.launch { conversation.messageContext(channelChatId, postId).onSuccess { context -> post = context.messages.firstOrNull { it.id == postId } } }
+    }
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
     var selectedMediaChatId by remember { mutableStateOf(0L) }
     var stickerSetId by remember { mutableStateOf<Long?>(null) }
@@ -216,6 +220,10 @@ internal fun MessageThreadScreen(
     }
 
     fun changeReaction(chatId: Long, message: ChatMessage, option: ReactionOption, addToRecent: Boolean) {
+        if (option.isPaid) {
+            paidReactions.open(chatId, message.id)
+            return
+        }
         scope.launch {
             conversation.toggleReaction(chatId, message.id, option, addToRecent)
                 .onSuccess { reactions ->

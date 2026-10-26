@@ -305,6 +305,7 @@ fun ChatScreen(
     var pendingWebApp by remember(chat.id) { mutableStateOf<PendingBotWebApp?>(null) }
     var webAppOpening by remember(chat.id) { mutableStateOf(false) }
     var reactionOptions by remember(conversation, chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    val paidReactions = rememberPaidReactions(conversation)
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
@@ -428,6 +429,10 @@ fun ChatScreen(
         else conversation.startChatActivity(chat.id, ChatActivity.Typing)
     }
     fun setReaction(messageId: Long, reaction: ReactionOption, addToRecent: Boolean) {
+        if (reaction.isPaid) {
+            paidReactions.open(chat.id, messageId)
+            return
+        }
         scope.launch {
             conversation.toggleReaction(chat.id, messageId, reaction, addToRecent).onFailure { error = it.userMessage(context, R.string.chat_reaction_failed) }
         }

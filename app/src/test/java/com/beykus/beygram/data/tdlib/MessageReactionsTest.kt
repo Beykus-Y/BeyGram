@@ -106,12 +106,16 @@ class MessageReactionsTest {
         assertEquals(listOf("🔥", "💎"), emojisOf(pickerOptions(reactions, chat = null, activeEmojis = emptyList(), premium = true)))
     }
 
-    @Test fun `paid reactions are displayed but never offered by the picker`() {
+    @Test fun `a Stars reaction is offered first and once, only when TDLib lists one for the message`() {
         val paid = TdApi.AvailableReaction(TdApi.ReactionTypePaid(), false)
-        val reactions = available(top = listOf(offer("🔥"), paid))
-        assertEquals(listOf("🔥"), emojisOf(pickerOptions(reactions, chat = null, activeEmojis = emptyList(), premium = true)))
+        val options = pickerOptions(available(top = listOf(offer("🔥"), paid, paid)), chat = null, activeEmojis = emptyList(), premium = false)
+        assertEquals(listOf(ReactionOption(PAID_REACTION_EMOJI, isPaid = true), ReactionOption("🔥")), options)
+        assertEquals(listOf("🔥"), emojisOf(pickerOptions(available(top = listOf(offer("🔥"))), chat = null, activeEmojis = emptyList(), premium = true)))
+    }
+
+    @Test fun `a Stars reaction from a chat list is never offered as a plain choice`() {
         val chat = TdApi.ChatAvailableReactionsSome(arrayOf(TdApi.ReactionTypeEmoji("🎉"), TdApi.ReactionTypePaid()), 3)
-        assertEquals(listOf("🔥", "🎉"), emojisOf(pickerOptions(reactions, chat, activeEmojis = emptyList(), premium = true)))
+        assertEquals(listOf("🔥", "🎉"), emojisOf(pickerOptions(available(top = listOf(offer("🔥"))), chat, activeEmojis = emptyList(), premium = true)))
     }
 
     @Test fun `custom emoji are offered to Premium users only, and the picker is not capped`() {

@@ -235,4 +235,19 @@
     <string name="stars_topup_subscription">Les abonnements en Stars ne sont pas pris en charge dans cette version.</string>
     <string name="stars_topup_busy">Attendez la fin de l’opération en cours.</string>
     <string name="stars_topup_open_failed">Impossible d’ouvrir la page de paiement. Vérifiez qu’un navigateur ou l’application Telegram est disponible.</string>
+    <!-- #377 subtask C: paid Stars reactions -->
+    <string name="paid_reaction_dialog_title">Réaction en Stars</string>
+    <string name="paid_reaction_balance">Solde : %1$s Stars</string>
+    <string name="paid_reaction_balance_loading">Chargement du solde de Stars…</string>
+    <string name="paid_reaction_dialog_body">Envoyer une réaction de %1$s Stars ?</string>
+    <string name="paid_reaction_public">Votre nom sera affiché à côté de cette réaction.</string>
+    <string name="paid_reaction_not_enough">Stars insuffisantes pour ce montant</string>
+    <string name="paid_reaction_sending">Envoi de la réaction…</string>
+    <string name="paid_reaction_pick_description">Réaction en Stars, choisir un montant</string>
+    <string name="err_paid_reaction_failed">Impossible d’envoyer la réaction en Stars</string>
+    <string name="err_paid_reaction_amount">Choisissez un nombre de Stars supérieur à zéro</string>
+    <string name="err_paid_reaction_busy">Une réaction en Stars est déjà en cours d’envoi</string>
+    <string name="err_paid_reaction_uncertain">Telegram n’a pas confirmé la réaction. Les Stars ont peut-être été débitées : vérifiez votre solde et vos réactions avant de réessayer</string>
+    <string name="err_paid_reaction_balance_low">Stars insuffisantes pour cette réaction</string>
+    <string name="err_paid_reaction_unavailable">Les réactions en Stars ne sont pas disponibles pour ce message</string>
 </resources>

@@ -224,4 +224,19 @@
         <item quantity="one">%1$d regalo</item>
         <item quantity="other">%1$d regalos</item>
     </plurals>
+    <!-- #377 subtask C: paid Stars reactions -->
+    <string name="paid_reaction_dialog_title">Reacción con Stars</string>
+    <string name="paid_reaction_balance">Saldo: %1$s Stars</string>
+    <string name="paid_reaction_balance_loading">Cargando tu saldo de Stars…</string>
+    <string name="paid_reaction_dialog_body">¿Enviar una reacción de %1$s Stars?</string>
+    <string name="paid_reaction_public">Tu nombre se mostrará junto a esta reacción.</string>
+    <string name="paid_reaction_not_enough">No tienes Stars suficientes para esta cantidad</string>
+    <string name="paid_reaction_sending">Enviando reacción…</string>
+    <string name="paid_reaction_pick_description">Reacción con Stars, elige una cantidad</string>
+    <string name="err_paid_reaction_failed">No se pudo enviar la reacción con Stars</string>
+    <string name="err_paid_reaction_amount">Elige una cantidad de Stars mayor que cero</string>
+    <string name="err_paid_reaction_busy">Ya se está enviando una reacción con Stars</string>
+    <string name="err_paid_reaction_uncertain">Telegram no confirmó la reacción. Es posible que se hayan gastado Stars: revisa tu saldo y tus reacciones antes de volver a intentarlo</string>
+    <string name="err_paid_reaction_balance_low">No tienes Stars suficientes para esta reacción</string>
+    <string name="err_paid_reaction_unavailable">Las reacciones con Stars no están disponibles para este mensaje</string>
 </resources>

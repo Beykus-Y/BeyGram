@@ -59,6 +59,10 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     val androidContext = LocalContext.current
     val list = rememberLazyListState()
     val reactionScope = rememberCoroutineScope()
+    // The window keeps its own copy of the messages, so it is reloaded once TDLib confirms a Stars reaction.
+    val paidReactions = rememberPaidReactions(conversation) {
+        reactionScope.launch { conversation.messageContext(chatId, targetId).onSuccess { context = it } }
+    }
     LaunchedEffect(chatId, targetId, attempt) {
         context = null; error = null
         val result = conversation.messageContext(chatId, targetId)
@@ -69,6 +73,10 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     }
     // The dialog keeps its own copy of the messages, so the reactions TDLib returns are written back into that copy.
     fun react(messageId: Long, reaction: ReactionOption) {
+        if (reaction.isPaid) {
+            paidReactions.open(chatId, messageId)
+            return
+        }
         reactionScope.launch {
             conversation.toggleReaction(chatId, messageId, reaction, addToRecent = false)
                 .onSuccess { reactions -> context = context?.let { current -> current.copy(messages = current.messages.map { if (it.id == messageId) it.copy(reactions = reactions) else it }) } }
