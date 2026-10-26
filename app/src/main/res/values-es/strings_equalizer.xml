@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_group_sound_playback">Sonido y reproducción</string>
+    <string name="settings_equalizer_title">Ecualizador</string>
+    <string name="equalizer_title">Ecualizador</string>
+    <string name="equalizer_intro">El procesamiento solo se aplica a la música de BeyGram. Los mensajes de voz, las notas de vídeo y los archivos secretos no se modifican.</string>
+    <string name="equalizer_enabled_title">Activar ecualizador</string>
+    <string name="equalizer_enabled_detail">Se aplica a la música de BeyGram.</string>
+    <string name="equalizer_neutral_detail">Curva plana: el sonido permanece sin procesar.</string>
+    <string name="equalizer_disabled_detail">El sonido se reproduce sin procesar.</string>
+    <string name="equalizer_status_unavailable_detail">El efecto de audio del sistema no está disponible; la música se reproduce sin procesar.</string>
+    <string name="equalizer_status_unsupported_title">Ecualizador no disponible</string>
+    <string name="equalizer_status_unsupported_detail">Este dispositivo o firmware no ofrece el efecto de audio del sistema. La música seguirá reproduciéndose sin procesar.</string>
+    <string name="equalizer_status_failed_title">No se pudo activar el ecualizador</string>
+    <string name="equalizer_status_failed_detail">El efecto del sistema no respondió. La música seguirá reproduciéndose sin procesar.</string>
+    <string name="equalizer_status_waiting_title">Inicia la música</string>
+    <string name="equalizer_status_waiting_detail">El ecualizador se conectará a la sesión de música actual y mostrará las bandas compatibles.</string>
+    <string name="equalizer_status_attached">Conectado a la música actual.</string>
+    <string name="equalizer_status_bands">Bandas: %1$d</string>
+    <string name="equalizer_status_idle">No se está reproduciendo música. Los ajustes se aplicarán al iniciar.</string>
+    <string name="equalizer_presets_title">Ajustes predefinidos</string>
+    <string name="equalizer_preset_flat">Plano</string>
+    <string name="equalizer_preset_bass">Graves</string>
+    <string name="equalizer_preset_vocal">Voz</string>
+    <string name="equalizer_preset_pop">Pop</string>
+    <string name="equalizer_preset_rock">Rock</string>
+    <string name="equalizer_preset_electronic">Electrónica</string>
+    <string name="equalizer_preset_classical">Clásica</string>
+    <string name="equalizer_preset_jazz">Jazz</string>
+    <string name="equalizer_preset_custom">Personalizado</string>
+    <string name="equalizer_curve_description">Curva del ecualizador. Bandas: %1$d. Ajusta las bandas de abajo.</string>
+    <string name="equalizer_bands_title">Bandas</string>
+    <string name="equalizer_band_description">Banda %1$s, %2$s</string>
+    <string name="equalizer_level_db">%1$s dB</string>
+    <string name="equalizer_frequency_hz">%1$d Hz</string>
+    <string name="equalizer_frequency_khz">%1$s kHz</string>
+    <string name="equalizer_range_note">Rango: %1$s…%2$s dB.</string>
+    <string name="equalizer_gain_limit_note">La ganancia máxima está limitada a %1$s dB para evitar la saturación.</string>
+    <string name="equalizer_reset">Restablecer</string>
+    <string name="equalizer_save_custom">Guardar predefinido propio</string>
+    <string name="equalizer_custom_hint">Ajusta las bandas o guarda el ajuste actual como «Personalizado».</string>
+    <string name="equalizer_done">Listo</string>
+</resources>
