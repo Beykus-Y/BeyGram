@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +54,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.openExternalPaymentPage
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 /**
  * A paid photo or video bundle. A locked bundle shows TDLib's blurred preview and the Stars price. A purchased bundle
@@ -77,7 +79,7 @@ internal fun PaidMediaCard(
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(palette.surface2)) {
             if (paid.isPurchased) {
                 if (firstItem != null && observeFile != null && downloadFile != null) {
-                    PurchasedPreview(firstItem, observeFile, downloadFile, autoDownloadFile)
+                    PurchasedPreview(firstItem, key, actions, observeFile, downloadFile, autoDownloadFile)
                 }
             } else {
                 LockedPreview(paid)
@@ -170,15 +172,21 @@ internal fun InvoiceCard(
     }
 }
 
-/** The purchased first item, shown with the same preview as any other photo or video in the chat. */
+/**
+ * The purchased first item, shown with the same preview as any other photo or video in the chat. Opening it hands the file to
+ * another app, so that happens only when TDLib still allows saving the message, as the media viewer checks before every export.
+ */
 @Composable
 private fun PurchasedPreview(
     item: MessageMedia,
+    key: PaidContentKey,
+    actions: PaidContentActions?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)?
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val file by remember(item.fileId) { observeFile(item.fileId) }.collectAsState()
     MediaPreview(
         media = item,
@@ -188,7 +196,11 @@ private fun PurchasedPreview(
         onOpen = {
             val path = file.localPath
             if (path != null) {
-                openExternalMedia(context, path, item.mimeType)?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                scope.launch {
+                    val allowed = actions?.confirmExport(key) == true
+                    val error = if (allowed) openExternalMedia(context, path, item.mimeType) else context.getString(R.string.media_export_denied)
+                    error?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                }
             } else {
                 downloadFile(item.fileId)
             }

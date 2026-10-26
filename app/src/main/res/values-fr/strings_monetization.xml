@@ -239,8 +239,8 @@
     <string name="gifts_send_text_label">Message accompagnant le cadeau</string>
     <string name="gifts_send_text_counter">%1$d/%2$d</string>
     <string name="gifts_text_too_long">Le message accompagnant le cadeau est trop long</string>
-    <string name="gifts_hide_name">Masquer mon nom</string>
-    <string name="gifts_hide_name_hint">Le destinataire ne verra pas qui a envoyé le cadeau</string>
+    <string name="gifts_hide_name">Cadeau privé</string>
+    <string name="gifts_hide_name_hint">Seul le destinataire verra votre nom et le message du cadeau</string>
     <string name="gifts_received_more">Afficher plus</string>
     <string name="gifts_received_more_error">Impossible de charger d’autres cadeaux</string>
     <!-- #377 subtask C: paid Stars reactions -->

@@ -14,6 +14,7 @@ import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.TdApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -104,6 +105,36 @@ class TdPaidReactionsTest {
         val failure = tdlib.sender.send(chatId = 5L, messageId = 9L, starCount = 10L, isAnonymous = false).exceptionOrNull()
         assertTrue(failure is PaidReactionUncertainException)
         assertEquals(listOf("add", "commit", "remove"), tdlib.log)
+    }
+
+    @Test fun `a wait cancelled after the commit was sent is uncertain, not lost`() = runBlocking {
+        val commitStarted = CompletableDeferred<Unit>()
+        val tdlib = FakeTdlib(commit = {
+            commitStarted.complete(Unit)
+            awaitCancellation()
+        })
+        var outcome: Result<Unit>? = null
+        val sending = launch { outcome = tdlib.sender.send(chatId = 5L, messageId = 9L, starCount = 10L, isAnonymous = false) }
+        commitStarted.await()
+        sending.cancelAndJoin()
+        val failure = outcome?.exceptionOrNull()
+        assertTrue(failure is PaidReactionUncertainException)
+        assertEquals(UiText.Res(R.string.err_paid_reaction_uncertain), (failure as UserMessageException).text)
+        assertEquals(listOf("add", "commit", "remove"), tdlib.log)
+    }
+
+    @Test fun `a wait cancelled before the commit propagates and reports nothing`() = runBlocking {
+        val addStarted = CompletableDeferred<Unit>()
+        val tdlib = FakeTdlib(add = {
+            addStarted.complete(Unit)
+            awaitCancellation()
+        })
+        var outcome: Result<Unit>? = null
+        val sending = launch { outcome = tdlib.sender.send(chatId = 5L, messageId = 9L, starCount = 10L, isAnonymous = false) }
+        addStarted.await()
+        sending.cancelAndJoin()
+        assertNull(outcome)
+        assertEquals(listOf("add", "remove"), tdlib.log)
     }
 
     @Test fun `a second send while one is in flight is refused as busy`() = runBlocking {

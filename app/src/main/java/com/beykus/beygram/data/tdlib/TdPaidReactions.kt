@@ -39,7 +39,10 @@ internal class TdPaidReactions(private val request: suspend (TdApi.Function<TdAp
         } catch (timeout: TimeoutCancellationException) {
             Result.failure(paidReactionFailure(timeout, committing))
         } catch (cancelled: CancellationException) {
-            throw cancelled
+            // The commit may already be with TDLib, which still charges the Stars when nobody waits for the answer.
+            // So a cancelled wait after the commit was sent is reported as uncertain; before it, nothing can be spent.
+            if (!committing) throw cancelled
+            Result.failure(paidReactionFailure(cancelled, committing))
         } catch (error: Exception) {
             Result.failure(paidReactionFailure(error, committing))
         } finally {

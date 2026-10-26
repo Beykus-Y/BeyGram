@@ -239,8 +239,8 @@
     <string name="gifts_send_text_label">Gift message</string>
     <string name="gifts_send_text_counter">%1$d/%2$d</string>
     <string name="gifts_text_too_long">The gift message is too long</string>
-    <string name="gifts_hide_name">Hide my name</string>
-    <string name="gifts_hide_name_hint">The recipient won\'t see who sent the gift</string>
+    <string name="gifts_hide_name">Private gift</string>
+    <string name="gifts_hide_name_hint">Only the recipient will see your name and message</string>
     <string name="gifts_received_more">Show more</string>
     <string name="gifts_received_more_error">Could not load more gifts</string>
     <!-- #377 subtask C: paid Stars reactions -->

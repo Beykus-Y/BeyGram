@@ -188,7 +188,7 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /**
      * Sends one gift after explicit confirmation. [text] is plain and checked against the
-     * server limit; [isPrivate] hides the sender's name. The repository never retries it.
+     * server limit; [isPrivate] shows the sender's name and the text only to the recipient. The repository never retries it.
      */
     suspend fun sendGift(
         profileId: Long,

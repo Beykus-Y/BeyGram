@@ -1,7 +1,9 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatMessage
@@ -80,8 +82,11 @@ internal object PaidContentPaymentStore {
         }
     }
 
-    /** Pays the price that the dialog showed. Paying is set first, so a second tap cannot start another payment. */
-    fun confirm(conversation: ConversationRepository, key: PaidContentKey) {
+    /**
+     * Pays the price that the dialog showed. Paying is set first, so a second tap cannot start another payment. [onPaid] runs once
+     * the payment went through, so a copy of the message that a screen keeps can show the purchase.
+     */
+    fun confirm(conversation: ConversationRepository, key: PaidContentKey, onPaid: () -> Unit) {
         val confirming = _state.value.step as? PaidContentStep.Confirming ?: return
         if (confirming.key != key) return
         _state.value = PaidContentPaymentState(step = PaidContentStep.Paying(key, confirming.starCount))
@@ -94,6 +99,7 @@ internal object PaidContentPaymentStore {
                 PaidContentPaymentOutcome.Uncertain
             }
             _state.value = PaidContentPaymentState(notice = PaidContentNotice(key, outcome.toText()))
+            if (outcome == PaidContentPaymentOutcome.Paid) onPaid()
         }
     }
 
@@ -144,15 +150,29 @@ private fun PaidContentPaymentOutcome.toText(): UiText = when (this) {
 }
 
 /** The entry points that one bubble needs. The conversation is the one that shows the bubble. */
-internal class PaidContentActions(private val conversation: ConversationRepository) {
+internal class PaidContentActions(private val conversation: ConversationRepository, private val onPaid: () -> Unit) {
     fun request(key: PaidContentKey, owner: Any) = PaidContentPaymentStore.request(conversation, key, owner)
-    fun confirm(key: PaidContentKey) = PaidContentPaymentStore.confirm(conversation, key)
+    fun confirm(key: PaidContentKey) = PaidContentPaymentStore.confirm(conversation, key, onPaid)
     fun dismiss(key: PaidContentKey) = PaidContentPaymentStore.dismiss(key)
     fun closeExternal(key: PaidContentKey, failure: UiText?) = PaidContentPaymentStore.closeExternal(key, failure)
+
+    /**
+     * Asks TDLib whether the message may still leave the app. This is the question the media viewer asks before it saves or opens
+     * a file, so a purchased file is not opened in another app from a protected chat.
+     */
+    suspend fun confirmExport(key: PaidContentKey): Boolean =
+        conversation.messageCapabilities(key.chatId, key.messageId).getOrNull()?.canSave == true
 }
 
 @Composable
 internal fun rememberPaidContentActions(conversation: ConversationRepository): PaidContentActions =
-    remember(conversation) { PaidContentActions(conversation) }
+    remember(conversation) { PaidContentActions(conversation) {} }
+
+/** A screen that keeps its own copy of the message passes [onPaid] to reload that copy once a payment went through. */
+@Composable
+internal fun rememberPaidContentActions(conversation: ConversationRepository, onPaid: () -> Unit): PaidContentActions {
+    val latestOnPaid by rememberUpdatedState(onPaid)
+    return remember(conversation) { PaidContentActions(conversation) { latestOnPaid() } }
+}
 
 internal fun ChatMessage.paidContentKey(): PaidContentKey = PaidContentKey(chatId = chatId, messageId = id)
