@@ -1449,6 +1449,8 @@ fun ChatScreen(
                 } else {
                     val message = listItem.messages.single()
                     val animateArrival = remember(listItem.key) { animationTracker.claim(listOf(message.id)) }
+                    // A confirmed send replaces the temporary id; the dice throw keeps its original identity.
+                    val diceAnimationId = rememberDiceAnimationId(message.id, history.recentReplacements)
                     val launch = launchTargets[message.id]
                     val launchModifier = if (launch != null) Modifier.graphicsLayer { alpha = 0f } else Modifier
                     val bubblePosition: ((Rect) -> Unit)? = launch?.let { target ->
@@ -1523,6 +1525,8 @@ fun ChatScreen(
                                     conversation.addPollOption(chat.id, messageId, text)
                                 },
                                 onAutoDownloadFile = onAutoDownloadFile,
+                                animateSpecial = animateArrival && launch == null,
+                                diceAnimationId = diceAnimationId,
                                 selectionMode = selectionMode,
                                 selected = message.id in selectionIds,
                                 onToggleSelection = { toggleSelection(message) },
@@ -2182,7 +2186,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onStopLiveLocation: ((ChatMessage) -> Unit)? = null,
     onWriteContact: ((Long) -> Unit)? = null,
     onLoadPollVoters: (suspend (messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>)? = null,
-    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null
+    onAddPollOption: (suspend (messageId: Long, text: String) -> Result<Unit>)? = null,
+    animateSpecial: Boolean = false,
+    diceAnimationId: Long = 0L
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -2306,7 +2312,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     onStopLiveLocation = onStopLiveLocation,
                                     onWriteContact = onWriteContact,
                                     onLoadPollVoters = onLoadPollVoters,
-                                    onAddPollOption = onAddPollOption
+                                    onAddPollOption = onAddPollOption,
+                                    observeFile = observeFile,
+                                    downloadFile = onDownloadFile,
+                                    autoDownloadFile = onAutoDownloadFile,
+                                    animateDice = animateSpecial,
+                                    diceAnimationId = diceAnimationId
                                 )
                             }
                             if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile)

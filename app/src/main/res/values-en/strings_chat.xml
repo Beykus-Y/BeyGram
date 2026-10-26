@@ -136,6 +136,9 @@
     <string name="chat_contact_send_failed">Could not send the contact</string>
     <string name="chat_dice_rolling">Rolling…</string>
     <string name="chat_dice_result">Result: %1$d</string>
+    <string name="chat_dice_jackpot">Jackpot!</string>
+    <string name="chat_dice_not_sent">Not sent</string>
+    <string name="chat_dice_a11y">%1$s, %2$s</string>
     <string name="chat_dice_send_failed">Could not send the dice</string>
     <string name="chat_unsupported_message">This message type is not supported yet</string>
     <string name="chat_unsupported_hint">Update BeyGram or open the chat in Telegram to see the content.</string>

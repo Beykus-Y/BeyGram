@@ -1,0 +1,558 @@
+package com.beykus.beygram.ui.screens.chat
+
+import android.content.Context
+import android.os.PowerManager
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.animateLottieCompositionAsState
+import com.airbnb.lottie.compose.rememberLottieComposition
+import com.beykus.beygram.R
+import com.beykus.beygram.data.media.readTgsJson
+import com.beykus.beygram.domain.model.AutoDownloadRequest
+import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.DiceStickerAsset
+import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageDiceInfo
+import com.beykus.beygram.domain.model.MessageDiceState
+import com.beykus.beygram.domain.model.MessageIdReplacement
+import com.beykus.beygram.domain.model.MessageSendState
+import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.ui.accessibility.systemMotionEnabled
+import com.beykus.beygram.ui.components.beyGramPalette
+import java.io.File
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+private val DICE_CARD_SIZE = 136.dp
+private const val DICE_ANIMATION_TIMEOUT_MILLIS = 15_000L
+
+/** Keeps the throw identity across the temporary-to-server message id replacement in one remember block. */
+@Composable
+internal fun rememberDiceAnimationId(messageId: Long, replacements: List<MessageIdReplacement>): Long =
+    remember(messageId, replacements) { resolveOriginalMessageId(messageId, replacements) }
+
+/**
+ * A Telegram dice/game message. The server result chooses the final TDLib sticker; there is no local random value.
+ * The throw animation plays once for a live send/receive, and the store remembers it so reopening the chat only
+ * shows the final frame. Reduced motion, battery saver, a missing asset or an unsupported format fall back to the
+ * emoji and the correct server result instead of an empty bubble.
+ */
+@Composable
+internal fun DiceMessageCard(
+    dice: MessageDiceInfo,
+    message: ChatMessage,
+    animate: Boolean,
+    diceAnimationId: Long,
+    observeFile: ((Int) -> StateFlow<MediaFileState>)?,
+    downloadFile: ((Int) -> Unit)?,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val motion = systemMotionEnabled() && !rememberPowerSaveMode(context)
+    val effectiveId = diceAnimationId.takeIf { it != 0L } ?: message.id
+    val key = remember(accountId, message.chatId, effectiveId) {
+        DiceAnimationKey(accountId, message.chatId, effectiveId)
+    }
+    val displayState = dice.displayState
+    val nowSeconds = System.currentTimeMillis() / 1000L
+    val recentOutgoing = message.isOutgoing && message.sendState != MessageSendState.Failed &&
+        isRecentDiceMessage(message.dateSeconds, nowSeconds)
+    val eligible = message.scheduledAtSeconds == null && (animate || recentOutgoing ||
+        (message.isOutgoing && message.sendState == MessageSendState.Sending))
+    val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
+
+    val files = if (observeFile != null && downloadFile != null) {
+        rememberDiceFiles(displayState?.assets.orEmpty(), observeFile, downloadFile, autoDownload)
+    } else {
+        emptyMap()
+    }
+    val playable = when (val state = displayState) {
+        is MessageDiceState.Regular ->
+            state.sticker.mimeType == TGS_MIME && files[state.sticker.fileId]?.localPath != null
+        is MessageDiceState.SlotMachine ->
+            state.layers.all { it.mimeType == TGS_MIME && files[it.fileId]?.localPath != null }
+        null -> false
+    }
+
+    var forcedStatic by remember(key, displayState) { mutableStateOf(false) }
+    var animationDone by remember(key, displayState) { mutableStateOf(false) }
+    var playback by remember(key, displayState) { mutableStateOf(false) }
+    val animationFinished = remember(key, displayState) { CompletableDeferred<Unit>() }
+    val lifecycleResumed = rememberLifecycleResumed()
+
+    val canPlay = motion && playable && !forcedStatic && !animationDone &&
+        diceAnimationPlayback.canBegin(key, eligible)
+    val useVisual = message.sendState != MessageSendState.Failed &&
+        displayState != null && files.isNotEmpty() && (dice.hasFinalValue || canPlay)
+
+    LaunchedEffect(canPlay, motion, eligible, key, displayState) {
+        if (!canPlay) {
+            // Reduced motion consumes a live throw immediately: toggling the setting back must not replay it.
+            if (!motion && (eligible || diceAnimationPlayback.canBegin(key, eligible = false))) {
+                diceAnimationPlayback.finish(key)
+            }
+            return@LaunchedEffect
+        }
+        if (!diceAnimationPlayback.begin(key, eligible)) {
+            forcedStatic = true
+            return@LaunchedEffect
+        }
+        diceAnimationLimiter.acquire()
+        playback = true
+        try {
+            withTimeoutOrNull(DICE_ANIMATION_TIMEOUT_MILLIS) { animationFinished.await() }
+        } finally {
+            playback = false
+            diceAnimationLimiter.release()
+        }
+        animationDone = true
+        if (dice.hasFinalValue) diceAnimationPlayback.finish(key)
+    }
+
+    val resultText = when {
+        message.sendState == MessageSendState.Failed -> stringResource(R.string.chat_dice_not_sent)
+        dice.value > 0 && dice.isJackpot -> stringResource(R.string.chat_dice_jackpot)
+        dice.value > 0 -> stringResource(R.string.chat_dice_result, dice.value)
+        else -> stringResource(R.string.chat_dice_rolling)
+    }
+    // Do not reveal the server result in the fallback before a live throw has had a chance to play.
+    val animationExpected = motion && message.sendState != MessageSendState.Failed &&
+        !animationDone && !forcedStatic && files.isNotEmpty() && files.values.none { it.error != null } &&
+        dice.hasFinalValue && displayState?.canAnimateInline() == true &&
+        diceAnimationPlayback.canBegin(key, eligible)
+    val visualResultText = if (animationExpected) stringResource(R.string.chat_dice_rolling) else resultText
+    val description = stringResource(R.string.chat_dice_a11y, dice.fallbackEmoji, resultText)
+
+    Box(
+        modifier = modifier.size(DICE_CARD_SIZE).clipToBounds().clearAndSetSemantics {
+            contentDescription = description
+            liveRegion = LiveRegionMode.Polite
+        },
+        contentAlignment = Alignment.Center
+    ) {
+        when {
+            !useVisual -> DiceFallback(dice, visualResultText, Modifier.fillMaxSize())
+            displayState != null -> DiceVisual(
+                dice = dice,
+                state = displayState,
+                files = files,
+                animating = canPlay,
+                playing = playback && lifecycleResumed,
+                motion = motion,
+                fallback = { DiceFallback(dice, visualResultText, Modifier.fillMaxSize()) },
+                onFinished = { animationFinished.complete(Unit) },
+                onFailed = { animationFinished.complete(Unit) },
+                modifier = Modifier.fillMaxSize()
+            )
+            else -> DiceFallback(dice, visualResultText, Modifier.fillMaxSize())
+        }
+    }
+}
+
+/** Formats that can show a real dice visual on this device; WebM has no inline renderer with alpha support. */
+private fun MessageDiceState.canAnimateInline(): Boolean = when (this) {
+    is MessageDiceState.Regular -> sticker.mimeType == TGS_MIME || sticker.mimeType == WEBP_MIME
+    is MessageDiceState.SlotMachine -> layers.all { it.mimeType == TGS_MIME }
+}
+
+/**
+ * Observes every file of the selected dice state and asks the automatic sticker policy to download it. Sticker
+ * requests are always allowed by the auto-download policy, and the repository ignores a file that is already local.
+ */
+@Composable
+private fun rememberDiceFiles(
+    assets: List<DiceStickerAsset>,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)?
+): Map<Int, MediaFileState> {
+    val observed = ArrayList<Pair<Int, MediaFileState>>(assets.size)
+    for (asset in assets) {
+        val file by remember(asset.fileId) { observeFile(asset.fileId) }.collectAsStateWithLifecycle()
+        LaunchedEffect(asset.fileId, file.localPath, file.isDownloading, file.error) {
+            if (file.localPath == null && !file.isDownloading && file.error == null) {
+                val request = AutoDownloadRequest(
+                    fileId = asset.fileId,
+                    kind = MediaKind.Sticker,
+                    sizeBytes = file.size
+                )
+                if (autoDownloadFile != null) autoDownloadFile(request) else downloadFile(asset.fileId)
+            }
+        }
+        observed += asset.fileId to file
+    }
+    return observed.toMap()
+}
+
+@Composable
+private fun DiceVisual(
+    dice: MessageDiceInfo,
+    state: MessageDiceState,
+    files: Map<Int, MediaFileState>,
+    animating: Boolean,
+    playing: Boolean,
+    motion: Boolean,
+    fallback: @Composable () -> Unit,
+    onFinished: () -> Unit,
+    onFailed: () -> Unit,
+    modifier: Modifier
+) {
+    when (state) {
+        is MessageDiceState.Regular -> RegularDiceVisual(
+            asset = state.sticker,
+            file = files[state.sticker.fileId],
+            animating = animating,
+            playing = playing,
+            motion = motion,
+            fallback = fallback,
+            onFinished = onFinished,
+            onFailed = onFailed,
+            modifier = modifier
+        )
+        is MessageDiceState.SlotMachine -> SlotMachineDiceVisual(
+            dice = dice,
+            state = state,
+            files = files,
+            animating = animating,
+            playing = playing,
+            fallback = fallback,
+            onFinished = onFinished,
+            onFailed = onFailed,
+            modifier = modifier
+        )
+    }
+}
+
+@Composable
+private fun RegularDiceVisual(
+    asset: DiceStickerAsset,
+    file: MediaFileState?,
+    animating: Boolean,
+    playing: Boolean,
+    motion: Boolean,
+    fallback: @Composable () -> Unit,
+    onFinished: () -> Unit,
+    onFailed: () -> Unit,
+    modifier: Modifier
+) {
+    val path = file?.localPath
+    if (path == null) {
+        fallback()
+        return
+    }
+    when (asset.mimeType) {
+        TGS_MIME -> {
+            val decoded = rememberTgsJson(path)
+            val json = decoded?.getOrNull()
+            if (json == null) {
+                // A broken TGS archive is a real failure: release the playback permit instead of waiting for the timeout.
+                if (decoded?.isFailure == true) {
+                    LaunchedEffect(decoded) { onFailed() }
+                }
+                fallback()
+                return
+            }
+            var ready by remember(path) { mutableStateOf(false) }
+            Box(modifier) {
+                Box(Modifier.fillMaxSize().alpha(if (ready) 1f else 0f)) {
+                    DiceTgsLayer(
+                        json = json,
+                        mode = if (animating) DiceFrameMode.Play else DiceFrameMode.End,
+                        isPlaying = playing,
+                        modifier = Modifier.fillMaxSize(),
+                        onReady = { ready = true },
+                        onFailed = onFailed,
+                        onFinished = onFinished
+                    )
+                }
+                if (!ready) fallback()
+            }
+        }
+        WEBP_MIME -> if (motion) {
+            LocalMediaImage(path, modifier, fit = true)
+        } else {
+            fallback()
+        }
+        // WebM dice stickers have no platform renderer that preserves the alpha channel; the emoji and the
+        // server result are more honest than an empty box.
+        else -> fallback()
+    }
+}
+
+@Composable
+private fun SlotMachineDiceVisual(
+    dice: MessageDiceInfo,
+    state: MessageDiceState.SlotMachine,
+    files: Map<Int, MediaFileState>,
+    animating: Boolean,
+    playing: Boolean,
+    fallback: @Composable () -> Unit,
+    onFinished: () -> Unit,
+    onFailed: () -> Unit,
+    modifier: Modifier
+) {
+    val layers = state.layers
+    if (layers.any { it.mimeType != TGS_MIME }) {
+        fallback()
+        return
+    }
+    val paths = layers.map { files[it.fileId]?.localPath }
+    val jsonResults = ArrayList<Result<String>?>(paths.size)
+    for (path in paths) jsonResults += rememberTgsJson(path)
+    val failures = jsonResults.any { it?.isFailure == true }
+    LaunchedEffect(failures) { if (failures) onFailed() }
+    val jsons = jsonResults.map { it?.getOrNull() }
+    if (jsons.any { it == null } || failures) {
+        fallback()
+        return
+    }
+
+    val compositionKey = layers.joinToString(":") { it.fileId.toString() }
+    var readyCount by remember(compositionKey) { mutableIntStateOf(0) }
+    var failed by remember(compositionKey) { mutableStateOf(false) }
+    var reelsDone by remember(compositionKey, animating) { mutableIntStateOf(0) }
+    var backgroundFinished by remember(compositionKey, animating) { mutableStateOf(false) }
+    var reported by remember(compositionKey, animating) { mutableStateOf(false) }
+    val ready = readyCount >= layers.size && !failed
+    val finalState = dice.hasFinalValue
+
+    val backgroundAnimating = animating && finalState && reelsDone >= 3
+    val backgroundMode = when {
+        !finalState -> DiceFrameMode.End
+        !animating -> DiceFrameMode.End
+        reelsDone >= 3 -> DiceFrameMode.Play
+        else -> DiceFrameMode.Start
+    }
+    val leverMode = if (!finalState && animating) DiceFrameMode.Play else DiceFrameMode.End
+    val reelMode = if (animating) DiceFrameMode.Play else DiceFrameMode.End
+    val onReelFinished = {
+        if (reelsDone < 3) reelsDone += 1
+    }
+    val onBackgroundFinished: (() -> Unit)? = if (finalState) {
+        { backgroundFinished = true }
+    } else {
+        null
+    }
+    val backgroundNeedsFinish = !finalState || backgroundFinished
+    LaunchedEffect(reelsDone, backgroundFinished, finalState) {
+        if (reelsDone >= 3 && backgroundNeedsFinish && !reported) {
+            reported = true
+            onFinished()
+        }
+    }
+
+    Box(modifier) {
+        Box(Modifier.fillMaxSize().alpha(if (ready) 1f else 0f)) {
+            DiceTgsLayer(
+                json = jsons[0].orEmpty(),
+                mode = backgroundMode,
+                isPlaying = playing && ready && backgroundAnimating,
+                modifier = Modifier.fillMaxSize(),
+                onReady = { if (!failed) readyCount += 1 },
+                onFailed = { failed = true; onFailed() },
+                onFinished = onBackgroundFinished
+            )
+            // Reels go above the background, then the frame/handle is painted last, as in Telegram Desktop.
+            for (index in 2..4) {
+                DiceTgsLayer(
+                    json = jsons[index].orEmpty(),
+                    mode = reelMode,
+                    isPlaying = playing && ready,
+                    modifier = Modifier.fillMaxSize(),
+                    onReady = { if (!failed) readyCount += 1 },
+                    onFailed = { failed = true; onFailed() },
+                    onFinished = onReelFinished
+                )
+            }
+            DiceTgsLayer(
+                json = jsons[1].orEmpty(),
+                mode = leverMode,
+                isPlaying = playing && ready && !finalState,
+                modifier = Modifier.fillMaxSize(),
+                onReady = { if (!failed) readyCount += 1 },
+                onFailed = { failed = true; onFailed() }
+            )
+        }
+        if (!ready) fallback()
+    }
+}
+
+private enum class DiceFrameMode { Play, Start, End }
+
+/**
+ * One transparent TGS layer. [mode] separates "play once" from a static first/last frame, so a paused lifecycle or
+ * an animation that has not received a playback permit never jumps to the final frame.
+ */
+@Composable
+private fun DiceTgsLayer(
+    json: String,
+    mode: DiceFrameMode,
+    isPlaying: Boolean,
+    modifier: Modifier,
+    onReady: () -> Unit,
+    onFailed: () -> Unit,
+    onFinished: (() -> Unit)? = null
+) {
+    val spec = remember(json) { LottieCompositionSpec.JsonString(json) }
+    val result = rememberLottieComposition(spec)
+    val composition = result.value
+    var reportedReady by remember(json) { mutableStateOf(false) }
+    var reportedFinished by remember(json) { mutableStateOf(false) }
+    LaunchedEffect(composition, result.isFailure) {
+        if (result.isFailure) onFailed()
+        else if (composition != null && !reportedReady) {
+            reportedReady = true
+            onReady()
+        }
+    }
+    if (composition == null) return
+    val singleFrame = composition.endFrame - composition.startFrame <= 0f
+    LaunchedEffect(composition, mode) {
+        if (mode == DiceFrameMode.Play && singleFrame && !reportedFinished) {
+            reportedFinished = true
+            onFinished?.invoke()
+        }
+    }
+    when (mode) {
+        DiceFrameMode.Play -> {
+            val progress by animateLottieCompositionAsState(
+                composition = composition,
+                isPlaying = isPlaying,
+                restartOnPlay = false,
+                iterations = 1
+            )
+            LaunchedEffect(composition) {
+                snapshotFlow { progress }.collect { value ->
+                    if (!reportedFinished && value >= 1f) {
+                        reportedFinished = true
+                        onFinished?.invoke()
+                    }
+                }
+            }
+            LottieAnimation(composition = composition, progress = { progress }, modifier = modifier)
+        }
+        DiceFrameMode.Start -> LottieAnimation(composition = composition, progress = { 0f }, modifier = modifier)
+        DiceFrameMode.End -> LottieAnimation(composition = composition, progress = { 1f }, modifier = modifier)
+    }
+}
+
+@Composable
+private fun rememberTgsJson(path: String?): Result<String>? {
+    val decoded by produceState<Result<String>?>(null, path) {
+        value = if (path == null) null else withContext(Dispatchers.IO) {
+            runCatching { readTgsJson(File(path)) }
+        }
+    }
+    return decoded
+}
+
+@Composable
+private fun DiceFallback(dice: MessageDiceInfo, resultText: String, modifier: Modifier) {
+    val palette = beyGramPalette()
+    Column(
+        modifier = modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = dice.fallbackEmoji,
+            fontSize = 54.sp,
+            lineHeight = 60.sp,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = resultText,
+            color = palette.messageTime,
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/**
+ * Battery saver is treated like reduced motion: the result is correct, but a decorative throw must not run.
+ * It is re-read on every resume instead of installing another long-lived system observer.
+ */
+@Composable
+private fun rememberPowerSaveMode(context: Context): Boolean {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var powerSave by remember(context) { mutableStateOf(readPowerSaveMode(context)) }
+    LaunchedEffect(context, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            powerSave = readPowerSaveMode(context)
+        }
+    }
+    return powerSave
+}
+
+/** Pauses a running one-shot animation when the chat leaves the foreground and resumes it from the same frame. */
+@Composable
+private fun rememberLifecycleResumed(): Boolean {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var resumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, _ ->
+            resumed = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    return resumed
+}
+
+private fun readPowerSaveMode(context: Context): Boolean = runCatching {
+    context.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
+}.getOrDefault(false)

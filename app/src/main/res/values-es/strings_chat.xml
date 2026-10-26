@@ -198,6 +198,9 @@
     <string name="chat_contact_send_failed">No se pudo enviar el contacto</string>
     <string name="chat_dice_rolling">Tirando…</string>
     <string name="chat_dice_result">Resultado: %1$d</string>
+    <string name="chat_dice_jackpot">¡Jackpot!</string>
+    <string name="chat_dice_not_sent">No enviado</string>
+    <string name="chat_dice_a11y">%1$s, %2$s</string>
     <string name="chat_dice_send_failed">No se pudo enviar el dado</string>
     <string name="chat_unsupported_message">Este tipo de mensaje aún no es compatible</string>
     <string name="chat_unsupported_hint">Actualiza BeyGram o abre el chat en Telegram para ver el contenido.</string>

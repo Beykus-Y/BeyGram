@@ -2,11 +2,13 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.model.DiceStickerAsset
 import com.beykus.beygram.domain.model.GeoPoint
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageContactInfo
 import com.beykus.beygram.domain.model.MessageDiceInfo
+import com.beykus.beygram.domain.model.MessageDiceState
 import com.beykus.beygram.domain.model.MessageLinkPreview
 import com.beykus.beygram.domain.model.MessageLiveLocationInfo
 import com.beykus.beygram.domain.model.MessageLocationInfo
@@ -66,7 +68,7 @@ internal fun TdApi.SpeechRecognitionResult?.toTranscriptionSnapshot(): Transcrip
     else -> TranscriptionSnapshot()
 }
 
-internal class TdMediaMapper(private val files: MediaFileStore) {
+internal class TdMediaMapper(internal val files: MediaFileStore) {
     private fun register(file: TdApi.File): Int {
         files.register(file.toMediaFileState())
         return file.id
@@ -138,11 +140,45 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
                 phone = content.contact.phoneNumber.orEmpty()
             )
         )
-        is TdApi.MessageDice -> MessageSpecialContent.Dice(MessageDiceInfo(content.emoji.orEmpty(), content.value))
+        is TdApi.MessageDice -> MessageSpecialContent.Dice(
+            MessageDiceInfo(
+                emoji = content.emoji.orEmpty(),
+                value = content.value,
+                initialState = content.initialState.toDiceState(),
+                finalState = content.finalState.toDiceState()
+            )
+        )
         is TdApi.MessageText, is TdApi.MessagePhoto, is TdApi.MessageVideo, is TdApi.MessageAnimation,
         is TdApi.MessageDocument, is TdApi.MessageAudio, is TdApi.MessageVoiceNote, is TdApi.MessageVideoNote,
         is TdApi.MessageSticker -> null
         else -> MessageSpecialContent.Unsupported(content.javaClass.simpleName)
+    }
+
+    /** TDLib supplies dice animations as sticker sets; every file is registered so the chat can download it. */
+    private fun TdApi.DiceStickers?.toDiceState(): MessageDiceState? = when (this) {
+        is TdApi.DiceStickersRegular -> sticker.toDiceAsset()?.let { MessageDiceState.Regular(it) }
+        is TdApi.DiceStickersSlotMachine -> {
+            val backgroundAsset = background.toDiceAsset() ?: return null
+            val leverAsset = lever.toDiceAsset() ?: return null
+            val leftAsset = leftReel.toDiceAsset() ?: return null
+            val centerAsset = centerReel.toDiceAsset() ?: return null
+            val rightAsset = rightReel.toDiceAsset() ?: return null
+            MessageDiceState.SlotMachine(backgroundAsset, leverAsset, leftAsset, centerAsset, rightAsset)
+        }
+        else -> null
+    }
+
+    private fun TdApi.Sticker?.toDiceAsset(): DiceStickerAsset? {
+        val sticker = this ?: return null
+        val file = sticker.sticker ?: return null
+        if (file.id == 0) return null
+        val format = sticker.format
+        return DiceStickerAsset(
+            fileId = register(file),
+            mimeType = if (format == null) "image/webp" else stickerMimeType(format),
+            width = sticker.width,
+            height = sticker.height
+        )
     }
 
     private fun TdApi.MessagePoll.toSpecialPoll(canAddOption: Boolean): MessageSpecialContent.Poll {

@@ -167,6 +167,9 @@
     <string name="chat_contact_send_failed">Не удалось отправить контакт</string>
     <string name="chat_dice_rolling">Бросаем…</string>
     <string name="chat_dice_result">Выпало: %1$d</string>
+    <string name="chat_dice_jackpot">Джекпот!</string>
+    <string name="chat_dice_not_sent">Не отправлено</string>
+    <string name="chat_dice_a11y">%1$s, %2$s</string>
     <string name="chat_dice_send_failed">Не удалось отправить кубик</string>
     <string name="chat_unsupported_message">Этот тип сообщения пока не поддерживается</string>
     <string name="chat_unsupported_hint">Обновите BeyGram или откройте чат в Telegram, чтобы увидеть содержимое.</string>
