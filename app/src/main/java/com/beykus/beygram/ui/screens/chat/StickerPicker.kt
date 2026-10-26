@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
@@ -86,7 +87,8 @@ internal fun StickerPickerPanel(
     downloadFile: (Int) -> Unit,
     onSend: (StickerItem) -> Unit,
     onOptions: (StickerItem) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onOpenGifs: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -226,7 +228,8 @@ internal fun StickerPickerPanel(
                 else -> stringResource(R.string.sticker_picker_title)
             },
             onBack = if (viewingSet != null && query.isBlank()) ({ viewingSet = null; setContent = null; setError = null }) else null,
-            onClose = onClose
+            onClose = onClose,
+            onOpenGifs = onOpenGifs
         )
         OutlinedTextField(
             value = query,
@@ -325,7 +328,7 @@ internal fun StickerPickerPanel(
 }
 
 @Composable
-private fun StickerHeader(title: String, onBack: (() -> Unit)?, onClose: () -> Unit) {
+private fun StickerHeader(title: String, onBack: (() -> Unit)?, onClose: () -> Unit, onOpenGifs: (() -> Unit)?) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp).padding(start = 4.dp, end = 4.dp, top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         if (onBack != null) {
@@ -335,6 +338,13 @@ private fun StickerHeader(title: String, onBack: (() -> Unit)?, onClose: () -> U
         } else Spacer(Modifier.width(8.dp))
         Text(title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        if (onOpenGifs != null) {
+            TextButton(onClick = onOpenGifs, modifier = Modifier.heightIn(min = 48.dp)) {
+                Icon(Icons.Rounded.Animation, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.composer_type_gif), color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
         IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Rounded.Close, stringResource(R.string.sticker_picker_close), tint = palette.textSecondary)
         }
