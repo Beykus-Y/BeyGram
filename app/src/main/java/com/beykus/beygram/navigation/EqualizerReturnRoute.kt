@@ -18,3 +18,20 @@ internal fun equalizerBackRouteName(
     val validReturn = returnRouteName != equalizerRouteName && returnRouteName.isNotBlank()
     return if (leavingEqualizer && validReturn) returnRouteName else storedRouteName
 }
+
+/**
+ * Records the actual caller whenever navigation enters Equalizer, including the Settings shortcut that does not use
+ * LocalOpenEqualizer. A restored Equalizer route or an unknown Start entry keeps the previously stored destination.
+ */
+internal fun equalizerEntryReturnRouteName(
+    routeName: String,
+    previousRouteName: String,
+    equalizerRouteName: String,
+    startRouteName: String,
+    currentReturnRouteName: String
+): String {
+    if (routeName != equalizerRouteName) return currentReturnRouteName
+    if (previousRouteName == equalizerRouteName) return currentReturnRouteName
+    if (previousRouteName == startRouteName || previousRouteName.isBlank()) return currentReturnRouteName
+    return previousRouteName
+}
