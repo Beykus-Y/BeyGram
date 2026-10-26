@@ -1691,7 +1691,13 @@ fun ChatScreen(
                 replyId = replyId,
                 forumTopicId = forumTopicId,
                 scope = scope,
-                onReplyConsumed = ::clearReply,
+                onReplyConsumed = { sentReplyId ->
+                    if (sentReplyId != null) {
+                        updateDraft { current ->
+                            if (current.replyToMessageId == sentReplyId) current.copy(replyToMessageId = null) else current
+                        }
+                    }
+                },
                 onStickerOptions = { sticker ->
                     pendingSticker = sticker
                     sendOptionsOpen = true
@@ -2105,7 +2111,7 @@ private fun ChatComposerPanel(
     replyId: Long?,
     forumTopicId: Long,
     scope: CoroutineScope,
-    onReplyConsumed: () -> Unit,
+    onReplyConsumed: (Long?) -> Unit,
     onStickerOptions: (OutgoingMedia) -> Unit,
     onSendError: (String) -> Unit,
     onCloseStickerPanel: () -> Unit

@@ -168,7 +168,7 @@ internal fun StickerPanelHost(
     downloadFile: (Int) -> Unit,
     scope: CoroutineScope,
     composerReserve: androidx.compose.ui.unit.Dp,
-    onReplyConsumed: () -> Unit,
+    onReplyConsumed: (Long?) -> Unit,
     onAnimationAttach: (AnimationItem) -> Unit,
     onStickerOptions: (StickerItem) -> Unit,
     onSendError: (String) -> Unit,
@@ -188,6 +188,7 @@ internal fun StickerPanelHost(
             composerReserve = composerReserve,
             onSendSticker = { item ->
                 if (!sending) {
+                    val targetReplyId = replyId
                     sending = true
                     error = null
                     scope.launch {
@@ -195,10 +196,10 @@ internal fun StickerPanelHost(
                             val result = conversation.sendSticker(
                                 chatId = chatId,
                                 sticker = item.toOutgoingMedia(),
-                                replyToMessageId = replyId,
+                                replyToMessageId = targetReplyId,
                                 forumTopicId = forumTopicId
                             )
-                            if (result.isSuccess) onReplyConsumed()
+                            if (result.isSuccess) onReplyConsumed(targetReplyId)
                             else {
                                 val message = result.exceptionOrNull().userMessage(context, R.string.sticker_panel_send_failed)
                                 error = message
@@ -213,6 +214,7 @@ internal fun StickerPanelHost(
             onStickerOptions = onStickerOptions,
             onSendAnimation = { item ->
                 if (!sending) {
+                    val targetReplyId = replyId
                     sending = true
                     error = null
                     scope.launch {
@@ -221,10 +223,10 @@ internal fun StickerPanelHost(
                                 chatId = chatId,
                                 media = item.toOutgoingMedia(),
                                 caption = "",
-                                replyToMessageId = replyId,
+                                replyToMessageId = targetReplyId,
                                 forumTopicId = forumTopicId
                             )
-                            if (result.isSuccess) onReplyConsumed()
+                            if (result.isSuccess) onReplyConsumed(targetReplyId)
                             else {
                                 val message = result.exceptionOrNull().userMessage(context, R.string.gif_panel_send_failed)
                                 error = message
