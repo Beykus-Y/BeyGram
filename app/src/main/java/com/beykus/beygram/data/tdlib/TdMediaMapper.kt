@@ -116,8 +116,9 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
             ?.takeIf { it.hasContent }
 
     /**
-     * Polls, locations, venues, contacts, dice and the safe fallback for everything else. Known media and text
-     * return null: they have their own renderers. The caller decides whether a service event suppresses this value.
+     * Polls, locations, venues, contacts, dice and the safe fallback for everything else. Known media, text and expired
+     * self-destructing attachments return null: they have their own renderers or the expired-media card.
+     * The caller decides whether a service event suppresses this value.
      */
     fun special(content: TdApi.MessageContent): MessageSpecialContent? = when (content) {
         is TdApi.MessagePoll -> content.toSpecialPoll(content.canAddOption)
@@ -142,6 +143,10 @@ internal class TdMediaMapper(private val files: MediaFileStore) {
         is TdApi.MessageText, is TdApi.MessagePhoto, is TdApi.MessageVideo, is TdApi.MessageAnimation,
         is TdApi.MessageDocument, is TdApi.MessageAudio, is TdApi.MessageVoiceNote, is TdApi.MessageVideoNote,
         is TdApi.MessageSticker -> null
+        // TDLib replaces an expired self-destructing attachment with an empty MessageExpired*. It has its own card,
+        // driven by ChatMessage.expiredMediaKind, and must never fall through to the unsupported placeholder.
+        is TdApi.MessageExpiredPhoto, is TdApi.MessageExpiredVideo, is TdApi.MessageExpiredVideoNote,
+        is TdApi.MessageExpiredVoiceNote -> null
         else -> MessageSpecialContent.Unsupported(content.javaClass.simpleName)
     }
 

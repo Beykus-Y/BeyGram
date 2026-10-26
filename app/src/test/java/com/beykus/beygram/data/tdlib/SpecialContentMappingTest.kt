@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageSpecialContent
 import com.beykus.beygram.domain.model.PollVoteRestriction
 import org.drinkless.tdlib.TdApi
@@ -155,6 +156,21 @@ class SpecialContentMappingTest {
         val unsupported = mapper.special(TdApi.MessageUnsupported()) as MessageSpecialContent.Unsupported
         assertEquals("MessageUnsupported", unsupported.contentName)
         assertTrue(unsupported is MessageSpecialContent.Unsupported)
+    }
+
+    @Test
+    fun `expired self destructing attachments keep their own placeholder instead of unsupported`() {
+        val expired = listOf(
+            TdApi.MessageExpiredPhoto() to MediaKind.Photo,
+            TdApi.MessageExpiredVideo() to MediaKind.Video,
+            TdApi.MessageExpiredVideoNote() to MediaKind.VideoNote,
+            TdApi.MessageExpiredVoiceNote() to MediaKind.Voice
+        )
+        expired.forEach { (content, kind) ->
+            assertNull("${content.javaClass.simpleName} must not become media", mapper.media(content))
+            assertNull("${content.javaClass.simpleName} must not become unsupported", mapper.special(content))
+            assertEquals(kind, expiredMediaKindOf(content))
+        }
     }
 
     @Test
