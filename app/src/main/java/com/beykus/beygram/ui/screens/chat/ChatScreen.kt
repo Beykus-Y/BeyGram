@@ -277,7 +277,7 @@ fun ChatScreen(
     var webAppSession by remember(chat.id) { mutableStateOf<BotWebAppLaunch?>(null) }
     var pendingWebApp by remember(chat.id) { mutableStateOf<PendingBotWebApp?>(null) }
     var webAppOpening by remember(chat.id) { mutableStateOf(false) }
-    var reactionOptions by remember(chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    var reactionOptions by remember(conversation, chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
@@ -885,7 +885,7 @@ fun ChatScreen(
                 .onFailure { error = it.userMessage(context, R.string.err_chat_pin_failed) }
         }
     }
-    LaunchedEffect(chat.id, reactionOwner?.id) {
+    LaunchedEffect(conversation, chat.id, reactionOwner?.id) {
         reactionOptions = emptyList()
         val id = reactionOwner?.id ?: return@LaunchedEffect
         reactionOptions = conversation.availableReactions(chat.id, id).getOrNull().orEmpty()
@@ -1379,7 +1379,7 @@ fun ChatScreen(
             )
         }
         reactionOwner?.takeIf { !deleting }?.let { owner ->
-            MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
+            MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen && !it.isPaid }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
                 setReaction(owner.id, option, addToRecent = true)
                 closeActions()
             }

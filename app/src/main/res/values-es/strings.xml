@@ -508,4 +508,6 @@
     <string name="chat_animations_effects_detail">Mostrar el efecto que eligió el remitente para un mensaje nuevo.</string>
     <string name="chat_animations_reduced_motion">El sistema pide reducir el movimiento. Los emoji y efectos se muestran estáticos, pero tus preferencias se mantienen guardadas.</string>
     <string name="chat_animations_footnote">Los efectos solo se reproducen en mensajes nuevos, nunca tapan el texto ni cambian el desplazamiento.</string>
+    <string name="chat_reaction_paid_description">Reacción con estrellas, %1$d</string>
+    <string name="chat_reaction_paid_confirmation_required">Las reacciones de pago solo se envían tras confirmarlas</string>
 </resources>

@@ -82,15 +82,28 @@ data class MessageLinkPreview(
 }
 
 /**
- * An emoji reaction under a message. [isChosen] marks the reaction the current user added. A custom emoji reaction has a
- * [customEmojiId] and no emoji text; its sticker is looked up by that id.
+ * A reaction under a message. [isChosen] marks the reaction the current user added. A custom emoji reaction has a
+ * [customEmojiId] and no emoji text; its sticker is looked up by that id. A paid reaction has [isPaid] set and [count]
+ * is its number of Telegram Stars.
  */
-data class MessageReaction(val emoji: String, val count: Int, val isChosen: Boolean = false, val customEmojiId: Long = 0L) {
-    val option: ReactionOption get() = ReactionOption(emoji, customEmojiId)
+data class MessageReaction(
+    val emoji: String,
+    val count: Int,
+    val isChosen: Boolean = false,
+    val customEmojiId: Long = 0L,
+    val isPaid: Boolean = false
+) {
+    val option: ReactionOption get() = ReactionOption(emoji, customEmojiId, isPaid)
 }
 
-/** A reaction the user can add: a standard [emoji], or the custom emoji with [customEmojiId], which has no emoji text. */
-data class ReactionOption(val emoji: String, val customEmojiId: Long = 0L)
+/**
+ * A reaction: a standard [emoji], the custom emoji with [customEmojiId], which has no emoji text, or the paid [isPaid]
+ * Stars reaction. A paid option is display-only: adding it always needs an explicit Stars confirmation.
+ */
+data class ReactionOption(val emoji: String, val customEmojiId: Long = 0L, val isPaid: Boolean = false)
+
+/** The glyph used for a paid reaction when a text fallback is needed; the chips draw a real star icon instead. */
+const val PAID_REACTION_EMOJI = "⭐"
 
 /** A custom emoji sticker: its file, the sticker's [mimeType] as for other stickers, and the standard [emoji] it stands for. */
 data class CustomEmoji(val customEmojiId: Long, val fileId: Int, val emoji: String, val mimeType: String)

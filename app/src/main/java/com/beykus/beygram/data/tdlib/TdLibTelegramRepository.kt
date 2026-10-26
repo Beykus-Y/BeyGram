@@ -2501,6 +2501,12 @@ class TdLibTelegramRepository private constructor(
                     it.copy(reactions = messageReactions(update.interactionInfo), replyCount = replyCount ?: it.replyCount)
                 }
             }
+            // Bots receive anonymous reactions as a raw list without interaction info; keep such messages current too.
+            is TdApi.UpdateMessageReactions -> {
+                val reactions = messageReactionsFrom(update.reactions.orEmpty())
+                messageHistory.update(update.chatId, update.messageId) { it.copy(reactions = reactions) }
+                updateForumMessage(update.chatId, update.messageId) { it.copy(reactions = reactions) }
+            }
             is TdApi.UpdateOption -> conversationActions.option(update.name, update.value)
             is TdApi.UpdateActiveEmojiReactions -> conversationActions.activeEmojiReactions(update.emojis.orEmpty().toList())
             is TdApi.UpdateChatTitle          -> handleChatTitleChange(update.chatId, update.title)

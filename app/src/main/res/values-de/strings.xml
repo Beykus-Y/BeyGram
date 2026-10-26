@@ -508,4 +508,6 @@
     <string name="app_lock_biometric_failed">Biometrie nicht erkannt. Gib die PIN ein.</string>
     <string name="app_lock_biometric_unavailable_now">Biometrie ist gerade nicht verfügbar. Gib die PIN ein.</string>
     <string name="app_lock_biometric_locked">Biometrie ist vorübergehend gesperrt. Gib die PIN ein.</string>
+    <string name="chat_reaction_paid_description">Sterne-Reaktion, %1$d Sterne</string>
+    <string name="chat_reaction_paid_confirmation_required">Bezahlte Reaktionen können nur nach Bestätigung gesendet werden</string>
 </resources>

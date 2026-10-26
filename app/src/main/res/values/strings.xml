@@ -190,6 +190,8 @@
     <string name="chat_reaction_custom_description">Реакция-эмодзи, %1$d</string>
     <string name="chat_reaction_custom_pick_description">Поставить реакцию-эмодзи</string>
     <string name="chat_reaction_custom_remove_description">Убрать реакцию-эмодзи</string>
+    <string name="chat_reaction_paid_description">Платная реакция, %1$d звёзд</string>
+    <string name="chat_reaction_paid_confirmation_required">Платные реакции отправляются только после подтверждения</string>
     <string name="chat_read_description">Прочитано</string>
     <string name="chat_reply_label">Ответ</string>
     <string name="chat_reply_media">Медиа</string>
