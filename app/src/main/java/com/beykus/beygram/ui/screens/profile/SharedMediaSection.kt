@@ -64,6 +64,7 @@ import com.beykus.beygram.domain.model.validTextEntities
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
+import com.beykus.beygram.playback.PlaybackQueueSource
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
@@ -395,10 +396,11 @@ private fun SharedVoiceRow(
                 SharedRowAction.Download -> downloadFile(media.fileId)
                 is SharedRowAction.Open -> {
                     val state = PlaybackEngine.state.value
+                    val origin = PlaybackOrigin(chatId, message.id, accountId)
                     // Голосовое отмечаем прослушанным, когда плеер сообщит о старте, как в пузыре чата. Пауза не отмечает.
-                    val pausing = state.item?.key == media.playbackKey() && state.playing
+                    val pausing = state.item?.key == media.playbackKey(accountId, origin) && state.playing
                     val onStarted = if (pausing) null else ({ onContentOpened(message.id) })
-                    PlaybackEngine.toggle(context, media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id, accountId)), onStarted)
+                    PlaybackEngine.toggle(context, media.playbackItem(action.path, label, origin, accountId = accountId), onStarted)
                 }
             }
         },
@@ -408,7 +410,7 @@ private fun SharedVoiceRow(
 
 /**
  * Трек вкладки «Музыка». Нажатие ставит в общий плеер всю вкладку по порядку показа, поэтому следующий трек играет сам.
- * Треки, которых ещё нет на устройстве, в очередь не попадают: их скачивают отдельным нажатием.
+ * В очередь попадают и ещё не скачанные треки: общий плеер лениво разрешает их путь и предзагружает только 1–2 следующих.
  */
 @Composable
 internal fun SharedMusicRow(
@@ -428,12 +430,28 @@ internal fun SharedMusicRow(
         onClick = {
             when (val action = sharedRowAction(media, file.localPath)) {
                 SharedRowAction.ShowInChat -> onOpenMessage(message.id)
-                SharedRowAction.Download -> downloadFile(media.fileId)
-                is SharedRowAction.Open -> {
+                else -> {
+                    val origin = PlaybackOrigin(chatId, message.id, accountId)
                     // Текущий трек берём с путём из нажатия: его файл мог только что скачаться, а состояние ещё не дошло.
-                    val current = media.playbackItem(action.path, label, PlaybackOrigin(chatId, message.id, accountId))
-                    val queue = tracks.map { track -> if (track.id == message.id) current else musicTrack(track, chatId, observeFile, label, accountId) }.filterNotNull()
-                    PlaybackEngine.playQueue(context, queue, queue.indexOfFirst { it.origin?.messageId == message.id })
+                    val path = (action as? SharedRowAction.Open)?.path.orEmpty()
+                    val current = media.playbackItem(
+                        path, label, origin,
+                        accountId = accountId,
+                        sizeBytes = file.size
+                    )
+                    val queue = tracks.mapNotNull { track ->
+                        if (track.id == message.id) current
+                        else musicTrack(track, chatId, observeFile, label, accountId)
+                    }
+                    val index = queue.indexOfFirst { it.origin?.messageId == message.id }
+                    if (index >= 0) {
+                        PlaybackEngine.playQueue(
+                            context,
+                            queue,
+                            index,
+                            PlaybackQueueSource(accountId, observeFile, downloadFile)
+                        )
+                    }
                 }
             }
         },
@@ -441,11 +459,16 @@ internal fun SharedMusicRow(
     )
 }
 
-/** Трек очереди, если файл уже скачан. Путь берём из состояния файла, которое TDLib обновляет сам. */
+/** Трек очереди: скачанный файл или ещё не скачанный TDLib-файл, который плеер загрузит по требованию. */
 private fun musicTrack(message: ChatMessage, chatId: Long, observeFile: (Int) -> StateFlow<MediaFileState>, label: String, accountId: String): PlaybackItem? {
-    val media = message.media?.takeUnless { it.isSecret } ?: return null
-    val path = observeFile(media.fileId).value.localPath ?: return null
-    return media.playbackItem(path, label, PlaybackOrigin(chatId, message.id, accountId))
+    val media = message.media?.takeUnless { it.isSecret || it.isSecretChat } ?: return null
+    if (media.kind != MediaKind.Audio) return null
+    val file = observeFile(media.fileId).value
+    return media.playbackItem(
+        file.localPath.orEmpty(), label, PlaybackOrigin(chatId, message.id, accountId),
+        accountId = accountId,
+        sizeBytes = file.size
+    )
 }
 
 /** Ссылка открывается с той же проверкой адреса, что и в тексте сообщения. */

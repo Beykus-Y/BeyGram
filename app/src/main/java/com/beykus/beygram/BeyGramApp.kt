@@ -643,6 +643,8 @@ private fun BeyGramAppContent(
     val currentAuthState by rememberUpdatedState(authState)
     // Выход из аккаунта останавливает общий плеер: его файл и «Показать в чате» относятся к прошлой сессии.
     LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
+    // Смена выбранного аккаунта не должна оставлять музыку/очередь прошлого аккаунта в общем плеере.
+    LaunchedEffect(selectedAccountId) { PlaybackEngine.setActiveAccount(selectedAccountId) }
     LaunchedEffect(Unit) {
         PlaybackEngine.showInChat.collect { origin ->
             if (currentAuthState != AuthState.Ready ||
