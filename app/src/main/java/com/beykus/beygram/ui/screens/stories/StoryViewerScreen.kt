@@ -115,7 +115,10 @@ fun StoryViewerScreen(
 
     val bars by repository.activeStories.collectAsStateWithLifecycle()
     val connection by repository.connectionState.collectAsStateWithLifecycle()
+    // Updating means the client is online and syncing: stories can already load, but only a fully
+    // connected client may treat a missing author as a removed story.
     val connected = connection == TelegramConnectionState.Connected
+    val online = connected || connection == TelegramConnectionState.Updating
 
     // The entry is kept even after the author leaves the visible bar: an empty list update is not
     // enough proof that the stories were deleted, and the viewer must survive a network failure.
@@ -237,13 +240,13 @@ fun StoryViewerScreen(
     // A partial list can omit the open story. Verify it directly before leaving the cached frame
     // on screen forever; only an explicitly confirmed absence moves or closes the viewer. The
     // effect is keyed by the list so an unknown result is retried after reconnecting or refreshing.
-    LaunchedEffect(current?.storyId, currentIndex, connected, storyIds) {
+    LaunchedEffect(current?.storyId, currentIndex, online, storyIds) {
         val storyId = current?.storyId ?: return@LaunchedEffect
-        if (!connected || currentIndex >= 0 || stories.isEmpty()) return@LaunchedEffect
+        if (!online || currentIndex >= 0 || stories.isEmpty()) return@LaunchedEffect
         confirmUnavailable(storyId)
     }
 
-    LaunchedEffect(posterChatId, current?.storyId, retry, connected) {
+    LaunchedEffect(posterChatId, current?.storyId, retry, online) {
         val storyId = current?.storyId ?: return@LaunchedEffect
         if (detail == null) {
             repository.cachedStory(posterChatId, storyId)?.let {
@@ -251,7 +254,7 @@ fun StoryViewerScreen(
                 cachedNotice = true
             }
         }
-        if (!connected) {
+        if (!online) {
             loading = false
             if (detail == null) {
                 loadError = context.getString(R.string.stories_offline_body)
@@ -282,9 +285,9 @@ fun StoryViewerScreen(
         onDispose { downloaded.toList().forEach(repository::cancelFileDownload) }
     }
     // Current full file first, then neighbor thumbnails; never a neighbor's full video.
-    LaunchedEffect(posterChatId, current?.storyId, detail?.media?.fileId, connected) {
+    LaunchedEffect(posterChatId, current?.storyId, detail?.media?.fileId, online) {
         val media = detail?.media ?: return@LaunchedEffect
-        if (!connected) return@LaunchedEffect
+        if (!online) return@LaunchedEffect
         fun request(targets: List<StoryPrefetchTarget>) {
             val keep = targets.map { it.fileId }.toSet()
             (downloaded - keep).forEach(repository::cancelFileDownload)
@@ -352,9 +355,9 @@ fun StoryViewerScreen(
     // screen; otherwise a failed or offline load must not consume the unread marker.
     var openedStoryId by remember(posterChatId) { mutableIntStateOf(0) }
     var dispatchedStoryId by remember(posterChatId) { mutableIntStateOf(0) }
-    LaunchedEffect(posterChatId, current?.storyId, detail != null, mediaReady, connected, resumed, retry, openedStoryId) {
+    LaunchedEffect(posterChatId, current?.storyId, detail != null, mediaReady, online, resumed, retry, openedStoryId) {
         val storyId = current?.storyId ?: return@LaunchedEffect
-        if (!connected || detail == null || !mediaReady || !resumed || openedStoryId == storyId) {
+        if (!online || detail == null || !mediaReady || !resumed || openedStoryId == storyId) {
             return@LaunchedEffect
         }
         // Mark the request before awaiting it: TDLib may process OpenStory after the coroutine is
@@ -594,7 +597,7 @@ fun StoryViewerScreen(
                 fullFile = fullFile,
                 thumbnailFile = thumbnailFile,
                 playing = storyActive,
-                offline = !connected,
+                offline = !online,
                 onReady = { videoReady = true },
                 onPlayingChanged = { videoPlaying = it },
                 onEnded = {

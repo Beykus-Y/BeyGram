@@ -1797,9 +1797,9 @@ fun ChatScreen(
             if (secretChatClosed) stringResource(R.string.secret_chat_closed_composer) else stringResource(R.string.chat_read_only)
         )
         if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
-        // A bot with no outgoing message yet gets an explicit /start action, independent of inline mode or Mini Apps.
+        // A bot with no outgoing message in its whole history gets an explicit /start action, independent of inline mode or Mini Apps.
         if (info?.kind == ProfileKind.Bot && !editing && !recordingActive && !attachments.active &&
-            !history.isLoading && history.messages.none { it.isOutgoing }
+            !history.isLoading && !history.hasOlderMessages && history.messages.none { it.isOutgoing }
         ) BotStartBar(
             conversation = conversation,
             chatId = chat.id,

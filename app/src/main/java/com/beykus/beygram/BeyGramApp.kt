@@ -1499,7 +1499,6 @@ private fun BeyGramAppContent(
                 globalSearchSession.reset(typed)
                 routeName = AppRoute.GlobalSearch.name
             },
-            connectionState = connectionState,
             onChatClick = { chat ->
                 selectedChatId = chat.id
                 linkReturnChatId = 0L

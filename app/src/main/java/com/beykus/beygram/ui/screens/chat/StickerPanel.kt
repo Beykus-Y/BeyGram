@@ -1169,6 +1169,8 @@ private fun StickerGrid(
     footer: (@Composable () -> Unit)? = null
 ) {
     val gridState = rememberLazyGridState()
+    // Search pages and recents can repeat an item; a duplicate lazy key would crash the grid.
+    val uniqueStickers = remember(stickers) { stickers.distinctBy { it.key } }
     LaunchedEffect(stickers.firstOrNull()?.key) { if (stickers.isNotEmpty()) gridState.scrollToItem(0) }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(82.dp),
@@ -1178,7 +1180,7 @@ private fun StickerGrid(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        gridItems(stickers, key = { it.key }) { item ->
+        gridItems(uniqueStickers, key = { it.key }) { item ->
             StickerPanelCell(item, observeFile, downloadFile, onSend = { onSend(item) }, onOptions = { onOptions(item) })
         }
         if (footer != null) {
@@ -1277,6 +1279,8 @@ private fun GifGrid(
     footer: (@Composable () -> Unit)? = null
 ) {
     val gridState = rememberLazyGridState()
+    // Search pages and recents can repeat an item; a duplicate lazy key would crash the grid.
+    val uniqueAnimations = remember(animations) { animations.distinctBy { it.key } }
     LaunchedEffect(animations.firstOrNull()?.key) { if (animations.isNotEmpty()) gridState.scrollToItem(0) }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(140.dp),
@@ -1286,7 +1290,7 @@ private fun GifGrid(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        gridItems(animations, key = { it.key }) { item ->
+        gridItems(uniqueAnimations, key = { it.key }) { item ->
             GifPanelCell(
                 item = item,
                 observeFile = observeFile,

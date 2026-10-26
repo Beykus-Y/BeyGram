@@ -178,8 +178,6 @@ fun ChatsScreen(
     onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit,
     onGlobalSearch: (String) -> Unit = {},
-    /** Network state only changes the search action hint; local filtering keeps working offline. */
-    connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
     /**
      * Чат, открытый в правой панели: его строка подсвечена и помечена для TalkBack.
      * Пока панель показывает заглушку «Выберите чат», сюда приходит null.
