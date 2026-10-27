@@ -111,16 +111,16 @@ internal fun MusicSearchScreen(
 
     // Debounce: each keystroke restarts this effect, so only a pause in typing reaches the server.
     LaunchedEffect(query) {
-        if (query.isBlank()) {
-            searchJob.value?.cancel()
-            results = emptyList()
-            chats = emptyMap()
-            nextOffset = ""
-            searchedQuery = null
-            loading = false
-            error = null
-            return@LaunchedEffect
-        }
+        // A changed query drops the old request, results and offset at once, so nothing from it can publish
+        // or paginate during the debounce.
+        searchJob.value?.cancel()
+        results = emptyList()
+        chats = emptyMap()
+        nextOffset = ""
+        searchedQuery = null
+        loading = false
+        error = null
+        if (query.isBlank()) return@LaunchedEffect
         delay(350)
         runSearch(query, "")
     }
@@ -132,7 +132,7 @@ internal fun MusicSearchScreen(
 
     fun play(message: ChatMessage) {
         val queue = results.mapNotNull { musicItem(it, chats, observeFile, accountId) }
-        val index = queue.indexOfFirst { it.origin?.messageId == message.id }
+        val index = queue.indexOfFirst { it.origin?.chatId == message.chatId && it.origin?.messageId == message.id }
         if (index < 0) return
         PlaybackEngine.playQueue(
             context,
@@ -200,7 +200,7 @@ internal fun MusicSearchScreen(
                 }
                 if (nextOffset.isNotEmpty() && !loading) item(key = "more") {
                     Button(
-                        onClick = { runSearch(query, nextOffset) },
+                        onClick = { searchedQuery?.let { runSearch(it, nextOffset) } },
                         modifier = Modifier.fillMaxWidth().padding(16.dp)
                     ) { Text(stringResource(R.string.music_load_more)) }
                 }
@@ -247,6 +247,8 @@ private fun musicItem(
     if (media.kind != MediaKind.Audio) return null
     val chat = chats[message.chatId]
     val file = observeFile(media.fileId).value
+    // Private playback starts from a local file only, so a protected track that is not downloaded is left out.
+    if (chat?.hasProtectedContent == true && file.localPath.isNullOrEmpty()) return null
     val item = media.playbackItem(
         file.localPath.orEmpty(),
         chat?.title.orEmpty(),
