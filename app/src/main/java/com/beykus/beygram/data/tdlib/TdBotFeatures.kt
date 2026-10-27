@@ -5,7 +5,9 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.io.File
@@ -108,9 +110,9 @@ internal class TdBotFeatures(client: () -> Client) {
      * cache first. Each copy gets its own name and nothing is deleted here: another tap may still be playing or
      * waiting on its copy. The app cache is cleared by the system when storage is low.
      */
-    private fun copyOutOfTdlib(source: File, cacheDir: File): File {
+    private suspend fun copyOutOfTdlib(source: File, cacheDir: File): File = withContext(Dispatchers.IO) {
         cacheDir.mkdirs()
-        return source.copyTo(File(cacheDir, "${UUID.randomUUID()}-${source.name}"))
+        source.copyTo(File(cacheDir, "${UUID.randomUUID()}-${source.name}"))
     }
 
     /** Uses the temporary id only while TDLib still reports it as pending; once sent, the confirmed id is looked up. */
