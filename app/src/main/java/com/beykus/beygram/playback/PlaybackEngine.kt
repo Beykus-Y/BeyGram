@@ -24,6 +24,7 @@ import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -906,6 +907,9 @@ object PlaybackEngine {
 
     /** Explicit user stop: closes the session, clears the queue and removes the notification. */
     fun stop() {
+        _state.value.item?.accountId?.let { owner ->
+            appContext?.let { context -> MusicSessionStore(context).clear(owner) }
+        }
         interruptedMusic = null
         queueSource = null
         queuePageGeneration++
@@ -1448,6 +1452,10 @@ object PlaybackEngine {
                     startProgress()
                 }
                 prefetchNext()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep the existing playable timeline and retry at the next explicit track transition.
             } finally {
                 if (generation == queuePageGeneration) queuePageJob = null
             }
