@@ -279,4 +279,34 @@ class PlaybackQueuePolicyTest {
             )
         )
     }
+    @Test
+    fun queueRowSelectionNeverCrossesAccountOrPlaysPrivateContent() {
+        val now = track("now", 1)
+        val next = track("next", 2)
+        val differentAccount = track("foreign", 3).copy(accountId = "foreign")
+        val protected = track("once", 4).copy(viewOnce = true)
+        val state = PlaybackState(
+            item = now,
+            queue = listOf(now, next, differentAccount, protected),
+            queueIndex = 0
+        )
+        assertTrue(canSelectQueueIndex(state, 1))
+        assertFalse(canSelectQueueIndex(state, 0))
+        assertFalse(canSelectQueueIndex(state, 2))
+        assertFalse(canSelectQueueIndex(state, 3))
+        assertFalse(canSelectQueueIndex(state, -1))
+        assertFalse(canSelectQueueIndex(state, 4))
+        assertFalse(canSelectQueueIndex(state.copy(item = now.copy(secret = true)), 1))
+    }
+
+    @Test
+    fun sleepTimerUsesElapsedTimeAndRoundsUpVisibleRemainingMinutes() {
+        assertEquals(15, sleepTimerRemainingMinutes(900_000L, 0L))
+        assertEquals(15, sleepTimerRemainingMinutes(900_000L, 1L))
+        assertEquals(1, sleepTimerRemainingMinutes(900_000L, 899_999L))
+        assertEquals(0, sleepTimerRemainingMinutes(900_000L, 900_000L))
+        assertEquals(0, sleepTimerRemainingMinutes(900_000L, 1_000_000L))
+        assertEquals(setOf(15, 30, 60), SLEEP_TIMER_MINUTES)
+    }
+
 }
