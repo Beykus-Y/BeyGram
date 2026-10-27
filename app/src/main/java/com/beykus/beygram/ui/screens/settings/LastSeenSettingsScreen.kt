@@ -41,6 +41,7 @@ fun LastSeenSettingsScreen(style: LastSeenStyle, onStyleChange: (LastSeenStyle) 
             Text(stringResource(R.string.settings_last_seen_intro), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(vertical = 4.dp)) {
                 StyleRow(LastSeenStyle.Relative, style, stringResource(R.string.settings_last_seen_relative_title), stringResource(R.string.settings_last_seen_relative_detail)) { onStyleChange(LastSeenStyle.Relative) }
+                SettingsRowDivider(startInset = SettingsRowInset)
                 StyleRow(LastSeenStyle.Exact, style, stringResource(R.string.settings_last_seen_exact_title), stringResource(R.string.settings_last_seen_exact_detail)) { onStyleChange(LastSeenStyle.Exact) }
             }
             Text(stringResource(R.string.settings_last_seen_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))

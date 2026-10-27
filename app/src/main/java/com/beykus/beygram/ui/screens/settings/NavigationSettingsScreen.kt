@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -57,7 +56,7 @@ fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (Tab
             Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
                 ChatsLockedRow()
                 optional.forEach { tab ->
-                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+                    SettingsRowDivider()
                     TabSwitchRow(tab, checked = visibility.isVisible(tab)) { visible ->
                         onVisibilityChange(visibility.withVisible(tab, visible))
                     }
