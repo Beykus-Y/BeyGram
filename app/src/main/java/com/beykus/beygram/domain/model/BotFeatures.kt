@@ -60,3 +60,13 @@ fun mergeInlineBotResults(existing: List<InlineBotResult>, page: List<InlineBotR
 /** Stops pagination when TDLib reports no cursor or repeats the cursor that produced the same page. */
 fun nextInlineQueryOffset(previousOffset: String, nextOffset: String): String =
     if (nextOffset.isBlank() || nextOffset == previousOffset) "" else nextOffset
+
+/** A music bot track downloaded to a local file. The temporary chat message it came from is already removed. */
+data class MusicBotTrack(
+    val path: String,
+    val title: String,
+    val performer: String,
+    val durationSeconds: Int,
+    val mimeType: String,
+    val sizeBytes: Long
+)

@@ -65,6 +65,63 @@ internal class TdBotFeatures(client: () -> Client) {
         )
     }
 
+    /**
+     * Downloads one music bot track so the shared player can play it. TDLib only downloads an inline audio file
+     * once it is sent, so the result goes to Saved Messages, is downloaded in full, and that temporary message is
+     * removed afterwards. Sending clears the Saved Messages draft, so the draft is put back when nothing else has
+     * written one meanwhile. A failed cleanup is ignored so the track still plays.
+     */
+    suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> = requestResult {
+        val savedMessagesChatId = request(TdApi.GetMe()).id
+        val savedDraft = request(TdApi.GetChat(savedMessagesChatId)).draftMessage
+        val sent = request(TdApi.SendInlineQueryResultMessage().apply {
+            chatId = savedMessagesChatId
+            this.queryId = queryId
+            this.resultId = resultId
+            hideViaBot = false
+        })
+        var audioFileId: Int? = null
+        try {
+            val audio = (sent.content as? TdApi.MessageAudio)?.audio ?: return@requestResult null
+            audioFileId = audio.audio.id
+            val file = request(TdApi.DownloadFile(audio.audio.id, FILE_PRIORITY_MANUAL, 0L, 0L, true), DOWNLOAD_TIMEOUT_MS)
+            if (!file.local.isDownloadingCompleted || file.local.path.isEmpty()) return@requestResult null
+            MusicBotTrack(
+                path = file.local.path,
+                title = audio.title.orEmpty(),
+                performer = audio.performer.orEmpty(),
+                durationSeconds = audio.duration,
+                mimeType = audio.mimeType.orEmpty(),
+                sizeBytes = file.size.toLong()
+            )
+        } finally {
+            runCatching { deleteTemporaryMessage(savedMessagesChatId, sent, audioFileId) }
+            runCatching { restoreSavedMessagesDraft(savedMessagesChatId, savedDraft) }
+        }
+    }
+
+    /** Uses the temporary id only while TDLib still reports it as pending; once sent, the confirmed id is looked up. */
+    private suspend fun deleteTemporaryMessage(chatId: Long, sent: TdApi.Message, audioFileId: Int?) {
+        val messageId = if (sent.sendingState == null) {
+            sent.id
+        } else {
+            request(TdApi.GetChatHistory(chatId, 0L, 0, RECENT_HISTORY_LIMIT, false)).messages.orEmpty()
+                .firstOrNull { (it.content as? TdApi.MessageAudio)?.audio?.audio?.id == audioFileId }?.id
+        } ?: return
+        request(TdApi.DeleteMessages(chatId, longArrayOf(messageId), true))
+    }
+
+    /** Puts the draft back only if nothing has written one since the send, so newer text is never overwritten. */
+    private suspend fun restoreSavedMessagesDraft(chatId: Long, savedDraft: TdApi.DraftMessage?) {
+        if (savedDraft == null) return
+        if (request(TdApi.GetChat(chatId)).draftMessage != null) return
+        request(TdApi.SetChatDraftMessage().apply {
+            this.chatId = chatId
+            topicId = null
+            draftMessage = savedDraft
+        })
+    }
+
     private suspend fun musicSearchUsername(): String {
         val configured = try {
             val config = request(TdApi.GetApplicationConfig()) as? TdApi.JsonValueObject
@@ -259,6 +316,9 @@ internal class TdBotFeatures(client: () -> Client) {
         const val MAX_CACHED_INLINE_BOTS = 32
         const val MUSIC_SEARCH_CONFIG_KEY = "music_search_username"
         const val MUSIC_BOT_FALLBACK = "ugcmusicbot"
+        const val FILE_PRIORITY_MANUAL = 32
+        const val DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000L
+        const val RECENT_HISTORY_LIMIT = 10
     }
 }
 

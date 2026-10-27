@@ -60,6 +60,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * «Настройки → Звук и воспроизведение → Музыка». Ищет музыкальные аудиосообщения во всех доступных аккаунту чатах
@@ -89,6 +90,7 @@ internal fun MusicSearchScreen(
     val searchJob = remember(accountId) { mutableStateOf<Job?>(null) }
     // Public results come from the optional music bot. They have their own job and state, so a bot failure
     // never touches the account's own results.
+    val latestSelection = remember(accountId) { AtomicLong() }
     var publicResults by remember(accountId) { mutableStateOf<List<InlineBotResult>>(emptyList()) }
     var publicAvailable by remember(accountId) { mutableStateOf(true) }
     val publicJob = remember(accountId) { mutableStateOf<Job?>(null) }
@@ -155,7 +157,36 @@ internal fun MusicSearchScreen(
         results.mapNotNull { message -> musicItem(message, chats, observeFile, accountId) }
     }
 
+    fun playBotTrack(result: InlineBotResult) {
+        val selection = latestSelection.incrementAndGet()
+        scope.launch {
+            conversation.musicBotTrack(result.queryId, result.id).onSuccess { track ->
+                // A newer tap wins: an older download that finishes later must not replace what the user picked last.
+                if (track == null || selection != latestSelection.get()) return@onSuccess
+                val item = PlaybackItem(
+                    key = "bot:${result.queryId}:${result.id}",
+                    kind = MediaKind.Audio,
+                    path = track.path,
+                    title = track.title,
+                    durationSeconds = track.durationSeconds,
+                    performer = track.performer,
+                    trackTitle = track.title,
+                    mimeType = track.mimeType,
+                    sizeBytes = track.sizeBytes,
+                    accountId = accountId
+                )
+                PlaybackEngine.playQueue(
+                    context,
+                    listOf(item),
+                    0,
+                    PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload)
+                )
+            }
+        }
+    }
+
     fun play(message: ChatMessage) {
+        latestSelection.incrementAndGet()
         val queue = results.mapNotNull { musicItem(it, chats, observeFile, accountId) }
         val index = queue.indexOfFirst { it.origin?.chatId == message.chatId && it.origin?.messageId == message.id }
         if (index < 0) return
@@ -240,7 +271,7 @@ internal fun MusicSearchScreen(
                         )
                     }
                     items(publicResults, key = { "public:${it.queryId}:${it.id}" }) { result ->
-                        MusicRow(title = result.title, subtitle = result.description, onClick = null)
+                        MusicRow(title = result.title, subtitle = result.description, onClick = { playBotTrack(result) })
                     }
                 }
                 if (nextOffset.isNotEmpty() && !loading) item(key = "more") {

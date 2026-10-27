@@ -22,6 +22,8 @@ interface ConversationRepository {
     suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String = ""): Result<InlineBotResults?>
     /** Music from the optional music inline bot; null when the bot does not resolve. The caller's own music search is separate. */
     suspend fun musicBotSearch(query: String, offset: String = ""): Result<InlineBotResults?>
+    /** Downloads one music bot result for the shared player and removes the temporary message it was sent as. */
+    suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?>
     /** Sends one inline result with the composer's reply, forum topic and delivery options. */
     suspend fun sendInlineBotResult(
         chatId: Long,

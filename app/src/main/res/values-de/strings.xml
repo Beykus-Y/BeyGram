@@ -676,6 +676,6 @@
     <string name="forward_failed_chats">Senden an %1$d Chats fehlgeschlagen. Nur diese bleiben ausgewählt.</string>
     <string name="forward_sent_to_chats">In %1$d Chats weitergeleitet</string>
     <string name="music_public_title">Öffentliche Ergebnisse</string>
-    <string name="music_public_note">Titel aus den Bot-Ergebnissen können im Player noch nicht geöffnet werden.</string>
+    <string name="music_public_note">Tippe auf einen Titel, um ihn kurz in den Gespeicherten Nachrichten zu sichern und im Player zu öffnen. Die Nachricht wird nach dem Download entfernt.</string>
     <string name="music_public_unavailable">Die öffentliche Quelle ist gerade nicht verfügbar. Deine Ergebnisse stehen oben.</string>
 </resources>
