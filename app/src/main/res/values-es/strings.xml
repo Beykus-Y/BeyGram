@@ -109,6 +109,7 @@
     <string name="feature_pin_chat">Fijar chat</string>
     <string name="feature_unpin_chat">Desfijar chat</string>
     <string name="feature_mute_chat">Silenciar</string>
+    <string name="feature_copy_chat_title">Copiar nombre del chat</string>
     <string name="feature_unmute_chat">Activar sonido</string>
     <string name="feature_delete_chat">Eliminar chat</string>
     <string name="feature_delete_chat_warning">¿Quitar %1$s y su historial solo de tu cuenta? Esta acción no se puede deshacer.</string>

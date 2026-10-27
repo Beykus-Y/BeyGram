@@ -111,6 +111,7 @@
     <string name="feature_pin_chat">Pin chat</string>
     <string name="feature_unpin_chat">Unpin chat</string>
     <string name="feature_mute_chat">Mute</string>
+    <string name="feature_copy_chat_title">Copy chat name</string>
     <string name="feature_unmute_chat">Unmute</string>
     <string name="feature_delete_chat">Delete chat</string>
     <string name="feature_delete_chat_warning">Remove %1$s and its history from your account only? This cannot be undone.</string>

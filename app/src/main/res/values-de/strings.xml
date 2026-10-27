@@ -111,6 +111,7 @@
     <string name="feature_pin_chat">Chat anheften</string>
     <string name="feature_unpin_chat">Chat-Anheftung aufheben</string>
     <string name="feature_mute_chat">Stummschalten</string>
+    <string name="feature_copy_chat_title">Chatnamen kopieren</string>
     <string name="feature_unmute_chat">Stummschaltung aufheben</string>
     <string name="feature_delete_chat">Chat löschen</string>
     <string name="feature_delete_chat_warning">%1$s und seinen Verlauf nur aus Ihrem Konto entfernen? Dies kann nicht rückgängig gemacht werden.</string>
