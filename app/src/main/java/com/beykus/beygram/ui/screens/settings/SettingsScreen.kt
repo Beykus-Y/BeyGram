@@ -76,7 +76,6 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
 
         SettingsGroup(stringResource(R.string.settings_group_interface)) {
             SettingsLink(Icons.Rounded.Language, stringResource(R.string.feature_language), onLanguage)
-            SettingsLink(Icons.Rounded.Language, stringResource(R.string.feature_language), onLanguage)
             SettingsRowDivider()
             SettingsLink(Icons.Rounded.Dashboard, stringResource(R.string.nav_title), onNavigationSettings)
             SettingsRowDivider()
