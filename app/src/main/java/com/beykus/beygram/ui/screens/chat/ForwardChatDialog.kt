@@ -15,6 +15,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,6 +70,7 @@ internal data class ForwardTarget(
  * Форумы открывают список тем, где каждая тема тоже отмечается отдельно. Отправку выполняет [onSend] и возвращает
  * адресатов, которые не приняли сообщения; диалог остаётся открытым с ними, чтобы повтор не дублировал успехи.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ForwardChatDialog(
     chats: List<ChatPreview>,
