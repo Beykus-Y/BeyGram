@@ -35,6 +35,10 @@
     <string name="chats_archive_title">Archive</string>
     <string name="chats_action_archive">Archiver</string>
     <string name="chats_action_read">Marquer comme lu</string>
+    <string name="chats_read_all">Tout marquer comme lu</string>
+    <string name="chats_read_all_title">Marquer tous les chats comme lus ?</string>
+    <string name="chats_read_all_warning">Les chats non lus de cette liste seront marqués comme lus.</string>
+    <string name="chats_read_all_confirm">Marquer</string>
     <string name="chats_my_profile_description">Mon profil</string>
     <string name="common_back">Retour</string>
     <string name="common_cancel">Annuler</string>

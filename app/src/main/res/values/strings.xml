@@ -247,6 +247,10 @@
     <string name="chat_you">Вы</string>
     <string name="chats_action_archive">В архив</string>
     <string name="chats_action_read">Прочитано</string>
+    <string name="chats_read_all">Прочитать все</string>
+    <string name="chats_read_all_title">Отметить все чаты прочитанными?</string>
+    <string name="chats_read_all_warning">Непрочитанные чаты в этом списке будут отмечены прочитанными.</string>
+    <string name="chats_read_all_confirm">Отметить</string>
     <string name="chats_archive_count_few">чата</string>
     <string name="chats_archive_count_many">чатов</string>
     <string name="chats_archive_count_one">чат</string>
