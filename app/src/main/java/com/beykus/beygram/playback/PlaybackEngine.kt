@@ -1080,6 +1080,7 @@ object PlaybackEngine {
         _state.update { it.copy(repeatMode = mode).withTimelineNavigation(target) }
         prefetchedKeys.clear()
         prefetchNext()
+        if (mode != PlaybackRepeatMode.One) loadNextQueuePage()
     }
 
     /** Inserts [item] after the current item and keeps the current position. */
@@ -1427,6 +1428,8 @@ object PlaybackEngine {
         val loader = source.loadMore ?: return
         val snapshot = _state.value
         if (snapshot.item?.isMusic != true || snapshot.item.systemPrivate || snapshot.queue.isEmpty()) return
+        // Repeat One never approaches a new track: avoid fetching the channel history on every replay.
+        if (snapshot.repeatMode == PlaybackRepeatMode.One) return
         if (snapshot.queue.size - snapshot.queueIndex > 5 || queuePageJob?.isActive == true) return
         val generation = queuePageGeneration
         val currentAccount = snapshot.item.accountId
