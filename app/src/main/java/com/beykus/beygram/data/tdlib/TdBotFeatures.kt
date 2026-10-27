@@ -9,6 +9,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.io.File
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -104,12 +105,12 @@ internal class TdBotFeatures(client: () -> Client) {
 
     /**
      * TDLib deletes a downloaded file together with the message it came from, so the track is copied into the app
-     * cache first. Earlier copies are removed so the cache holds only the latest bot track.
+     * cache first. Each copy gets its own name and nothing is deleted here: another tap may still be playing or
+     * waiting on its copy. The app cache is cleared by the system when storage is low.
      */
     private fun copyOutOfTdlib(source: File, cacheDir: File): File {
-        cacheDir.listFiles()?.forEach { it.delete() }
         cacheDir.mkdirs()
-        return source.copyTo(File(cacheDir, source.name), overwrite = true)
+        return source.copyTo(File(cacheDir, "${UUID.randomUUID()}-${source.name}"))
     }
 
     /** Uses the temporary id only while TDLib still reports it as pending; once sent, the confirmed id is looked up. */
