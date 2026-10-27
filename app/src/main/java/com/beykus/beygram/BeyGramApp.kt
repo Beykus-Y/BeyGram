@@ -171,6 +171,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.screens.playback.EqualizerScreen
 import com.beykus.beygram.ui.screens.playback.LocalOpenEqualizer
+import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
+import com.beykus.beygram.ui.screens.playback.PlaybackRepositorySource
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -2032,6 +2034,7 @@ private fun BeyGramAppContent(
 
     CompositionLocalProvider(
         LocalPlaybackAccountId provides selectedAccountId,
+        LocalPlaybackRepositorySource provides repositorySelection?.let { PlaybackRepositorySource(selectedAccountId, it) },
         LocalChatAnimationPreferences provides chatAnimationPreferences,
         LocalSystemReducedMotion provides reducedMotion,
         LocalAutoDownloadFile provides repository::autoDownloadFile,
