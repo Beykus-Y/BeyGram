@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,10 +34,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -47,6 +50,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
+
+private val EntranceRise = 16.dp
 
 /** Every attachment type must stay reachable without a horizontal scroll. */
 internal enum class AttachmentAction {
@@ -95,7 +102,22 @@ internal fun AttachmentMenu(
     val actions = remember(allowsPolls) { attachmentActions(allowsPolls) }
     val configuration = LocalConfiguration.current
     val maxHeight = (configuration.screenHeightDp * 0.5f).dp.coerceIn(160.dp, 380.dp)
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    // Entrance from the composer: fade plus a short rise. An instant spec starts at full opacity, so reduced motion
+    // and the Off preset never show the menu at alpha 0.
+    val enter = rememberMotionSpec(MotionToken.SheetEnter)
+    val entrance = remember { Animatable(if (enter.isInstant) 1f else 0f) }
+    LaunchedEffect(enter) {
+        if (!enter.isInstant) entrance.animateTo(1f, enter.animationSpec())
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                alpha = entrance.value
+                translationY = (1f - entrance.value) * EntranceRise.toPx() * enter.intensity
+            }
+            .background(palette.surface)
+    ) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 16.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically
