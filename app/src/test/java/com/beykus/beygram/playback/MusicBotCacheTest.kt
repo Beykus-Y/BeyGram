@@ -1,9 +1,11 @@
 package com.beykus.beygram.playback
 
 import java.io.File
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -64,13 +66,19 @@ class MusicBotCacheTest {
         assertFalse(copy.exists())
     }
 
-    @Test fun cancelledCopyLeavesNoFileAndNoReservation() = runBlocking {
+    @Test fun cancelAfterTheCopyLeavesNoFileAndNoReservation() = runBlocking {
         val before = MusicBotCache.pendingCount
-        val result = runCatching {
-            withTimeout(0L) { MusicBotCache.copyReserved(source(), dir) }
-        }
 
-        assertTrue(result.exceptionOrNull() is CancellationException)
+        val job = launch {
+            // Cancels the caller once the reservation exists and the file is complete, the window the cleanup must cover.
+            MusicBotCache.copyReserved(source(), dir) {
+                currentCoroutineContext().job.cancel()
+                yield()
+            }
+        }
+        job.join()
+
+        assertTrue(job.isCancelled)
         assertEquals(before, MusicBotCache.pendingCount)
         assertTrue(dir.listFiles().orEmpty().isEmpty())
     }

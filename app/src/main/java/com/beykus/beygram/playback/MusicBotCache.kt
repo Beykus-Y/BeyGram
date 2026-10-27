@@ -25,14 +25,17 @@ internal object MusicBotCache {
      *
      * A cancelled caller drops its copy: cancellation is seen when the IO copy hands back, so the reservation and the
      * partial or complete file are removed here rather than by a caller that will never receive the path.
+     *
+     * [onCopied] runs after the file is complete and before the copy is returned, so a test can cancel exactly there.
      */
-    suspend fun copyReserved(source: File, dir: File): File {
+    suspend fun copyReserved(source: File, dir: File, onCopied: suspend () -> Unit = {}): File {
         val copy = synchronized(lock) {
             dir.mkdirs()
             File(dir, "${UUID.randomUUID()}-${source.name}").also { pending += it.absolutePath }
         }
         try {
             withContext(Dispatchers.IO) { source.copyTo(copy) }
+            onCopied()
             return copy
         } catch (error: Throwable) {
             discard(copy.absolutePath)
