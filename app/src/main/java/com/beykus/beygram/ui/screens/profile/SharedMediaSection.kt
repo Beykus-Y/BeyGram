@@ -481,7 +481,7 @@ internal fun SharedMusicRow(
                             index,
                             PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload,
                                 loadMore = loadOlderMusic?.let { loader ->
-                                    {
+                                    suspend {
                                         loader().mapNotNull { track -> musicTrack(track, chatId, observeFile, label, accountId) }
                                     }
                                 })
