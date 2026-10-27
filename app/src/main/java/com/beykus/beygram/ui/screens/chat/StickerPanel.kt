@@ -596,8 +596,10 @@ private fun StickerPanel(
     // Tab body fades in on every tab change. The header and tab strip stay put; an instant spec keeps alpha at 1.
     val pickerSwitch = rememberMotionSpec(MotionToken.PickerSwitch)
     val tabSwitch = remember { Animatable(1f) }
-    LaunchedEffect(view.tab) {
-        if (!pickerSwitch.isInstant) {
+    LaunchedEffect(view.tab, pickerSwitch) {
+        if (pickerSwitch.isInstant) {
+            tabSwitch.snapTo(1f)
+        } else {
             tabSwitch.snapTo(0f)
             tabSwitch.animateTo(1f, pickerSwitch.animationSpec())
         }
