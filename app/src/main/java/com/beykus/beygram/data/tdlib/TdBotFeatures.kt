@@ -100,12 +100,16 @@ internal class TdBotFeatures(client: () -> Client) {
     suspend fun musicBotTrack(queryId: Long, resultId: String, cacheDir: File): Result<MusicBotTrack?> = requestResult {
         val savedMessagesChatId = request(TdApi.GetMe()).id
         val savedDraft = request(TdApi.GetChat(savedMessagesChatId)).draftMessage
-        val sent = request(TdApi.SendInlineQueryResultMessage().apply {
-            chatId = savedMessagesChatId
-            this.queryId = queryId
-            this.resultId = resultId
-            hideViaBot = false
-        })
+        // The send changes Saved Messages on the server. It is awaited without cancellation so the temporary message id is
+        // always captured; otherwise a cancelled screen could leave an orphaned message and a cleared draft behind.
+        val sent = withContext(NonCancellable) {
+            request(TdApi.SendInlineQueryResultMessage().apply {
+                chatId = savedMessagesChatId
+                this.queryId = queryId
+                this.resultId = resultId
+                hideViaBot = false
+            })
+        }
         var copied: String? = null
         var delivered = false
         try {
