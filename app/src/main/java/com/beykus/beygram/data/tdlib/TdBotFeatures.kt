@@ -5,9 +5,12 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.io.File
@@ -21,6 +24,26 @@ import java.util.concurrent.ConcurrentHashMap
 internal class TdBotFeatures(client: () -> Client) {
     private val request = TdRequests(client)
     private val inlineBots = ConcurrentHashMap<String, CachedInlineBot>()
+
+    /** Confirmed ids of sends that finished before anyone waited for them, and the waiters of sends still pending. */
+    private val sendLock = Any()
+    private val confirmedSends = LinkedHashMap<Long, Long>()
+    private val sendWaiters = HashMap<Long, CompletableDeferred<Long>>()
+
+    /** Called for every UpdateMessageSendSucceeded: maps a temporary message id to the id TDLib confirms for it. */
+    fun onSendSucceeded(update: TdApi.UpdateMessageSendSucceeded) {
+        val temporaryId = update.oldMessageId
+        val confirmedId = update.message.id
+        synchronized(sendLock) {
+            val waiter = sendWaiters.remove(temporaryId)
+            if (waiter != null) {
+                waiter.complete(confirmedId)
+            } else {
+                confirmedSends[temporaryId] = confirmedId
+                if (confirmedSends.size > SEND_OUTCOME_LIMIT) confirmedSends.remove(confirmedSends.keys.first())
+            }
+        }
+    }
 
     suspend fun commandMenu(chatId: Long): Result<BotCommandMenu?> = requestResult {
         // This TDLib build exposes no GetBotCommands/UpdateBotCommands. BotCommandScope/GetCommands only manage the
@@ -84,10 +107,8 @@ internal class TdBotFeatures(client: () -> Client) {
             this.resultId = resultId
             hideViaBot = false
         })
-        var audioFileId: Int? = null
         try {
             val audio = (sent.content as? TdApi.MessageAudio)?.audio ?: return@requestResult null
-            audioFileId = audio.audio.id
             val file = request(TdApi.DownloadFile(audio.audio.id, FILE_PRIORITY_MANUAL, 0L, 0L, true), DOWNLOAD_TIMEOUT_MS)
             if (!file.local.isDownloadingCompleted || file.local.path.isEmpty()) return@requestResult null
             val track = copyOutOfTdlib(File(file.local.path), cacheDir)
@@ -100,8 +121,11 @@ internal class TdBotFeatures(client: () -> Client) {
                 sizeBytes = file.size.toLong()
             )
         } finally {
-            runCatching { deleteTemporaryMessage(savedMessagesChatId, sent, audioFileId) }
-            runCatching { restoreSavedMessagesDraft(savedMessagesChatId, savedDraft) }
+            // Cleanup runs even when the screen that asked for the track has gone: a cancelled coroutine would fail each call.
+            withContext(NonCancellable) {
+                runCatching { deleteTemporaryMessage(savedMessagesChatId, sent) }
+                runCatching { restoreSavedMessagesDraft(savedMessagesChatId, savedDraft) }
+            }
         }
     }
 
@@ -115,15 +139,26 @@ internal class TdBotFeatures(client: () -> Client) {
         source.copyTo(File(cacheDir, "${UUID.randomUUID()}-${source.name}"))
     }
 
-    /** Uses the temporary id only while TDLib still reports it as pending; once sent, the confirmed id is looked up. */
-    private suspend fun deleteTemporaryMessage(chatId: Long, sent: TdApi.Message, audioFileId: Int?) {
-        val messageId = if (sent.sendingState == null) {
-            sent.id
-        } else {
-            request(TdApi.GetChatHistory(chatId, 0L, 0, RECENT_HISTORY_LIMIT, false)).messages.orEmpty()
-                .firstOrNull { (it.content as? TdApi.MessageAudio)?.audio?.audio?.id == audioFileId }?.id
-        } ?: return
+    /**
+     * Deletes exactly the message this operation sent. The audio file id is shared by every copy of the track, so it
+     * cannot tell the temporary message from a copy the user saved meanwhile; TDLib's confirmed id can.
+     */
+    private suspend fun deleteTemporaryMessage(chatId: Long, sent: TdApi.Message) {
+        val messageId = if (sent.sendingState == null) sent.id else awaitConfirmedId(sent.id) ?: return
         request(TdApi.DeleteMessages(chatId, longArrayOf(messageId), true))
+    }
+
+    /** The confirmed id of a temporary message, or null when TDLib does not confirm it in time (the send failed or stalled). */
+    private suspend fun awaitConfirmedId(temporaryId: Long): Long? {
+        val waiter = synchronized(sendLock) {
+            confirmedSends.remove(temporaryId)?.let { return it }
+            CompletableDeferred<Long>().also { sendWaiters[temporaryId] = it }
+        }
+        return try {
+            withTimeoutOrNull(SEND_CONFIRM_TIMEOUT_MS) { waiter.await() }
+        } finally {
+            synchronized(sendLock) { sendWaiters.remove(temporaryId) }
+        }
     }
 
     /** Puts the draft back only if nothing has written one since the send, so newer text is never overwritten. */
@@ -333,7 +368,8 @@ internal class TdBotFeatures(client: () -> Client) {
         const val MUSIC_BOT_FALLBACK = "ugcmusicbot"
         const val FILE_PRIORITY_MANUAL = 32
         const val DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000L
-        const val RECENT_HISTORY_LIMIT = 10
+        const val SEND_CONFIRM_TIMEOUT_MS = 30_000L
+        const val SEND_OUTCOME_LIMIT = 64
     }
 }
 
