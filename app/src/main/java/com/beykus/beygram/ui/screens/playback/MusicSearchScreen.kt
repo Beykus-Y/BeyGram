@@ -80,9 +80,10 @@ fun MusicSearchScreen(
         conversation.searchGlobalMessages(
             query, requestedOffset, GlobalSearchFilter(kind = SharedMediaKind.Music)
         ).onSuccess { page ->
-            val audio = page.messages.filter {
-                it.media?.kind == MediaKind.Audio &&
-                    it.media.isSecret != true && it.media.isSecretChat != true && !it.isViewOnce
+            val audio = page.messages.filter { message ->
+                val media = message.media
+                media != null && media.kind == MediaKind.Audio &&
+                    !media.isSecret && !media.isSecretChat && !message.isViewOnce
             }
             results = if (requestedOffset.isEmpty()) audio else (results + audio).distinctBy { it.chatId to it.id }
             chats = chats + page.chats
