@@ -57,6 +57,7 @@ import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -213,6 +214,7 @@ private fun PlayerHeader(
 ) {
     val palette = beyGramPalette()
     var speedMenu by remember { mutableStateOf(false) }
+    var sleepDialog by remember { mutableStateOf(false) }
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
     val minutesRemaining by produceState(0, sleepTimer) {
         while (sleepTimer != null) {
@@ -290,43 +292,64 @@ private fun PlayerHeader(
                     )
                 }
                 HorizontalDivider(color = palette.divider)
-                Text(
-                    stringResource(R.string.player_sleep_timer),
-                    color = palette.textSecondary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(stringResource(R.string.player_sleep_timer), color = palette.textPrimary)
+                            if (sleepTimer != null) {
+                                Text(
+                                    stringResource(R.string.player_sleep_remaining, minutesRemaining),
+                                    color = palette.textSecondary, fontSize = 11.sp
+                                )
+                            }
+                        }
+                    },
+                    onClick = {
+                        speedMenu = false
+                        sleepDialog = true
+                    }
                 )
-                SLEEP_TIMER_MINUTES.sorted().forEach { duration ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                stringResource(R.string.player_sleep_in_minutes, duration),
-                                color = palette.textPrimary
-                            )
-                        },
-                        onClick = {
-                            PlaybackEngine.setSleepTimer(duration)
-                            speedMenu = false
-                        }
-                    )
-                }
-                if (sleepTimer != null) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                stringResource(R.string.player_sleep_cancel, minutesRemaining),
-                                color = palette.accentInk
-                            )
-                        },
-                        onClick = {
-                            PlaybackEngine.cancelSleepTimer()
-                            speedMenu = false
-                        }
-                    )
-                }
             }
         }
+    }
+    if (sleepDialog) {
+        AlertDialog(
+            onDismissRequest = { sleepDialog = false },
+            containerColor = palette.surface,
+            title = { Text(stringResource(R.string.player_sleep_timer), color = palette.textPrimary) },
+            text = {
+                Column {
+                    SLEEP_TIMER_MINUTES.sorted().forEach { duration ->
+                        TextButton(
+                            onClick = {
+                                PlaybackEngine.setSleepTimer(duration)
+                                sleepDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.player_sleep_in_minutes, duration), color = palette.accentInk)
+                        }
+                    }
+                    if (sleepTimer != null) {
+                        HorizontalDivider(color = palette.divider)
+                        TextButton(
+                            onClick = {
+                                PlaybackEngine.cancelSleepTimer()
+                                sleepDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.player_sleep_cancel, minutesRemaining), color = palette.textPrimary)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { sleepDialog = false }) {
+                    Text(stringResource(R.string.common_close), color = palette.textSecondary)
+                }
+            }
+        )
     }
 }
 
