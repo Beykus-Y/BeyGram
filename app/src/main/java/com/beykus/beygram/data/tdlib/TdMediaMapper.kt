@@ -209,6 +209,8 @@ internal class TdMediaMapper(
         is TdApi.MessageText, is TdApi.MessagePhoto, is TdApi.MessageVideo, is TdApi.MessageAnimation,
         is TdApi.MessageDocument, is TdApi.MessageAudio, is TdApi.MessageVoiceNote, is TdApi.MessageVideoNote,
         is TdApi.MessageSticker -> null
+        // A standalone animated emoji is shown as its text glyph (see messageFormattedText), never as unsupported.
+        is TdApi.MessageAnimatedEmoji -> null
         // TDLib replaces an expired self-destructing attachment with an empty MessageExpired*. It has its own card,
         // driven by ChatMessage.expiredMediaKind, and must never fall through to the unsupported placeholder.
         is TdApi.MessageExpiredPhoto, is TdApi.MessageExpiredVideo, is TdApi.MessageExpiredVideoNote,

@@ -5,6 +5,8 @@ import org.drinkless.tdlib.TdApi
 
 internal fun messageFormattedText(content: TdApi.MessageContent): TdApi.FormattedText? = when (content) {
     is TdApi.MessageText -> content.text
+    // A lone animated/Premium emoji keeps its Unicode glyph as readable text, so the bubble never degrades to a placeholder.
+    is TdApi.MessageAnimatedEmoji -> TdApi.FormattedText(content.emoji.orEmpty(), emptyArray())
     is TdApi.MessagePhoto -> content.caption
     is TdApi.MessageVideo -> content.caption
     is TdApi.MessageAnimation -> content.caption

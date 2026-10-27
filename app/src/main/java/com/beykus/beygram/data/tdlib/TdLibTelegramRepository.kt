@@ -3301,6 +3301,7 @@ class TdLibTelegramRepository private constructor(
     private fun contentText(content: TdApi.MessageContent, hasMedia: Boolean): String = when {
         content is TdApi.MessageContact -> content.contact.cardText()
         hasMedia -> mediaMapper.caption(content)
+        content is TdApi.MessageAnimatedEmoji -> content.emoji.orEmpty()
         else -> (content as? TdApi.MessageText)?.text?.text.orEmpty()
     }
 
