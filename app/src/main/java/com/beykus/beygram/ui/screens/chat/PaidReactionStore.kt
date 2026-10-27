@@ -85,6 +85,9 @@ internal object PaidReactionStore {
     /** Tells the screen that owns the state that its send went through. The screen that opened or claimed the state sets it. */
     private var onSent: (PaidReactionTarget) -> Unit = {}
 
+    /** The conversation the open confirmation was made in. Only that conversation may take over its send or uncertain result. */
+    private var openedIn: ConversationRepository? = null
+
     /** Opens the confirmation for one message for [owner], and reads the balance the Stars would be spent from. */
     fun open(conversation: ConversationRepository, owner: Any, chatId: Long, messageId: Long, onSent: (PaidReactionTarget) -> Unit) {
         val current = _state.value
@@ -93,6 +96,7 @@ internal object PaidReactionStore {
         val maximum = conversation.messageLimits.value.paidReactionStarMax?.toLong()
         balanceJob?.cancel()
         this.onSent = onSent
+        openedIn = conversation
         _state.value = PaidReactionState(owner = owner, target = target, maximum = maximum, balanceLoading = true)
         balanceJob = scope.launch {
             val result = conversation.starBalance()
@@ -141,8 +145,12 @@ internal object PaidReactionStore {
         _state.value = current.released(owner)
     }
 
-    /** Lets [owner] take over a send or an uncertain result that no screen owns, and reports that send to [onSent]. */
-    fun claim(owner: Any, onSent: (PaidReactionTarget) -> Unit) {
+    /**
+     * Lets [owner] take over a send or an uncertain result that no screen owns, and reports that send to [onSent]. A screen
+     * of another account or conversation cannot take it over: a retry would spend that account's Stars on the original message.
+     */
+    fun claim(owner: Any, conversation: ConversationRepository, onSent: (PaidReactionTarget) -> Unit) {
+        if (conversation !== openedIn) return
         val claimed = _state.value.claimedBy(owner)
         if (claimed.owner !== owner) return
         this.onSent = onSent

@@ -73,7 +73,7 @@ internal class PaidReactionSender(
     fun dismiss() = PaidReactionStore.dismiss(owner)
 
     /** Takes over a send or an uncertain result that another screen left behind. */
-    fun claim() = PaidReactionStore.claim(owner, onSent)
+    fun claim() = PaidReactionStore.claim(owner, conversation, onSent)
 
     /** Gives up the confirmation when the screen leaves composition; a send in flight keeps running. */
     fun release() = PaidReactionStore.release(owner)

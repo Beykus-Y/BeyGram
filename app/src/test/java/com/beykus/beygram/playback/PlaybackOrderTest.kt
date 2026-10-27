@@ -163,6 +163,17 @@ class PlaybackOrderTest {
 
     @OptIn(UnstableApi::class)
     @Test
+    fun appendedPageKeepsPlayedOrderAndAddsNewTracksOnce() {
+        val queue = PlaybackShuffleOrder(listOf(2, 0, 1))
+        val appended = queue.cloneAndInsert(3, 2)
+        val playbackOrder = appended.toIndexOrder()
+        assertEquals(5, appended.length)
+        assertEquals(listOf(2, 0, 1), playbackOrder.take(3))
+        assertEquals(setOf(3, 4), playbackOrder.drop(3).toSet())
+    }
+
+    @OptIn(UnstableApi::class)
+    @Test
     fun randomShuffleOrderIsAlwaysPermutationAndNeverSequential() {
         repeat(20) { seed ->
             val playbackOrder = PlaybackShuffleOrder.random(6, Random(seed)).toIndexOrder()
