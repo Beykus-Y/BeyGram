@@ -139,6 +139,11 @@ fun ContactsScreen(
         clipboard?.setPrimaryClip(ClipData.newPlainText(contact.title, contact.phone))
         Toast.makeText(context, R.string.contacts_number_copied, Toast.LENGTH_SHORT).show()
     }
+    fun copyUsername(contact: ContactPreview) {
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        clipboard?.setPrimaryClip(ClipData.newPlainText(contact.title, contact.subtitle))
+        Toast.makeText(context, R.string.contacts_username_copied, Toast.LENGTH_SHORT).show()
+    }
     LaunchedEffect(Unit) { reload() }
 
     Column(
@@ -180,7 +185,8 @@ fun ContactsScreen(
                         onEdit = { editingContact = contact },
                         onDelete = { deletingContact = contact },
                         onShare = { sharingContact = contact },
-                        onCopy = { copyNumber(contact) }
+                        onCopy = { copyNumber(contact) },
+                        onCopyUsername = { copyUsername(contact) }
                     )
                 }
             }
@@ -233,7 +239,8 @@ private fun ContactRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onShare: () -> Unit,
-    onCopy: () -> Unit
+    onCopy: () -> Unit,
+    onCopyUsername: () -> Unit
 ) {
     val palette = beyGramPalette()
     var menuOpen by remember { mutableStateOf(false) }
@@ -272,6 +279,11 @@ private fun ContactRow(
                     },
                     enabled = contact.phone.isNotBlank(),
                     onClick = { menuOpen = false; onCopy() }
+                )
+                // The subtitle is @username only when the contact has one; otherwise it shows the phone number.
+                if (contact.subtitle.startsWith("@")) DropdownMenuItem(
+                    text = { Text(stringResource(R.string.contacts_action_copy_username)) },
+                    onClick = { menuOpen = false; onCopyUsername() }
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.contacts_action_delete), color = palette.danger) },
