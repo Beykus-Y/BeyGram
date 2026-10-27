@@ -223,7 +223,8 @@ internal fun MusicSearchScreen(
                         onClick = { play(message) }
                     )
                 }
-                if (searchedQuery != null) {
+                // Keyed by the typed query, not by the account search, so a failed account search never hides this section.
+                if (query.isNotBlank()) {
                     item(key = "public_header") {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Text(stringResource(R.string.music_public_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
