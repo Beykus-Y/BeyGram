@@ -155,6 +155,31 @@ internal fun MusicSearchScreen(
         results.mapNotNull { message -> musicItem(message, chats, observeFile, accountId) }
     }
 
+    fun playBotTrack(result: InlineBotResult) {
+        scope.launch {
+            conversation.musicBotTrack(result.queryId, result.id).onSuccess { track ->
+                track ?: return@onSuccess
+                val item = PlaybackItem(
+                    key = "bot:${result.queryId}:${result.id}",
+                    kind = MediaKind.Audio,
+                    path = track.path,
+                    title = track.title,
+                    durationSeconds = track.durationSeconds,
+                    performer = track.performer,
+                    trackTitle = track.title,
+                    mimeType = track.mimeType,
+                    sizeBytes = track.sizeBytes
+                )
+                PlaybackEngine.playQueue(
+                    context,
+                    listOf(item),
+                    0,
+                    PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload)
+                )
+            }
+        }
+    }
+
     fun play(message: ChatMessage) {
         val queue = results.mapNotNull { musicItem(it, chats, observeFile, accountId) }
         val index = queue.indexOfFirst { it.origin?.chatId == message.chatId && it.origin?.messageId == message.id }
@@ -240,7 +265,7 @@ internal fun MusicSearchScreen(
                         )
                     }
                     items(publicResults, key = { "public:${it.queryId}:${it.id}" }) { result ->
-                        MusicRow(title = result.title, subtitle = result.description, onClick = null)
+                        MusicRow(title = result.title, subtitle = result.description, onClick = { playBotTrack(result) })
                     }
                 }
                 if (nextOffset.isNotEmpty() && !loading) item(key = "more") {

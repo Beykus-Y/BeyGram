@@ -676,6 +676,6 @@
     <string name="forward_failed_chats">Could not send to %1$d chats. Only those are still selected.</string>
     <string name="forward_sent_to_chats">Forwarded to %1$d chats</string>
     <string name="music_public_title">Public results</string>
-    <string name="music_public_note">Tracks from the bot\'s results can\'t be opened in the player yet.</string>
+    <string name="music_public_note">Tap a track to save it briefly to Saved Messages and open it in the player. The message is removed once the download finishes.</string>
     <string name="music_public_unavailable">The public source is unavailable right now. Your results are shown above.</string>
 </resources>

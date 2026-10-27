@@ -65,6 +65,36 @@ internal class TdBotFeatures(client: () -> Client) {
         )
     }
 
+    /**
+     * Downloads one music bot track so the shared player can play it. TDLib only downloads an inline audio file
+     * once it is sent, so the result goes to Saved Messages, is downloaded in full, and that temporary message is
+     * removed afterwards. A failed removal is ignored so the track still plays.
+     */
+    suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> = requestResult {
+        val savedMessagesChatId = request(TdApi.GetMe()).id
+        val sent = request(TdApi.SendInlineQueryResultMessage().apply {
+            chatId = savedMessagesChatId
+            this.queryId = queryId
+            this.resultId = resultId
+            hideViaBot = false
+        })
+        try {
+            val audio = (sent.content as? TdApi.MessageAudio)?.audio ?: return@requestResult null
+            val file = request(TdApi.DownloadFile(audio.audio.id, FILE_PRIORITY_MANUAL, 0L, 0L, true))
+            if (!file.local.isDownloadingCompleted || file.local.path.isEmpty()) return@requestResult null
+            MusicBotTrack(
+                path = file.local.path,
+                title = audio.title.orEmpty(),
+                performer = audio.performer.orEmpty(),
+                durationSeconds = audio.duration,
+                mimeType = audio.mimeType.orEmpty(),
+                sizeBytes = file.size.toLong()
+            )
+        } finally {
+            runCatching { request(TdApi.DeleteMessages(savedMessagesChatId, longArrayOf(sent.id), true)) }
+        }
+    }
+
     private suspend fun musicSearchUsername(): String {
         val configured = try {
             val config = request(TdApi.GetApplicationConfig()) as? TdApi.JsonValueObject
@@ -259,6 +289,7 @@ internal class TdBotFeatures(client: () -> Client) {
         const val MAX_CACHED_INLINE_BOTS = 32
         const val MUSIC_SEARCH_CONFIG_KEY = "music_search_username"
         const val MUSIC_BOT_FALLBACK = "ugcmusicbot"
+        const val FILE_PRIORITY_MANUAL = 32
     }
 }
 
