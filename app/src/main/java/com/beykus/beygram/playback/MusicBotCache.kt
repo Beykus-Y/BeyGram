@@ -14,18 +14,23 @@ internal object MusicBotCache {
     private val lock = Any()
     private val pending = HashSet<String>()
 
-    /** Copies [source] into [dir] under a unique name. The copy stays until it is handed over or discarded. */
-    fun store(source: File, dir: File): File = synchronized(lock) {
-        dir.mkdirs()
-        val copy = File(dir, "${UUID.randomUUID()}-${source.name}")
+    /**
+     * Copies [source] into [dir] under a unique name. The name is reserved before the copy starts, so a prune that runs
+     * meanwhile keeps the file. The lock is not held during the copy, which can be large.
+     */
+    fun store(source: File, dir: File): File {
+        val copy = synchronized(lock) {
+            dir.mkdirs()
+            File(dir, "${UUID.randomUUID()}-${source.name}").also { pending += it.absolutePath }
+        }
         try {
             source.copyTo(copy)
         } catch (error: Exception) {
             copy.delete()
+            synchronized(lock) { pending -= copy.absolutePath }
             throw error
         }
-        pending += copy.absolutePath
-        copy
+        return copy
     }
 
     /** The player owns [path] now, so it is kept for as long as the player uses it. */
