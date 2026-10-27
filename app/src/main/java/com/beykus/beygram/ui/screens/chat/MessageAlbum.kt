@@ -3,6 +3,9 @@ package com.beykus.beygram.ui.screens.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -132,7 +135,9 @@ internal fun MessageAlbumBubble(
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onToggleSelection: () -> Unit = {},
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    /** Reports the window bounds of the album bubble; every member's viewer opens from the same rectangle. */
+    onMediaBounds: ((Rect) -> Unit)? = null
 ) {
     if (messages.isEmpty()) return
     val palette = beyGramPalette()
@@ -158,6 +163,7 @@ internal fun MessageAlbumBubble(
             Box(swipe) {
                 BubbleLayout(
                     Modifier.widthIn(max = 292.dp).clip(shape)
+                        .then(if (onMediaBounds != null) Modifier.onGloballyPositioned { onMediaBounds(it.boundsInWindow()) } else Modifier)
                         .then(if (selected || highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                         .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (selectionMode) Modifier.combinedClickable(

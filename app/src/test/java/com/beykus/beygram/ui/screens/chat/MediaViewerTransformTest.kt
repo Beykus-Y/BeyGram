@@ -39,6 +39,15 @@ class MediaViewerTransformTest {
     }
 
     @Test
+    fun intensityAboveFullKeepsTheScalePositiveAndOnTheThumbnail() {
+        val full = mediaViewerTransform(thumbnail, pageWidth = 1000f, pageHeight = 2000f, travel = 1f)
+        val expressive = mediaViewerTransform(thumbnail, pageWidth = 1000f, pageHeight = 2000f, travel = 1.5f)
+        assertEquals(full.scale, expressive.scale, 0.0001f)
+        assertEquals(full.offsetX, expressive.offsetX, 0.0001f)
+        assertEquals(full.offsetY, expressive.offsetY, 0.0001f)
+    }
+
+    @Test
     fun anEmptyOriginFallsBackToTheOldGrow() {
         val transform = mediaViewerTransform(Rect.Zero, pageWidth = 1000f, pageHeight = 2000f, travel = 1f)
         assertEquals(0.96f, transform.scale, 0.0001f)

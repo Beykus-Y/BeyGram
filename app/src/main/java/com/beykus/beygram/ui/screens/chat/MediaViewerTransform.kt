@@ -16,10 +16,12 @@ internal fun mediaViewerTransform(origin: Rect?, pageWidth: Float, pageHeight: F
     if (origin == null || origin.width <= 0f || pageWidth <= 0f || pageHeight <= 0f) {
         return MediaViewerTransform(scale = 1f - 0.04f * travel, offsetX = 0f, offsetY = 0f)
     }
+    // Intensity above 100% may push travel past 1; clamping keeps the scale positive and the page on the thumbnail.
+    val t = travel.coerceIn(0f, 1f)
     val originScale = (origin.width / pageWidth).coerceIn(MEDIA_VIEWER_MIN_ORIGIN_SCALE, 1f)
     return MediaViewerTransform(
-        scale = 1f - (1f - originScale) * travel,
-        offsetX = (origin.center.x - pageWidth / 2f) * travel,
-        offsetY = (origin.center.y - pageHeight / 2f) * travel
+        scale = 1f - (1f - originScale) * t,
+        offsetX = (origin.center.x - pageWidth / 2f) * t,
+        offsetY = (origin.center.y - pageHeight / 2f) * t
     )
 }
