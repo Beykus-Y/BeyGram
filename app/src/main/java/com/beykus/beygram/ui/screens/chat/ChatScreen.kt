@@ -93,6 +93,8 @@ import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.ui.accessibility.accessibleTouchTarget
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ChatAvatar
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.motionEntrance
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
@@ -1859,7 +1861,7 @@ fun ChatScreen(
                 onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )
-            if (replyId != null) Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (replyId != null) Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
                     Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Text(replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable), color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
