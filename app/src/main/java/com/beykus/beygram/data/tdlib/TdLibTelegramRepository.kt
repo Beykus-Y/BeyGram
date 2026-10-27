@@ -1438,6 +1438,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?> = botFeatures.commandMenu(chatId)
     override suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults?> =
         botFeatures.inlineQuery(chatId, username, query, offset)
+    override suspend fun musicBotSearch(query: String, offset: String): Result<InlineBotResults?> =
+        botFeatures.musicBotSearch(query, offset)
     override suspend fun sendInlineBotResult(
         chatId: Long,
         queryId: Long,

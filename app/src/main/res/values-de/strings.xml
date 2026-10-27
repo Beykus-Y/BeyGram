@@ -675,4 +675,7 @@
     <string name="forward_pick_hint">Chats antippen, um sie auszuwählen. Gesendet wird erst per Schaltfläche.</string>
     <string name="forward_failed_chats">Senden an %1$d Chats fehlgeschlagen. Nur diese bleiben ausgewählt.</string>
     <string name="forward_sent_to_chats">In %1$d Chats weitergeleitet</string>
+    <string name="music_public_title">Öffentliche Ergebnisse</string>
+    <string name="music_public_note">Titel aus den Bot-Ergebnissen können im Player noch nicht geöffnet werden.</string>
+    <string name="music_public_unavailable">Die öffentliche Quelle ist gerade nicht verfügbar. Deine Ergebnisse stehen oben.</string>
 </resources>

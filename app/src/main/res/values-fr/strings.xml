@@ -701,4 +701,7 @@
     <string name="forward_pick_hint">Touchez les discussions pour les sélectionner. Rien n’est envoyé avant le bouton.</string>
     <string name="forward_failed_chats">Échec de l’envoi dans %1$d discussions. Seules celles-ci restent sélectionnées.</string>
     <string name="forward_sent_to_chats">Transféré dans %1$d discussions</string>
+    <string name="music_public_title">Résultats publics</string>
+    <string name="music_public_note">Les pistas des résultats du bot ne peuvent pas encore être ouvertes dans le lecteur.</string>
+    <string name="music_public_unavailable">La source publique est indisponible pour le moment. Vos résultats s’affichent ci-dessus.</string>
 </resources>
