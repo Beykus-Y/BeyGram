@@ -276,6 +276,7 @@ private fun BeyGramAppContent(
     val secondaryAccountController = remember(context, legacyRepository) {
         TdSecondaryAccountController.get(context, primaryRoute = { legacyRepository.currentRoute().getOrNull() })
     }
+    val musicSessionStore = remember(context) { MusicSessionStore(context) }
     val accountRegistry = remember(context) { TdAccountRegistry(context.applicationContext.filesDir) }
     // Saved alongside route/chat IDs: never briefly present restored secondary navigation
     // through legacy TDLib during Activity recreation.
@@ -346,6 +347,8 @@ private fun BeyGramAppContent(
         PlaybackEngine.setForeground(visible)
         onPauseOrDispose {
             repository.setAppForeground(false)
+            // Checkpoint the actual seek position on backgrounding, rather than waiting up to five seconds.
+            saveableMusicSession(PlaybackEngine.state.value, selectedAccountId)?.let(musicSessionStore::save)
             PlaybackEngine.setForeground(false)
         }
     }
@@ -659,7 +662,6 @@ private fun BeyGramAppContent(
     LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
     // Смена выбранного аккаунта не должна оставлять музыку/очередь прошлого аккаунта в общем плеере.
     LaunchedEffect(selectedAccountId) { PlaybackEngine.setActiveAccount(selectedAccountId) }
-    val musicSessionStore = remember(context) { MusicSessionStore(context) }
     // Restore only after the selected account's real repository is authorized. Paused restoration never
     // prepares a stream or starts a service. Identity is validated against TDLib before creating a queue.
     LaunchedEffect(authState, selectedAccountId, repositorySelection) {
