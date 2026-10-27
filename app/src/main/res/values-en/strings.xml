@@ -650,4 +650,10 @@
     <string name="music_card_not_downloaded">Will be downloaded</string>
     <string name="music_card_unavailable">File unavailable</string>
     <string name="music_card_play_download">Download and play</string>
+    <string name="queue_play_now">Play now</string>
+    <string name="queue_loading_more">Looking for more tracks…</string>
+    <string name="player_sleep_timer">Sleep timer</string>
+    <string name="player_sleep_in_minutes">Stop in %1$d min</string>
+    <string name="player_sleep_remaining">Sleep timer · %1$d min left</string>
+    <string name="player_sleep_cancel">Cancel timer (%1$d min left)</string>
 </resources>
