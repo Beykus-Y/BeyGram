@@ -44,21 +44,25 @@ internal object MusicBotCache {
     }
 
     /** The player owns [path] now, so it is kept for as long as the player uses it. */
-    fun handOver(path: String) = synchronized(lock) {
-        pending -= path
+    fun handOver(path: String) {
+        synchronized(lock) { pending.remove(path) }
     }
 
     /** Removes a copy that nothing will play, such as a result the user has already replaced with a newer tap. */
-    fun discard(path: String) = synchronized(lock) {
-        pending -= path
-        File(path).delete()
+    fun discard(path: String) {
+        synchronized(lock) {
+            pending.remove(path)
+            File(path).delete()
+        }
     }
 
     /** Removes every copy in [dir] that is neither in [inUse] nor waiting to be handed over. */
-    fun prune(dir: File, inUse: Set<String>) = synchronized(lock) {
-        val keep = inUse + pending
-        dir.listFiles().orEmpty().forEach { file ->
-            if (file.absolutePath !in keep) file.delete()
+    fun prune(dir: File, inUse: Set<String>) {
+        synchronized(lock) {
+            val keep = inUse + pending
+            dir.listFiles().orEmpty().forEach { file ->
+                if (file.absolutePath !in keep) file.delete()
+            }
         }
     }
 }
