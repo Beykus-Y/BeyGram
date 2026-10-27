@@ -676,4 +676,10 @@
     <string name="music_card_not_downloaded">Sera téléchargée</string>
     <string name="music_card_unavailable">Fichier indisponible</string>
     <string name="music_card_play_download">Télécharger et lire</string>
+    <string name="queue_play_now">Lire maintenant</string>
+    <string name="queue_loading_more">Recherche d’autres pistes…</string>
+    <string name="player_sleep_timer">Minuteur de sommeil</string>
+    <string name="player_sleep_in_minutes">Arrêter dans %1$d min</string>
+    <string name="player_sleep_remaining">Minuteur · reste %1$d min</string>
+    <string name="player_sleep_cancel">Annuler le minuteur (%1$d min restantes)</string>
 </resources>
