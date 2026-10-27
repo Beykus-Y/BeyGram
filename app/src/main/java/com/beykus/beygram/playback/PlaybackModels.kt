@@ -264,6 +264,14 @@ internal fun queueForPlayback(items: List<PlaybackItem>, index: Int): PlaybackQu
     return if (visibleIndex >= 0) PlaybackQueue(visible, visibleIndex) else PlaybackQueue()
 }
 
+/** A page only extends the active account's public music timeline; duplicates and protected media are dropped. */
+internal fun appendMusicPage(existing: List<PlaybackItem>, page: List<PlaybackItem>, accountId: String): List<PlaybackItem> {
+    val known = existing.mapTo(HashSet(existing.size + page.size)) { it.key }
+    return page.filter { candidate ->
+        candidate.isMusic && !candidate.systemPrivate && candidate.accountId == accountId && known.add(candidate.key)
+    }
+}
+
 /** Publishes a lazily resolved path/growing source without changing item identity, queue order or index. */
 internal fun PlaybackState.withResolvedSource(resolved: PlaybackItem): PlaybackState {
     fun merge(current: PlaybackItem): PlaybackItem =
