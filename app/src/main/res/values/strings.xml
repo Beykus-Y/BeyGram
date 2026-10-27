@@ -2206,4 +2206,10 @@
     <string name="player_sleep_in_minutes">Остановить через %1$d мин</string>
     <string name="player_sleep_remaining">Таймер сна · осталось %1$d мин</string>
     <string name="player_sleep_cancel">Отключить таймер (%1$d мин осталось)</string>
+    <!-- Search over available Telegram audio messages; public discovery is tracked separately in #506. -->
+    <string name="music_search_title">Музыка</string>
+    <string name="music_search_hint">Название песни или исполнитель</string>
+    <string name="music_search_idle">Найдите музыку из доступных вам чатов и каналов. Нажмите на трек, чтобы открыть его в переписке.</string>
+    <string name="music_search_unknown">Аудиозапись</string>
+    <string name="music_search_retry">Повторить</string>
 </resources>
