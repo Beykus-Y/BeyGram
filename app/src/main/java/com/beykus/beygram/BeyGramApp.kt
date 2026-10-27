@@ -1912,6 +1912,8 @@ private fun BeyGramAppContent(
         }
     }
     val chatInfoRoute: @Composable () -> Unit = {
+        val mediaChatId = selectedChatId
+        val mediaRepository = repository
         val chats by repository.chats.collectAsStateWithLifecycle()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
         // Chat information includes shared media; a protected chat must stay out of screenshots here too.
@@ -1950,7 +1952,10 @@ private fun BeyGramAppContent(
                 routeName = AppRoute.Chat.name
             },
             lastSeenStyle = lastSeenStyle,
-            sharedMessages = { kind, fromMessageId, newer -> repository.sharedMessages(selectedChatId, kind, fromMessageId, newer) },
+            sharedMessages = { kind, fromMessageId, newer ->
+                // A retained music queue keeps paging its original chat, even after navigation.
+                mediaRepository.sharedMessages(mediaChatId, kind, fromMessageId, newer)
+            },
             confirmExport = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull()?.canSave == true },
             messageRights = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull() },
             forwardMessage = { messageId, toChatId -> repository.forwardMessage(selectedChatId, messageId, toChatId) }, chats = chats,
