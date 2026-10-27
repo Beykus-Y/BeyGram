@@ -80,6 +80,8 @@ import com.beykus.beygram.playback.playbackSpeedFor
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.screens.chat.duration
 import kotlinx.coroutines.flow.collect
