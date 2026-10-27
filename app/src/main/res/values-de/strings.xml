@@ -655,4 +655,10 @@
     <string name="music_card_not_downloaded">Wird heruntergeladen</string>
     <string name="music_card_unavailable">Datei nicht verfügbar</string>
     <string name="music_card_play_download">Herunterladen und abspielen</string>
+    <string name="queue_play_now">Jetzt abspielen</string>
+    <string name="queue_loading_more">Weitere Titel werden gesucht…</string>
+    <string name="player_sleep_timer">Schlaftimer</string>
+    <string name="player_sleep_in_minutes">In %1$d Min. stoppen</string>
+    <string name="player_sleep_remaining">Schlaftimer · noch %1$d Min.</string>
+    <string name="player_sleep_cancel">Timer ausschalten (noch %1$d Min.)</string>
 </resources>

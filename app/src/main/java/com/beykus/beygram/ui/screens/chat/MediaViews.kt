@@ -421,7 +421,9 @@ internal fun MediaPreview(
      * Opens the sticker's set. Without it a sticker tap does nothing: a sticker must never fall back to the generic
      * media viewer, which has no sticker actions of its own.
      */
-    onStickerOpen: (() -> Unit)? = null
+    onStickerOpen: (() -> Unit)? = null,
+    /** The chat may supply an ordered, lazily paged music queue instead of a standalone track. */
+    onMusicPlay: ((PlaybackItem) -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -503,14 +505,19 @@ internal fun MediaPreview(
             downloadFile(thumbId)
         }
         if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) }
-        else startAudio(context, media.playbackItem(audioPath, audioTitle, origin,
-            artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce))
+        else {
+            val item = media.playbackItem(audioPath, audioTitle, origin,
+                artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce)
+            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item) else startAudio(context, item)
+        }
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
         if (waitingForAudio && audioPath != null) {
             pendingPlaybackRow.value = null
-            startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce))
+            val item = media.playbackItem(audioPath, audioTitle, origin,
+                artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce)
+            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item) else startAudio(context, item)
         }
     }
     DisposableEffect(row) {
@@ -632,7 +639,7 @@ internal fun MediaPreview(
             status == MusicPlaybackStatus.Unavailable -> stringResource(R.string.music_card_play_download)
             status == MusicPlaybackStatus.Failed -> stringResource(R.string.player_retry)
             status == MusicPlaybackStatus.Ended -> stringResource(R.string.player_replay)
-            card.playing -> stringResource(R.string.common_pause)
+            card.playing || card.intentPlaying -> stringResource(R.string.common_pause)
             else -> stringResource(R.string.common_play)
         }
         val openLabel = stringResource(R.string.player_mini_open)
@@ -712,11 +719,11 @@ internal fun MediaPreview(
             ) {
                 val visual = when {
                     status == MusicPlaybackStatus.Downloading -> MusicCardPlayVisual.Loading
-                    status == MusicPlaybackStatus.Buffering -> MusicCardPlayVisual.Loading
+                    status == MusicPlaybackStatus.Buffering -> MusicCardPlayVisual.Pause
                     status == MusicPlaybackStatus.NotDownloaded -> MusicCardPlayVisual.Download
                     status == MusicPlaybackStatus.Failed || status == MusicPlaybackStatus.Ended -> MusicCardPlayVisual.Replay
                     status == MusicPlaybackStatus.Unavailable -> MusicCardPlayVisual.Download
-                    card.playing -> MusicCardPlayVisual.Pause
+                    card.playing || card.intentPlaying -> MusicCardPlayVisual.Pause
                     else -> MusicCardPlayVisual.Play
                 }
                 Crossfade(
@@ -751,6 +758,13 @@ internal fun MediaPreview(
                             tint = palette.accentInk
                         )
                     }
+                }
+                if (status == MusicPlaybackStatus.Buffering && card.intentPlaying) {
+                    CircularProgressIndicator(
+                        Modifier.size(32.dp),
+                        strokeWidth = 1.5.dp,
+                        color = palette.accent.copy(alpha = 0.5f)
+                    )
                 }
             }
             IconButton(onClick = onOpen, modifier = Modifier.size(48.dp)) {

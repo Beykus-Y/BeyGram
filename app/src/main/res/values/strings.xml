@@ -2200,4 +2200,10 @@
     <string name="service_paid_messages_refunded">Платные сообщения возвращены: %1$s Stars</string>
     <string name="service_paid_message_price">Цена сообщения изменена: %1$s Stars</string>
     <string name="service_paid_message_free">Сообщения теперь бесплатные</string>
+    <string name="queue_play_now">Воспроизвести сейчас</string>
+    <string name="queue_loading_more">Ищем следующие треки…</string>
+    <string name="player_sleep_timer">Таймер сна</string>
+    <string name="player_sleep_in_minutes">Остановить через %1$d мин</string>
+    <string name="player_sleep_remaining">Таймер сна · осталось %1$d мин</string>
+    <string name="player_sleep_cancel">Отключить таймер (%1$d мин осталось)</string>
 </resources>

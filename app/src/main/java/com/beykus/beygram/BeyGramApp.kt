@@ -72,6 +72,9 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.canOpenGroupStatistics
 import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.MusicSessionStore
+import com.beykus.beygram.playback.restoreMusicSession
+import com.beykus.beygram.playback.saveableMusicSession
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.EqualizerRuntime
 import com.beykus.beygram.playback.EqualizerStore
@@ -168,10 +171,13 @@ import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.screens.playback.EqualizerScreen
 import com.beykus.beygram.ui.screens.playback.LocalOpenEqualizer
+import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
+import com.beykus.beygram.ui.screens.playback.PlaybackRepositorySource
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
@@ -272,6 +278,7 @@ private fun BeyGramAppContent(
     val secondaryAccountController = remember(context, legacyRepository) {
         TdSecondaryAccountController.get(context, primaryRoute = { legacyRepository.currentRoute().getOrNull() })
     }
+    val musicSessionStore = remember(context) { MusicSessionStore(context) }
     val accountRegistry = remember(context) { TdAccountRegistry(context.applicationContext.filesDir) }
     // Saved alongside route/chat IDs: never briefly present restored secondary navigation
     // through legacy TDLib during Activity recreation.
@@ -343,6 +350,8 @@ private fun BeyGramAppContent(
         PlaybackEngine.setForeground(visible)
         onPauseOrDispose {
             repository.setAppForeground(false)
+            // Checkpoint the actual seek position on backgrounding, rather than waiting up to five seconds.
+            saveableMusicSession(PlaybackEngine.state.value, selectedAccountId)?.let(musicSessionStore::save)
             PlaybackEngine.setForeground(false)
         }
     }
@@ -656,6 +665,38 @@ private fun BeyGramAppContent(
     LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
     // Смена выбранного аккаунта не должна оставлять музыку/очередь прошлого аккаунта в общем плеере.
     LaunchedEffect(selectedAccountId) { PlaybackEngine.setActiveAccount(selectedAccountId) }
+    // Restore only after the selected account's real repository is authorized. Paused restoration never
+    // prepares a stream or starts a service. Identity is validated against TDLib before creating a queue.
+    LaunchedEffect(authState, selectedAccountId, repositorySelection, connectionState) {
+        // Reconnect may make a previously unavailable TDLib message resolvable again.
+        if (authState != AuthState.Ready || repositorySelection == null) return@LaunchedEffect
+        val owner = selectedAccountId
+        PlaybackEngine.setActiveAccount(owner)
+        val saved = musicSessionStore.load(owner)
+        var pendingRestore = false
+        if (saved != null && PlaybackEngine.state.value.item == null) {
+            pendingRestore = !restoreMusicSession(context, repositorySelection, saved)
+        }
+        var lastWritten = saved
+        while (true) {
+            delay(5_000L)
+            val snapshot = PlaybackEngine.state.value
+            when {
+                snapshot.item == null && !pendingRestore && lastWritten != null -> {
+                    musicSessionStore.clear(owner)
+                    lastWritten = null
+                }
+                snapshot.item?.accountId == owner && snapshot.item.isMusic -> {
+                    val next = saveableMusicSession(snapshot, owner)
+                    if (next != null && next != lastWritten) {
+                        musicSessionStore.save(next)
+                        lastWritten = next
+                        pendingRestore = false
+                    }
+                }
+            }
+        }
+    }
     LaunchedEffect(Unit) {
         PlaybackEngine.showInChat.collect { origin ->
             if (currentAuthState != AuthState.Ready ||
@@ -1875,6 +1916,8 @@ private fun BeyGramAppContent(
         }
     }
     val chatInfoRoute: @Composable () -> Unit = {
+        val mediaChatId = selectedChatId
+        val mediaRepository = repository
         val chats by repository.chats.collectAsStateWithLifecycle()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
         // Chat information includes shared media; a protected chat must stay out of screenshots here too.
@@ -1913,7 +1956,10 @@ private fun BeyGramAppContent(
                 routeName = AppRoute.Chat.name
             },
             lastSeenStyle = lastSeenStyle,
-            sharedMessages = { kind, fromMessageId, newer -> repository.sharedMessages(selectedChatId, kind, fromMessageId, newer) },
+            sharedMessages = { kind, fromMessageId, newer ->
+                // A retained music queue keeps paging its original chat, even after navigation.
+                mediaRepository.sharedMessages(mediaChatId, kind, fromMessageId, newer)
+            },
             confirmExport = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull()?.canSave == true },
             messageRights = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull() },
             forwardMessage = { messageId, toChatId -> repository.forwardMessage(selectedChatId, messageId, toChatId) }, chats = chats,
@@ -1929,6 +1975,7 @@ private fun BeyGramAppContent(
             },
             onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.ChatInfo) },
             autoDownloadFile = repository::autoDownloadFile,
+            protectedContent = chatInfoSecure,
             startSecretChat = repository::createSecretChat,
             onSecretChatOpened = { chatId ->
                 selectedChatId = chatId
@@ -1989,6 +2036,7 @@ private fun BeyGramAppContent(
 
     CompositionLocalProvider(
         LocalPlaybackAccountId provides selectedAccountId,
+        LocalPlaybackRepositorySource provides repositorySelection?.let { PlaybackRepositorySource(selectedAccountId, it) },
         LocalChatAnimationPreferences provides chatAnimationPreferences,
         LocalSystemReducedMotion provides reducedMotion,
         LocalAutoDownloadFile provides repository::autoDownloadFile,

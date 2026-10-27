@@ -3,6 +3,7 @@ package com.beykus.beygram.playback
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.view.TextureView
 import androidx.core.content.FileProvider
 import androidx.media3.common.AudioAttributes
@@ -24,6 +25,7 @@ import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -122,6 +124,36 @@ object PlaybackEngine {
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
+    /** The queue view shows a real TDLib page request rather than claiming the playlist ended prematurely. */
+    private val _queuePageLoading = MutableStateFlow(false)
+    val queuePageLoading: StateFlow<Boolean> = _queuePageLoading.asStateFlow()
+
+    private val _sleepTimer = MutableStateFlow<SleepTimerState?>(null)
+    val sleepTimer: StateFlow<SleepTimerState?> = _sleepTimer.asStateFlow()
+    private var sleepTimerJob: Job? = null
+
+    /** A sleep timer survives track changes inside one account, but never a switch to another account. */
+    fun setSleepTimer(minutes: Int?) {
+        cancelSleepTimer()
+        if (minutes == null || minutes !in SLEEP_TIMER_MINUTES) return
+        val current = _state.value.item?.takeIf { it.isMusic && !it.systemPrivate } ?: return
+        val deadline = SystemClock.elapsedRealtime() + minutes * 60_000L
+        val session = SleepTimerState(current.accountId, deadline)
+        _sleepTimer.value = session
+        sleepTimerJob = scope.launch {
+            delay(minutes * 60_000L)
+            if (_sleepTimer.value == session) {
+                if (_state.value.item?.accountId == session.accountId) stop() else cancelSleepTimer()
+            }
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        _sleepTimer.value = null
+    }
+
     /** The current ExoPlayer audio session; the equalizer attaches to exactly this session. */
     private val _audioSessionId = MutableStateFlow<Int?>(null)
     val audioSessionId: StateFlow<Int?> = _audioSessionId.asStateFlow()
@@ -146,6 +178,9 @@ object PlaybackEngine {
     private var interruptedMusic: InterruptedMusic? = null
     /** Lazily resolves not-yet-downloaded queue items for the current account. */
     private var queueSource: PlaybackQueueSource? = null
+    private var queuePageJob: Job? = null
+    /** Invalidates a page returning after another chat, account or queue takes over the player. */
+    private var queuePageGeneration = 0L
     /** Отметка «прослушано», которую плеер вызовет, когда файл начнёт играть. Работает, даже если пузырь уже ушёл с экрана. */
     private var startedCallback: Pair<String, () -> Unit>? = null
     /** Приложение на переднем плане. Отметку репозиторий принимает только отсюда, поэтому файл, начавший играть в фоне, ждёт возврата. */
@@ -271,6 +306,28 @@ object PlaybackEngine {
     fun playQueue(context: Context, items: List<PlaybackItem>, index: Int, source: PlaybackQueueSource?, onStarted: (() -> Unit)? = null) {
         val item = items.getOrNull(index) ?: return
         startItem(context, item, items, index, source = source, onStarted = onStarted)
+    }
+
+    /**
+     * Restores a revalidated TDLib queue after process death. No playback, MediaSession service or prefetch
+     * begins until the user explicitly presses Play. A live player always wins over disk state.
+     */
+    fun restoreQueue(
+        context: Context,
+        items: List<PlaybackItem>,
+        index: Int,
+        source: PlaybackQueueSource,
+        positionMs: Long,
+        shuffle: Boolean,
+        repeat: PlaybackRepeatMode
+    ) {
+        if (_state.value.item != null || items.isEmpty() || index !in items.indices) return
+        if (activeAccountId != null && source.accountId != activeAccountId) return
+        if (items.any { !it.isMusic || it.systemPrivate || it.accountId != source.accountId || it.origin == null }) return
+        val queue = queueForPlayback(items, index)
+        if (queue.items.isEmpty()) return
+        _state.update { it.copy(shuffleEnabled = shuffle, repeatMode = repeat) }
+        startQueue(context, queue, source, startPositionMs = positionMs, startFraction = 0f, autoPlay = false)
     }
 
     /** Общая часть [toggle] и [playQueue]: тот же файл ставит на паузу или продолжает, другой запускает с очередью [items]. */
@@ -410,7 +467,8 @@ object PlaybackEngine {
         queue: PlaybackQueue,
         source: PlaybackQueueSource?,
         startPositionMs: Long?,
-        startFraction: Float
+        startFraction: Float,
+        autoPlay: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
         val target = rawPlayer(context)
@@ -420,6 +478,10 @@ object PlaybackEngine {
         pendingStartFraction = 0f
         startedCallback = startedCallback?.takeIf { it.first == selected.key }
         queueSource = source
+        queuePageGeneration++
+        queuePageJob?.cancel()
+        queuePageJob = null
+        _queuePageLoading.value = false
         prefetchedKeys.clear()
 
         PlaybackSources.clear()
@@ -433,7 +495,7 @@ object PlaybackEngine {
         installShuffleOrder(target, resolvedQueue.size)
         applyPlayerModes(target, music = true)
         applySpeed(target, item)
-        target.prepare()
+        if (autoPlay) target.prepare()
         updateAudioSessionId()
 
         val speed = effectiveSpeed(item)
@@ -444,10 +506,11 @@ object PlaybackEngine {
             index = queue.index,
             positionMs = requestedStart,
             playing = playing,
-            intentPlaying = true,
+            intentPlaying = autoPlay,
             speed = speed
         )
         updateAudioSessionId()
+        if (!autoPlay) return // Restore remains silent, idle and does not trigger any TDLib download.
         refreshPrefetchPolicyObserver()
         if (defer) {
             target.pause()
@@ -461,12 +524,17 @@ object PlaybackEngine {
         if (!item.systemPrivate) startPlaybackService()
         startProgress()
         prefetchNext()
+        loadNextQueuePage()
     }
 
     @OptIn(UnstableApi::class)
     private fun startSingle(context: Context, item: PlaybackItem, startPositionMs: Long?, startFraction: Float) {
         val target = rawPlayer(context)
         transitionToken++
+        queuePageGeneration++
+        queuePageJob?.cancel()
+        queuePageJob = null
+        _queuePageLoading.value = false
         syncPosition()
         clearDeferredSeek()
         pendingStartFraction = 0f
@@ -858,6 +926,7 @@ object PlaybackEngine {
         if (_state.value.item?.systemPrivate != true) startPlaybackService()
         target.play()
         prefetchNext()
+        loadNextQueuePage()
     }
 
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
@@ -871,8 +940,16 @@ object PlaybackEngine {
 
     /** Explicit user stop: closes the session, clears the queue and removes the notification. */
     fun stop() {
+        cancelSleepTimer()
+        _queuePageLoading.value = false
+        _state.value.item?.accountId?.let { owner ->
+            appContext?.let { context -> MusicSessionStore(context).clear(owner) }
+        }
         interruptedMusic = null
         queueSource = null
+        queuePageGeneration++
+        queuePageJob?.cancel()
+        queuePageJob = null
         prefetchedKeys.clear()
         haltPlayer()
     }
@@ -952,6 +1029,33 @@ object PlaybackEngine {
             target.play()
             startProgress()
         }
+        loadNextQueuePage()
+    }
+
+    /**
+     * A queue row is a direct Play action: never toggle the current track or modify the queue order.
+     * Media3 emits the same item transition as hardware Next/Previous, keeping the system session in sync.
+     */
+    fun playQueueItem(key: String) {
+        val index = _state.value.queue.indexOfFirst { it.key == key }
+        if (index >= 0) playQueueIndex(index)
+    }
+
+    fun playQueueIndex(index: Int) {
+        val snapshot = _state.value
+        if (!canSelectQueueIndex(snapshot, index)) return
+        val target = exo ?: return
+        if (index >= target.mediaItemCount) return
+        transitionToken++
+        clearDeferredSeek()
+        _state.update { it.copy(ended = false, failed = false, intentPlaying = true) }
+        target.seekTo(index, 0L)
+        if (target.playbackState == Player.STATE_IDLE || target.playbackState == Player.STATE_ENDED) target.prepare()
+        target.play()
+        startPlaybackService()
+        startProgress()
+        prefetchNext()
+        loadNextQueuePage()
     }
 
     fun previous() {
@@ -1037,6 +1141,7 @@ object PlaybackEngine {
         _state.update { it.copy(repeatMode = mode).withTimelineNavigation(target) }
         prefetchedKeys.clear()
         prefetchNext()
+        if (mode != PlaybackRepeatMode.One) loadNextQueuePage()
     }
 
     /** Inserts [item] after the current item and keeps the current position. */
@@ -1260,7 +1365,10 @@ object PlaybackEngine {
                 }
             }
             updateAudioSessionId()
-            if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) prefetchNext()
+            if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                prefetchNext()
+                loadNextQueuePage()
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -1368,6 +1476,56 @@ object PlaybackEngine {
                 val target = exo ?: break
                 if (!target.isPlaying && target.playbackState != Player.STATE_BUFFERING) break
                 delay(PROGRESS_INTERVAL_MS)
+            }
+        }
+    }
+
+    /**
+     * Extends the existing Media3 timeline without rebuilding the current source or resetting the seek position.
+     * The loader belongs to the active Telegram account, and a stale result cannot resurrect a stopped queue.
+     */
+    private fun loadNextQueuePage() {
+        val source = queueSource ?: return
+        val loader = source.loadMore ?: return
+        val snapshot = _state.value
+        if (snapshot.item?.isMusic != true || snapshot.item.systemPrivate || snapshot.queue.isEmpty()) return
+        // Repeat One never approaches a new track: avoid fetching the channel history on every replay.
+        if (snapshot.repeatMode == PlaybackRepeatMode.One) return
+        if (snapshot.queue.size - snapshot.queueIndex > 5 || queuePageJob?.isActive == true) return
+        val generation = queuePageGeneration
+        val currentAccount = snapshot.item.accountId
+        _queuePageLoading.value = true
+        queuePageJob = scope.launch {
+            try {
+                val page = loader()
+                if (generation != queuePageGeneration || source !== queueSource ||
+                    (activeAccountId != null && currentAccount != activeAccountId)) return@launch
+                val now = _state.value
+                if (now.queue.isEmpty() || now.item?.accountId != currentAccount) return@launch
+                val fresh = appendMusicPage(now.queue, page, currentAccount)
+                if (fresh.isEmpty()) return@launch
+                val target = exo ?: return@launch
+                fresh.forEach { registerSource(it, source) }
+                target.addMediaItems(fresh.map(::mediaItemFor))
+                val ended = now.ended && now.intentPlaying
+                _state.update { it.copy(queue = it.queue + fresh).withTimelineNavigation(target) }
+                if (ended) {
+                    target.seekTo(now.queue.size, 0L)
+                    if (target.playbackState == Player.STATE_IDLE || target.playbackState == Player.STATE_ENDED) target.prepare()
+                    target.play()
+                    startPlaybackService()
+                    startProgress()
+                }
+                prefetchNext()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep the existing playable timeline and retry at the next explicit track transition.
+            } finally {
+                if (generation == queuePageGeneration) {
+                    queuePageJob = null
+                    _queuePageLoading.value = false
+                }
             }
         }
     }

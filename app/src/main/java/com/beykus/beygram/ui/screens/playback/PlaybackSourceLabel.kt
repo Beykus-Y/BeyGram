@@ -1,16 +1,16 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
-import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.playback.PlaybackOrigin
 import kotlinx.coroutines.flow.collect
 
@@ -26,31 +26,30 @@ internal object MusicPlayerLauncher {
     }
 }
 
+/** Only the selected Telegram account's repository may resolve the music origin. */
+internal data class PlaybackRepositorySource(val accountId: String, val repository: TelegramRepository)
+
+internal val LocalPlaybackRepositorySource = compositionLocalOf<PlaybackRepositorySource?> { null }
+
 internal data class PlaybackSourceLabel(
     val text: String,
     val kind: PlaybackSourceKind,
     val canOpen: Boolean
 )
 
-/**
- * Resolves the chat/channel name from TDLib's local chat cache. Only the first account's repository is globally
- * reachable; for a secondary account the UI honestly falls back to the generic source name instead of showing a
- * title from the wrong account. The source is read from the same account-scoped origin as the playing item.
- */
+/** Resolves music source names from the selected account's repository, never a different Telegram login. */
 @Composable
 internal fun rememberPlaybackSourceLabel(origin: PlaybackOrigin?): PlaybackSourceLabel {
-    val context = LocalContext.current
-    var preview by remember(origin) { mutableStateOf<ChatPreview?>(null) }
-    LaunchedEffect(origin) {
+    val selected = LocalPlaybackRepositorySource.current
+    var preview by remember(origin, selected) { mutableStateOf<ChatPreview?>(null) }
+    LaunchedEffect(origin, selected) {
         preview = null
         val current = origin ?: return@LaunchedEffect
-        val repository = runCatching {
-            TdLibTelegramRepository.getInstance(context.applicationContext)
-        }.getOrNull() ?: return@LaunchedEffect
-        if (repository.accountId != current.accountId) return@LaunchedEffect
+        val scoped = selected?.takeIf { it.accountId == current.accountId } ?: return@LaunchedEffect
+        val repository = scoped.repository
         val flow = repository.observeChat(current.chatId)
         preview = flow.value
-        if (preview == null) runCatching { repository.loadChat(current.chatId) }
+        if (preview == null) repository.loadChat(current.chatId)
         flow.collect { preview = it }
     }
     val kind = playbackSourceKind(

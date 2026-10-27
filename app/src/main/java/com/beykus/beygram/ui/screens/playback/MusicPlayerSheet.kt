@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.activity.compose.BackHandler
+import android.os.SystemClock
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -56,10 +57,12 @@ import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,6 +73,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -116,14 +120,18 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackRepeatMode
+import com.beykus.beygram.playback.SLEEP_TIMER_MINUTES
+import com.beykus.beygram.playback.sleepTimerRemainingMinutes
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
+import kotlinx.coroutines.delay
 
 private const val TRANSPORT_MOTION_MS = 150
 private const val SEEK_STEP_MS = 5_000L
@@ -206,6 +214,15 @@ private fun PlayerHeader(
 ) {
     val palette = beyGramPalette()
     var speedMenu by remember { mutableStateOf(false) }
+    var sleepDialog by remember { mutableStateOf(false) }
+    val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
+    val minutesRemaining by produceState(0, sleepTimer) {
+        val activeTimer = sleepTimer
+        while (activeTimer != null) {
+            value = sleepTimerRemainingMinutes(activeTimer.deadlineElapsedMs, SystemClock.elapsedRealtime())
+            delay(30_000L)
+        }
+    }
     val closeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
     val sourceLabel = stringResource(R.string.player_source_from)
@@ -275,8 +292,65 @@ private fun PlayerHeader(
                         }
                     )
                 }
+                HorizontalDivider(color = palette.divider)
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(stringResource(R.string.player_sleep_timer), color = palette.textPrimary)
+                            if (sleepTimer != null) {
+                                Text(
+                                    stringResource(R.string.player_sleep_remaining, minutesRemaining),
+                                    color = palette.textSecondary, fontSize = 11.sp
+                                )
+                            }
+                        }
+                    },
+                    onClick = {
+                        speedMenu = false
+                        sleepDialog = true
+                    }
+                )
             }
         }
+    }
+    if (sleepDialog) {
+        AlertDialog(
+            onDismissRequest = { sleepDialog = false },
+            containerColor = palette.surface,
+            title = { Text(stringResource(R.string.player_sleep_timer), color = palette.textPrimary) },
+            text = {
+                Column {
+                    SLEEP_TIMER_MINUTES.sorted().forEach { duration ->
+                        TextButton(
+                            onClick = {
+                                PlaybackEngine.setSleepTimer(duration)
+                                sleepDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.player_sleep_in_minutes, duration), color = palette.accentInk)
+                        }
+                    }
+                    if (sleepTimer != null) {
+                        HorizontalDivider(color = palette.divider)
+                        TextButton(
+                            onClick = {
+                                PlaybackEngine.cancelSleepTimer()
+                                sleepDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.player_sleep_cancel, minutesRemaining), color = palette.textPrimary)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { sleepDialog = false }) {
+                    Text(stringResource(R.string.common_close), color = palette.textSecondary)
+                }
+            }
+        )
     }
 }
 
@@ -461,6 +535,15 @@ private fun TrackMetadata(player: MusicPlayerUi, reduced: Boolean) {
 @Composable
 private fun PlayerStatusLine(player: MusicPlayerUi) {
     val palette = beyGramPalette()
+    val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
+    val minutesRemaining by produceState(0, sleepTimer) {
+        val activeTimer = sleepTimer
+        while (activeTimer != null) {
+            value = sleepTimerRemainingMinutes(activeTimer.deadlineElapsedMs, SystemClock.elapsedRealtime())
+            delay(30_000L)
+        }
+    }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
     when {
         player.failed -> Row(
             Modifier.padding(top = 6.dp),
@@ -487,6 +570,15 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
             fontSize = 13.sp,
             modifier = Modifier.padding(top = 6.dp)
         )
+    }
+    if (sleepTimer != null) {
+        Text(
+            stringResource(R.string.player_sleep_remaining, minutesRemaining),
+            color = palette.textSecondary,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
     }
 }
 
@@ -746,13 +838,13 @@ private fun PlayPauseButton(player: MusicPlayerUi, reduced: Boolean) {
     val icon = when {
         player.failed -> Icons.Rounded.Replay
         player.ended -> Icons.Rounded.Replay
-        player.playing -> Icons.Rounded.Pause
+        player.playing || player.intentPlaying -> Icons.Rounded.Pause
         else -> Icons.Rounded.PlayArrow
     }
     val label = when {
         player.failed -> stringResource(R.string.player_retry)
         player.ended -> stringResource(R.string.player_replay)
-        player.playing -> stringResource(R.string.common_pause)
+        player.playing || player.intentPlaying -> stringResource(R.string.common_pause)
         else -> stringResource(R.string.common_play)
     }
     val stateText = when {
@@ -852,6 +944,7 @@ private fun QueuePanel(
     LaunchedEffect(queue == null) { if (queue == null) onDismiss() }
     val current = queue ?: return
     val palette = beyGramPalette()
+    val loadingOlder by PlaybackEngine.queuePageLoading.collectAsStateWithLifecycle()
     var dragFrom by remember { mutableIntStateOf(-1) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var dropTarget by remember { mutableIntStateOf(-1) }
@@ -934,7 +1027,7 @@ private fun QueuePanel(
                     QueueCurrentCard(
                         row = row,
                         showSourcePosition = current.shuffleEnabled && row.index >= 0,
-                        onRetry = { PlaybackEngine.togglePlayPause() },
+                        onPlayPause = { PlaybackEngine.togglePlayPause() },
                         onShowInChat = row.item.origin?.let { origin ->
                             {
                                 PlaybackEngine.requestShowInChat(origin)
@@ -947,7 +1040,7 @@ private fun QueuePanel(
             item(key = "next-heading") {
                 QueueSectionTitle(stringResource(R.string.queue_next))
             }
-            if (current.upcoming.isEmpty()) {
+            if (current.upcoming.isEmpty() && !loadingOlder) {
                 item(key = "queue-empty") {
                     Text(
                         stringResource(R.string.queue_empty),
@@ -999,6 +1092,7 @@ private fun QueuePanel(
                     onMoveDown = {
                         if (row.index < current.size - 1) PlaybackEngine.moveInQueue(row.index, row.index + 1)
                     },
+                    onPlayNow = { PlaybackEngine.playQueueItem(row.item.key) },
                     onPlayNext = {
                         val item = row.item
                         if (item.isMusic) PlaybackEngine.playNext(item)
@@ -1013,6 +1107,19 @@ private fun QueuePanel(
                         }
                     }
                 )
+            }
+            if (loadingOlder) {
+                item(key = "queue-loading-page") {
+                    Row(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = palette.accent)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.queue_loading_more), color = palette.textSecondary, fontSize = 12.sp)
+                    }
+                }
             }
         }
     }
@@ -1035,10 +1142,23 @@ private fun QueueSectionTitle(text: String) {
 private fun QueueCurrentCard(
     row: QueueItemUi,
     showSourcePosition: Boolean,
-    onRetry: () -> Unit,
+    onPlayPause: () -> Unit,
     onShowInChat: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
+    val controlIcon = when (row.status) {
+        QueueItemStatus.CurrentPlaying, QueueItemStatus.CurrentBuffering -> Icons.Rounded.Pause
+        QueueItemStatus.CurrentFailed, QueueItemStatus.CurrentEnded -> Icons.Rounded.Replay
+        else -> Icons.Rounded.PlayArrow
+    }
+    val controlLabel = stringResource(
+        when (row.status) {
+            QueueItemStatus.CurrentPlaying, QueueItemStatus.CurrentBuffering -> R.string.common_pause
+            QueueItemStatus.CurrentFailed -> R.string.player_retry
+            QueueItemStatus.CurrentEnded -> R.string.player_replay
+            else -> R.string.common_play
+        }
+    )
     val sourcePosition = if (showSourcePosition) {
         " · " + stringResource(R.string.queue_source_position, row.index + 1)
     } else ""
@@ -1078,10 +1198,8 @@ private fun QueueCurrentCard(
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
-            if (row.status == QueueItemStatus.CurrentFailed) {
-                TextButton(onClick = onRetry) {
-                    Text(stringResource(R.string.player_retry), color = palette.accentInk)
-                }
+            IconButton(onClick = onPlayPause, modifier = Modifier.size(48.dp)) {
+                Icon(controlIcon, controlLabel, tint = palette.accentInk)
             }
             if (onShowInChat != null) {
                 IconButton(onClick = onShowInChat) {
@@ -1107,6 +1225,7 @@ private fun QueueUpcomingRow(
     onDragCancel: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
+    onPlayNow: () -> Unit,
     onPlayNext: () -> Unit,
     onRemove: () -> Unit,
     onShowInChat: (() -> Unit)?
@@ -1117,6 +1236,7 @@ private fun QueueUpcomingRow(
     val moveDownLabel = stringResource(R.string.queue_move_down)
     val dragLabel = stringResource(R.string.queue_drag)
     val actionsLabel = stringResource(R.string.queue_actions)
+    val playNowLabel = stringResource(R.string.queue_play_now)
     val sourcePositionLabel = stringResource(R.string.queue_source_position, row.index + 1)
     val sourcePositionDescription = stringResource(R.string.queue_source_position_a11y, row.index + 1)
     Row(
@@ -1181,9 +1301,17 @@ private fun QueueUpcomingRow(
                 )
             }
         }
-        QueueArtwork(row.item, 40.dp, palette)
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
+        Box(
+            Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = playNowLabel, onClick = onPlayNow),
+            contentAlignment = Alignment.Center
+        ) { QueueArtwork(row.item, 40.dp, palette) }
+        Spacer(Modifier.width(4.dp))
+        Column(
+            Modifier.weight(1f)
+                .heightIn(min = 48.dp)
+                .clickable(role = Role.Button, onClickLabel = playNowLabel, onClick = onPlayNow),
+            verticalArrangement = Arrangement.Center
+        ) {
             Text(
                 row.item.musicTitle(),
                 color = palette.textPrimary,
@@ -1227,6 +1355,13 @@ private fun QueueUpcomingRow(
                 Icon(Icons.Rounded.MoreVert, actionsLabel, tint = palette.textSecondary)
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text(playNowLabel) },
+                    onClick = {
+                        menuOpen = false
+                        onPlayNow()
+                    }
+                )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.queue_play_next)) },
                     onClick = {

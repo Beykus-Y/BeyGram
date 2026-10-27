@@ -655,4 +655,10 @@
     <string name="music_card_not_downloaded">Se descargará</string>
     <string name="music_card_unavailable">Archivo no disponible</string>
     <string name="music_card_play_download">Descargar y reproducir</string>
+    <string name="queue_play_now">Reproducir ahora</string>
+    <string name="queue_loading_more">Buscando más pistas…</string>
+    <string name="player_sleep_timer">Temporizador de sueño</string>
+    <string name="player_sleep_in_minutes">Detener en %1$d min</string>
+    <string name="player_sleep_remaining">Temporizador · quedan %1$d min</string>
+    <string name="player_sleep_cancel">Cancelar temporizador (quedan %1$d min)</string>
 </resources>

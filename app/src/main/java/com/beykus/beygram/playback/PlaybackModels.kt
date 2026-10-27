@@ -264,6 +264,30 @@ internal fun queueForPlayback(items: List<PlaybackItem>, index: Int): PlaybackQu
     return if (visibleIndex >= 0) PlaybackQueue(visible, visibleIndex) else PlaybackQueue()
 }
 
+/** Sleep is based on elapsed real time (not wall clock), so changing the phone clock cannot extend playback. */
+val SLEEP_TIMER_MINUTES: Set<Int> = setOf(15, 30, 60)
+
+data class SleepTimerState(val accountId: String, val deadlineElapsedMs: Long)
+
+fun sleepTimerRemainingMinutes(deadlineElapsedMs: Long, nowElapsedMs: Long): Int =
+    ((deadlineElapsedMs - nowElapsedMs).coerceAtLeast(0L) + 59_999L).div(60_000L).toInt()
+
+/** Only reachable, public tracks of the *currently playing* account may be selected from a queue row. */
+internal fun canSelectQueueIndex(state: PlaybackState, index: Int): Boolean {
+    val current = state.item ?: return false
+    val target = state.queue.getOrNull(index) ?: return false
+    return current.isMusic && !current.systemPrivate && target.isMusic && !target.systemPrivate &&
+        target.accountId == current.accountId && target.key != current.key
+}
+
+/** A page only extends the active account's public music timeline; duplicates and protected media are dropped. */
+internal fun appendMusicPage(existing: List<PlaybackItem>, page: List<PlaybackItem>, accountId: String): List<PlaybackItem> {
+    val known = existing.mapTo(HashSet(existing.size + page.size)) { it.key }
+    return page.filter { candidate ->
+        candidate.isMusic && !candidate.systemPrivate && candidate.accountId == accountId && known.add(candidate.key)
+    }
+}
+
 /** Publishes a lazily resolved path/growing source without changing item identity, queue order or index. */
 internal fun PlaybackState.withResolvedSource(resolved: PlaybackItem): PlaybackState {
     fun merge(current: PlaybackItem): PlaybackItem =

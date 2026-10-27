@@ -251,13 +251,13 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> 
             }
             val playIcon = when {
                 ui.failed || ui.ended -> Icons.Rounded.Replay
-                ui.playing -> Icons.Rounded.Pause
+                ui.playing || ui.intentPlaying -> Icons.Rounded.Pause
                 else -> Icons.Rounded.PlayArrow
             }
             val playLabel = when {
                 ui.failed -> stringResource(R.string.player_retry)
                 ui.ended -> stringResource(R.string.player_replay)
-                ui.playing -> stringResource(R.string.common_pause)
+                ui.playing || ui.intentPlaying -> stringResource(R.string.common_pause)
                 else -> stringResource(R.string.common_play)
             }
             IconButton(
