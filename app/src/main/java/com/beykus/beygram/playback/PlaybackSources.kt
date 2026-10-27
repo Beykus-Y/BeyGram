@@ -28,7 +28,9 @@ class PlaybackQueueSource(
     val accountId: String,
     val observeFile: (Int) -> StateFlow<MediaFileState>,
     val download: (Int) -> Unit,
-    val autoDownload: ((AutoDownloadRequest) -> Unit)? = null
+    val autoDownload: ((AutoDownloadRequest) -> Unit)? = null,
+    /** Pages are fetched only near the queue boundary; returns older tracks in playback order, or an empty page. */
+    val loadMore: (suspend () -> List<PlaybackItem>)? = null
 ) {
     /**
      * Sends a prefetch through automatic-download tracking. Returns false when the caller did not supply the
