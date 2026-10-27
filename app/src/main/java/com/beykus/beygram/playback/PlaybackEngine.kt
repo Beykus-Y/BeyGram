@@ -276,6 +276,28 @@ object PlaybackEngine {
         startItem(context, item, items, index, source = source, onStarted = onStarted)
     }
 
+    /**
+     * Restores a revalidated TDLib queue after process death. No playback, MediaSession service or prefetch
+     * begins until the user explicitly presses Play. A live player always wins over disk state.
+     */
+    fun restoreQueue(
+        context: Context,
+        items: List<PlaybackItem>,
+        index: Int,
+        source: PlaybackQueueSource,
+        positionMs: Long,
+        shuffle: Boolean,
+        repeat: PlaybackRepeatMode
+    ) {
+        if (_state.value.item != null || items.isEmpty() || index !in items.indices) return
+        if (activeAccountId != null && source.accountId != activeAccountId) return
+        if (items.any { !it.isMusic || it.systemPrivate || it.accountId != source.accountId || it.origin == null }) return
+        val queue = queueForPlayback(items, index)
+        if (queue.items.isEmpty()) return
+        _state.update { it.copy(shuffleEnabled = shuffle, repeatMode = repeat) }
+        startQueue(context, queue, source, startPositionMs = positionMs, startFraction = 0f, autoPlay = false)
+    }
+
     /** Общая часть [toggle] и [playQueue]: тот же файл ставит на паузу или продолжает, другой запускает с очередью [items]. */
     private fun startItem(
         context: Context,
@@ -413,7 +435,8 @@ object PlaybackEngine {
         queue: PlaybackQueue,
         source: PlaybackQueueSource?,
         startPositionMs: Long?,
-        startFraction: Float
+        startFraction: Float,
+        autoPlay: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
         val target = rawPlayer(context)
@@ -439,7 +462,7 @@ object PlaybackEngine {
         installShuffleOrder(target, resolvedQueue.size)
         applyPlayerModes(target, music = true)
         applySpeed(target, item)
-        target.prepare()
+        if (autoPlay) target.prepare()
         updateAudioSessionId()
 
         val speed = effectiveSpeed(item)
@@ -450,10 +473,11 @@ object PlaybackEngine {
             index = queue.index,
             positionMs = requestedStart,
             playing = playing,
-            intentPlaying = true,
+            intentPlaying = autoPlay,
             speed = speed
         )
         updateAudioSessionId()
+        if (!autoPlay) return // Restore remains silent, idle and does not trigger any TDLib download.
         refreshPrefetchPolicyObserver()
         if (defer) {
             target.pause()
@@ -868,6 +892,7 @@ object PlaybackEngine {
         if (_state.value.item?.systemPrivate != true) startPlaybackService()
         target.play()
         prefetchNext()
+        loadNextQueuePage()
     }
 
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
@@ -1404,7 +1429,8 @@ object PlaybackEngine {
         queuePageJob = scope.launch {
             try {
                 val page = loader()
-                if (generation != queuePageGeneration || source !== queueSource || currentAccount != activeAccountId) return@launch
+                if (generation != queuePageGeneration || source !== queueSource ||
+                    (activeAccountId != null && currentAccount != activeAccountId)) return@launch
                 val now = _state.value
                 if (now.queue.isEmpty() || now.item?.accountId != currentAccount) return@launch
                 val fresh = appendMusicPage(now.queue, page, currentAccount)
@@ -1423,7 +1449,7 @@ object PlaybackEngine {
                 }
                 prefetchNext()
             } finally {
-                queuePageJob = null
+                if (generation == queuePageGeneration) queuePageJob = null
             }
         }
     }
