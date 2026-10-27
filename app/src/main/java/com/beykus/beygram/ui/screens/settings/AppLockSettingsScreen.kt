@@ -28,7 +28,6 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
@@ -141,7 +140,7 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
                     },
                 )
                 if (settings.isActive) {
-                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                    SettingsRowDivider(startInset = SettingsRowInset)
                     ActionRow(
                         title = stringResource(R.string.app_lock_change_pin),
                         hint = stringResource(R.string.app_lock_change_pin_hint),
@@ -161,7 +160,7 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
                 SettingsCard {
                     AppLockTimeout.entries.forEachIndexed { index, timeout ->
                         if (index > 0) {
-                            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                            SettingsRowDivider(startInset = SettingsRowInset)
                         }
                         TimeoutRow(
                             timeout = timeout,

@@ -247,8 +247,11 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 Text(stringResource(R.string.settings_video_quality), color = palette.textSecondary, fontSize = 13.sp,
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp))
                 PresetRow(VideoQualityPreset.Standard, settings.preset, stringResource(R.string.settings_video_standard), stringResource(R.string.settings_video_standard_detail)) { store.updateSettings { it.copy(preset = VideoQualityPreset.Standard) } }
+                SettingsRowDivider(startInset = SettingsRowInset)
                 PresetRow(VideoQualityPreset.High, settings.preset, stringResource(R.string.settings_video_high), stringResource(R.string.settings_video_high_detail)) { store.updateSettings { it.copy(preset = VideoQualityPreset.High) } }
+                SettingsRowDivider(startInset = SettingsRowInset)
                 PresetRow(VideoQualityPreset.Maximum, settings.preset, stringResource(R.string.settings_video_maximum), stringResource(R.string.settings_video_maximum_detail)) { store.updateSettings { it.copy(preset = VideoQualityPreset.Maximum) } }
+                SettingsRowDivider(startInset = SettingsRowInset)
                 PresetRow(VideoQualityPreset.Custom, settings.preset, stringResource(R.string.settings_video_custom), stringResource(R.string.settings_video_custom_detail)) { store.updateSettings { it.copy(preset = VideoQualityPreset.Custom) } }
             }
 

@@ -20,7 +20,6 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -47,6 +46,7 @@ import com.beykus.beygram.domain.model.MihomoConnection
 import com.beykus.beygram.domain.model.MihomoProbeResult
 import com.beykus.beygram.domain.model.SavedTelegramProxy
 import com.beykus.beygram.domain.repository.TelegramRepository
+import com.beykus.beygram.ui.screens.settings.SettingsRowDivider
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
@@ -224,7 +224,7 @@ internal fun ProxyListScreen(
                     onClick = selectDirect
                 )
                 saved.forEach { proxy ->
-                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 50.dp))
+                    SettingsRowDivider(startInset = 50.dp)
                     ProxyRadioRow(
                         selected = !mihomoEnabled && proxy.enabled,
                         title = proxy.kind.label,

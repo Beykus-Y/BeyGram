@@ -38,6 +38,8 @@ import com.beykus.beygram.ui.motion.MOTION_SPEED_MIN
 import com.beykus.beygram.ui.motion.MotionCategory
 import com.beykus.beygram.ui.motion.MotionPreset
 import com.beykus.beygram.ui.motion.MotionSettings
+import com.beykus.beygram.ui.screens.settings.SettingsRowDivider
+import com.beykus.beygram.ui.screens.settings.SettingsRowInset
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -80,7 +82,8 @@ internal fun MotionSettingsSection(
 
         AppearanceSectionLabel(stringResource(R.string.motion_section_preset))
         AppearanceCard(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)) {
-            MotionPreset.entries.forEach { preset ->
+            MotionPreset.entries.forEachIndexed { index, preset ->
+                if (index > 0) SettingsRowDivider(startInset = SettingsRowInset)
                 MotionPresetRow(
                     title = stringResource(preset.labelRes()),
                     detail = stringResource(preset.descriptionRes()),
@@ -120,7 +123,8 @@ internal fun MotionSettingsSection(
 
         AppearanceSectionLabel(stringResource(R.string.motion_section_categories))
         AppearanceCard(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
-            MotionCategory.entries.forEach { category ->
+            MotionCategory.entries.forEachIndexed { index, category ->
+                if (index > 0) SettingsRowDivider(startInset = SettingsRowInset)
                 MotionCategoryRow(
                     title = stringResource(category.labelRes()),
                     checked = category !in motion.disabledCategories,
@@ -138,6 +142,7 @@ internal fun MotionSettingsSection(
                 checked = chatAnimations.animatedEmoji,
                 onCheckedChange = onAnimatedEmojiChange
             )
+            SettingsRowDivider(startInset = SettingsRowInset)
             AppearanceToggleRow(
                 title = stringResource(R.string.chat_animations_effects_title),
                 detail = stringResource(R.string.chat_animations_effects_detail),

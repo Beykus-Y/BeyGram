@@ -287,7 +287,7 @@ private fun PrivacyGroup(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)
         ) {
             states.forEachIndexed { index, state ->
-                if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 16.dp))
+                if (index > 0) SettingsRowDivider(startInset = SettingsRowInset)
                 PrivacySettingRow(
                     state = state,
                     saving = saving == state.setting,
