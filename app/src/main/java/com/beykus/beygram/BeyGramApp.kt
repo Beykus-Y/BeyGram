@@ -664,7 +664,8 @@ private fun BeyGramAppContent(
     LaunchedEffect(selectedAccountId) { PlaybackEngine.setActiveAccount(selectedAccountId) }
     // Restore only after the selected account's real repository is authorized. Paused restoration never
     // prepares a stream or starts a service. Identity is validated against TDLib before creating a queue.
-    LaunchedEffect(authState, selectedAccountId, repositorySelection) {
+    LaunchedEffect(authState, selectedAccountId, repositorySelection, connectionState) {
+        // Reconnect may make a previously unavailable TDLib message resolvable again.
         if (authState != AuthState.Ready || repositorySelection == null) return@LaunchedEffect
         val owner = selectedAccountId
         PlaybackEngine.setActiveAccount(owner)
