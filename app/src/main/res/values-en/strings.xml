@@ -661,4 +661,9 @@
     <string name="player_sleep_in_minutes">Stop in %1$d min</string>
     <string name="player_sleep_remaining">Sleep timer · %1$d min left</string>
     <string name="player_sleep_cancel">Cancel timer (%1$d min left)</string>
+    <string name="music_search_title">Music</string>
+    <string name="music_search_hint">Song title or artist</string>
+    <string name="music_search_idle">Find music from your available chats and channels. Tap a track to open it in the conversation.</string>
+    <string name="music_search_unknown">Audio track</string>
+    <string name="music_search_retry">Retry</string>
 </resources>
