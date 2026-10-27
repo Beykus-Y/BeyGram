@@ -78,7 +78,9 @@ import com.beykus.beygram.data.appearance.validMessageAnimationOffsetDp
 import com.beykus.beygram.data.appearance.validMessageAnimationScale
 import com.beykus.beygram.data.appearance.validMessageAnimationSpeed
 import com.beykus.beygram.data.appearance.validMessageAnimationSpringiness
+import com.beykus.beygram.data.settings.ChatAnimationSettings
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionSettings
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -90,7 +92,12 @@ internal fun AppearanceAnimationsPage(
     systemDark: Boolean,
     onDraftChange: (AppearanceConfig) -> Unit,
     onDraftChangeContinuous: (AppearanceConfig) -> Unit,
-    onOpenPreview: () -> Unit
+    onOpenPreview: () -> Unit,
+    motion: MotionSettings,
+    onMotionChange: (MotionSettings) -> Unit,
+    chatAnimations: ChatAnimationSettings,
+    onAnimatedEmojiChange: (Boolean) -> Unit,
+    onMessageEffectsChange: (Boolean) -> Unit
 ) {
     val config = draft.messageAnimations
     var replayKey by rememberSaveable { mutableIntStateOf(0) }
@@ -132,6 +139,15 @@ internal fun AppearanceAnimationsPage(
             .padding(horizontal = AppearanceDimens.pagePadding, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        MotionSettingsSection(
+            motion = motion,
+            onMotionChange = onMotionChange,
+            chatAnimations = chatAnimations,
+            onAnimatedEmojiChange = onAnimatedEmojiChange,
+            onMessageEffectsChange = onMessageEffectsChange
+        )
+
+        AppearanceSectionLabel(stringResource(R.string.motion_section_messages))
         AppearanceAnimationPreviewCard(
             draft = draft,
             systemDark = systemDark,
