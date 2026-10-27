@@ -85,6 +85,8 @@ import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.settings.translationTargetLanguage
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackItem
+import com.beykus.beygram.playback.PlaybackQueueSource
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.security.AppLockManager
@@ -1637,6 +1639,49 @@ fun ChatScreen(
                                     conversation.addPollOption(chat.id, messageId, text)
                                 },
                                 onAutoDownloadFile = onAutoDownloadFile,
+                                onMusicPlay = { selected ->
+                                    // Never build a cross-topic, protected or secret conversation playlist.
+                                    if (chat.isSecret || chat.hasProtectedContent || selected.systemPrivate) {
+                                        PlaybackEngine.toggle(context, selected)
+                                    } else if (PlaybackEngine.state.value.item?.key == selected.key) {
+                                        // A second tap preserves any pages already appended to the active queue.
+                                        PlaybackEngine.toggle(context, selected)
+                                    } else {
+                                        val fallback = context.getString(R.string.media_kind_audio)
+                                        val initial = orderedChatMusic(
+                                            messages.filter { forumTopicId == 0L || it.forumTopicId == forumTopicId },
+                                            accountId,
+                                            { id -> observeFile(id).value }, fallback
+                                        ).map { if (it.key == selected.key) selected else it }
+                                        val queue = if (initial.any { it.key == selected.key }) initial else
+                                            (initial + selected).sortedByDescending { it.origin?.messageId ?: 0L }
+                                        val index = queue.indexOfFirst { it.key == selected.key }
+                                        var cursor = queue.lastOrNull()?.origin?.messageId ?: 0L
+                                        suspend fun nextMusicPage(): List<PlaybackItem> {
+                                            // Empty filtered pages must advance the TDLib cursor, not stall pagination.
+                                            repeat(4) {
+                                                if (cursor == 0L) return emptyList()
+                                                val page = conversation.sharedMessages(chat.id, SharedMediaKind.Music, cursor)
+                                                    .getOrElse { return emptyList() }
+                                                val previous = cursor
+                                                cursor = page.nextFromMessageId.takeIf { it != previous } ?: 0L
+                                                val next = orderedChatMusic(
+                                                    page.messages.filter { forumTopicId == 0L || it.forumTopicId == forumTopicId },
+                                                    accountId, { id -> observeFile(id).value }, fallback
+                                                )
+                                                if (next.isNotEmpty()) return next
+                                            }
+                                            return emptyList()
+                                        }
+                                        PlaybackEngine.playQueue(
+                                            context, queue, index,
+                                            PlaybackQueueSource(
+                                                accountId, observeFile, onDownloadFile, onAutoDownloadFile,
+                                                loadMore = { nextMusicPage() }
+                                            )
+                                        )
+                                    }
+                                },
                                 animateSpecial = animateArrival && launch == null,
                                 diceAnimationId = diceAnimationId,
                                 selectionMode = selectionMode,
@@ -2409,6 +2454,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onRateTranscription: ((Boolean) -> Unit)? = null,
     speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
     onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    onMusicPlay: ((PlaybackItem) -> Unit)? = null,
     commentsBar: (@Composable () -> Unit)? = null,
     selectionMode: Boolean = false,
     selected: Boolean = false,
@@ -2528,6 +2574,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 speechRecognitionUi = speechRecognitionUi,
                                 viewOnce = message.isViewOnce,
                                 autoDownloadFile = onAutoDownloadFile,
+                                onMusicPlay = onMusicPlay,
                                 onStickerOpen = onStickerOpen?.let { callback ->
                                     stickerMedia?.let { stickerMedia ->
                                         { if (selectionMode) onToggleSelection() else callback(stickerMedia) }
