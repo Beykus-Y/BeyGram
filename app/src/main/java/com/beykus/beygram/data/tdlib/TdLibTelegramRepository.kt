@@ -2648,6 +2648,7 @@ class TdLibTelegramRepository private constructor(
                 videoNoteLossTransport.onSendSucceeded(update)
                 VideoNoteSendTracking.tracker.onSucceeded(update.message.chatId, update.oldMessageId)
                 reportBotChannel.onSendSucceeded(update)
+                botFeatures.onSendSucceeded(update)
                 cleanupSentUploads(update.message)
                 if (update.message.schedulingState == null) {
                     messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
