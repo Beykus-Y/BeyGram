@@ -91,9 +91,9 @@ fun ProfileScreen(
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     /** Creates a device-specific E2E chat for a regular user; null hides the profile entry. */
     startSecretChat: (suspend (Long) -> Result<Long>)? = null,
-    onSecretChatOpened: (Long) -> Unit = {},
     /** Chat-level no-forwards restriction: music stays out of public playlists and MediaSession. */
-    protectedContent: Boolean = false
+    protectedContent: Boolean = false,
+    onSecretChatOpened: (Long) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
