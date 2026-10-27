@@ -2,6 +2,7 @@ package com.beykus.beygram
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -89,6 +91,10 @@ import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.accessibility.LocalSystemReducedMotion
 import com.beykus.beygram.ui.motion.LocalMotionSettings
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.NavigationHistory
+import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.routeContentTransform
 import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.screens.chat.ChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.ChatScreen
@@ -190,6 +196,12 @@ private val playerBarHostRoutes = setOf(
     AppRoute.Chats, AppRoute.Calls, AppRoute.Contacts, AppRoute.Settings, AppRoute.Chat, AppRoute.MessageThread,
     AppRoute.Stories, AppRoute.StoryPublisher
 )
+
+/** Корни нижнего меню: переход между ними — переключение вкладки, а не push или pop. */
+private val tabRootRoutes = MainTab.entries.mapTo(HashSet()) { it.route }
+
+/** Экраны чатов делят одну панель на широком экране, поэтому переход между ними там не анимируется. */
+private val chatSlotRoutes = setOf(AppRoute.Chats, AppRoute.Chat, AppRoute.MessageThread)
 
 @Composable
 fun BeyGramApp(
@@ -1450,6 +1462,9 @@ private fun BeyGramAppContent(
             returnRouteName = equalizerReturnRouteName
         )
     )
+    // Направление перехода берётся из порядка открытия экранов: назад — pop, новый экран — push, вкладки — fade.
+    val routeHistory = remember { NavigationHistory(initial = route, isRoot = { it in tabRootRoutes }) }
+    val routeMove = routeHistory.visit(route)
     LaunchedEffect(route, previousRouteName) {
         // Every Equalizer entry (player, Settings, profile) records its caller here. The Settings shortcut used to
         // bypass LocalOpenEqualizer; this common transition keeps the return destination correct for all entries.
@@ -2052,7 +2067,12 @@ private fun BeyGramAppContent(
         LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name }
     ) {
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val routeTwoPane = isTwoPaneChatsWidth(maxWidth.value)
+            // Один набор спецификаций на все переходы: длительность и easing берутся из токенов движка.
+            val pushSpec = rememberMotionSpec(MotionToken.NavigationPush)
+            val popSpec = rememberMotionSpec(MotionToken.NavigationPop)
+            val tabSpec = rememberMotionSpec(MotionToken.TabSelect)
             when {
                 !accountRegistryReady -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 accountRegistryError -> Text(
@@ -2115,7 +2135,15 @@ private fun BeyGramAppContent(
                         onPrimary = { chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }
                     )
                 }
-                else -> when (route) {
+                else -> AnimatedContent(
+                    targetState = route,
+                    modifier = Modifier.fillMaxSize().clipToBounds(),
+                    // In two panes the list and the open chat share one slot, so selecting a chat never remounts the list.
+                    contentKey = { if (routeTwoPane && it in chatSlotRoutes) AppRoute.Chats else it },
+                    transitionSpec = { routeContentTransform(routeMove, pushSpec, popSpec, tabSpec) },
+                    label = "routeTransition"
+                ) { screenRoute ->
+                when (screenRoute) {
                 AppRoute.Start -> StartScreen(
                     tdLibReadiness = tdLibReadiness,
                     authState = authState,
@@ -2186,7 +2214,7 @@ private fun BeyGramAppContent(
                         if (twoPane) {
                             ChatsTwoPaneScaffold(
                                 listPaneWidth = chatListPaneWidthDp(maxWidth.value).dp,
-                                showNavigation = route == AppRoute.Chats,
+                                showNavigation = screenRoute == AppRoute.Chats,
                                 navigationRail = {
                                     // Та же навигация, что и на телефоне, но вертикальной рейкой:
                                     // нижнее меню на широком экране не помещается.
@@ -2197,13 +2225,13 @@ private fun BeyGramAppContent(
                                     )
                                 },
                                 playerBar = { NowPlayingBar() },
-                                list = { chatsList(true, route != AppRoute.Chats) },
+                                list = { chatsList(true, screenRoute != AppRoute.Chats) },
                                 detail = {
-                                    if (route == AppRoute.Chats) ChatsDetailPlaceholder()
+                                    if (screenRoute == AppRoute.Chats) ChatsDetailPlaceholder()
                                     else chatRoute(true)
                                 }
                             )
-                        } else if (route == AppRoute.Chats) {
+                        } else if (screenRoute == AppRoute.Chats) {
                             chatsTab()
                         } else {
                             chatRoute(false)
@@ -2713,6 +2741,7 @@ private fun BeyGramAppContent(
                 else LaunchedEffect(selectedAccountId) {
                     routeName = AppRoute.Proxy.name
                 }
+            }
             }
             }
         }
