@@ -131,12 +131,19 @@ internal class TdBotFeatures(client: () -> Client) {
 
     /**
      * TDLib deletes a downloaded file together with the message it came from, so the track is copied into the app
-     * cache first. Each copy gets its own name and nothing is deleted here: another tap may still be playing or
-     * waiting on its copy. The app cache is cleared by the system when storage is low.
+     * cache first. Each copy gets its own name, so a copy in use is never overwritten. Copies are not evicted here:
+     * a file the player still uses can be older than any count-based cut-off. A failed copy leaves no partial file.
      */
     private suspend fun copyOutOfTdlib(source: File, cacheDir: File): File = withContext(Dispatchers.IO) {
         cacheDir.mkdirs()
-        source.copyTo(File(cacheDir, "${UUID.randomUUID()}-${source.name}"))
+        val copy = File(cacheDir, "${UUID.randomUUID()}-${source.name}")
+        try {
+            source.copyTo(copy)
+        } catch (error: Exception) {
+            copy.delete()
+            throw error
+        }
+        copy
     }
 
     /**

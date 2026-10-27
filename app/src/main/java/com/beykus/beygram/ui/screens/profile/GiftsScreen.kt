@@ -186,9 +186,9 @@ fun GiftsScreen(
             noticeIsError = true
         }
         selectedGift = null
-        // An uncertain result stays in the retained store until the explicit acknowledgement;
-        // a definite result has already been delivered to the user.
-        if (outcome != GiftSendOutcome.Uncertain) RetainedGiftSendStore.acknowledge(accountId)
+        // An uncertain result stays in the retained store until the explicit acknowledgement. A definite result is
+        // acknowledged only on the profile it was sent to: another profile's screen must not erase it unseen.
+        if (outcome != GiftSendOutcome.Uncertain && retainedRelevant) RetainedGiftSendStore.acknowledge(accountId)
     }
     LaunchedEffect(reload) {
         generation++
