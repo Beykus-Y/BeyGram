@@ -14,6 +14,14 @@ import org.junit.Test
 class SpecialContentMappingTest {
     private val mapper = TdMediaMapper(MediaFileStore())
 
+    @Test fun `standalone animated emoji is text, not an unsupported card`() {
+        val content = TdApi.MessageAnimatedEmoji().apply { emoji = "🙂" }
+
+        assertNull(mapper.special(content))
+        assertNull(mapper.media(content))
+        assertEquals("🙂", messageFormattedText(content)!!.text)
+    }
+
     private fun pollOption(id: String, text: String, votes: Int, percentage: Int, chosen: Boolean) =
         TdApi.PollOption().apply {
             this.id = id
