@@ -47,6 +47,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.motionEntrance
+
+private val EntranceRise = 16.dp
 
 /** Every attachment type must stay reachable without a horizontal scroll. */
 internal enum class AttachmentAction {
@@ -95,7 +99,12 @@ internal fun AttachmentMenu(
     val actions = remember(allowsPolls) { attachmentActions(allowsPolls) }
     val configuration = LocalConfiguration.current
     val maxHeight = (configuration.screenHeightDp * 0.5f).dp.coerceIn(160.dp, 380.dp)
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .motionEntrance(MotionToken.SheetEnter, EntranceRise)
+            .background(palette.surface)
+    ) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 16.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically
