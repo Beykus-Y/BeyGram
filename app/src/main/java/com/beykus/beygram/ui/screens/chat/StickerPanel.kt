@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.activity.compose.BackHandler
@@ -71,6 +72,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -101,6 +103,8 @@ import com.beykus.beygram.domain.model.StickerSetSummary
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -589,6 +593,18 @@ private fun StickerPanel(
     // A preview sheet owns Back itself while it is open.
     BackHandler(enabled = view.canGoBack && overlay == null) { navigateBack() }
 
+    // Tab body fades in on every tab change. The header and tab strip stay put; an instant spec keeps alpha at 1.
+    val pickerSwitch = rememberMotionSpec(MotionToken.PickerSwitch)
+    val tabSwitch = remember { Animatable(1f) }
+    LaunchedEffect(view.tab, pickerSwitch) {
+        if (pickerSwitch.isInstant) {
+            tabSwitch.snapTo(1f)
+        } else {
+            tabSwitch.snapTo(0f)
+            tabSwitch.animateTo(1f, pickerSwitch.animationSpec())
+        }
+    }
+
     Column(
         Modifier
             .fillMaxWidth()
@@ -634,76 +650,83 @@ private fun StickerPanel(
             trackColor = palette.surface2
         )
         if (displayError != null) PanelNotice(displayError)
-        when (view.tab) {
-            StickerPanelTab.Emoji -> EmojiPanel(
-                recents = recentEmoji,
-                onEmoji = ::insertEmoji,
-                onBackspace = onDeleteBackward,
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            )
-            StickerPanelTab.Stickers -> {
-                if (!view.searchActive) {
-                    StickerSectionStrip(
-                        view = view,
-                        setsState = setsState,
-                        observeFile = observeFile,
-                        downloadFile = downloadFile,
-                        onRecent = { notice = null; view = view.showRecent() },
-                        onFavorites = { notice = null; view = view.showFavorites() },
-                        onPack = { summary -> selectPack(summary.id) },
-                        onPackMenu = { summary -> openOverlay(StickerPanelOverlay.Pack(summary)) },
-                        onRetrySets = { setsRetry++ }
-                    )
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .graphicsLayer { alpha = tabSwitch.value }
+        ) {
+            when (view.tab) {
+                StickerPanelTab.Emoji -> EmojiPanel(
+                    recents = recentEmoji,
+                    onEmoji = ::insertEmoji,
+                    onBackspace = onDeleteBackward,
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                )
+                StickerPanelTab.Stickers -> {
+                    if (!view.searchActive) {
+                        StickerSectionStrip(
+                            view = view,
+                            setsState = setsState,
+                            observeFile = observeFile,
+                            downloadFile = downloadFile,
+                            onRecent = { notice = null; view = view.showRecent() },
+                            onFavorites = { notice = null; view = view.showFavorites() },
+                            onPack = { summary -> selectPack(summary.id) },
+                            onPackMenu = { summary -> openOverlay(StickerPanelOverlay.Pack(summary)) },
+                            onRetrySets = { setsRetry++ }
+                        )
+                    }
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        StickerContent(
+                            view = view,
+                            recentState = recentState,
+                            favoritesState = favoritesState,
+                            packState = packState,
+                            searchState = stickerSearchState,
+                            searchLoadingMore = stickerSearchLoadingMore,
+                            searchMoreError = stickerSearchMoreError,
+                            observeFile = observeFile,
+                            downloadFile = downloadFile,
+                            onRetryRecent = { recentRetry++ },
+                            onRetryFavorites = { favoritesRetry++ },
+                            onRetryPack = { packRetry++ },
+                            onRetrySearch = { stickerSearchRetry++ },
+                            onLoadMoreSearch = ::loadMoreStickerSearch,
+                            onSend = ::requestSend,
+                            onOptions = { item -> openOverlay(StickerPanelOverlay.Sticker(item)) }
+                        )
+                    }
                 }
-                Box(Modifier.fillMaxWidth().weight(1f)) {
-                    StickerContent(
-                        view = view,
-                        recentState = recentState,
-                        favoritesState = favoritesState,
-                        packState = packState,
-                        searchState = stickerSearchState,
-                        searchLoadingMore = stickerSearchLoadingMore,
-                        searchMoreError = stickerSearchMoreError,
-                        observeFile = observeFile,
-                        downloadFile = downloadFile,
-                        onRetryRecent = { recentRetry++ },
-                        onRetryFavorites = { favoritesRetry++ },
-                        onRetryPack = { packRetry++ },
-                        onRetrySearch = { stickerSearchRetry++ },
-                        onLoadMoreSearch = ::loadMoreStickerSearch,
-                        onSend = ::requestSend,
-                        onOptions = { item -> openOverlay(StickerPanelOverlay.Sticker(item)) }
-                    )
-                }
-            }
-            StickerPanelTab.Gifs -> {
-                if (!view.searchActive) {
-                    GifSectionStrip(
-                        favorites = view.section == StickerPanelSection.Favorites,
-                        onRecent = { notice = null; view = view.showRecent() },
-                        onFavorites = { notice = null; view = view.showFavorites() }
-                    )
-                }
-                Box(Modifier.fillMaxWidth().weight(1f)) {
-                    GifContent(
-                        view = view,
-                        recentState = gifRecentState,
-                        savedState = gifSavedState,
-                        searchState = gifSearchState,
-                        recentLoadingMore = gifRecentLoadingMore,
-                        recentMoreError = gifRecentMoreError,
-                        searchLoadingMore = gifSearchLoadingMore,
-                        searchMoreError = gifSearchMoreError,
-                        observeFile = observeFile,
-                        downloadFile = downloadFile,
-                        onRetryRecent = { gifRecentRetry++ },
-                        onRetrySaved = { gifSavedRetry++ },
-                        onRetrySearch = { gifSearchRetry++ },
-                        onLoadMoreRecent = ::loadMoreGifRecent,
-                        onLoadMoreSearch = ::loadMoreGifSearch,
-                        onSend = onSendAnimation,
-                        onPreview = { item -> openOverlay(StickerPanelOverlay.Gif(item)) }
-                    )
+                StickerPanelTab.Gifs -> {
+                    if (!view.searchActive) {
+                        GifSectionStrip(
+                            favorites = view.section == StickerPanelSection.Favorites,
+                            onRecent = { notice = null; view = view.showRecent() },
+                            onFavorites = { notice = null; view = view.showFavorites() }
+                        )
+                    }
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        GifContent(
+                            view = view,
+                            recentState = gifRecentState,
+                            savedState = gifSavedState,
+                            searchState = gifSearchState,
+                            recentLoadingMore = gifRecentLoadingMore,
+                            recentMoreError = gifRecentMoreError,
+                            searchLoadingMore = gifSearchLoadingMore,
+                            searchMoreError = gifSearchMoreError,
+                            observeFile = observeFile,
+                            downloadFile = downloadFile,
+                            onRetryRecent = { gifRecentRetry++ },
+                            onRetrySaved = { gifSavedRetry++ },
+                            onRetrySearch = { gifSearchRetry++ },
+                            onLoadMoreRecent = ::loadMoreGifRecent,
+                            onLoadMoreSearch = ::loadMoreGifSearch,
+                            onSend = onSendAnimation,
+                            onPreview = { item -> openOverlay(StickerPanelOverlay.Gif(item)) }
+                        )
+                    }
                 }
             }
         }
