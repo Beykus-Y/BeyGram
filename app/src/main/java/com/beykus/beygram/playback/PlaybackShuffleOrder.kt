@@ -28,9 +28,12 @@ internal class PlaybackShuffleOrder(private val order: List<Int>) : ShuffleOrder
     override fun getLastIndex(): Int = order.lastOrNull() ?: C.INDEX_UNSET
 
     override fun cloneAndInsert(insertionIndex: Int, insertionCount: Int): ShuffleOrder {
-        // Media3 rebuilds a playlist with cloneAndClear().cloneAndInsert(0, count). Returning the old relative
-        // order here would silently turn Play Next's one-off forced order into sequential playback.
-        return random(order.size + insertionCount)
+        // Media3 rebuilds a playlist with cloneAndClear().cloneAndInsert(0, count), and an empty order gets a fresh
+        // permutation. A page appended to a playing queue keeps the existing order, so played tracks do not replay.
+        if (order.isEmpty()) return random(insertionCount)
+        val shifted = order.map { index -> if (index >= insertionIndex) index + insertionCount else index }
+        val inserted = (insertionIndex until insertionIndex + insertionCount).shuffled()
+        return PlaybackShuffleOrder(shifted + inserted)
     }
 
     override fun cloneAndRemove(indexFrom: Int, indexToExclusive: Int): ShuffleOrder {

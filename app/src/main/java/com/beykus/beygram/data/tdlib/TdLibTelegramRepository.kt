@@ -793,6 +793,10 @@ class TdLibTelegramRepository private constructor(
                 ?: throw UserMessageException(UiText.Res(R.string.err_message_report_unavailable))
             result = tdRequests(reportChatRequest(chatId, option.id ?: ByteArray(0), messageIds = messageIds))
         }
+        // An optional text step is confirmed with an empty text, as the spam report does.
+        if (result is TdApi.ReportChatResultTextRequired && result.isOptional) {
+            result = tdRequests(reportChatRequest(chatId, result.optionId ?: ByteArray(0), messageIds = messageIds))
+        }
         if (result !is TdApi.ReportChatResultOk) throw UserMessageException(UiText.Res(R.string.err_message_report_unavailable))
     }
 
