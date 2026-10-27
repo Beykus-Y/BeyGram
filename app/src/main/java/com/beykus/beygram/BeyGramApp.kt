@@ -323,6 +323,7 @@ private fun BeyGramAppContent(
     val authState by repository.authState.collectAsStateWithLifecycle()
     val legacyAuthState by legacyRepository.authState.collectAsStateWithLifecycle()
     val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
+    val markAllReadScope = rememberCoroutineScope()
     val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
     val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
     val connectionState by repository.connectionState.collectAsStateWithLifecycle()
@@ -1528,6 +1529,7 @@ private fun BeyGramAppContent(
             onAccountPicker = { accountSwitcherVisible = true },
             onArchiveClick = { routeName = AppRoute.Archive.name },
             onMarkRead = markChatRead,
+            onMarkAllRead = { chats -> markAllReadScope.launch { chats.forEach { markChatRead(it) } } },
             onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
             onArchive = archiveChat,
             onPinChat = repository::setChatPinned,

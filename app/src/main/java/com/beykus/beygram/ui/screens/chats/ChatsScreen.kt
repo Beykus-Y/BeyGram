@@ -72,7 +72,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -119,7 +118,6 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.pluralForm
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -172,6 +170,8 @@ fun ChatsScreen(
     onAccountPicker: () -> Unit = {},
     onArchiveClick: () -> Unit,
     onMarkRead: suspend (ChatPreview) -> Boolean,
+    /** Runs on an owner that outlives this screen, so leaving the chat list does not cancel the bulk read. */
+    onMarkAllRead: (List<ChatPreview>) -> Unit = {},
     onMarkUnread: suspend (ChatPreview) -> Result<Unit>,
     onArchive: suspend (ChatPreview) -> Boolean,
     onPinChat: suspend (Long, Boolean) -> Result<Unit>,
@@ -229,9 +229,7 @@ fun ChatsScreen(
     val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
     var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
-    val scope = rememberCoroutineScope()
     var confirmReadAll by remember { mutableStateOf(false) }
-    var readingAll by remember { mutableStateOf(false) }
     val readAction = ChatSwipeAction(
         label = stringResource(R.string.chats_action_read), icon = Icons.Rounded.DoneAll, container = palette.surface2, content = palette.accentInk,
         enabled = true, perform = onMarkRead
@@ -361,10 +359,9 @@ fun ChatsScreen(
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() })
                 }
-                if (chats.any { it.unreadCount > 0 || it.isMarkedAsUnread }) {
+                if (displayedChats.any { it.unreadCount > 0 || it.isMarkedAsUnread }) {
                     androidx.compose.material3.IconButton(
                         onClick = { confirmReadAll = true },
-                        enabled = !readingAll,
                         modifier = Modifier.semantics { contentDescription = context.getString(R.string.chats_read_all) }
                     ) {
                         Icon(Icons.Rounded.DoneAll, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
@@ -578,11 +575,7 @@ fun ChatsScreen(
         confirmButton = {
             TextButton(onClick = {
                 confirmReadAll = false
-                readingAll = true
-                scope.launch {
-                    chats.filter { it.unreadCount > 0 || it.isMarkedAsUnread }.forEach { onMarkRead(it) }
-                    readingAll = false
-                }
+                onMarkAllRead(displayedChats.filter { it.unreadCount > 0 || it.isMarkedAsUnread })
             }) { Text(stringResource(R.string.chats_read_all_confirm), color = palette.accent) }
         },
         dismissButton = { TextButton(onClick = { confirmReadAll = false }) { Text(stringResource(R.string.common_cancel)) } }
