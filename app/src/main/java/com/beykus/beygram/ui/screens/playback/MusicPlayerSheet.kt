@@ -813,13 +813,13 @@ private fun PlayPauseButton(player: MusicPlayerUi, reduced: Boolean) {
     val icon = when {
         player.failed -> Icons.Rounded.Replay
         player.ended -> Icons.Rounded.Replay
-        player.playing -> Icons.Rounded.Pause
+        player.playing || player.intentPlaying -> Icons.Rounded.Pause
         else -> Icons.Rounded.PlayArrow
     }
     val label = when {
         player.failed -> stringResource(R.string.player_retry)
         player.ended -> stringResource(R.string.player_replay)
-        player.playing -> stringResource(R.string.common_pause)
+        player.playing || player.intentPlaying -> stringResource(R.string.common_pause)
         else -> stringResource(R.string.common_play)
     }
     val stateText = when {
@@ -1122,13 +1122,13 @@ private fun QueueCurrentCard(
 ) {
     val palette = beyGramPalette()
     val controlIcon = when (row.status) {
-        QueueItemStatus.CurrentPlaying -> Icons.Rounded.Pause
+        QueueItemStatus.CurrentPlaying, QueueItemStatus.CurrentBuffering -> Icons.Rounded.Pause
         QueueItemStatus.CurrentFailed, QueueItemStatus.CurrentEnded -> Icons.Rounded.Replay
         else -> Icons.Rounded.PlayArrow
     }
     val controlLabel = stringResource(
         when (row.status) {
-            QueueItemStatus.CurrentPlaying -> R.string.common_pause
+            QueueItemStatus.CurrentPlaying, QueueItemStatus.CurrentBuffering -> R.string.common_pause
             QueueItemStatus.CurrentFailed -> R.string.player_retry
             QueueItemStatus.CurrentEnded -> R.string.player_replay
             else -> R.string.common_play
