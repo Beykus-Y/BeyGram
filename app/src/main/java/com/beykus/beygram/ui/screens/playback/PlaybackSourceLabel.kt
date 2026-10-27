@@ -45,8 +45,8 @@ internal fun rememberPlaybackSourceLabel(origin: PlaybackOrigin?): PlaybackSourc
     LaunchedEffect(origin, selected) {
         preview = null
         val current = origin ?: return@LaunchedEffect
-        if (selected?.accountId != current.accountId) return@LaunchedEffect
-        val repository = selected.repository
+        val scoped = selected?.takeIf { it.accountId == current.accountId } ?: return@LaunchedEffect
+        val repository = scoped.repository
         val flow = repository.observeChat(current.chatId)
         preview = flow.value
         if (preview == null) repository.loadChat(current.chatId)
