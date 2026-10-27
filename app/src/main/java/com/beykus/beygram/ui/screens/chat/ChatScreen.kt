@@ -2122,58 +2122,60 @@ fun ChatScreen(
         else -> emptyList()
     }
     if (forwardIds.isNotEmpty()) ForwardChatDialog(
-        chats, forwardBusy, forwardError, asCopy = forwardAsCopy,
+        chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
+        commentLimit = limits.text,
         loadTopics = { conversation.forumTopics(it) },
-        onPick = { target, topicId ->
-            scope.launch {
-                forwardBusy = true; forwardError = null
-                try {
-                    val result = if (forwardIds.size == 1) {
+        // Each target is one forward request. A target that refuses the messages, or refuses the comment after them,
+        // stays selected so a retry only touches it; the others are already sent and drop out of the selection.
+        onSend = { targets, comment ->
+            forwardBusy = true; forwardError = null
+            val failed = mutableListOf<ForwardTarget>()
+            var lastError: String? = null
+            try {
+                for (target in targets) {
+                    val topic = target.topicId.takeIf { it > 0L }
+                    val forwarded = if (forwardIds.size == 1) {
                         conversation.forwardMessage(
-                            chat.id, forwardIds.single(), target.id, asCopy = forwardAsCopy,
-                            messageThreadId = topicId.takeIf { it > 0L }
+                            chat.id, forwardIds.single(), target.chatId, asCopy = forwardAsCopy, messageThreadId = topic
                         ).map { ForwardedMessages(forwardedIds = forwardIds, failedIds = emptyList()) }
                     } else {
-                        conversation.forwardMessages(
-                            chat.id, forwardIds, target.id, asCopy = forwardAsCopy,
-                            messageThreadId = topicId.takeIf { it > 0L }
-                        )
+                        conversation.forwardMessages(chat.id, forwardIds, target.chatId, asCopy = forwardAsCopy, messageThreadId = topic)
                     }
-                    result.onSuccess { outcome ->
-                        if (!outcome.isComplete) {
-                            // Keep only the messages TDLib refused selected, so a retry cannot duplicate the sent ones.
-                            selectionIds = outcome.failedIds.toSet()
-                            forwardId = null
-                            selectionForwardOpen = false
-                            forwardAsCopy = false
-                            forwardError = null
-                            val partial = context.getString(
-                                R.string.message_selection_forwarded_partial,
-                                outcome.forwardedIds.size,
-                                outcome.failedIds.size
-                            )
-                            Toast.makeText(context, partial, Toast.LENGTH_LONG).show()
-                            selectionError = partial
-                        } else {
-                            val copied = forwardAsCopy
-                            val forwarded = outcome.forwardedIds
-                            forwardId = null
-                            selectionForwardOpen = false
-                            forwardAsCopy = false
-                            forwardError = null
-                            if (selectionMode) exitSelection()
-                            Toast.makeText(
-                                context,
-                                if (forwarded.size > 1) context.getString(R.string.message_selection_forwarded, forwarded.size)
-                                else context.getString(if (copied) R.string.message_forwarded_without_author else R.string.chat_message_forwarded),
-                                Toast.LENGTH_SHORT
-                            ).show()
+                    if (forwarded.getOrNull()?.isComplete != true) {
+                        failed += target
+                        lastError = forwarded.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                        continue
+                    }
+                    if (comment.isNotEmpty()) {
+                        // The draft belongs to the destination composer, which this forward must not clear.
+                        conversation.sendMessage(target.chatId, comment, forumTopicId = target.topicId, clearDraft = false).onFailure {
+                            failed += target
+                            lastError = it.userMessage(context, R.string.chat_forward_failed)
                         }
-                    }.onFailure {
-                        forwardError = it.userMessage(context, R.string.chat_forward_failed)
                     }
-                } finally { forwardBusy = false }
+                }
+            } finally {
+                forwardBusy = false
             }
+            if (failed.isEmpty()) {
+                val copied = forwardAsCopy
+                forwardError = null
+                if (selectionMode) exitSelection()
+                Toast.makeText(
+                    context,
+                    when {
+                        targets.size > 1 -> context.getString(R.string.forward_sent_to_chats, targets.size)
+                        forwardIds.size > 1 -> context.getString(R.string.message_selection_forwarded, forwardIds.size)
+                        copied -> context.getString(R.string.message_forwarded_without_author)
+                        else -> context.getString(R.string.chat_message_forwarded)
+                    },
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                // Only the failed targets stay selected, so a retry cannot duplicate a chat that already has the messages.
+                forwardError = context.getString(R.string.forward_failed_chats, failed.size) + lastError?.let { "\n$it" }.orEmpty()
+            }
+            failed
         },
         onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
     )

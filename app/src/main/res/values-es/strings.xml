@@ -661,4 +661,12 @@
     <string name="player_sleep_in_minutes">Detener en %1$d min</string>
     <string name="player_sleep_remaining">Temporizador · quedan %1$d min</string>
     <string name="player_sleep_cancel">Cancelar temporizador (quedan %1$d min)</string>
+    <string name="forward_search_hint">Buscar chats</string>
+    <string name="forward_comment_hint">Comentario (opcional)</string>
+    <string name="forward_selected_count">Seleccionados: %1$d</string>
+    <string name="forward_send_count">Reenviar (%1$d)</string>
+    <string name="forward_no_results">No se encontró nada</string>
+    <string name="forward_pick_hint">Toca chats para seleccionarlos. No se envía nada hasta pulsar el botón.</string>
+    <string name="forward_failed_chats">No se pudo enviar a %1$d chats. Solo quedan seleccionados esos.</string>
+    <string name="forward_sent_to_chats">Reenviado a %1$d chats</string>
 </resources>
