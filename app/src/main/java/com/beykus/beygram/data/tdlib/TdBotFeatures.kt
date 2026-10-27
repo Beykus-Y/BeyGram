@@ -4,6 +4,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.*
+import com.beykus.beygram.playback.MusicBotCache
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +15,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.io.File
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -131,19 +131,10 @@ internal class TdBotFeatures(client: () -> Client) {
 
     /**
      * TDLib deletes a downloaded file together with the message it came from, so the track is copied into the app
-     * cache first. Each copy gets its own name, so a copy in use is never overwritten. Copies are not evicted here:
-     * a file the player still uses can be older than any count-based cut-off. A failed copy leaves no partial file.
+     * cache first. The cache keeps the copy until the player has it and removes it once the player no longer uses it.
      */
     private suspend fun copyOutOfTdlib(source: File, cacheDir: File): File = withContext(Dispatchers.IO) {
-        cacheDir.mkdirs()
-        val copy = File(cacheDir, "${UUID.randomUUID()}-${source.name}")
-        try {
-            source.copyTo(copy)
-        } catch (error: Exception) {
-            copy.delete()
-            throw error
-        }
-        copy
+        MusicBotCache.store(source, cacheDir)
     }
 
     /**

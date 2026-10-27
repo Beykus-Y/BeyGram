@@ -1121,6 +1121,13 @@ object PlaybackEngine {
         }
     }
 
+    /** Files the player still reads: the playing track, its queue, and a music track waiting behind a voice note. */
+    fun musicPathsInUse(): Set<String> {
+        val current = _state.value
+        val waiting = interruptedMusic?.let { listOf(it.item) + it.queue }.orEmpty()
+        return (listOfNotNull(current.item) + current.queue + waiting).map { it.path }.filter { it.isNotBlank() }.toSet()
+    }
+
     fun setShuffle(enabled: Boolean) {
         if (_state.value.shuffleEnabled == enabled) return
         val target = exo

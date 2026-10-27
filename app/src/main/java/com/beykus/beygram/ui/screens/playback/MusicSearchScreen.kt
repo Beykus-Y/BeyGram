@@ -48,6 +48,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.repository.ConversationRepository
+import com.beykus.beygram.playback.MusicBotCache
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
@@ -60,6 +61,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -161,8 +163,12 @@ internal fun MusicSearchScreen(
         val selection = latestSelection.incrementAndGet()
         scope.launch {
             conversation.musicBotTrack(result.queryId, result.id).onSuccess { track ->
+                if (track == null) return@onSuccess
                 // A newer tap wins: an older download that finishes later must not replace what the user picked last.
-                if (track == null || selection != latestSelection.get()) return@onSuccess
+                if (selection != latestSelection.get()) {
+                    MusicBotCache.discard(track.path)
+                    return@onSuccess
+                }
                 val item = PlaybackItem(
                     key = "bot:${result.queryId}:${result.id}",
                     kind = MediaKind.Audio,
@@ -181,6 +187,9 @@ internal fun MusicSearchScreen(
                     0,
                     PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload)
                 )
+                // The new copy stays pending until the prune has run; the previous copy goes once the queue no longer names it.
+                MusicBotCache.prune(File(context.cacheDir, MusicBotCache.DIR_NAME), PlaybackEngine.musicPathsInUse())
+                MusicBotCache.handOver(track.path)
             }
         }
     }

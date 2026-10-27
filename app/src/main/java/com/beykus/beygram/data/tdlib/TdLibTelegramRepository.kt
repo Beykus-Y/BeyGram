@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
+import com.beykus.beygram.playback.MusicBotCache
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.analytics.AnalyticsSync
@@ -1437,7 +1438,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
     private val botFeatures = TdBotFeatures { client }
-    private val musicBotCacheDir = File(context.cacheDir, "music-bot")
+    private val musicBotCacheDir = File(context.cacheDir, MusicBotCache.DIR_NAME)
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
