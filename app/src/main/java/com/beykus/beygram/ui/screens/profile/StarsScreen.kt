@@ -408,11 +408,22 @@ fun StarsScreen(
                         }
                     }
                     if (stars.topUpOptions.isNotEmpty()) {
+                        // Where the payment happens is a note under the options, not a card that competes with them.
                         item("topup_info") {
-                            MonetizationStateCard(
-                                title = stringResource(R.string.stars_topup_browser_title),
-                                body = stringResource(R.string.stars_topup_browser_body)
-                            )
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                                Text(
+                                    stringResource(R.string.stars_topup_browser_title),
+                                    color = palette.textSecondary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    stringResource(R.string.stars_topup_browser_body),
+                                    color = palette.textSecondary,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
+                            }
                         }
                         item("topup_options") {
                             MonetizationCard {
