@@ -155,10 +155,13 @@ fun ProfileScreen(
                     ProfileSubtitle(info, lastSeenStyle)
                     ProfileBadges(info)
                     if (isOwnProfile) {
+                        // Edit and photo change share one row, so the header takes one action line instead of two.
                         Spacer(Modifier.height(14.dp))
-                        FilledTonalButton(onClick = onEdit, enabled = !state.isLoading && state.error == null && !saving && !preparing, shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.height(46.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.profile_action_edit), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                        TextButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !saving && !preparing) { Text(if (preparing) stringResource(R.string.profile_photo_preparing) else stringResource(R.string.profile_action_change_photo), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalButton(onClick = onEdit, enabled = !state.isLoading && state.error == null && !saving && !preparing, shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f, fill = false).heightIn(min = 48.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.profile_action_edit), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                            TextButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !saving && !preparing, modifier = Modifier.weight(1f, fill = false).heightIn(min = 48.dp)) { Text(if (preparing) stringResource(R.string.profile_photo_preparing) else stringResource(R.string.profile_action_change_photo), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                        }
                     } else if (info.kind == ProfileKind.Person || info.kind == ProfileKind.Secret) {
                         Spacer(Modifier.height(14.dp))
                         FilledTonalButton(
