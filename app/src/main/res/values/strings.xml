@@ -2220,4 +2220,7 @@
     <string name="music_search_empty">Ничего не найдено</string>
     <string name="music_search_failed">Не удалось выполнить поиск музыки</string>
     <string name="music_load_more">Показать ещё</string>
+    <string name="music_public_title">Публичные результаты</string>
+    <string name="music_public_note">Треки из результатов бота пока нельзя открыть в плеере.</string>
+    <string name="music_public_unavailable">Публичный источник сейчас недоступен. Результаты вашего поиска показаны выше.</string>
 </resources>

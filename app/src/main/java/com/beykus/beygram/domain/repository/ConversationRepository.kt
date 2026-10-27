@@ -20,6 +20,8 @@ interface ConversationRepository {
      * bot (unknown, a user, a channel or a bot without inline mode), which is not an error.
      */
     suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String = ""): Result<InlineBotResults?>
+    /** Music from the optional music inline bot; null when the bot does not resolve. The caller's own music search is separate. */
+    suspend fun musicBotSearch(query: String, offset: String = ""): Result<InlineBotResults?>
     /** Sends one inline result with the composer's reply, forum topic and delivery options. */
     suspend fun sendInlineBotResult(
         chatId: Long,

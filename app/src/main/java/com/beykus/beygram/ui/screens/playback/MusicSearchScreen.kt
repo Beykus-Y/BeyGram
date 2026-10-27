@@ -43,6 +43,7 @@ import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.GlobalSearchFilter
+import com.beykus.beygram.domain.model.InlineBotResult
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.SharedMediaKind
@@ -86,12 +87,33 @@ internal fun MusicSearchScreen(
     var loading by remember(accountId) { mutableStateOf(false) }
     var error by remember(accountId) { mutableStateOf<String?>(null) }
     val searchJob = remember(accountId) { mutableStateOf<Job?>(null) }
-    DisposableEffect(accountId) { onDispose { searchJob.value?.cancel() } }
+    // Public results come from the optional music bot. They have their own job and state, so a bot failure
+    // never touches the account's own results.
+    var publicResults by remember(accountId) { mutableStateOf<List<InlineBotResult>>(emptyList()) }
+    var publicAvailable by remember(accountId) { mutableStateOf(true) }
+    val publicJob = remember(accountId) { mutableStateOf<Job?>(null) }
+    DisposableEffect(accountId) { onDispose { searchJob.value?.cancel(); publicJob.value?.cancel() } }
+
+    fun runPublicSearch(needle: String) {
+        publicJob.value?.cancel()
+        publicResults = emptyList()
+        publicAvailable = true
+        publicJob.value = scope.launch {
+            conversation.musicBotSearch(needle).onSuccess { page ->
+                publicAvailable = page != null
+                publicResults = page?.results.orEmpty()
+            }.onFailure {
+                publicAvailable = false
+                publicResults = emptyList()
+            }
+        }
+    }
 
     fun runSearch(text: String, offset: String) {
         val needle = text.trim()
         if (needle.isEmpty()) return
         searchJob.value?.cancel()
+        if (offset.isEmpty()) runPublicSearch(needle)
         loading = true
         error = null
         searchJob.value = scope.launch {
@@ -114,6 +136,9 @@ internal fun MusicSearchScreen(
         // A changed query drops the old request, results and offset at once, so nothing from it can publish
         // or paginate during the debounce.
         searchJob.value?.cancel()
+        publicJob.value?.cancel()
+        publicResults = emptyList()
+        publicAvailable = true
         results = emptyList()
         chats = emptyMap()
         nextOffset = ""
@@ -198,6 +223,26 @@ internal fun MusicSearchScreen(
                         onClick = { play(message) }
                     )
                 }
+                // Keyed by the typed query, not by the account search, so a failed account search never hides this section.
+                if (query.isNotBlank()) {
+                    item(key = "public_header") {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Text(stringResource(R.string.music_public_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.music_public_note), color = palette.textSecondary, fontSize = 13.sp)
+                        }
+                    }
+                    if (!publicAvailable) item(key = "public_unavailable") {
+                        Text(
+                            stringResource(R.string.music_public_unavailable),
+                            color = palette.textSecondary,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                    items(publicResults, key = { "public:${it.queryId}:${it.id}" }) { result ->
+                        MusicRow(title = result.title, subtitle = result.description, onClick = null)
+                    }
+                }
                 if (nextOffset.isNotEmpty() && !loading) item(key = "more") {
                     Button(
                         onClick = { searchedQuery?.let { runSearch(it, nextOffset) } },
@@ -210,11 +255,11 @@ internal fun MusicSearchScreen(
 }
 
 @Composable
-private fun MusicRow(title: String, subtitle: String, onClick: () -> Unit) {
+private fun MusicRow(title: String, subtitle: String, onClick: (() -> Unit)?) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 64.dp)
-            .clickable(role = Role.Button, onClick = onClick)
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

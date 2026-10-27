@@ -675,4 +675,7 @@
     <string name="forward_pick_hint">Toca chats para seleccionarlos. No se envía nada hasta pulsar el botón.</string>
     <string name="forward_failed_chats">No se pudo enviar a %1$d chats. Solo quedan seleccionados esos.</string>
     <string name="forward_sent_to_chats">Reenviado a %1$d chats</string>
+    <string name="music_public_title">Resultados públicos</string>
+    <string name="music_public_note">Las pistas de los resultados del bot aún no se pueden abrir en el reproductor.</string>
+    <string name="music_public_unavailable">La fuente pública no está disponible ahora. Tus resultados aparecen arriba.</string>
 </resources>

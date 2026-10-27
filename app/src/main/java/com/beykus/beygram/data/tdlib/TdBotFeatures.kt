@@ -46,6 +46,40 @@ internal class TdBotFeatures(client: () -> Client) {
         )
     }
 
+    /**
+     * Music from the optional music inline bot, alongside the account's own music search. The username comes from the
+     * server's application config; the documented fallback is used only when that key is absent. A bot that does not
+     * resolve gives null, so the caller shows the source as unavailable and keeps its own results.
+     */
+    suspend fun musicBotSearch(query: String, offset: String): Result<InlineBotResults?> = requestResult {
+        val username = musicSearchUsername()
+        val botUserId = inlineBot(username) ?: return@requestResult null
+        // The user's own id is the Saved Messages chat, a chat the account always has, so it works as the query context.
+        val savedMessagesChatId = request(TdApi.GetMe()).id
+        val answer = request(TdApi.GetInlineQueryResults(botUserId, savedMessagesChatId, null, query, offset))
+        InlineBotResults(
+            queryId = answer.inlineQueryId,
+            botUserId = botUserId,
+            results = answer.results.orEmpty().mapNotNull { inlineResult(it)?.copy(queryId = answer.inlineQueryId) },
+            nextOffset = answer.nextOffset.orEmpty()
+        )
+    }
+
+    private suspend fun musicSearchUsername(): String {
+        val configured = try {
+            val config = request(TdApi.GetApplicationConfig()) as? TdApi.JsonValueObject
+            config?.members.orEmpty()
+                .firstOrNull { it.key == MUSIC_SEARCH_CONFIG_KEY }
+                ?.value
+                ?.let { (it as? TdApi.JsonValueString)?.value }
+                .orEmpty()
+                .trim()
+        } catch (error: TdRequestError) {
+            ""
+        }
+        return configured.ifEmpty { MUSIC_BOT_FALLBACK }
+    }
+
     suspend fun sendInlineResult(
         chatId: Long,
         queryId: Long,
@@ -223,6 +257,8 @@ internal class TdBotFeatures(client: () -> Client) {
     private companion object {
         const val INLINE_BOT_CACHE_MILLIS = 10 * 60 * 1000L
         const val MAX_CACHED_INLINE_BOTS = 32
+        const val MUSIC_SEARCH_CONFIG_KEY = "music_search_username"
+        const val MUSIC_BOT_FALLBACK = "ugcmusicbot"
     }
 }
 
