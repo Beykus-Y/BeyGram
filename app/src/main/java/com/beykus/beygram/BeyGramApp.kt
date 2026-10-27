@@ -81,6 +81,8 @@ import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.EqualizerRuntime
 import com.beykus.beygram.playback.EqualizerStore
 import com.beykus.beygram.ui.components.MainTabRail
+import com.beykus.beygram.ui.components.MainTabIndicator
+import com.beykus.beygram.ui.components.LocalMainTabIndicator
 import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -517,6 +519,13 @@ private fun BeyGramAppContent(
         }
     }
     var noticeError by remember { mutableStateOf<UiText?>(null) }
+    // A protected chat and its info can be composed together while a route transition runs. Each holds its own claim,
+    // so the outgoing screen releasing its claim cannot clear the flag the incoming screen still needs.
+    var secureScreenClaims by remember { mutableIntStateOf(0) }
+    val changeSecureScreenClaims: (Int) -> Unit = { delta ->
+        secureScreenClaims += delta
+        onSecureScreenChange(secureScreenClaims > 0)
+    }
     // Server account deletion outlives this composition. Sticky cleanup errors are
     // delivered through the process-owned tracker, including after Activity recreation.
     val accountDeletion by AccountDeletionTracker.state.collectAsStateWithLifecycle()
@@ -790,6 +799,8 @@ private fun BeyGramAppContent(
         tabPreferences.save(visibility)
     }
     val tabStateHolder = rememberSaveableStateHolder()
+    // Lives above the route content, so one tab indicator keeps gliding across tab changes.
+    val tabIndicator = remember { MainTabIndicator() }
     // Поиск, папка и позиция списка живут выше раскладки: телефон, две панели, поворот и
     // складка переиспользуют одно состояние, а не создают список заново. Ключ аккаунта
     // не даёт поиску и id папок прошлого аккаунта перейти в следующий.
@@ -1664,8 +1675,8 @@ private fun BeyGramAppContent(
         // The Activity owns the window flag; this effect only reports the current screen policy.
         val chatSecure = chat != null && (chat.isSecret || chat.hasProtectedContent)
         DisposableEffect(chatSecure) {
-            onSecureScreenChange(chatSecure)
-            onDispose { if (chatSecure) onSecureScreenChange(false) }
+            if (chatSecure) changeSecureScreenClaims(1)
+            onDispose { if (chatSecure) changeSecureScreenClaims(-1) }
         }
         LaunchedEffect(authState, selectedChatId) {
             if (authState == AuthState.Ready && chat == null && selectedChatId != 0L) {
@@ -1945,8 +1956,8 @@ private fun BeyGramAppContent(
         // Chat information includes shared media; a protected chat must stay out of screenshots here too.
         val chatInfoSecure = selectedChat?.let { it.isSecret || it.hasProtectedContent } == true
         DisposableEffect(chatInfoSecure) {
-            onSecureScreenChange(chatInfoSecure)
-            onDispose { if (chatInfoSecure) onSecureScreenChange(false) }
+            if (chatInfoSecure) changeSecureScreenClaims(1)
+            onDispose { if (chatInfoSecure) changeSecureScreenClaims(-1) }
         }
         val infoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
@@ -2062,6 +2073,7 @@ private fun BeyGramAppContent(
         LocalChatAnimationPreferences provides chatAnimationPreferences,
         LocalSystemReducedMotion provides reducedMotion,
         LocalMotionSettings provides motionSettings,
+        LocalMainTabIndicator provides tabIndicator,
         LocalAutoDownloadFile provides repository::autoDownloadFile,
         LocalBackgroundMediaDownload provides repository::downloadFileInBackground,
         LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name }
@@ -2135,11 +2147,19 @@ private fun BeyGramAppContent(
                         onPrimary = { chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID) }
                     )
                 }
-                else -> AnimatedContent(
+                // An account switch resets the host: outgoing content must not render against the new account's state.
+                else -> key(selectedAccountId) { AnimatedContent(
                     targetState = route,
                     modifier = Modifier.fillMaxSize().clipToBounds(),
-                    // In two panes the list and the open chat share one slot, so selecting a chat never remounts the list.
-                    contentKey = { if (routeTwoPane && it in chatSlotRoutes) AppRoute.Chats else it },
+                    // Two panes: the list and the open chat share one slot, so selecting a chat never remounts the list.
+                    // Phones: a comment thread stays in its chat's slot, since it is the same open conversation.
+                    contentKey = {
+                        when {
+                            routeTwoPane && it in chatSlotRoutes -> AppRoute.Chats
+                            it == AppRoute.MessageThread -> AppRoute.Chat
+                            else -> it
+                        }
+                    },
                     transitionSpec = { routeContentTransform(routeMove, pushSpec, popSpec, tabSpec) },
                     label = "routeTransition"
                 ) { screenRoute ->
@@ -2741,6 +2761,7 @@ private fun BeyGramAppContent(
                 else LaunchedEffect(selectedAccountId) {
                     routeName = AppRoute.Proxy.name
                 }
+            }
             }
             }
             }

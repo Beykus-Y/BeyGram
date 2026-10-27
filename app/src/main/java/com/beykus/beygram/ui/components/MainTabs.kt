@@ -1,6 +1,6 @@
 package com.beykus.beygram.ui.components
 
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -40,6 +40,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +70,17 @@ import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 
 private val TabPillWidth = 56.dp
 private val TabPillHeight = 32.dp
+
+/**
+ * Where the bottom bar's selection indicator is, in dp. It is provided above the route content: the bar is rebuilt on
+ * every tab change, but this holder outlives it, so the indicator keeps gliding from the old tab to the new one.
+ */
+internal class MainTabIndicator {
+    val x = Animatable(0f)
+    var placed = false
+}
+
+internal val LocalMainTabIndicator = staticCompositionLocalOf { MainTabIndicator() }
 
 /** Подпись раздела в навигации: нижнем меню телефона или рейке широкого экрана. */
 internal val MainTab.title: String
@@ -190,16 +203,23 @@ internal fun MainTabBar(tabs: List<MainTab>, selected: MainTab?, onSelect: (Main
     ) {
         val tabWidth = maxWidth / tabs.size.coerceAtLeast(1)
         val selectedIndex = tabs.indexOf(selected)
-        // One indicator slides from the old tab to the new one. It sits behind the row, so the layout never moves.
-        val indicatorX by animateDpAsState(
-            targetValue = tabWidth * selectedIndex.coerceAtLeast(0) + (tabWidth - TabPillWidth) / 2,
-            animationSpec = indicatorSpec.animationSpec(),
-            label = "mainTabIndicatorX"
-        )
+        val targetX = tabWidth * selectedIndex.coerceAtLeast(0) + (tabWidth - TabPillWidth) / 2
+        // The indicator is owned above the route content, so a tab change moves it rather than starting a new one.
+        val indicator = LocalMainTabIndicator.current
+        LaunchedEffect(targetX.value, indicatorSpec) {
+            if (selectedIndex < 0) return@LaunchedEffect
+            if (indicator.placed) {
+                indicator.x.animateTo(targetX.value, indicatorSpec.animationSpec())
+            } else {
+                indicator.x.snapTo(targetX.value)
+                indicator.placed = true
+            }
+        }
+        // The indicator sits behind the row, so the layout never moves.
         if (selectedIndex >= 0) {
             Box(
                 Modifier
-                    .offset(x = indicatorX)
+                    .offset(x = indicator.x.value.dp)
                     .size(width = TabPillWidth, height = TabPillHeight)
                     .clip(RoundedCornerShape(16.dp))
                     .background(palette.accentSoft)
