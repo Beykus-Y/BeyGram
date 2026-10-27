@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chats
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -90,6 +92,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -132,6 +135,8 @@ import com.beykus.beygram.ui.accessibility.accessibleChatRowDescription
 import com.beykus.beygram.ui.accessibility.accessibleDescription
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.screens.stories.StoryBarSection
 
 private enum class ChatFilter(val title: Int) {
@@ -212,6 +217,11 @@ fun ChatsScreen(
     val displayedChats = activeFolderId?.let { folderChats[it].orEmpty() } ?: chats
     val folderLoad = activeFolderId?.let { folderLoadStates[it] } ?: TelegramFolderLoadState(hasMore = false)
     val palette = beyGramPalette()
+    // Pinning, unpinning and removal move rows through the ListReorder token. Off and reduced motion snap instead,
+    // so rows never fade in or out on a frame the user did not ask for.
+    val listSpec = rememberMotionSpec(MotionToken.ListReorder)
+    val listFadeSpec = if (listSpec.isInstant) snap<Float>() else listSpec.animationSpec<Float>()
+    val listPlacementSpec = if (listSpec.isInstant) snap<IntOffset>() else listSpec.animationSpec<IntOffset>()
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     // In the two-pane layout the list stays composed beside the open chat. Tapping a chat must
@@ -478,6 +488,11 @@ fun ChatsScreen(
                 }
                 items(pinnedChats, key = { "pinned_${it.id}" }) { chat ->
                     SwipeChatRow(
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = listFadeSpec,
+                            placementSpec = listPlacementSpec,
+                            fadeOutSpec = listFadeSpec
+                        ),
                         chat = chat,
                         observeFile = observeFile,
                         downloadFile = downloadFile,
@@ -528,6 +543,11 @@ fun ChatsScreen(
                 }
                 items(regularChats, key = { it.id }) { chat ->
                     SwipeChatRow(
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = listFadeSpec,
+                            placementSpec = listPlacementSpec,
+                            fadeOutSpec = listFadeSpec
+                        ),
                         chat = chat,
                         observeFile = observeFile,
                         downloadFile = downloadFile,
@@ -771,16 +791,19 @@ private fun ArchivePullHint(heightDp: Dp) {
 @Composable
 private fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
     val palette = beyGramPalette()
+    val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
+    val containerColor by animateColorAsState(if (selected) palette.accent else palette.surface2, tabSpec)
+    val labelColor by animateColorAsState(if (selected) palette.onAccent else palette.textPrimary, tabSpec)
     Row(
         Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
-            .background(if (selected) palette.accent else palette.surface2)
+            .background(containerColor)
             .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             title,
-            color = if (selected) palette.onAccent else palette.textPrimary,
+            color = labelColor,
             fontSize = 14.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             modifier = Modifier.widthIn(max = 144.dp),

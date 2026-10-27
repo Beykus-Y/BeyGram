@@ -41,6 +41,9 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionSpec
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -91,6 +94,7 @@ internal fun swipeTarget(offset: Float, revealPx: Float, dismissPx: Float, veloc
  */
 @Composable
 internal fun SwipeChatRow(
+    modifier: Modifier = Modifier,
     chat: ChatPreview,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
@@ -111,6 +115,9 @@ internal fun SwipeChatRow(
     var rowWidth by remember { mutableStateOf(0f) }
     val latestOpenChatId by rememberUpdatedState(openChatId)
     val settle = remember { Settle() }
+    // A release that snaps back or reveals is touch feedback; a dismissal removes the row from the list.
+    val feedbackSpec = rememberMotionSpec(MotionToken.MicroFeedback)
+    val removalSpec = rememberMotionSpec(MotionToken.ListReorder)
 
     fun cancelSettle() {
         settle.gesture++
@@ -122,8 +129,13 @@ internal fun SwipeChatRow(
         settle.job = scope.launch { block() }
     }
 
-    suspend fun animateOffset(target: Float) {
-        animate(swipeOffset, target) { value, _ -> swipeOffset = value }
+    suspend fun animateOffset(target: Float, spec: MotionSpec = feedbackSpec) {
+        // Off, reduced motion and disabled categories land on the target at once, with no intermediate frames.
+        if (spec.isInstant) {
+            swipeOffset = target
+            return
+        }
+        animate(swipeOffset, target, animationSpec = spec.animationSpec()) { value, _ -> swipeOffset = value }
     }
 
     LaunchedEffect(openChatId) {
@@ -144,7 +156,7 @@ internal fun SwipeChatRow(
             SwipeTarget.Revealed -> animateOffset(-revealPx)
             SwipeTarget.Dismissed -> {
                 val gesture = settle.gesture
-                animateOffset(-rowWidth)
+                animateOffset(-rowWidth, removalSpec)
                 if (latestOpenChatId == chat.id) onOpenChange(null)
                 // Outside the settle job, so a new gesture does not cancel the action in flight.
                 scope.launch {
@@ -159,7 +171,7 @@ internal fun SwipeChatRow(
         swipeOffset = (swipeOffset + delta).coerceIn(-rowWidth, 0f)
     }
 
-    Box(modifier = Modifier.fillMaxWidth().onSizeChanged { rowWidth = it.width.toFloat() }) {
+    Box(modifier = modifier.fillMaxWidth().onSizeChanged { rowWidth = it.width.toFloat() }) {
         Row(modifier = Modifier.matchParentSize(), horizontalArrangement = Arrangement.End) {
             RevealButton(action = read) {
                 close()
