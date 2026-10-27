@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -738,10 +739,14 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
             .semantics(mergeDescendants = true) {}
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(gift.emoji.ifBlank { "🎁" }, fontSize = 28.sp)
+            // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
+            Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), contentAlignment = Alignment.Center) {
+                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+            }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                // Regular gifts have no title from Telegram, so they show a generic name rather than the list heading.
                 Text(
-                    gift.name.ifBlank { stringResource(R.string.gifts_received_title) },
+                    gift.name.ifBlank { stringResource(R.string.gifts_gift_generic) },
                     color = palette.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
