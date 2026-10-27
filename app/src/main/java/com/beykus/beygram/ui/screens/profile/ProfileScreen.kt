@@ -91,7 +91,9 @@ fun ProfileScreen(
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     /** Creates a device-specific E2E chat for a regular user; null hides the profile entry. */
     startSecretChat: (suspend (Long) -> Result<Long>)? = null,
-    onSecretChatOpened: (Long) -> Unit = {}
+    onSecretChatOpened: (Long) -> Unit = {},
+    /** Chat-level no-forwards restriction: music stays out of public playlists and MediaSession. */
+    protectedContent: Boolean = false
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -211,7 +213,7 @@ fun ProfileScreen(
                 }
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
-                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile)
+                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile, protectedContent = protectedContent)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
             }
