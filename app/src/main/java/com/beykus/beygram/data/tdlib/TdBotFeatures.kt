@@ -131,8 +131,8 @@ internal class TdBotFeatures(client: () -> Client) {
 
     /**
      * TDLib deletes a downloaded file together with the message it came from, so the track is copied into the app
-     * cache first. Each copy gets its own name, so a copy in use is never overwritten. Only the newest copies are kept:
-     * older selections are no longer playable from the shared player, and a failed copy leaves no partial file behind.
+     * cache first. Each copy gets its own name, so a copy in use is never overwritten. Copies are not evicted here:
+     * a file the player still uses can be older than any count-based cut-off. A failed copy leaves no partial file.
      */
     private suspend fun copyOutOfTdlib(source: File, cacheDir: File): File = withContext(Dispatchers.IO) {
         cacheDir.mkdirs()
@@ -143,7 +143,6 @@ internal class TdBotFeatures(client: () -> Client) {
             copy.delete()
             throw error
         }
-        cacheDir.listFiles().orEmpty().sortedByDescending { it.lastModified() }.drop(MUSIC_BOT_COPY_LIMIT).forEach { it.delete() }
         copy
     }
 
@@ -377,7 +376,6 @@ internal class TdBotFeatures(client: () -> Client) {
         const val FILE_PRIORITY_MANUAL = 32
         const val DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000L
         const val SEND_CONFIRM_TIMEOUT_MS = 30_000L
-        const val MUSIC_BOT_COPY_LIMIT = 5
         const val SEND_OUTCOME_LIMIT = 64
     }
 }
