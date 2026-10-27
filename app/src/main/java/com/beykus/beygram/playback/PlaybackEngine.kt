@@ -3,6 +3,7 @@ package com.beykus.beygram.playback
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.view.TextureView
 import androidx.core.content.FileProvider
 import androidx.media3.common.AudioAttributes
@@ -122,6 +123,36 @@ object PlaybackEngine {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
+
+    /** The queue view shows a real TDLib page request rather than claiming the playlist ended prematurely. */
+    private val _queuePageLoading = MutableStateFlow(false)
+    val queuePageLoading: StateFlow<Boolean> = _queuePageLoading.asStateFlow()
+
+    private val _sleepTimer = MutableStateFlow<SleepTimerState?>(null)
+    val sleepTimer: StateFlow<SleepTimerState?> = _sleepTimer.asStateFlow()
+    private var sleepTimerJob: Job? = null
+
+    /** A sleep timer survives track changes inside one account, but never a switch to another account. */
+    fun setSleepTimer(minutes: Int?) {
+        cancelSleepTimer()
+        if (minutes == null || minutes !in SLEEP_TIMER_MINUTES) return
+        val current = _state.value.item?.takeIf { it.isMusic && !it.systemPrivate } ?: return
+        val deadline = SystemClock.elapsedRealtime() + minutes * 60_000L
+        val session = SleepTimerState(current.accountId, deadline)
+        _sleepTimer.value = session
+        sleepTimerJob = scope.launch {
+            delay(minutes * 60_000L)
+            if (_sleepTimer.value == session) {
+                if (_state.value.item?.accountId == session.accountId) stop() else cancelSleepTimer()
+            }
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        _sleepTimer.value = null
+    }
 
     /** The current ExoPlayer audio session; the equalizer attaches to exactly this session. */
     private val _audioSessionId = MutableStateFlow<Int?>(null)
@@ -450,6 +481,7 @@ object PlaybackEngine {
         queuePageGeneration++
         queuePageJob?.cancel()
         queuePageJob = null
+        _queuePageLoading.value = false
         prefetchedKeys.clear()
 
         PlaybackSources.clear()
@@ -502,6 +534,7 @@ object PlaybackEngine {
         queuePageGeneration++
         queuePageJob?.cancel()
         queuePageJob = null
+        _queuePageLoading.value = false
         syncPosition()
         clearDeferredSeek()
         pendingStartFraction = 0f
@@ -907,6 +940,8 @@ object PlaybackEngine {
 
     /** Explicit user stop: closes the session, clears the queue and removes the notification. */
     fun stop() {
+        cancelSleepTimer()
+        _queuePageLoading.value = false
         _state.value.item?.accountId?.let { owner ->
             appContext?.let { context -> MusicSessionStore(context).clear(owner) }
         }
@@ -994,6 +1029,27 @@ object PlaybackEngine {
             target.play()
             startProgress()
         }
+        loadNextQueuePage()
+    }
+
+    /**
+     * A queue row is a direct Play action: never toggle the current track or modify the queue order.
+     * Media3 emits the same item transition as hardware Next/Previous, keeping the system session in sync.
+     */
+    fun playQueueIndex(index: Int) {
+        val snapshot = _state.value
+        if (!canSelectQueueIndex(snapshot, index)) return
+        val target = exo ?: return
+        if (index >= target.mediaItemCount) return
+        transitionToken++
+        clearDeferredSeek()
+        _state.update { it.copy(ended = false, failed = false, intentPlaying = true) }
+        target.seekTo(index, 0L)
+        if (target.playbackState == Player.STATE_IDLE || target.playbackState == Player.STATE_ENDED) target.prepare()
+        target.play()
+        startPlaybackService()
+        startProgress()
+        prefetchNext()
         loadNextQueuePage()
     }
 
@@ -1433,6 +1489,7 @@ object PlaybackEngine {
         if (snapshot.queue.size - snapshot.queueIndex > 5 || queuePageJob?.isActive == true) return
         val generation = queuePageGeneration
         val currentAccount = snapshot.item.accountId
+        _queuePageLoading.value = true
         queuePageJob = scope.launch {
             try {
                 val page = loader()
@@ -1460,7 +1517,10 @@ object PlaybackEngine {
             } catch (_: Exception) {
                 // Keep the existing playable timeline and retry at the next explicit track transition.
             } finally {
-                if (generation == queuePageGeneration) queuePageJob = null
+                if (generation == queuePageGeneration) {
+                    queuePageJob = null
+                    _queuePageLoading.value = false
+                }
             }
         }
     }
