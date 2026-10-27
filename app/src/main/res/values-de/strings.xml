@@ -35,6 +35,10 @@
     <string name="chats_archive_title">Archiv</string>
     <string name="chats_action_archive">Archivieren</string>
     <string name="chats_action_read">Als gelesen markieren</string>
+    <string name="chats_read_all">Alle als gelesen markieren</string>
+    <string name="chats_read_all_title">Alle Chats als gelesen markieren?</string>
+    <string name="chats_read_all_warning">Ungelesene Chats in dieser Liste werden als gelesen markiert.</string>
+    <string name="chats_read_all_confirm">Markieren</string>
     <string name="chats_my_profile_description">Mein Profil</string>
     <string name="common_back">Zurück</string>
     <string name="common_cancel">Abbrechen</string>

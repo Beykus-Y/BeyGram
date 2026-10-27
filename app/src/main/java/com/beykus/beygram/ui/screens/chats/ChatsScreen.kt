@@ -51,6 +51,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.WifiOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
@@ -169,6 +170,8 @@ fun ChatsScreen(
     onAccountPicker: () -> Unit = {},
     onArchiveClick: () -> Unit,
     onMarkRead: suspend (ChatPreview) -> Boolean,
+    /** Runs on an owner that outlives this screen, so leaving the chat list does not cancel the bulk read. */
+    onMarkAllRead: (List<ChatPreview>) -> Unit = {},
     onMarkUnread: suspend (ChatPreview) -> Result<Unit>,
     onArchive: suspend (ChatPreview) -> Boolean,
     onPinChat: suspend (Long, Boolean) -> Result<Unit>,
@@ -226,6 +229,7 @@ fun ChatsScreen(
     val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
     var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
+    var confirmReadAll by remember { mutableStateOf(false) }
     val readAction = ChatSwipeAction(
         label = stringResource(R.string.chats_action_read), icon = Icons.Rounded.DoneAll, container = palette.surface2, content = palette.accentInk,
         enabled = true, perform = onMarkRead
@@ -354,6 +358,14 @@ fun ChatsScreen(
                     Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() })
+                }
+                if (displayedChats.any { it.unreadCount > 0 || it.isMarkedAsUnread }) {
+                    androidx.compose.material3.IconButton(
+                        onClick = { confirmReadAll = true },
+                        modifier = Modifier.semantics { contentDescription = context.getString(R.string.chats_read_all) }
+                    ) {
+                        Icon(Icons.Rounded.DoneAll, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
+                    }
                 }
                 (chats + archivedChats).firstOrNull { it.isSavedMessages }?.let { saved ->
                     androidx.compose.material3.IconButton(onClick = { openChat(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
@@ -556,6 +568,18 @@ fun ChatsScreen(
           Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.new_chat_title), modifier = Modifier.size(24.dp))
       }
     }
+    if (confirmReadAll) AlertDialog(
+        onDismissRequest = { confirmReadAll = false },
+        title = { Text(stringResource(R.string.chats_read_all_title)) },
+        text = { Text(stringResource(R.string.chats_read_all_warning)) },
+        confirmButton = {
+            TextButton(onClick = {
+                confirmReadAll = false
+                onMarkAllRead(displayedChats.filter { it.unreadCount > 0 || it.isMarkedAsUnread })
+            }) { Text(stringResource(R.string.chats_read_all_confirm), color = palette.accent) }
+        },
+        dismissButton = { TextButton(onClick = { confirmReadAll = false }) { Text(stringResource(R.string.common_cancel)) } }
+    )
     selectedActions?.let { selected ->
         ChatActionsSheet(
             chat = selected,
