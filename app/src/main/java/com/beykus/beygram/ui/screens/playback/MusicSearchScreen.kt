@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +65,7 @@ import kotlinx.coroutines.launch
  * через TDLib-фильтр аудио; публичный поиск треков здесь не подключён. Нажатие на трек ставит в очередь общего
  * плеера все найденные треки, начиная с выбранного, без пересылки и без отправки в чат.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MusicSearchScreen(
     accountId: String,
