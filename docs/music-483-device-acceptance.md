@@ -24,6 +24,14 @@ This checklist is **not evidence of completed device testing**. Execute on at le
 - 2–3 hours background playback: no phantom notifications, excessive traffic/battery/CPU or leaked audio effects.
 - Accessibility (TalkBack, 200% font, landscape), small screen, AMOLED/light/dark theme, animation scale changes.
 
+## Music UX follow-up
+- Tap a future queue track's artwork/title while music is playing and paused: start that exact track immediately, update system metadata/queue index, preserve shuffle/repeat. Drag handle and row menu must remain independent hit targets.
+- The currently playing card in the queue must show Pause while playing or buffering, Play when paused, and Retry when failed. The same intent-to-play behavior should hold in the mini player, full player and chat bubble, with TalkBack labels.
+- During TDLib pagination, show a real loading affordance and never falsely announce that the channel has no more music. No duplicate rows after pages are appended.
+- Start a 15/30/60-minute sleep timer, change the phone's wall clock, pause/seek/change tracks, cancel and re-arm. It should stop and clear exactly one active account's music at the elapsed deadline, without restarting on process death or affecting voice notes from another account.
+- On a secondary Telegram account, verify the header shows the *actual* chat/channel name from that account's TDLib cache; when the account is changed, previous titles must disappear rather than show a different account's source.
+- Open the sleep-timer dialog at large font sizes and with TalkBack; verify all controls are reachable on a compact screen.
+
 ## PR gate
 - CI: assemble debug + JVM tests + lint as configured by this repository.
 - Codex/manual review for concurrency and thread-affinity; no merge until owner explicitly approves.
