@@ -328,7 +328,12 @@ private fun SharedMediaList(
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
         items(shown, key = { it.id }) { message ->
             if (kind == SharedMediaKind.Music) {
-                message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage, autoDownloadFile) }
+                message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage, autoDownloadFile,
+                    loadOlderMusic = {
+                        val known = tab.messages.mapTo(HashSet()) { it.id }
+                        if (tab.hasOlder) tab.loadOlder()
+                        tab.messages.filter { it.id !in known }.sortedByDescending { it.id }
+                    }) }
             } else {
                 SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
             }
@@ -422,7 +427,8 @@ private fun SharedVoiceRow(
 internal fun SharedMusicRow(
     chatId: Long, tracks: List<ChatMessage>, message: ChatMessage, media: MessageMedia,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit,
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    loadOlderMusic: (suspend () -> List<ChatMessage>)? = null
 ) {
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
@@ -473,7 +479,12 @@ internal fun SharedMusicRow(
                             context,
                             queue,
                             index,
-                            PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload)
+                            PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload,
+                                loadMore = loadOlderMusic?.let { loader ->
+                                    {
+                                        loader().mapNotNull { track -> musicTrack(track, chatId, observeFile, label, accountId) }
+                                    }
+                                })
                         )
                     }
                 }
