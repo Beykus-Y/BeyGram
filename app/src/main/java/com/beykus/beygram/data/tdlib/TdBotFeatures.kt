@@ -106,11 +106,14 @@ internal class TdBotFeatures(client: () -> Client) {
             this.resultId = resultId
             hideViaBot = false
         })
+        var copied: String? = null
+        var delivered = false
         try {
             val audio = (sent.content as? TdApi.MessageAudio)?.audio ?: return@requestResult null
             val file = request(TdApi.DownloadFile(audio.audio.id, FILE_PRIORITY_MANUAL, 0L, 0L, true), DOWNLOAD_TIMEOUT_MS)
             if (!file.local.isDownloadingCompleted || file.local.path.isEmpty()) return@requestResult null
             val track = copyOutOfTdlib(File(file.local.path), cacheDir)
+            copied = track.absolutePath
             MusicBotTrack(
                 path = track.absolutePath,
                 title = audio.title.orEmpty(),
@@ -118,13 +121,15 @@ internal class TdBotFeatures(client: () -> Client) {
                 durationSeconds = audio.duration,
                 mimeType = audio.mimeType.orEmpty(),
                 sizeBytes = file.size.toLong()
-            )
+            ).also { delivered = true }
         } finally {
             // Cleanup runs even when the screen that asked for the track has gone: a cancelled coroutine would fail each call.
             withContext(NonCancellable) {
                 runCatching { deleteTemporaryMessage(savedMessagesChatId, sent) }
                 runCatching { restoreSavedMessagesDraft(savedMessagesChatId, savedDraft) }
             }
+            // A copy that never reaches the caller would stay reserved for the life of the process.
+            if (!delivered) copied?.let { MusicBotCache.discard(it) }
         }
     }
 

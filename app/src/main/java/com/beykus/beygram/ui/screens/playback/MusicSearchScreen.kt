@@ -60,6 +60,7 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
@@ -164,6 +165,11 @@ internal fun MusicSearchScreen(
         scope.launch {
             conversation.musicBotTrack(result.queryId, result.id).onSuccess { track ->
                 if (track == null) return@onSuccess
+                // The screen may have left while the cleanup ran. A cancelled caller must not start playback.
+                if (!isActive) {
+                    MusicBotCache.discard(track.path)
+                    return@onSuccess
+                }
                 // A newer tap wins: an older download that finishes later must not replace what the user picked last.
                 if (selection != latestSelection.get()) {
                     MusicBotCache.discard(track.path)
