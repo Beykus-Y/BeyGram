@@ -1166,9 +1166,7 @@ internal fun MonetizationSectionHeader(text: String) {
 internal fun MonetizationCard(content: @Composable ColumnScope.() -> Unit) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
             .padding(vertical = 4.dp),
         content = content
     )
