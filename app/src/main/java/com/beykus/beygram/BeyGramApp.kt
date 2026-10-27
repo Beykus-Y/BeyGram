@@ -88,6 +88,7 @@ import com.beykus.beygram.ui.screens.auth.LoginPhoneScreen
 import com.beykus.beygram.ui.screens.archive.ArchiveScreen
 import com.beykus.beygram.ui.screens.calls.CallsScreen
 import com.beykus.beygram.ui.accessibility.LocalSystemReducedMotion
+import com.beykus.beygram.ui.motion.LocalMotionSettings
 import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.screens.chat.ChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.ChatScreen
@@ -151,6 +152,7 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
+import com.beykus.beygram.data.motion.MotionSettingsStore
 import com.beykus.beygram.data.settings.ChatAnimationSettingsStore
 import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
@@ -749,6 +751,9 @@ private fun BeyGramAppContent(
     }
     // One observer for the whole app; every emoji/effect reads LocalSystemReducedMotion instead of polling the system.
     val reducedMotion = rememberSystemReducedMotion()
+    // Motion presets and categories are global; every animated adapter resolves tokens against this state.
+    val motionSettingsStore = remember(context) { MotionSettingsStore(context.applicationContext) }
+    val motionSettings by motionSettingsStore.state.collectAsStateWithLifecycle()
     val archiveSettings by archiveSettingsStore.state.collectAsStateWithLifecycle()
     val archiveSettingsScope = rememberCoroutineScope()
     val onArchiveSettingsChange: (ArchiveSettings) -> Unit = { next ->
@@ -2041,6 +2046,7 @@ private fun BeyGramAppContent(
         LocalPlaybackRepositorySource provides repositorySelection?.let { PlaybackRepositorySource(selectedAccountId, it) },
         LocalChatAnimationPreferences provides chatAnimationPreferences,
         LocalSystemReducedMotion provides reducedMotion,
+        LocalMotionSettings provides motionSettings,
         LocalAutoDownloadFile provides repository::autoDownloadFile,
         LocalBackgroundMediaDownload provides repository::downloadFileInBackground,
         LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name }
