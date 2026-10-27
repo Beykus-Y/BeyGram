@@ -132,7 +132,6 @@ import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
 import com.beykus.beygram.ui.screens.settings.AutoDownloadSettingsScreen
 import com.beykus.beygram.ui.screens.settings.VideoMessageSettingsScreen
-import com.beykus.beygram.ui.screens.settings.ChatAnimationsScreen
 import com.beykus.beygram.ui.screens.settings.SettingsScreen
 import com.beykus.beygram.ui.screens.settings.AppLockSettingsScreen
 import com.beykus.beygram.ui.screens.settings.AccountSwitcherSheet
@@ -1533,7 +1532,6 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
-    BackHandler(enabled = route == AppRoute.ChatAnimations) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
@@ -2368,12 +2366,6 @@ private fun BeyGramAppContent(
                     chatAnimations = chatAnimationSettings,
                     onAnimatedEmojiChange = chatAnimationStore::setAnimatedEmoji,
                     onMessageEffectsChange = chatAnimationStore::setMessageEffects
-                )
-                AppRoute.ChatAnimations -> ChatAnimationsScreen(
-                    settings = chatAnimationSettings,
-                    onAnimatedEmojiChange = chatAnimationStore::setAnimatedEmoji,
-                    onMessageEffectsChange = chatAnimationStore::setMessageEffects,
-                    onBack = { routeName = AppRoute.Settings.name }
                 )
                 AppRoute.MusicSearch -> MusicSearchScreen(
                     accountId = selectedAccountId,
