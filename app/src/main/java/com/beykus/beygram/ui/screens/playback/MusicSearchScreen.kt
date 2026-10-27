@@ -60,6 +60,7 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
@@ -164,17 +165,25 @@ internal fun MusicSearchScreen(
         scope.launch {
             conversation.musicBotTrack(result.queryId, result.id).onSuccess { track ->
                 if (track == null) return@onSuccess
+                // The screen may have left while the cleanup ran. A cancelled caller must not start playback.
+                if (!isActive) {
+                    MusicBotCache.discard(track.path)
+                    return@onSuccess
+                }
                 // A newer tap wins: an older download that finishes later must not replace what the user picked last.
                 if (selection != latestSelection.get()) {
                     MusicBotCache.discard(track.path)
                     return@onSuccess
                 }
                 val key = "bot:${result.queryId}:${result.id}"
+                val playing = PlaybackEngine.state.value.item?.takeIf { it.key == key }
                 // Tapping the same result again: the player still reads the copy it has, so that copy is kept and the new one dropped.
-                val playingPath = PlaybackEngine.state.value.item?.takeIf { it.key == key }?.path?.takeIf { File(it).exists() }
+                val playingPath = playing?.path?.takeIf { File(it).exists() }
                 if (playingPath != null) MusicBotCache.discard(track.path)
+                // The player rebuilds its source only when the key changes. If the old copy was evicted, the new copy gets a new key.
+                val itemKey = if (playing != null && playingPath == null) "$key:${File(track.path).name}" else key
                 val item = PlaybackItem(
-                    key = key,
+                    key = itemKey,
                     kind = MediaKind.Audio,
                     path = playingPath ?: track.path,
                     title = track.title,
