@@ -120,10 +120,28 @@ internal fun setMessageSenderBlockListRequest(
 internal fun reportChatRequest(
     chatId: Long,
     optionId: ByteArray = ByteArray(0),
-    text: String = ""
+    text: String = "",
+    messageIds: LongArray = longArrayOf()
 ): TdApi.ReportChat {
     require(chatId != 0L) { "Chat id must not be zero" }
-    return TdApi.ReportChat(chatId, optionId, longArrayOf(), text)
+    return TdApi.ReportChat(chatId, optionId, messageIds, text)
+}
+
+/** Picks the Telegram option that matches the reason the user chose. Telegram's own option texts are localized. */
+internal fun chooseMessageReportOption(
+    options: Array<TdApi.ReportOption>?,
+    reason: com.beykus.beygram.domain.model.MessageReportReason
+): TdApi.ReportOption? {
+    val keywords = when (reason) {
+        com.beykus.beygram.domain.model.MessageReportReason.Spam -> listOf("spam", "спам")
+        com.beykus.beygram.domain.model.MessageReportReason.Violence -> listOf("violence", "насили")
+        com.beykus.beygram.domain.model.MessageReportReason.PersonalDetails -> listOf("personal", "личн")
+    }
+    return options.orEmpty().firstOrNull { option ->
+        val id = String(option.id ?: ByteArray(0), Charsets.UTF_8)
+        val text = option.text.orEmpty()
+        keywords.any { id.contains(it, ignoreCase = true) || text.contains(it, ignoreCase = true) }
+    }
 }
 
 /** Picks Telegram's canonical "spam" option and never substitutes an unrelated report reason. */

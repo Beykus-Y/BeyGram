@@ -32,6 +32,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageSendOptions
+import com.beykus.beygram.domain.model.MessageReportReason
 import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.SpeechRecognitionException
 import com.beykus.beygram.domain.model.SpeechRecognitionFailure
@@ -765,6 +766,11 @@ class TdLibTelegramRepository private constructor(
         reportChatAsSpam(chatId)
     }
 
+    override suspend fun reportMessages(chatId: Long, messageIds: List<Long>, reason: MessageReportReason): Result<Unit> = requestResult {
+        require(messageIds.isNotEmpty()) { "Report needs at least one message" }
+        reportMessagesAs(chatId, messageIds.toLongArray(), reason)
+    }
+
     override suspend fun reportSpamForUser(userId: Long): Result<Unit> = requestResult {
         require(userId > 0L) { "User id must be positive" }
         // Reporting a blocked sender must not require the user to open the conversation first.
@@ -778,6 +784,17 @@ class TdLibTelegramRepository private constructor(
      * an unrelated reason would be a false report, so a missing spam option is reported as an
      * error instead. A text/message requirement is surfaced instead of inventing content.
      */
+    /** Same two-step flow as the chat report: TDLib first asks for a reason, then accepts the matching option. */
+    private suspend fun reportMessagesAs(chatId: Long, messageIds: LongArray, reason: MessageReportReason) {
+        var result: TdApi.ReportChatResult = tdRequests(reportChatRequest(chatId, messageIds = messageIds))
+        if (result is TdApi.ReportChatResultOptionRequired) {
+            val option = chooseMessageReportOption(result.options, reason)
+                ?: throw UserMessageException(UiText.Res(R.string.err_message_report_unavailable))
+            result = tdRequests(reportChatRequest(chatId, option.id ?: ByteArray(0), messageIds = messageIds))
+        }
+        if (result !is TdApi.ReportChatResultOk) throw UserMessageException(UiText.Res(R.string.err_message_report_unavailable))
+    }
+
     private suspend fun reportChatAsSpam(chatId: Long) {
         var result: TdApi.ReportChatResult = tdRequests(reportChatRequest(chatId))
         if (result is TdApi.ReportChatResultOptionRequired) {

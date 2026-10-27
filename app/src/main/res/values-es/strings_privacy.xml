@@ -59,4 +59,11 @@
     <string name="err_report_spam_unavailable">Telegram no ofreció la opción de denunciar spam.</string>
     <string name="err_report_spam_requires_text">Telegram requiere una descripción para la denuncia. Usa el cliente oficial para esta denuncia.</string>
     <string name="err_report_spam_requires_messages">Telegram requiere seleccionar mensajes para denunciar.</string>
+    <string name="message_action_report">Denunciar</string>
+    <string name="message_report_title">Denunciar mensaje</string>
+    <string name="message_report_reason_spam">Spam</string>
+    <string name="message_report_reason_violence">Violencia</string>
+    <string name="message_report_reason_personal">Datos personales</string>
+    <string name="message_report_done">Denuncia enviada</string>
+    <string name="err_message_report_unavailable">No se pudo enviar la denuncia. Telegram no ofreció un motivo adecuado.</string>
 </resources>
