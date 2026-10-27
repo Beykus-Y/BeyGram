@@ -236,6 +236,8 @@ fun ChatScreen(
         listSaver<Set<Long>, Long>(save = { it.toList() }, restore = { it.toSet() })
     }
     var selectionIds by rememberSaveable(chat.id, stateSaver = selectionSaver) { mutableStateOf(emptySet<Long>()) }
+    // The message the user long-pressed to start selection; its one-message actions stay reachable while the selection is still just it.
+    var selectionAnchorId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var selectionBusy by remember { mutableStateOf(false) }
     var selectionError by remember { mutableStateOf<String?>(null) }
     var selectionForwardOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
@@ -747,6 +749,7 @@ fun ChatScreen(
     fun exitSelection() {
         selectionMode = false
         selectionIds = emptySet()
+        selectionAnchorId = null
         selectionError = null
         selectionForwardOpen = false
         selectionDeleteOpen = false
@@ -754,6 +757,13 @@ fun ChatScreen(
         selectionDeleteBusy = false
         selectionDeleteError = null
     }
+    // A long press on a bubble starts multi-select with that message already picked. The one-message action sheet stays
+    // reachable from the selection bar while the selection is exactly the pressed message or its album.
+    fun selectOnLongPress(messageId: Long) {
+        selectionAnchorId = messageId
+        messages.firstOrNull { it.id == messageId }?.let { enterSelection(it) }
+    }
+    val singleActionTarget = selectionAnchorId?.takeIf { selectionIds == selectionGroupIds(messages, it) }
     fun toggleSelection(message: ChatMessage) {
         val group = selectionGroupIds(messages, message.id)
         val removing = group.all { it in selectionIds }
@@ -1410,6 +1420,7 @@ fun ChatScreen(
             canCopy = selectionCanCopy,
             canSave = selectionCanSave,
             onClose = ::exitSelection,
+            onMore = singleActionTarget?.let { id -> { exitSelection(); actionsId = id } },
             onForward = { forwardAsCopy = false; selectionForwardOpen = true; selectionError = null },
             onDelete = ::requestSelectionDelete,
             onCopy = ::copySelection,
@@ -1559,7 +1570,7 @@ fun ChatScreen(
                                 MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                     highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
-                                    onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                    onOpen = { selectedMediaId = it }, onActions = ::selectOnLongPress, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                     onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
                                     selectionMode = selectionMode,
                                     selected = listItem.messages.all { it.id in selectionIds },
@@ -1610,7 +1621,7 @@ fun ChatScreen(
                             if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
                             else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                             else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
-                                highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { selectOnLongPress(message.id) }, longPressSelects = true, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                 onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                                 onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, ::requestBotWebApp) },
                                 onBubblePositioned = bubblePosition,
@@ -2122,58 +2133,60 @@ fun ChatScreen(
         else -> emptyList()
     }
     if (forwardIds.isNotEmpty()) ForwardChatDialog(
-        chats, forwardBusy, forwardError, asCopy = forwardAsCopy,
+        chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
+        commentLimit = limits.text,
         loadTopics = { conversation.forumTopics(it) },
-        onPick = { target, topicId ->
-            scope.launch {
-                forwardBusy = true; forwardError = null
-                try {
-                    val result = if (forwardIds.size == 1) {
+        // Each target is one forward request. A target that refuses the messages, or refuses the comment after them,
+        // stays selected so a retry only touches it; the others are already sent and drop out of the selection.
+        onSend = { targets, comment ->
+            forwardBusy = true; forwardError = null
+            val failed = mutableListOf<ForwardTarget>()
+            var lastError: String? = null
+            try {
+                for (target in targets) {
+                    val topic = target.topicId.takeIf { it > 0L }
+                    val forwarded = if (forwardIds.size == 1) {
                         conversation.forwardMessage(
-                            chat.id, forwardIds.single(), target.id, asCopy = forwardAsCopy,
-                            messageThreadId = topicId.takeIf { it > 0L }
+                            chat.id, forwardIds.single(), target.chatId, asCopy = forwardAsCopy, messageThreadId = topic
                         ).map { ForwardedMessages(forwardedIds = forwardIds, failedIds = emptyList()) }
                     } else {
-                        conversation.forwardMessages(
-                            chat.id, forwardIds, target.id, asCopy = forwardAsCopy,
-                            messageThreadId = topicId.takeIf { it > 0L }
-                        )
+                        conversation.forwardMessages(chat.id, forwardIds, target.chatId, asCopy = forwardAsCopy, messageThreadId = topic)
                     }
-                    result.onSuccess { outcome ->
-                        if (!outcome.isComplete) {
-                            // Keep only the messages TDLib refused selected, so a retry cannot duplicate the sent ones.
-                            selectionIds = outcome.failedIds.toSet()
-                            forwardId = null
-                            selectionForwardOpen = false
-                            forwardAsCopy = false
-                            forwardError = null
-                            val partial = context.getString(
-                                R.string.message_selection_forwarded_partial,
-                                outcome.forwardedIds.size,
-                                outcome.failedIds.size
-                            )
-                            Toast.makeText(context, partial, Toast.LENGTH_LONG).show()
-                            selectionError = partial
-                        } else {
-                            val copied = forwardAsCopy
-                            val forwarded = outcome.forwardedIds
-                            forwardId = null
-                            selectionForwardOpen = false
-                            forwardAsCopy = false
-                            forwardError = null
-                            if (selectionMode) exitSelection()
-                            Toast.makeText(
-                                context,
-                                if (forwarded.size > 1) context.getString(R.string.message_selection_forwarded, forwarded.size)
-                                else context.getString(if (copied) R.string.message_forwarded_without_author else R.string.chat_message_forwarded),
-                                Toast.LENGTH_SHORT
-                            ).show()
+                    if (forwarded.getOrNull()?.isComplete != true) {
+                        failed += target
+                        lastError = forwarded.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                        continue
+                    }
+                    if (comment.isNotEmpty()) {
+                        // The draft belongs to the destination composer, which this forward must not clear.
+                        conversation.sendMessage(target.chatId, comment, forumTopicId = target.topicId, clearDraft = false).onFailure {
+                            failed += target
+                            lastError = it.userMessage(context, R.string.chat_forward_failed)
                         }
-                    }.onFailure {
-                        forwardError = it.userMessage(context, R.string.chat_forward_failed)
                     }
-                } finally { forwardBusy = false }
+                }
+            } finally {
+                forwardBusy = false
             }
+            if (failed.isEmpty()) {
+                val copied = forwardAsCopy
+                forwardError = null
+                if (selectionMode) exitSelection()
+                Toast.makeText(
+                    context,
+                    when {
+                        targets.size > 1 -> context.getString(R.string.forward_sent_to_chats, targets.size)
+                        forwardIds.size > 1 -> context.getString(R.string.message_selection_forwarded, forwardIds.size)
+                        copied -> context.getString(R.string.message_forwarded_without_author)
+                        else -> context.getString(R.string.chat_message_forwarded)
+                    },
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                // Only the failed targets stay selected, so a retry cannot duplicate a chat that already has the messages.
+                forwardError = context.getString(R.string.forward_failed_chats, failed.size) + lastError?.let { "\n$it" }.orEmpty()
+            }
+            failed
         },
         onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
     )
@@ -2455,7 +2468,9 @@ internal fun ChannelCommentsBar(count: Int, onClick: () -> Unit) {
 /** One chat bubble: regular text/media, special cards, and the placeholder for expired self-destructing media. */
 @Composable
 internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
-    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {},
+    isRead: Boolean = false, highlighted: Boolean = false, onOpen: () -> Unit, onActions: (() -> Unit)? = null,
+    /** Chat bubbles start multi-select on long press; other callers keep their own long-press action. */
+    longPressSelects: Boolean = false, onReplyClick: (MessageReply) -> Unit = {}, onPlayed: () -> Unit = {}, onRetry: () -> Unit = {}, onReply: ((Long) -> Unit)? = null, onReaction: (Long, ReactionOption) -> Unit, observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>, inlineContent: @Composable () -> Unit = {},
     onSenderClick: (() -> Unit)? = null,
     /** Callers pass the chat/grouping decision; the sender name itself stays available for replies, search and profiles. */
     showSenderHeader: Boolean = true,
@@ -2516,7 +2531,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
     val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
-    val messageActionsLabel = stringResource(R.string.a11y_message_actions)
+    val longPressLabel = stringResource(if (longPressSelects) R.string.message_action_select else R.string.a11y_message_actions)
     val selectionLabel = if (selectionMode) stringResource(if (selected) R.string.message_selection_deselect else R.string.message_selection_select) else null
     val selectionState = if (selectionMode) stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected) else null
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
@@ -2544,7 +2559,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 message.media != null && !message.media.kind.playsInline() -> openMediaLabel
                                 else -> null
                             },
-                            onLongClickLabel = if (selectionMode) selectionLabel else messageActionsLabel,
+                            onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
                             onClick = {
                                 when {
                                     selectionMode -> onToggleSelection()

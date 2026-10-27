@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -820,13 +821,16 @@ private fun PremiumGiftCodeSection(
                 colors = beyGramTextFieldColors(),
                 modifier = Modifier.fillMaxWidth()
             )
-            FilledTonalButton(
+            // Solid when it can be pressed, muted while checking, so the enabled and disabled states read differently.
+            Button(
                 onClick = ::check,
                 enabled = !busy,
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = palette.accentSoft,
-                    contentColor = palette.accentInk
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = palette.accent,
+                    contentColor = palette.onAccent,
+                    disabledContainerColor = palette.divider,
+                    disabledContentColor = palette.textSecondary
                 ),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
             ) {
@@ -1166,9 +1170,7 @@ internal fun MonetizationSectionHeader(text: String) {
 internal fun MonetizationCard(content: @Composable ColumnScope.() -> Unit) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
             .padding(vertical = 4.dp),
         content = content
     )

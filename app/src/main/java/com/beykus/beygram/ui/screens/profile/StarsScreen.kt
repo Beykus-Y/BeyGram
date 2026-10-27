@@ -49,7 +49,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -409,11 +408,22 @@ fun StarsScreen(
                         }
                     }
                     if (stars.topUpOptions.isNotEmpty()) {
+                        // Where the payment happens is a note under the options, not a card that competes with them.
                         item("topup_info") {
-                            MonetizationStateCard(
-                                title = stringResource(R.string.stars_topup_browser_title),
-                                body = stringResource(R.string.stars_topup_browser_body)
-                            )
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                                Text(
+                                    stringResource(R.string.stars_topup_browser_title),
+                                    color = palette.textSecondary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    stringResource(R.string.stars_topup_browser_body),
+                                    color = palette.textSecondary,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
+                            }
                         }
                         item("topup_options") {
                             MonetizationCard {
@@ -739,9 +749,7 @@ private fun StarTransactionRow(transaction: StarTransactionItem) {
     val amountText = formatStarAmount(transaction.amount.starCount, transaction.amount.nanostarCount)
         .let { if (positive) "+$it" else it }
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {

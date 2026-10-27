@@ -193,6 +193,7 @@
     <string name="gifts_catalog_own_hint">Gifts can be sent from another user\'s profile.</string>
     <string name="gifts_catalog_empty">No gifts are available.</string>
     <string name="gifts_received_title">Received gifts</string>
+    <string name="gifts_gift_generic">Gift</string>
     <string name="gifts_received_empty">No gifts received yet.</string>
     <string name="gifts_received_error">Could not load received gifts</string>
     <string name="gifts_collections_title">Collections</string>

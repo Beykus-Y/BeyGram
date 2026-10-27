@@ -73,6 +73,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import com.beykus.beygram.ui.screens.playback.rememberMusicCardPlayback
 import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
+import com.beykus.beygram.ui.screens.chat.ForwardTarget
 import com.beykus.beygram.ui.screens.chat.LocalMediaImage
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.MediaViewer
@@ -217,15 +218,24 @@ internal fun SharedMediaViewer(
         onShowInChat = { messageId -> onViewing(null); onOpenMessage(messageId) }
     )
     forwardId?.let { id ->
-        ForwardChatDialog(chats, forwardBusy, forwardError,
-            onPick = { target, _ -> scope.launch {
+        ForwardChatDialog(
+            chats, forwardBusy, forwardError, observeFile, downloadFile, allowComment = false,
+            onSend = { targets, _ ->
                 forwardBusy = true; forwardError = null
+                val failed = mutableListOf<ForwardTarget>()
+                var lastError: String? = null
                 try {
-                    val result = forwardMessage(id, target.id)
-                    if (result.isSuccess) { forwardId = null; Toast.makeText(context, context.getString(R.string.chat_message_forwarded), Toast.LENGTH_SHORT).show() }
-                    else forwardError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                    targets.forEach { target ->
+                        forwardMessage(id, target.chatId).onFailure {
+                            failed += target
+                            lastError = it.userMessage(context, R.string.chat_forward_failed)
+                        }
+                    }
                 } finally { forwardBusy = false }
-            } },
+                if (failed.isEmpty()) Toast.makeText(context, context.getString(R.string.chat_message_forwarded), Toast.LENGTH_SHORT).show()
+                else forwardError = lastError
+                failed
+            },
             onClose = { forwardId = null; forwardError = null })
     }
 }

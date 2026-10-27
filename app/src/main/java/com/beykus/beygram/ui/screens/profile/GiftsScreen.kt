@@ -17,11 +17,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.Refresh
@@ -48,7 +48,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
@@ -684,9 +683,7 @@ private fun GiftCatalogRow(
 ) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {
@@ -737,17 +734,19 @@ private fun GiftCatalogRow(
 private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(gift.emoji.ifBlank { "🎁" }, fontSize = 28.sp)
+            // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
+            Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), contentAlignment = Alignment.Center) {
+                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+            }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                // Regular gifts have no title from Telegram, so they show a generic name rather than the list heading.
                 Text(
-                    gift.name.ifBlank { stringResource(R.string.gifts_received_title) },
+                    gift.name.ifBlank { stringResource(R.string.gifts_gift_generic) },
                     color = palette.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
@@ -796,9 +795,7 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
 private fun GiftCollectionRow(collection: GiftCollectionItem) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .heightIn(min = 48.dp)
             .semantics(mergeDescendants = true) {},

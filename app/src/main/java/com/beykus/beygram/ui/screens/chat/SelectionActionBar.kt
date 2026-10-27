@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -52,6 +53,8 @@ internal fun SelectionActionBar(
     canCopy: Boolean,
     canSave: Boolean,
     onClose: () -> Unit,
+    /** Shown only when exactly one message is selected; opens the single-message actions. */
+    onMore: (() -> Unit)? = null,
     onForward: () -> Unit,
     onDelete: () -> Unit,
     onCopy: () -> Unit,
@@ -76,6 +79,7 @@ internal fun SelectionActionBar(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
+            onMore?.let { SelectionAction(Icons.Rounded.MoreVert, stringResource(R.string.a11y_message_actions), palette.accent, enabled = !busy, onClick = it) }
             SelectionAction(Icons.AutoMirrored.Rounded.Forward, stringResource(R.string.message_action_forward), palette.accent, enabled = !busy && count > 0, onClick = onForward)
             SelectionAction(Icons.Rounded.ContentCopy, stringResource(R.string.message_selection_copy), palette.accent, enabled = !busy && canCopy, onClick = onCopy)
             SelectionAction(Icons.Rounded.Download, stringResource(R.string.message_selection_save), palette.accent, enabled = !busy && canSave, onClick = onSave)

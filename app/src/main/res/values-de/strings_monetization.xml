@@ -193,6 +193,7 @@
     <string name="gifts_catalog_own_hint">Geschenke können im Profil eines anderen Benutzers gesendet werden.</string>
     <string name="gifts_catalog_empty">Es sind keine Geschenke verfügbar.</string>
     <string name="gifts_received_title">Erhaltene Geschenke</string>
+    <string name="gifts_gift_generic">Geschenk</string>
     <string name="gifts_received_empty">Noch keine Geschenke erhalten.</string>
     <string name="gifts_received_error">Erhaltene Geschenke konnten nicht geladen werden</string>
     <string name="gifts_collections_title">Sammlungen</string>

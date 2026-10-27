@@ -693,4 +693,12 @@
     <string name="music_search_empty">Aucun résultat</string>
     <string name="music_search_failed">Échec de la recherche musicale</string>
     <string name="music_load_more">Afficher plus</string>
+    <string name="forward_search_hint">Rechercher des discussions</string>
+    <string name="forward_comment_hint">Commentaire (facultatif)</string>
+    <string name="forward_selected_count">Sélectionnés : %1$d</string>
+    <string name="forward_send_count">Transférer (%1$d)</string>
+    <string name="forward_no_results">Aucun résultat</string>
+    <string name="forward_pick_hint">Touchez les discussions pour les sélectionner. Rien n’est envoyé avant le bouton.</string>
+    <string name="forward_failed_chats">Échec de l’envoi dans %1$d discussions. Seules celles-ci restent sélectionnées.</string>
+    <string name="forward_sent_to_chats">Transféré dans %1$d discussions</string>
 </resources>

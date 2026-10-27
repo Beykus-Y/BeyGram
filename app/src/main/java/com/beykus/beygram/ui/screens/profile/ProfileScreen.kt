@@ -155,10 +155,13 @@ fun ProfileScreen(
                     ProfileSubtitle(info, lastSeenStyle)
                     ProfileBadges(info)
                     if (isOwnProfile) {
+                        // Edit and photo change share one row, so the header takes one action line instead of two.
                         Spacer(Modifier.height(14.dp))
-                        FilledTonalButton(onClick = onEdit, enabled = !state.isLoading && state.error == null && !saving && !preparing, shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.height(46.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.profile_action_edit), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                        TextButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !saving && !preparing) { Text(if (preparing) stringResource(R.string.profile_photo_preparing) else stringResource(R.string.profile_action_change_photo), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalButton(onClick = onEdit, enabled = !state.isLoading && state.error == null && !saving && !preparing, shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f, fill = false).heightIn(min = 48.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.profile_action_edit), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                            TextButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !saving && !preparing, modifier = Modifier.weight(1f, fill = false).heightIn(min = 48.dp)) { Text(if (preparing) stringResource(R.string.profile_photo_preparing) else stringResource(R.string.profile_action_change_photo), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                        }
                     } else if (info.kind == ProfileKind.Person || info.kind == ProfileKind.Secret) {
                         Spacer(Modifier.height(14.dp))
                         FilledTonalButton(
@@ -388,7 +391,7 @@ internal fun profileRows(context: Context, info: ProfileInfo, withSharedCounts: 
 @Composable
 internal fun ProfileRowsCard(rows: List<Pair<String, String>>) {
     val palette = beyGramPalette()
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
         rows.forEachIndexed { index, (label, value) ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
             InfoRow(label, value)
@@ -419,9 +422,7 @@ private fun ProfileMonetizationLinks(onPremium: () -> Unit, onStars: () -> Unit,
             .semantics { heading() }
     )
     Column(
-        Modifier.padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(palette.surface)
+        Modifier.profileCardSurface(palette.surface)
             .padding(vertical = 4.dp)
     ) {
         MonetizationLinkRow(Icons.Rounded.WorkspacePremium, stringResource(R.string.profile_monetization_premium), onPremium)
@@ -461,7 +462,7 @@ internal fun AdministratorsSection(administrators: List<ProfileAdmin>, onOpenUse
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_admins_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
         administrators.forEachIndexed { index, admin ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
             Box(Modifier.fillMaxWidth().clickable { onOpenUser(admin.userId) }) {
@@ -476,7 +477,7 @@ private fun MembersSection(info: ProfileInfo, observeFile: (Int) -> StateFlow<Me
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_members_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
         info.memberPreview.forEachIndexed { index, member ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 82.dp))
             MemberRow(member, observeFile, downloadFile) { onOpenUser(member.userId) }
@@ -499,7 +500,7 @@ private fun HiddenTabsSection(hiddenTabs: List<MainTab>, onOpenTab: (MainTab) ->
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_hidden_tabs_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
         hiddenTabs.forEachIndexed { index, tab ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { onOpenTab(tab) }.padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
