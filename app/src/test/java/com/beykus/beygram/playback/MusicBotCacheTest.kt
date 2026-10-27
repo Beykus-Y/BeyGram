@@ -1,6 +1,11 @@
 package com.beykus.beygram.playback
 
 import java.io.File
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -13,10 +18,11 @@ class MusicBotCacheTest {
 
     private fun source(): File = temporary.newFile().apply { writeText("audio") }
 
-    @Test fun storedCopyHasItsOwnNameAndContent() {
-        val dir = File(temporary.root, DIR)
-        val first = MusicBotCache.store(source(), dir)
-        val second = MusicBotCache.store(source(), dir)
+    private val dir: File by lazy { File(temporary.root, DIR) }
+
+    @Test fun copiesGetOwnNamesAndContent() = runBlocking {
+        val first = MusicBotCache.copyReserved(source(), dir)
+        val second = MusicBotCache.copyReserved(source(), dir)
 
         assertTrue(first.exists() && second.exists())
         assertFalse(first.absolutePath == second.absolutePath)
@@ -25,12 +31,11 @@ class MusicBotCacheTest {
         MusicBotCache.discard(second.absolutePath)
     }
 
-    @Test fun pruneKeepsPlayedAndPendingCopiesAndRemovesTheRest() {
-        val dir = File(temporary.root, DIR)
-        val playing = MusicBotCache.store(source(), dir)
+    @Test fun pruneKeepsPlayedAndPendingCopiesAndRemovesTheRest() = runBlocking {
+        val playing = MusicBotCache.copyReserved(source(), dir)
         MusicBotCache.handOver(playing.absolutePath)
-        val pending = MusicBotCache.store(source(), dir)
-        val stale = MusicBotCache.store(source(), dir)
+        val pending = MusicBotCache.copyReserved(source(), dir)
+        val stale = MusicBotCache.copyReserved(source(), dir)
         MusicBotCache.handOver(stale.absolutePath)
 
         MusicBotCache.prune(dir, setOf(playing.absolutePath))
@@ -42,9 +47,8 @@ class MusicBotCacheTest {
         MusicBotCache.discard(playing.absolutePath)
     }
 
-    @Test fun copyStaysProtectedUntilHandedOverAndIsRemovedAfterwards() {
-        val dir = File(temporary.root, DIR)
-        val copy = MusicBotCache.store(source(), dir)
+    @Test fun copyStaysProtectedUntilHandedOverAndIsRemovedAfterwards() = runBlocking {
+        val copy = MusicBotCache.copyReserved(source(), dir)
 
         MusicBotCache.prune(dir, emptySet())
         assertTrue(copy.exists())
@@ -54,12 +58,29 @@ class MusicBotCacheTest {
         assertFalse(copy.exists())
     }
 
-    @Test fun discardRemovesACopyNobodyWillPlay() {
-        val copy = MusicBotCache.store(source(), File(temporary.root, DIR))
+    @Test fun discardRemovesACopyNobodyWillPlay() = runBlocking {
+        val copy = MusicBotCache.copyReserved(source(), dir)
 
         MusicBotCache.discard(copy.absolutePath)
 
         assertFalse(copy.exists())
+    }
+
+    @Test fun cancelAfterTheCopyLeavesNoFileAndNoReservation() = runBlocking {
+        val before = MusicBotCache.pendingCount
+
+        val job = launch {
+            // Cancels the caller once the reservation exists and the file is complete, the window the cleanup must cover.
+            MusicBotCache.copyReserved(source(), dir) {
+                currentCoroutineContext().job.cancel()
+                yield()
+            }
+        }
+        job.join()
+
+        assertTrue(job.isCancelled)
+        assertEquals(before, MusicBotCache.pendingCount)
+        assertTrue(dir.listFiles().orEmpty().isEmpty())
     }
 
     private companion object {

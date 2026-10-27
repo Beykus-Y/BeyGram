@@ -7,7 +7,6 @@ import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.playback.MusicBotCache
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
@@ -133,9 +132,7 @@ internal class TdBotFeatures(client: () -> Client) {
      * TDLib deletes a downloaded file together with the message it came from, so the track is copied into the app
      * cache first. The cache keeps the copy until the player has it and removes it once the player no longer uses it.
      */
-    private suspend fun copyOutOfTdlib(source: File, cacheDir: File): File = withContext(Dispatchers.IO) {
-        MusicBotCache.store(source, cacheDir)
-    }
+    private suspend fun copyOutOfTdlib(source: File, cacheDir: File): File = MusicBotCache.copyReserved(source, cacheDir)
 
     /**
      * Deletes exactly the message this operation sent. The audio file id is shared by every copy of the track, so it
