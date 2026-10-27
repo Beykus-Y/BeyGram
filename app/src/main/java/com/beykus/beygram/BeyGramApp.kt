@@ -170,6 +170,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.screens.playback.EqualizerScreen
+import com.beykus.beygram.ui.screens.playback.MusicSearchScreen
 import com.beykus.beygram.ui.screens.playback.LocalOpenEqualizer
 import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
 import com.beykus.beygram.ui.screens.playback.PlaybackRepositorySource
@@ -1503,6 +1504,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.ChatAnimations) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
@@ -2314,6 +2316,13 @@ private fun BeyGramAppContent(
                     onMessageEffectsChange = chatAnimationStore::setMessageEffects,
                     onBack = { routeName = AppRoute.Settings.name }
                 )
+                AppRoute.MusicSearch -> MusicSearchScreen(
+                    accountId = selectedAccountId,
+                    conversation = repository,
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile,
+                    onBack = { routeName = AppRoute.Settings.name }
+                )
                 AppRoute.Equalizer -> EqualizerScreen(
                     settings = equalizerSettings,
                     runtime = equalizerRuntimeState,
@@ -2385,7 +2394,8 @@ private fun BeyGramAppContent(
                         onSecondaryAccounts = { accountSwitcherVisible = true },
                         onChatAnimations = { routeName = AppRoute.ChatAnimations.name },
                         onAppLock = { routeName = AppRoute.AppLock.name },
-                        onEqualizer = { routeName = AppRoute.Equalizer.name }
+                        onEqualizer = { routeName = AppRoute.Equalizer.name },
+                        onMusicSearch = { routeName = AppRoute.MusicSearch.name }
                     )
                 }
                 AppRoute.AppLock -> AppLockSettingsScreen(onBack = { routeName = AppRoute.Settings.name })

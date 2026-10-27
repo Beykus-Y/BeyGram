@@ -661,6 +661,12 @@
     <string name="player_sleep_in_minutes">Stop in %1$d min</string>
     <string name="player_sleep_remaining">Sleep timer · %1$d min left</string>
     <string name="player_sleep_cancel">Cancel timer (%1$d min left)</string>
+    <string name="settings_music_title">Music</string>
+    <string name="music_search_hint">Song or artist</string>
+    <string name="music_search_intro">Searches music audio messages in your chats and channels. Tap a track to play it in the BeyGram player.</string>
+    <string name="music_search_empty">Nothing found</string>
+    <string name="music_search_failed">Music search failed</string>
+    <string name="music_load_more">Show more</string>
     <string name="forward_search_hint">Search chats</string>
     <string name="forward_comment_hint">Comment (optional)</string>
     <string name="forward_selected_count">Selected: %1$d</string>
