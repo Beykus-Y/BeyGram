@@ -146,6 +146,9 @@ object PlaybackEngine {
     private var interruptedMusic: InterruptedMusic? = null
     /** Lazily resolves not-yet-downloaded queue items for the current account. */
     private var queueSource: PlaybackQueueSource? = null
+    private var queuePageJob: Job? = null
+    /** Invalidates a page returning after another chat, account or queue takes over the player. */
+    private var queuePageGeneration = 0L
     /** Отметка «прослушано», которую плеер вызовет, когда файл начнёт играть. Работает, даже если пузырь уже ушёл с экрана. */
     private var startedCallback: Pair<String, () -> Unit>? = null
     /** Приложение на переднем плане. Отметку репозиторий принимает только отсюда, поэтому файл, начавший играть в фоне, ждёт возврата. */
@@ -420,6 +423,9 @@ object PlaybackEngine {
         pendingStartFraction = 0f
         startedCallback = startedCallback?.takeIf { it.first == selected.key }
         queueSource = source
+        queuePageGeneration++
+        queuePageJob?.cancel()
+        queuePageJob = null
         prefetchedKeys.clear()
 
         PlaybackSources.clear()
@@ -461,12 +467,16 @@ object PlaybackEngine {
         if (!item.systemPrivate) startPlaybackService()
         startProgress()
         prefetchNext()
+        loadNextQueuePage()
     }
 
     @OptIn(UnstableApi::class)
     private fun startSingle(context: Context, item: PlaybackItem, startPositionMs: Long?, startFraction: Float) {
         val target = rawPlayer(context)
         transitionToken++
+        queuePageGeneration++
+        queuePageJob?.cancel()
+        queuePageJob = null
         syncPosition()
         clearDeferredSeek()
         pendingStartFraction = 0f
@@ -873,6 +883,9 @@ object PlaybackEngine {
     fun stop() {
         interruptedMusic = null
         queueSource = null
+        queuePageGeneration++
+        queuePageJob?.cancel()
+        queuePageJob = null
         prefetchedKeys.clear()
         haltPlayer()
     }
@@ -952,6 +965,7 @@ object PlaybackEngine {
             target.play()
             startProgress()
         }
+        loadNextQueuePage()
     }
 
     fun previous() {
@@ -1260,7 +1274,10 @@ object PlaybackEngine {
                 }
             }
             updateAudioSessionId()
-            if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) prefetchNext()
+            if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                prefetchNext()
+                loadNextQueuePage()
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -1368,6 +1385,45 @@ object PlaybackEngine {
                 val target = exo ?: break
                 if (!target.isPlaying && target.playbackState != Player.STATE_BUFFERING) break
                 delay(PROGRESS_INTERVAL_MS)
+            }
+        }
+    }
+
+    /**
+     * Extends the existing Media3 timeline without rebuilding the current source or resetting the seek position.
+     * The loader belongs to the active Telegram account, and a stale result cannot resurrect a stopped queue.
+     */
+    private fun loadNextQueuePage() {
+        val source = queueSource ?: return
+        val loader = source.loadMore ?: return
+        val snapshot = _state.value
+        if (snapshot.item?.isMusic != true || snapshot.item.systemPrivate || snapshot.queue.isEmpty()) return
+        if (snapshot.queue.size - snapshot.queueIndex > 5 || queuePageJob?.isActive == true) return
+        val generation = queuePageGeneration
+        val currentAccount = snapshot.item.accountId
+        queuePageJob = scope.launch {
+            try {
+                val page = loader()
+                if (generation != queuePageGeneration || source !== queueSource || currentAccount != activeAccountId) return@launch
+                val now = _state.value
+                if (now.queue.isEmpty() || now.item?.accountId != currentAccount) return@launch
+                val fresh = appendMusicPage(now.queue, page, currentAccount)
+                if (fresh.isEmpty()) return@launch
+                val target = exo ?: return@launch
+                fresh.forEach { registerSource(it, source) }
+                target.addMediaItems(fresh.map(::mediaItemFor))
+                val ended = now.ended && now.intentPlaying
+                _state.update { it.copy(queue = it.queue + fresh).withTimelineNavigation(target) }
+                if (ended) {
+                    target.seekTo(now.queue.size, 0L)
+                    if (target.playbackState == Player.STATE_IDLE || target.playbackState == Player.STATE_ENDED) target.prepare()
+                    target.play()
+                    startPlaybackService()
+                    startProgress()
+                }
+                prefetchNext()
+            } finally {
+                queuePageJob = null
             }
         }
     }
