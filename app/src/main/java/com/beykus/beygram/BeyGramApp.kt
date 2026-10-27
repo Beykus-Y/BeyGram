@@ -1971,6 +1971,7 @@ private fun BeyGramAppContent(
             },
             onGifts = { profileId, self, title -> openGifts(profileId, self, title, AppRoute.ChatInfo) },
             autoDownloadFile = repository::autoDownloadFile,
+            protectedContent = chatInfoSecure,
             startSecretChat = repository::createSecretChat,
             onSecretChatOpened = { chatId ->
                 selectedChatId = chatId
