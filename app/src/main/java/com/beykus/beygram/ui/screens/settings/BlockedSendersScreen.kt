@@ -25,7 +25,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -174,7 +173,7 @@ fun BlockedSendersScreen(
             ) {
                 itemsIndexed(senders, key = { _, sender -> "${sender.kind}:${sender.senderId}" }) { index, sender ->
                     val key = "${sender.kind}:${sender.senderId}"
-                    if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 78.dp))
+                    if (index > 0) SettingsRowDivider(startInset = 78.dp)
                     BlockedSenderRow(
                         sender = sender,
                         busy = busyKey == key,

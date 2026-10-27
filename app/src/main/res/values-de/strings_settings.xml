@@ -9,6 +9,15 @@
     <string name="settings_last_seen_title">Zuletzt gesehen</string>
     <string name="settings_storage_title">Speicher und Cache</string>
     <string name="settings_video_audio_bitrate">Ziel-Audiobitrate</string>
+    <string name="settings_video_adaptive_action">Was sich ändern lässt: %1$s</string>
+    <string name="settings_video_adaptive_encoder">H.264-Encoder bestätigt 60 FPS: %1$s.</string>
+    <string name="settings_video_adaptive_hint">Berechnet aus den angegebenen Kamera- und Encoder-Fähigkeiten. Die tatsächliche Bildrate wird erst nach der Aufnahme gemessen und kann niedriger sein.</string>
+    <string name="settings_video_adaptive_last">Letzte Aufnahme: Ziel %1$d FPS, von der Kamera angefordert bis %2$s, RAW %3$s, MP4 %4$s FPS.</string>
+    <string name="settings_video_adaptive_lens">%1$s Kamera: %2$s, Bereich %3$s bei Anfrage bis %4$d FPS, Quelle %5$d×%6$d, Ausgabe %7$d×%7$d, H.264/AVC-Export.</string>
+    <string name="settings_video_adaptive_loading">Kamerafähigkeiten werden gelesen…</string>
+    <string name="settings_video_adaptive_no_reports">Noch keine Messungen: Zeichnen Sie eine Videonachricht mit aktivierter Diagnose auf, um die tatsächliche Bildrate zu sehen.</string>
+    <string name="settings_video_adaptive_title">Geplante Qualität</string>
+    <string name="settings_video_adaptive_unavailable">Aufnahmekameras sind gerade nicht verfügbar; der Qualitätsplan wurde nicht berechnet.</string>
     <string name="settings_video_bitrate">Zielvideobitrate</string>
     <string name="settings_video_capability_note">Die Kamera und der Encoder können Auflösung, Bildrate und Bitrate einschränken. Die tatsächlichen Dateieigenschaften können abweichen.</string>
     <string name="settings_video_custom">Benutzerdefiniert</string>
@@ -25,6 +34,13 @@
     <string name="settings_video_diagnostics_raw_final">RAW %1$s / MP4 %2$s FPS</string>
     <string name="settings_video_diagnostics_report">Videonachrichtenbericht</string>
     <string name="settings_video_diagnostics_share">Bericht teilen</string>
+    <string name="settings_video_diagnostics_save">In Datei speichern</string>
+    <string name="settings_video_diagnostics_compact">Kompakt</string>
+    <string name="settings_video_diagnostics_full">Vollständig</string>
+    <string name="settings_video_diagnostics_txt">TXT</string>
+    <string name="settings_video_diagnostics_json">JSON</string>
+    <string name="diag_save_done">Bericht gespeichert</string>
+    <string name="diag_save_failed">Bericht konnte nicht gespeichert werden</string>
     <string name="settings_video_diagnostics_status_cancelled">Senden unterbrochen</string>
     <string name="settings_video_diagnostics_status_preview">Vorschau</string>
     <string name="settings_video_diagnostics_status_processing_failed">Die Verarbeitung ist fehlgeschlagen</string>
@@ -59,4 +75,14 @@
     <string name="settings_video_standard_detail">384 × 384 · 30 FPS · 1000 kbps</string>
     <string name="sessions_load_timeout">Zeitüberschreitung beim Laden der Sitzung. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.</string>
     <string name="sessions_action_timeout">Telegram hat die Aktion nicht bestätigt. Aktualisieren Sie die Liste, bevor Sie es erneut versuchen. Möglicherweise war sie bereits erfolgreich.</string>
+    <string name="quality_advice_measure_high">60 FPS sind geplant, aber nicht garantiert: Erst eine Aufnahme zeigt die tatsächliche Rate.</string>
+    <string name="quality_advice_as_requested">Die angeforderte Rate wurde gewählt; die Begrenzung ist beabsichtigt.</string>
+    <string name="quality_advice_no_normal_60">Die normalen Bereiche der Kamera erreichen nicht 60 FPS. Eine andere Voreinstellung ändert das nicht; Sie können 30 oder für schwaches Licht 24 FPS wählen.</string>
+    <string name="quality_advice_encoder_limit">Der H.264-Encoder bestätigt 60 FPS bei dieser Größe nicht. Versuchen Sie eine kleinere Auflösung (Standard oder Hoch) oder 30 FPS.</string>
+    <string name="quality_advice_stream_limit">Der Kamerastream bestätigt bei dieser Größe keine 60 FPS. Versuchen Sie eine kleinere Auflösung.</string>
+    <string name="quality_advice_range_fallback">Die Kamera gibt keinen Bereich bis zum angeforderten Maximum an; der nächstgelegene wurde gewählt. Wählen Sie eine verfügbare Rate.</string>
+    <string name="quality_advice_no_range">Es wird kein passender Bereich angegeben; die Kamerastandardeinstellung wird verwendet. Prüfen Sie das Ergebnis mit einer Aufnahme.</string>
+    <string name="quality_advice_export_drop">Frames gingen bei der Verarbeitung verloren, nicht wegen einer Kameraeinstellung. Eine erneute Aufnahme kann ein anderes Ergebnis liefern.</string>
+    <string name="quality_advice_camera_runtime">Die Kamera lieferte weniger als angefordert. Prüfen Sie Licht und Wärme; eine kleinere Größe oder 30 FPS können stabiler sein.</string>
+    <string name="quality_advice_unknown">Nicht genügend Messungen, um die Wahl der Bildrate zu erklären.</string>
 </resources>

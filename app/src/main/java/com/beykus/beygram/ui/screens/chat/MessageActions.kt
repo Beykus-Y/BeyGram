@@ -1,7 +1,10 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +23,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -40,13 +44,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageCapabilities
+import com.beykus.beygram.domain.model.MessageSpecialContent
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.motionEntrance
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.width
 
@@ -67,8 +75,12 @@ internal fun MessageActionsBar(
     onDelete: () -> Unit,
     onTogglePin: () -> Unit,
     onCopyLink: () -> Unit = {},
+    onCopyEntity: (() -> Unit)? = null,
+    onForward: () -> Unit = {},
     onForwardCopy: () -> Unit = {},
-    onTranslate: (() -> Unit)? = null
+    onSelect: () -> Unit = {},
+    onTranslate: (() -> Unit)? = null,
+    onReport: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
@@ -83,11 +95,17 @@ internal fun MessageActionsBar(
                     if (capabilities.canCopy && hasText) ActionIcon(Icons.Rounded.ContentCopy, stringResource(R.string.message_action_copy_text), palette.accent, onCopy)
                     if (capabilities.canEdit) ActionIcon(Icons.Rounded.Edit, if (isMedia) stringResource(R.string.message_action_edit_caption) else stringResource(R.string.message_action_edit), palette.accent, onEdit)
                     if (capabilities.canDeleteForSelf || capabilities.canDeleteForAll) ActionIcon(Icons.Rounded.Delete, stringResource(R.string.common_delete), palette.danger, onDelete)
-                    if (canPin || capabilities.canGetLink || capabilities.canForward || translate != null) Box {
+                    Box {
                         IconButton(onClick = { moreOpen = true }) {
                             Icon(Icons.Rounded.MoreVert, stringResource(R.string.message_action_more), tint = palette.accent)
                         }
                         DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                            onCopyEntity?.let { copy ->
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.message_action_copy_entity)) },
+                                    onClick = { moreOpen = false; copy() }
+                                )
+                            }
                             if (canPin) DropdownMenuItem(
                                 text = { Text(stringResource(if (isPinned) R.string.message_action_unpin else R.string.message_action_pin)) },
                                 onClick = { moreOpen = false; onTogglePin() }
@@ -97,14 +115,26 @@ internal fun MessageActionsBar(
                                 onClick = { moreOpen = false; onCopyLink() }
                             )
                             if (capabilities.canForward) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.message_action_forward)) },
+                                onClick = { moreOpen = false; onForward() }
+                            )
+                            if (capabilities.canForward) DropdownMenuItem(
                                 text = { Text(stringResource(R.string.message_action_forward_copy)) },
                                 onClick = { moreOpen = false; onForwardCopy() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.message_action_select)) },
+                                onClick = { moreOpen = false; onSelect() }
                             )
                             if (translate != null) DropdownMenuItem(
                                 text = { Text(stringResource(R.string.message_action_translate), color = palette.textPrimary) },
                                 leadingIcon = { Icon(Icons.Rounded.Translate, null, tint = palette.accent) },
                                 onClick = { moreOpen = false; translate() }
                             )
+                            onReport?.let { report -> DropdownMenuItem(
+                                text = { Text(stringResource(R.string.message_action_report)) },
+                                onClick = { moreOpen = false; report() }
+                            ) }
                         }
                     }
                 }
@@ -120,6 +150,45 @@ internal fun MessageActionsBar(
 @Composable
 private fun ActionIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, tint: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
     IconButton(onClick = onClick) { Icon(icon, description, tint = tint) }
+}
+
+/**
+ * A long press cannot select a single link inside a bubble without breaking message actions, so this explicit list
+ * copies the exact entity the reader chose. Values are already normalized by the caller.
+ */
+@Composable
+internal fun MessageLinkCopyDialog(links: List<String>, onCopy: (String) -> Unit, onDismiss: () -> Unit) {
+    val palette = beyGramPalette()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.message_action_copy_entity)) },
+        text = {
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                links.forEach { value ->
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .clickable(role = Role.Button) { onCopy(value) }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            value,
+                            color = palette.accentInk,
+                            fontSize = 15.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(Icons.Rounded.ContentCopy, null, tint = palette.accent, modifier = Modifier.size(20.dp))
+                    }
+                    HorizontalDivider(color = palette.divider)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close), color = palette.accent) }
+        }
+    )
 }
 
 /** Inline delete confirmation shown above the input field. */
@@ -168,7 +237,7 @@ private fun DeleteChoice(text: String, selected: Boolean, enabled: Boolean, onSe
 @Composable
 internal fun EditBanner(original: String, isCaption: Boolean, count: Int, limit: Int, error: String?, onClose: () -> Unit) {
     val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.Edit, null, tint = palette.accent, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(if (isCaption) stringResource(R.string.message_edit_caption_banner) else stringResource(R.string.message_edit_banner), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -180,4 +249,17 @@ internal fun EditBanner(original: String, isCaption: Boolean, count: Int, limit:
     }
 }
 
-@Composable internal fun ChatMessage.summary(): String = text.ifBlank { media?.kind?.label(LocalContext.current) ?: stringResource(R.string.message_title) }.take(180)
+@Composable internal fun ChatMessage.summary(): String = text.ifBlank {
+    when (val content = special) {
+        is MessageSpecialContent.Poll -> content.poll.question
+        is MessageSpecialContent.Location -> stringResource(R.string.chat_preview_location)
+        is MessageSpecialContent.LiveLocation -> stringResource(R.string.chat_preview_live_location)
+        is MessageSpecialContent.Venue -> content.venue.title.ifBlank { stringResource(R.string.chat_preview_location) }
+        is MessageSpecialContent.Contact -> content.contact.displayName
+        is MessageSpecialContent.Dice -> stringResource(R.string.chat_preview_dice, content.dice.emoji)
+        is MessageSpecialContent.PaidMedia -> stringResource(R.string.paid_content_preview_media)
+        is MessageSpecialContent.Invoice -> content.invoice.title.ifBlank { stringResource(R.string.paid_content_invoice) }
+        is MessageSpecialContent.Unsupported -> stringResource(R.string.chat_unsupported_message)
+        null -> media?.kind?.label(LocalContext.current) ?: stringResource(R.string.message_title)
+    }
+}.take(180)

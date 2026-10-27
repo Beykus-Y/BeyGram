@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="secondary_accounts_title">Cuentas de Telegram</string>
+    <string name="secondary_accounts_primary">Cuenta principal</string>
+    <string name="secondary_accounts_others">Cuenta secundaria</string>
+    <string name="secondary_accounts_account_label">Cuenta secundaria %1$d</string>
+    <string name="secondary_accounts_registry_error">No se pudo cargar el registro de cuentas de Telegram. No se modificaron datos de cuentas. Comprueba el almacenamiento de la aplicación.</string>
+
+    <string name="account_switcher_title">Cuentas</string>
+    <string name="account_switcher_add">Añadir cuenta</string>
+    <string name="account_switcher_add_note">Una sesión de Telegram independiente. Los chats, los ajustes y las notificaciones permanecen aislados.</string>
+    <string name="account_switcher_menu_description">Acciones para %1$s</string>
+    <string name="account_switcher_current_description">Cuenta actual</string>
+    <string name="account_switcher_identifier_username">\@%1$s</string>
+    <string name="account_switcher_status_current">Seleccionada</string>
+    <string name="account_switcher_status_ready">Conectada</string>
+    <string name="account_switcher_status_switching">Procesando…</string>
+    <string name="account_switcher_status_connecting">Conectando…</string>
+    <string name="account_switcher_status_offline">Sin red</string>
+    <string name="account_switcher_status_route_paused">Ruta de conexión no disponible</string>
+    <string name="account_switcher_status_phone">Esperando el número de teléfono</string>
+    <string name="account_switcher_status_code">Esperando el código</string>
+    <string name="account_switcher_status_password">Esperando la contraseña</string>
+    <string name="account_switcher_status_disconnected">Sesión iniciada · sesión detenida</string>
+    <string name="account_switcher_status_not_connected">No conectada</string>
+    <string name="account_switcher_status_unsigned">Inicio de sesión no completado</string>
+    <string name="account_switcher_status_logging_out">Cerrando sesión…</string>
+    <string name="account_switcher_status_unsupported">Se requiere otro método de inicio de sesión</string>
+    <string name="account_switcher_status_primary_signed_out">Se requiere iniciar sesión</string>
+
+    <string name="account_switcher_continue">Continuar inicio de sesión</string>
+    <string name="account_switcher_configure">Ajustes de conexión</string>
+    <string name="account_switcher_retry">Reintentar</string>
+    <string name="account_switcher_disconnect">Detener sesión</string>
+    <string name="account_switcher_disconnect_title">¿Detener esta sesión?</string>
+    <string name="account_switcher_disconnect_message">La cuenta permanece en BeyGram y conserva su inicio de sesión de Telegram. Puedes volver a conectarla en cualquier momento.</string>
+    <string name="account_switcher_disconnect_unsigned_message">Se detendrá el inicio de sesión sin terminar. La ranura permanece en la lista para que puedas continuar más tarde.</string>
+    <string name="account_switcher_disconnect_confirm">Detener</string>
+    <string name="account_switcher_logout">Cerrar sesión y eliminar datos</string>
+    <string name="account_switcher_delete_incomplete">Eliminar inicio de sesión sin terminar</string>
+    <string name="account_switcher_delete_title">¿Eliminar el inicio de sesión sin terminar?</string>
+    <string name="account_switcher_delete_message">Se eliminará la sesión local sin terminar. Las cuentas autorizadas no se verán afectadas.</string>
+    <string name="account_switcher_delete_confirm">Eliminar</string>
+
+    <string name="account_switcher_auth_add_title">Añadir cuenta</string>
+    <string name="account_switcher_auth_continue_title">Continuar inicio de sesión</string>
+    <string name="account_switcher_auth_later">Más tarde</string>
+    <string name="account_switcher_auth_preparing">Preparando sesión…</string>
+    <string name="account_switcher_auth_prepare_failed">No se pudo crear la sesión</string>
+    <string name="account_switcher_auth_switch_progress">Iniciando sesión…</string>
+    <string name="account_switcher_auth_closed">La sesión se cerró. Vuelve a conectar la cuenta.</string>
+    <string name="account_switcher_auth_unsupported">Telegram solicitó un método de inicio de sesión que aún no es compatible. Elimina el inicio de sesión sin terminar y prueba con otra cuenta.</string>
+    <string name="account_switcher_auth_retry_connect">Conectar de nuevo</string>
+    <string name="account_switcher_auth_phone_hint">El código llegará a Telegram.</string>
+    <string name="account_switcher_auth_code_hint">Introduce el código de Telegram.</string>
+    <string name="account_switcher_auth_password_hint">Introduce tu contraseña en la nube de Telegram.</string>
+
+    <string name="account_switcher_route_title">Conexión de la cuenta</string>
+    <string name="account_switcher_route_message">De forma predeterminada, la cuenta sigue la misma ruta segura que la cuenta principal. Cámbiala solo si surgen problemas de conexión.</string>
+    <string name="account_switcher_route_apply">Aplicar</string>
+    <string name="account_switcher_route_saved">La ruta se guardó y se usará en la próxima conexión.</string>
+
+    <string name="account_switcher_error_route">La ruta de conexión no está disponible. Comprueba el proxy o elige otra ruta.</string>
+    <string name="account_switcher_error_route_paused">La conexión está en pausa porque la ruta ya no coincide con los ajustes de la cuenta principal.</string>
+    <string name="account_switcher_error_session_limit">Se pueden conectar como máximo dos cuentas adicionales al mismo tiempo. Detén una de sus sesiones.</string>
+    <string name="account_switcher_error_account_limit">Se ha alcanzado el límite de cuentas de BeyGram.</string>
+    <string name="account_switcher_error_timeout">Telegram no respondió a tiempo. Comprueba la red e inténtalo de nuevo.</string>
+    <string name="account_switcher_error_not_authorized">Primero termina de iniciar sesión en esta cuenta.</string>
+    <string name="account_switcher_error_auth_phone">Comprueba el número de teléfono e inténtalo de nuevo.</string>
+    <string name="account_switcher_error_auth_code">El código es incorrecto. Compruébalo e inténtalo de nuevo.</string>
+    <string name="account_switcher_error_auth_code_expired">El código ha caducado. Solicita uno nuevo.</string>
+    <string name="account_switcher_error_auth_password">La contraseña en la nube es incorrecta. Inténtalo de nuevo.</string>
+    <string name="account_switcher_error_auth_flood">Demasiados intentos. Espera e inténtalo de nuevo.</string>
+    <string name="account_switcher_error_auth_failed">Telegram rechazó el inicio de sesión. Comprueba los datos e inténtalo de nuevo.</string>
+    <string name="account_switcher_error_generic">La acción falló. Las demás cuentas no se vieron afectadas.</string>
+
+    <string name="account_recovery_title">Cuenta no disponible</string>
+    <string name="account_recovery_message">La sesión de Telegram de la cuenta seleccionada no está en ejecución. Reintenta la conexión, elige otra cuenta o configura la ruta.</string>
+    <string name="account_recovery_retry">Reintentar conexión</string>
+    <string name="account_recovery_choose">Elegir cuenta</string>
+    <string name="account_recovery_configure">Ajustes de conexión</string>
+    <string name="account_recovery_primary">Ir a la cuenta principal</string>
+    <string name="account_recovery_busy">Conectando la cuenta…</string>
+</resources>

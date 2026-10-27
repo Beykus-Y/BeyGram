@@ -2,18 +2,23 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageReaction
+import com.beykus.beygram.domain.model.PAID_REACTION_EMOJI
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.reactionMessage
 import org.drinkless.tdlib.TdApi
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MessageReactionsTest {
     private fun reaction(type: TdApi.ReactionType, count: Int, chosen: Boolean = false) =
         TdApi.MessageReaction(type, count, chosen, null, arrayOf())
 
-    private fun interaction(vararg reactions: TdApi.MessageReaction) =
-        TdApi.MessageInteractionInfo(0, 0, null, TdApi.MessageReactions(arrayOf(*reactions), false, arrayOf(), false))
+    private fun interaction(vararg reactions: TdApi.MessageReaction, paidReactors: Array<TdApi.PaidReactor> = emptyArray()) =
+        TdApi.MessageInteractionInfo(0, 0, null, TdApi.MessageReactions(arrayOf(*reactions), false, paidReactors, false))
+
+    private fun paidReactor(starCount: Long) =
+        TdApi.PaidReactor(TdApi.MessageSenderUser(1L), starCount, true, false, false)
 
     private fun offer(emoji: String, premium: Boolean = false) = TdApi.AvailableReaction(TdApi.ReactionTypeEmoji(emoji), premium)
 
@@ -41,14 +46,39 @@ class MessageReactionsTest {
         assertEquals(listOf(MessageReaction("🔥", 4, false), MessageReaction("👍", 1, true)), chips)
     }
 
-    @Test fun `custom emoji keep their id, while paid and zero-count reactions are left out`() {
+    @Test fun `custom emoji keep their id, paid reactions keep their Stars, and zero-count reactions are left out`() {
         val chips = messageReactions(interaction(
             reaction(TdApi.ReactionTypeCustomEmoji(42L), 3),
-            reaction(TdApi.ReactionTypePaid(), 5),
+            reaction(TdApi.ReactionTypePaid(), 5, chosen = true),
             reaction(TdApi.ReactionTypeEmoji("❤"), 0),
             reaction(TdApi.ReactionTypeEmoji("😂"), 2)
         ))
-        assertEquals(listOf(MessageReaction("", 3, false, 42L), MessageReaction("😂", 2, false)), chips)
+        assertEquals(
+            listOf(
+                MessageReaction("", 3, false, 42L),
+                MessageReaction(PAID_REACTION_EMOJI, 5, true, isPaid = true),
+                MessageReaction("😂", 2, false)
+            ),
+            chips
+        )
+    }
+
+    @Test fun `paid reaction falls back to the top reactors when TDLib omits the total`() {
+        val chips = messageReactions(interaction(
+            reaction(TdApi.ReactionTypePaid(), 0),
+            paidReactors = arrayOf(paidReactor(4L), paidReactor(3L))
+        ))
+        assertEquals(listOf(MessageReaction(PAID_REACTION_EMOJI, 7, isPaid = true)), chips)
+    }
+
+    @Test fun `every current TDLib reaction type maps to an option, including paid`() {
+        assertEquals(ReactionOption("🔥"), optionOf(TdApi.ReactionTypeEmoji("🔥")))
+        assertEquals(ReactionOption("", 42L), optionOf(TdApi.ReactionTypeCustomEmoji(42L)))
+        assertEquals(ReactionOption(PAID_REACTION_EMOJI, isPaid = true), optionOf(TdApi.ReactionTypePaid()))
+    }
+
+    @Test fun `a paid option is sent as the paid type, never as an emoji`() {
+        assertTrue(reactionTypeOf(ReactionOption(PAID_REACTION_EMOJI, isPaid = true)) is TdApi.ReactionTypePaid)
     }
 
     @Test fun `a chosen custom emoji has the same option as its picker entry`() {
@@ -74,6 +104,18 @@ class MessageReactionsTest {
         val reactions = available(top = listOf(offer("🔥"), offer("💎", premium = true)))
         assertEquals(listOf("🔥"), emojisOf(pickerOptions(reactions, chat = null, activeEmojis = emptyList(), premium = false)))
         assertEquals(listOf("🔥", "💎"), emojisOf(pickerOptions(reactions, chat = null, activeEmojis = emptyList(), premium = true)))
+    }
+
+    @Test fun `a Stars reaction is offered first and once, only when TDLib lists one for the message`() {
+        val paid = TdApi.AvailableReaction(TdApi.ReactionTypePaid(), false)
+        val options = pickerOptions(available(top = listOf(offer("🔥"), paid, paid)), chat = null, activeEmojis = emptyList(), premium = false)
+        assertEquals(listOf(ReactionOption(PAID_REACTION_EMOJI, isPaid = true), ReactionOption("🔥")), options)
+        assertEquals(listOf("🔥"), emojisOf(pickerOptions(available(top = listOf(offer("🔥"))), chat = null, activeEmojis = emptyList(), premium = true)))
+    }
+
+    @Test fun `a Stars reaction from a chat list is never offered as a plain choice`() {
+        val chat = TdApi.ChatAvailableReactionsSome(arrayOf(TdApi.ReactionTypeEmoji("🎉"), TdApi.ReactionTypePaid()), 3)
+        assertEquals(listOf("🔥", "🎉"), emojisOf(pickerOptions(available(top = listOf(offer("🔥"))), chat, activeEmojis = emptyList(), premium = true)))
     }
 
     @Test fun `custom emoji are offered to Premium users only, and the picker is not capped`() {

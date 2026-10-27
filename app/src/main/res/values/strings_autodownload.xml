@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_auto_download_title">Автозагрузка медиа</string>
+    <string name="auto_download_intro">Выберите, что приложение может скачивать само в каждой сети. Ручная загрузка работает всегда.</string>
+    <string name="auto_download_network_wifi">Wi-Fi</string>
+    <string name="auto_download_network_mobile">Мобильная сеть</string>
+    <string name="auto_download_network_roaming">Роуминг</string>
+    <string name="auto_download_network_other">Другая сеть</string>
+    <string name="auto_download_limit_title">Лимит размера</string>
+    <string name="auto_download_limit_mb">%1$d МБ</string>
+    <string name="auto_download_limit_unlimited">Без ограничения</string>
+    <string name="auto_download_data_saver">Экономить трафик</string>
+    <string name="auto_download_data_saver_detail">В мобильной сети, роуминге и Wi-Fi с лимитом трафика автоматическая загрузка отключается полностью. Кнопка «Загрузить» продолжает работать.</string>
+    <string name="auto_download_secret_note">Секретные чаты, исчезающие фото и вложения со спойлером не загружаются автоматически.</string>
+    <string name="auto_download_manual_note">Кнопка «Загрузить» на вложении загружает файл в любом случае, даже сверх лимита.</string>
+    <string name="auto_download_streaming_note">Видео с быстрым стартом может играть во время загрузки. Если индекс файла находится в конце, видео откроется после полной загрузки.</string>
+    <string name="auto_download_save_failed">Не удалось сохранить настройки</string>
+    <string name="traffic_summary_title">Расход трафика</string>
+    <string name="traffic_summary_metered">Сеть учитывается как лимитная</string>
+    <string name="traffic_summary_unmetered">Сеть без лимита трафика</string>
+    <string name="traffic_summary_data_saver_on">Экономия трафика включена</string>
+    <string name="traffic_summary_data_saver_off">Экономия трафика выключена</string>
+    <string name="traffic_summary_data_saver_blocks_auto">Автоматические загрузки на этой сети отключены</string>
+    <string name="traffic_summary_auto_active">Автозагрузка: %1$d</string>
+    <string name="traffic_summary_manual_active">Вручную: %1$d</string>
+    <string name="traffic_summary_active_both">Автозагрузка: %1$d · Вручную: %2$d</string>
+    <string name="traffic_summary_idle">Сейчас ничего не загружается</string>
+    <string name="traffic_summary_auto_total">Автоматически</string>
+    <string name="traffic_summary_manual_total">Вручную</string>
+    <string name="traffic_summary_total">Всего</string>
+    <string name="traffic_summary_session_note">Счётчик с момента запуска приложения. Учитываются только скачанные файлы.</string>
+    <string name="traffic_network_wifi_metered">Wi-Fi с лимитом</string>
+    <string name="traffic_network_offline">Нет сети</string>
+    <string name="traffic_origin_auto">Авто</string>
+    <string name="traffic_origin_manual">Вручную</string>
+    <string name="traffic_badge_progress">%1$s · %2$s из %3$s · %4$s</string>
+    <string name="traffic_badge_progress_unknown">%1$s · %2$s · %3$s</string>
+    <string name="traffic_size_bytes">%1$d Б</string>
+    <string name="traffic_size_kb">%1$d КБ</string>
+    <string name="traffic_size_mb">%1$.1f МБ</string>
+    <string name="traffic_size_gb">%1$.1f ГБ</string>
+</resources>

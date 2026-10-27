@@ -51,8 +51,12 @@ internal fun accessibleChatRowDescription(
     time: String,
     unreadLabel: String?,
     mutedLabel: String?,
-    statusLabel: String?
-): String = accessibleDescription(title, preview, time, unreadLabel, mutedLabel, statusLabel)
+    statusLabel: String?,
+    secretLabel: String? = null
+): String = accessibleDescription(title, preview, time, unreadLabel, mutedLabel, statusLabel, secretLabel)
 
 /** Announces a newly shown error or upload state without moving focus away from the current control. */
 internal fun Modifier.errorAnnouncement(): Modifier = semantics { liveRegion = LiveRegionMode.Polite }
+
+/** Announces a loading/refresh status once, without treating it as an error or moving focus. */
+internal fun Modifier.statusAnnouncement(): Modifier = semantics { liveRegion = LiveRegionMode.Polite }

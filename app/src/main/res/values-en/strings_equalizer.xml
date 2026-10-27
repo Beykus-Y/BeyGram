@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_group_sound_playback">Sound and playback</string>
+    <string name="settings_equalizer_title">Equalizer</string>
+    <string name="equalizer_title">Equalizer</string>
+    <string name="equalizer_intro">Processing applies only to music in BeyGram. Voice messages, video notes and secret attachments are not affected.</string>
+    <string name="equalizer_enabled_title">Enable equalizer</string>
+    <string name="equalizer_enabled_detail">Applied to music in BeyGram.</string>
+    <string name="equalizer_neutral_detail">Flat curve: the sound stays unprocessed.</string>
+    <string name="equalizer_disabled_detail">Sound plays without processing.</string>
+    <string name="equalizer_status_unavailable_detail">The system audio effect is unavailable; music plays without processing.</string>
+    <string name="equalizer_status_unsupported_title">Equalizer unavailable</string>
+    <string name="equalizer_status_unsupported_detail">This device or firmware does not provide the system audio effect. Music will keep playing without processing.</string>
+    <string name="equalizer_status_failed_title">Couldn’t enable the equalizer</string>
+    <string name="equalizer_status_failed_detail">The system effect did not respond. Music will keep playing without processing.</string>
+    <string name="equalizer_status_waiting_title">Start music</string>
+    <string name="equalizer_status_waiting_detail">The equalizer will attach to the current music session and show its supported bands.</string>
+    <string name="equalizer_status_attached">Connected to the current music.</string>
+    <string name="equalizer_status_bands">Bands: %1$d</string>
+    <string name="equalizer_status_idle">Music is not playing. Settings will apply when it starts.</string>
+    <string name="equalizer_presets_title">Presets</string>
+    <string name="equalizer_preset_flat">Flat</string>
+    <string name="equalizer_preset_bass">Bass</string>
+    <string name="equalizer_preset_vocal">Vocal</string>
+    <string name="equalizer_preset_pop">Pop</string>
+    <string name="equalizer_preset_rock">Rock</string>
+    <string name="equalizer_preset_electronic">Electronic</string>
+    <string name="equalizer_preset_classical">Classical</string>
+    <string name="equalizer_preset_jazz">Jazz</string>
+    <string name="equalizer_preset_custom">Custom</string>
+    <string name="equalizer_curve_description">Equalizer curve. Bands: %1$d. Adjust the bands below.</string>
+    <string name="equalizer_bands_title">Bands</string>
+    <string name="equalizer_band_description">Band %1$s, %2$s</string>
+    <string name="equalizer_level_db">%1$s dB</string>
+    <string name="equalizer_frequency_hz">%1$d Hz</string>
+    <string name="equalizer_frequency_khz">%1$s kHz</string>
+    <string name="equalizer_range_note">Range: %1$s…%2$s dB.</string>
+    <string name="equalizer_gain_limit_note">Maximum boost is limited to %1$s dB to protect against clipping.</string>
+    <string name="equalizer_reset">Reset</string>
+    <string name="equalizer_save_custom">Save custom preset</string>
+    <string name="equalizer_custom_hint">Adjust the bands or save the current preset as Custom.</string>
+    <string name="equalizer_done">Done</string>
+</resources>

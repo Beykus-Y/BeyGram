@@ -20,7 +20,7 @@ import org.junit.runner.RunWith
 class SettingsScreenSectionsTest {
     @get:Rule val composeRule = createComposeRule()
 
-    @Test fun allThirteenRoutesAreAccessibleAfterGrouping() {
+    @Test fun allFourteenRoutesAreAccessibleAfterGrouping() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val opened = mutableListOf<String>()
         composeRule.setContent {
@@ -31,6 +31,7 @@ class SettingsScreenSectionsTest {
                     onLastSeen = { opened += "lastSeen" },
                     onNotifications = { opened += "notifications" },
                     onStorage = { opened += "storage" },
+                    onAutoDownload = { opened += "autoDownload" },
                     onProxy = { opened += "proxy" },
                     onVideoRecording = { opened += "video" },
                     onDiagnostics = { opened += "diagnostics" },
@@ -38,7 +39,8 @@ class SettingsScreenSectionsTest {
                     onLanguage = { opened += "language" },
                     onSessions = { opened += "sessions" },
                     onPrivacy = { opened += "privacy" },
-                    onSecondaryAccounts = { opened += "secondaryAccounts" }
+                    onAccountSecurity = { opened += "accountSecurity" },
+                    onSecondaryAccounts = { opened += "secondaryAccounts" },
                 )
             }
         }
@@ -58,12 +60,14 @@ class SettingsScreenSectionsTest {
             R.string.theme_title to "appearance",
             R.string.settings_video_recording_title to "video",
             R.string.notif_title to "notifications",
+            R.string.account_security_title to "accountSecurity",
             R.string.privacy_title to "privacy",
             R.string.secondary_accounts_title to "secondaryAccounts",
             R.string.feature_sessions to "sessions",
             R.string.settings_last_seen_title to "lastSeen",
             R.string.start_proxy_settings to "proxy",
             R.string.settings_storage_title to "storage",
+            R.string.settings_auto_download_title to "autoDownload",
             R.string.diagnostics_title to "diagnostics",
             R.string.updates_title to "updates"
         )

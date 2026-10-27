@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.AvatarPhoto
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
@@ -55,7 +56,9 @@ internal fun ProfilePhotoGallery(
     deletePhoto: suspend (Long) -> Result<Unit>,
     setAsMain: suspend (Long) -> Result<Unit>,
     onChanged: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    /** Repository-backed automatic download; keeps gallery preview/full requests cancellable by policy. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val title = stringResource(R.string.profile_photo_title)
@@ -105,6 +108,7 @@ internal fun ProfilePhotoGallery(
         onSelect = { selectedId = it },
         observeFile = observeFile,
         downloadFile = downloadFile,
+        autoDownloadFile = autoDownloadFile,
         onViewed = {},
         onClose = onClose,
         title = title,

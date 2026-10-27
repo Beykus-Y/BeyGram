@@ -24,18 +24,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Devices
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Videocam
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,7 +62,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit,
     onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit,
     onDiagnostics: () -> Unit, onUpdates: () -> Unit, onLanguage: () -> Unit, onSessions: () -> Unit,
-    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit) {
+    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicSearch: () -> Unit = {}) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -72,22 +76,31 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
 
         SettingsGroup(stringResource(R.string.settings_group_interface)) {
             SettingsLink(Icons.Rounded.Language, stringResource(R.string.feature_language), onLanguage)
-            SettingsDivider()
+            SettingsRowDivider()
             SettingsLink(Icons.Rounded.Dashboard, stringResource(R.string.nav_title), onNavigationSettings)
-            SettingsDivider()
+            SettingsRowDivider()
             SettingsLink(Icons.Rounded.Palette, stringResource(R.string.theme_title), onAppearance)
-            SettingsDivider()
+            SettingsRowDivider()
             SettingsLink(Icons.Rounded.Videocam, stringResource(R.string.settings_video_recording_title), onVideoRecording)
-            SettingsDivider()
+            SettingsRowDivider()
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
         }
+        SettingsGroup(stringResource(R.string.settings_group_sound_playback)) {
+            SettingsLink(Icons.Rounded.GraphicEq, stringResource(R.string.settings_equalizer_title), onEqualizer)
+            SettingsRowDivider()
+            SettingsLink(Icons.Rounded.MusicNote, stringResource(R.string.settings_music_title), onMusicSearch)
+        }
         SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {
+            SettingsLink(Icons.Rounded.Key, stringResource(R.string.account_security_title), onAccountSecurity)
+            SettingsRowDivider()
+            SettingsLink(Icons.Rounded.Fingerprint, stringResource(R.string.app_lock_title), onAppLock)
+            SettingsRowDivider()
             SettingsLink(Icons.Rounded.Security, stringResource(R.string.privacy_title), onPrivacy)
-            SettingsDivider()
+            SettingsRowDivider()
             SettingsLink(Icons.Rounded.People, stringResource(R.string.secondary_accounts_title), onSecondaryAccounts)
-            SettingsDivider()
+            SettingsRowDivider()
             SettingsLink(Icons.Rounded.Devices, stringResource(R.string.feature_sessions), onSessions)
-            SettingsDivider()
+            SettingsRowDivider()
             // Local text formatting only; the server privacy rule lives under PrivacySettings.
             SettingsLink(Icons.Rounded.Schedule, stringResource(R.string.settings_last_seen_title), onLastSeen)
         }
@@ -96,7 +109,9 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
         }
         SettingsGroup(stringResource(R.string.settings_group_data_diagnostics)) {
             SettingsLink(Icons.Rounded.Storage, stringResource(R.string.settings_storage_title), onStorage)
-            SettingsDivider()
+            SettingsRowDivider()
+            SettingsLink(Icons.Rounded.Download, stringResource(R.string.settings_auto_download_title), onAutoDownload)
+            SettingsRowDivider()
             SettingsLink(Icons.Rounded.BugReport, stringResource(R.string.diagnostics_title), onDiagnostics)
         }
         SettingsGroup(stringResource(R.string.settings_group_updates)) {
@@ -128,12 +143,6 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
             content = content
         )
     }
-}
-
-@Composable
-private fun SettingsDivider() {
-    val palette = beyGramPalette()
-    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
 }
 
 @Composable

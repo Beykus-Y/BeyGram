@@ -1,10 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.view.TextureView
-import android.view.WindowManager
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
@@ -43,10 +39,15 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
+import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
@@ -68,14 +69,6 @@ private val NoThumbnailState = MutableStateFlow(MediaFileState(0)).asStateFlow()
 /** Голосовое и кружок играют прямо в ленте, поэтому тап по пузырю для них не открывает просмотрщик. */
 internal fun MediaKind.playsInline(): Boolean = this == MediaKind.Voice || this == MediaKind.VideoNote
 
-private fun Context.findActivity(): Activity? {
-    var context = this
-    while (context is ContextWrapper) {
-        if (context is Activity) return context
-        context = context.baseContext
-    }
-    return null
-}
 
 /** Кольцо прогресса поверх кружка: серая дорожка и дуга, которая заполняется до [fraction]. */
 @Composable
@@ -133,16 +126,26 @@ internal fun VideoNoteBubble(
     highlighted: Boolean = false,
     origin: PlaybackOrigin? = null,
     transcriptionRequestPending: Boolean = false,
-    transcriptionRequestError: String? = null,
+    transcriptionRequestError: SpeechRecognitionFailure? = null,
     transcriptionRated: Boolean = false,
     onTranscribe: (() -> Unit)? = null,
-    onRateTranscription: ((Boolean) -> Unit)? = null
+    onRateTranscription: ((Boolean) -> Unit)? = null,
+    speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
+    /** Repository-backed automatic thumbnail download; explicit playback still uses [downloadFile]. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
     val hostContext = LocalContext.current
+    val accountId = LocalPlaybackAccountId.current
+    val policySettings by remember(hostContext, accountId) {
+        AutoDownloadSettingsStore.getInstance(hostContext.applicationContext, accountId).settings
+    }.collectAsStateWithLifecycle()
+    val policyNetwork by AutoDownloadNetworkStatus.network.collectAsStateWithLifecycle()
+    LaunchedEffect(hostContext) { AutoDownloadNetworkStatus.ensureStarted(hostContext) }
+    val autoDownload = autoDownloadFile ?: LocalAutoDownloadFile.current
     val label = media.kind.label(hostContext)
-    val key = media.playbackKey()
+    val key = media.playbackKey(accountId, origin)
     val playbackState = PlaybackEngine.state.collectAsStateWithLifecycle()
     // Общий плеер читает только кружок, который играет: у остальных значение null, и на каждом шаге прогресса они не перерисовываются.
     val circle = remember(key) { derivedStateOf { playbackState.value.takeIf { it.item?.key == key } } }.value
@@ -169,11 +172,7 @@ internal fun VideoNoteBubble(
     val size by animateDpAsState(targetValue = if (showing) playingSize else IDLE_SIZE, label = "video note size")
     // Секретный кружок во время проигрывания не должен попасть на скриншот или запись экрана.
     val secureWhilePlaying = media.isSecret && showing
-    DisposableEffect(secureWhilePlaying) {
-        val window = hostContext.findActivity()?.window
-        if (secureWhilePlaying) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { if (secureWhilePlaying) window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-    }
+    SecureWindowWhileVisible(secureWhilePlaying)
     // Секретный кружок не играет, когда пузырь ушёл из списка.
     DisposableEffect(key) {
         onDispose { if (media.isSecret && PlaybackEngine.state.value.item?.key == key) PlaybackEngine.stopSecret() }
@@ -181,12 +180,24 @@ internal fun VideoNoteBubble(
     // Миниатюра лежит под кадрами видео: пока кадра нет, например сразу после старта или возврата в ленту, виден не чёрный круг. У секретного кружка её не грузим.
     val thumbnailId = media.thumbnailFileId?.takeUnless { media.isSecret }
     val thumbnail by remember(thumbnailId) { thumbnailId?.let(observeFile) ?: NoThumbnailState }.collectAsStateWithLifecycle()
-    LaunchedEffect(thumbnailId) { if (thumbnailId != null) downloadFile(thumbnailId) }
+    LaunchedEffect(thumbnailId, thumbnail.size, media.isSecret, media.isSecretChat, policySettings, policyNetwork) {
+        if (thumbnailId != null) {
+            val request = AutoDownloadRequest(
+                fileId = thumbnailId,
+                kind = MediaKind.Photo,
+                sizeBytes = thumbnail.size,
+                isSecret = media.isSecret,
+                isSecretChat = media.isSecretChat,
+                hasSpoiler = false
+            )
+            if (autoDownload != null) autoDownload(request) else downloadFile(thumbnailId)
+        }
+    }
     // Запуск заменяет файл в общем плеере, а тот же кружок ставит на паузу или продолжает.
     fun startCircle(localPath: String) {
         val state = PlaybackEngine.state.value
         val starting = !(state.item?.key == key && state.playing)
-        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label, origin), onStarted = if (starting) markPlayed else null)
+        PlaybackEngine.toggle(hostContext, media.playbackItem(localPath, label, origin, accountId = accountId), onStarted = if (starting) markPlayed else null)
     }
     fun togglePlay() {
         if (path == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) } else startCircle(path)
@@ -270,6 +281,7 @@ internal fun VideoNoteBubble(
             rated = transcriptionRated,
             onRequest = onTranscribe,
             onRate = onRateTranscription,
+            ui = speechRecognitionUi,
             // Keep the note's circle alignment: a full-width section would push an incoming note to the right.
             modifier = Modifier.width(size)
         )

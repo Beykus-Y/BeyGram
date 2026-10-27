@@ -11,6 +11,11 @@ data class ChatMessage(
     val dateSeconds: Long = 0L,
     val sendState: MessageSendState = MessageSendState.Sent,
     val media: MessageMedia? = null,
+    /**
+     * Polls, locations, venues, contacts, dice and the explicit placeholder for unsupported content.
+     * Null means this message has no special content; it must not be rendered as an empty bubble.
+     */
+    val special: MessageSpecialContent? = null,
     /** Telegram's mediaAlbumId; zero means this message is not part of an album. */
     val mediaAlbumId: Long = 0L,
     val senderName: String = "",
@@ -40,8 +45,21 @@ data class ChatMessage(
     /** Web-page metadata for a text message link; never populated in secret chats. */
     val linkPreview: MessageLinkPreview? = null,
     /** Unix timestamp when a scheduled message will be sent; null for a normal message. */
-    val scheduledAtSeconds: Long? = null
-)
+    val scheduledAtSeconds: Long? = null,
+    /** TDLib's per-message self-destruct type; distinct from the chat's messageAutoDeleteTime TTL. */
+    val selfDestruct: MessageSelfDestruct? = null,
+    /** Seconds left before this message self-destructs; null when no self-destruct timer runs. */
+    val selfDestructInSeconds: Long? = null,
+    /** Seconds left before the chat's TTL deletes this message; null when no chat TTL applies. */
+    val autoDeleteInSeconds: Long? = null,
+    /** TDLib replaced an expired self-destructing attachment with MessageExpired*; the bubble shows a placeholder. */
+    val expiredMediaKind: MediaKind? = null,
+    /** TDLib's Message.effectId: the effect chosen by the sender, or zero when the message has none. */
+    val effectId: Long = 0L
+) {
+    /** View-once media is the per-message "open once" type, not every attachment in a secret chat. */
+    val isViewOnce: Boolean get() = selfDestruct is MessageSelfDestruct.Immediately
+}
 
 /**
  * The compact web-page card TDLib attaches to a text message. All content is server-supplied metadata; [photoFileId]
@@ -64,15 +82,28 @@ data class MessageLinkPreview(
 }
 
 /**
- * An emoji reaction under a message. [isChosen] marks the reaction the current user added. A custom emoji reaction has a
- * [customEmojiId] and no emoji text; its sticker is looked up by that id.
+ * A reaction under a message. [isChosen] marks the reaction the current user added. A custom emoji reaction has a
+ * [customEmojiId] and no emoji text; its sticker is looked up by that id. A paid reaction has [isPaid] set and [count]
+ * is its number of Telegram Stars.
  */
-data class MessageReaction(val emoji: String, val count: Int, val isChosen: Boolean = false, val customEmojiId: Long = 0L) {
-    val option: ReactionOption get() = ReactionOption(emoji, customEmojiId)
+data class MessageReaction(
+    val emoji: String,
+    val count: Int,
+    val isChosen: Boolean = false,
+    val customEmojiId: Long = 0L,
+    val isPaid: Boolean = false
+) {
+    val option: ReactionOption get() = ReactionOption(emoji, customEmojiId, isPaid)
 }
 
-/** A reaction the user can add: a standard [emoji], or the custom emoji with [customEmojiId], which has no emoji text. */
-data class ReactionOption(val emoji: String, val customEmojiId: Long = 0L)
+/**
+ * A reaction: a standard [emoji], the custom emoji with [customEmojiId], which has no emoji text, or the paid [isPaid]
+ * Stars reaction. A paid option is never added by a plain tap: it opens the Stars confirmation, which asks for the amount.
+ */
+data class ReactionOption(val emoji: String, val customEmojiId: Long = 0L, val isPaid: Boolean = false)
+
+/** The glyph used for a paid reaction when a text fallback is needed; the chips draw a real star icon instead. */
+const val PAID_REACTION_EMOJI = "⭐"
 
 /** A custom emoji sticker: its file, the sticker's [mimeType] as for other stickers, and the standard [emoji] it stands for. */
 data class CustomEmoji(val customEmojiId: Long, val fileId: Int, val emoji: String, val mimeType: String)
@@ -163,6 +194,11 @@ data class GlobalMessagePage(
     /** Cached or lazily resolved chat details, keyed by TDLib chatId. */
     val chats: Map<Long, ChatPreview> = emptyMap()
 )
-data class MessageLimits(val text: Int = 4096, val caption: Int = 1024)
+data class MessageLimits(
+    val text: Int = 4096,
+    val caption: Int = 1024,
+    /** TDLib's largest Stars amount for one paid reaction; null until the option has been read. */
+    val paidReactionStarMax: Int? = null
+)
 
 data class PinnedMessagePage(val messages: List<ChatMessage>, val totalCount: Int, val nextFromMessageId: Long)

@@ -9,6 +9,15 @@
     <string name="settings_last_seen_title">Last seen display</string>
     <string name="settings_storage_title">Storage and cache</string>
     <string name="settings_video_audio_bitrate">Target audio bitrate</string>
+    <string name="settings_video_adaptive_action">What can be changed: %1$s</string>
+    <string name="settings_video_adaptive_encoder">H.264 encoder confirms 60 FPS: %1$s.</string>
+    <string name="settings_video_adaptive_hint">Calculated from advertised camera and encoder capabilities. Actual FPS is measured only after recording and may be lower.</string>
+    <string name="settings_video_adaptive_last">Last recording: target %1$d FPS, camera requested up to %2$s, RAW %3$s, MP4 %4$s FPS.</string>
+    <string name="settings_video_adaptive_lens">%1$s camera: %2$s, range %3$s for a request up to %4$d FPS, source %5$d×%6$d, output %7$d×%7$d, H.264/AVC export.</string>
+    <string name="settings_video_adaptive_loading">Reading camera capabilities…</string>
+    <string name="settings_video_adaptive_no_reports">No measurements yet: record a video message with diagnostics enabled to see the actual FPS.</string>
+    <string name="settings_video_adaptive_title">Planned quality</string>
+    <string name="settings_video_adaptive_unavailable">Recording cameras are unavailable right now; the quality plan was not calculated.</string>
     <string name="settings_video_bitrate">Target video bitrate</string>
     <string name="settings_video_capability_note">The camera and encoder may limit resolution, frame rate and bitrate. Actual file properties may differ.</string>
     <string name="settings_video_custom">Custom</string>
@@ -25,6 +34,13 @@
     <string name="settings_video_diagnostics_raw_final">RAW %1$s / MP4 %2$s FPS</string>
     <string name="settings_video_diagnostics_report">Video message report</string>
     <string name="settings_video_diagnostics_share">Share report</string>
+    <string name="settings_video_diagnostics_save">Save to file</string>
+    <string name="settings_video_diagnostics_compact">Compact</string>
+    <string name="settings_video_diagnostics_full">Full</string>
+    <string name="settings_video_diagnostics_txt">TXT</string>
+    <string name="settings_video_diagnostics_json">JSON</string>
+    <string name="diag_save_done">Report saved</string>
+    <string name="diag_save_failed">Could not save the report</string>
     <string name="settings_video_diagnostics_status_cancelled">Sending interrupted</string>
     <string name="settings_video_diagnostics_status_preview">Preview</string>
     <string name="settings_video_diagnostics_status_processing_failed">Processing failed</string>
@@ -59,4 +75,14 @@
     <string name="settings_video_standard_detail">384 × 384 · 30 FPS · 1000 kbps</string>
     <string name="sessions_load_timeout">Session loading timed out. Check your connection and try again.</string>
     <string name="sessions_action_timeout">Telegram did not confirm the action. Refresh the list before retrying; it may already have succeeded.</string>
+    <string name="quality_advice_measure_high">60 FPS is planned, not guaranteed: only a recording shows the actual rate.</string>
+    <string name="quality_advice_as_requested">The requested rate was selected; the limit is intentional.</string>
+    <string name="quality_advice_no_normal_60">The camera\'s normal ranges do not reach 60 FPS. Changing the preset will not alter that; you can keep 30 or choose 24 FPS for low light.</string>
+    <string name="quality_advice_encoder_limit">The H.264 encoder does not confirm 60 FPS at this size. Try a lower resolution (Standard or High) or 30 FPS.</string>
+    <string name="quality_advice_stream_limit">The camera stream at this size does not confirm 60 FPS. Try a lower resolution.</string>
+    <string name="quality_advice_range_fallback">The camera advertises no range up to the requested maximum; the closest one was selected. Choose an available rate.</string>
+    <string name="quality_advice_no_range">No suitable ranges are advertised; the camera default is used. Verify the result with a recording.</string>
+    <string name="quality_advice_export_drop">Frames were lost during processing, not because of a camera setting. Another recording may produce a different result.</string>
+    <string name="quality_advice_camera_runtime">The camera delivered less than requested. Check lighting and heat; a smaller size or 30 FPS may be more stable.</string>
+    <string name="quality_advice_unknown">Not enough measurements to explain the frame-rate choice.</string>
 </resources>

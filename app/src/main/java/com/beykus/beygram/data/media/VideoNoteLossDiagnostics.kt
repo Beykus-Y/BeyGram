@@ -158,14 +158,14 @@ internal class VideoNoteLossDiagnostics(
             removeOldTempFiles()
             VideoNoteSyntheticSource.generate(source, fps)
             source.copyTo(original)
-            val sourceStats = analyzeVideoNoteFrameSamples(original)
+            val sourceStats = analyzeVideoNoteFrameSamples(original, fps)
             _state.value = _state.value.copy(phaseRes = R.string.loss_phase_export)
             val exportDirectory = File(folder, "export")
             val output: OutgoingMedia = VideoNoteProcessor(context)
                 .process(source, VideoMessageSettings(preset = VideoQualityPreset.High), exportDirectory)
                 .single()
             val outputFile = File(output.path)
-            val exportStats = analyzeVideoNoteFrameSamples(outputFile)
+            val exportStats = analyzeVideoNoteFrameSamples(outputFile, fps)
             val exportedHash = sha256(outputFile)
             val sourceHash = sha256(original)
             require(output.kind == com.beykus.beygram.domain.model.MediaKind.VideoNote)
@@ -181,7 +181,7 @@ internal class VideoNoteLossDiagnostics(
             // A corrupt or unreadable remote MP4 must be reported as inconclusive, not hide
             // the confirmed send receipt or the optional exact-message deletion control.
             val downloadedStats = sent.remoteCopyPath?.let { path ->
-                runCatching { analyzeVideoNoteFrameSamples(File(path)) }.getOrNull()
+                runCatching { analyzeVideoNoteFrameSamples(File(path), fps) }.getOrNull()
             }
             val remoteSha = sent.remoteCopyPath?.let { path ->
                 runCatching { sha256(File(path)) }.getOrNull()
@@ -191,8 +191,12 @@ internal class VideoNoteLossDiagnostics(
                 appendLine(context.getString(R.string.loss_report_type_fps, fps, VideoNoteSyntheticSource.frameCount(fps),
                     VideoNoteSyntheticSource.SECONDS))
                 appendLine(context.getString(R.string.loss_report_source, sourceStats.summary(context)))
+                stageTimingLines(context, videoNoteStageTiming(sourceStats.frameCount, sourceStats.timing, null, null))
+                    .forEach { appendLine("  $it") }
                 appendLine("SHA-256 A: $sourceHash")
                 appendLine(context.getString(R.string.loss_report_export, exportStats.summary(context)))
+                stageTimingLines(context, videoNoteStageTiming(exportStats.frameCount, exportStats.timing, null, null))
+                    .forEach { appendLine("  $it") }
                 appendLine("SHA-256 C: $exportedHash")
                 appendLine(context.getString(R.string.loss_report_sent, output.width, output.height, output.durationSeconds, exportedHash))
                 appendLine(context.getString(R.string.loss_report_confirmed_shape, sent.declaredSide, sent.declaredSide,
@@ -204,6 +208,10 @@ internal class VideoNoteLossDiagnostics(
                 ))
                 appendLine(context.getString(R.string.loss_report_file, downloadedStats?.summary(context)
                     ?: context.getString(R.string.loss_report_unavailable)))
+                downloadedStats?.let {
+                    stageTimingLines(context, videoNoteStageTiming(it.frameCount, it.timing, null, null))
+                        .forEach { line -> appendLine("  $line") }
+                }
                 appendLine("SHA-256 F: ${remoteSha ?: context.getString(R.string.loss_report_not_measured)}")
                 appendLine()
                 appendLine(context.getString(R.string.loss_report_processing_changes,

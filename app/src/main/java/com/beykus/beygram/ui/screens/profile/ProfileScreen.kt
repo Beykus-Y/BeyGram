@@ -16,8 +16,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -70,6 +74,8 @@ fun ProfileScreen(
     deleteMyProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Profile photo deletion unavailable")) },
     setPreviousProfilePhoto: suspend (Long) -> Result<Unit> = { Result.failure(IllegalStateException("Previous photo unavailable")) },
     onNotifications: () -> Unit = {}, onMembers: () -> Unit = {}, onOpenUser: (Long) -> Unit = {},
+    onManage: (() -> Unit)? = null,
+    onStatistics: (() -> Unit)? = null,
     onSetBlocked: suspend (Boolean) -> Result<Unit> = { Result.failure(IllegalStateException()) },
     onReportSpam: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
     onDelete: suspend () -> Result<Unit> = { Result.failure(IllegalStateException()) },
@@ -78,7 +84,16 @@ fun ProfileScreen(
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)? = null,
     confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
     forwardMessage: suspend (Long, Long) -> Result<Unit> = { _, _ -> Result.failure(IllegalStateException()) }, chats: List<ChatPreview> = emptyList(),
-    onContentOpened: (Long) -> Unit = {}, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit = { _, _ -> }
+    onContentOpened: (Long) -> Unit = {}, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit = { _, _ -> },
+    onPremium: () -> Unit = {}, onStars: () -> Unit = {},
+    onGifts: (profileId: Long, isSelf: Boolean, title: String) -> Unit = { _, _, _ -> },
+    /** Repository-backed automatic download for shared media and profile galleries. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    /** Creates a device-specific E2E chat for a regular user; null hides the profile entry. */
+    startSecretChat: (suspend (Long) -> Result<Long>)? = null,
+    /** Chat-level no-forwards restriction: music stays out of public playlists and MediaSession. */
+    protectedContent: Boolean = false,
+    onSecretChatOpened: (Long) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -89,6 +104,9 @@ fun ProfileScreen(
     var preparing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var photoError by rememberSaveable { mutableStateOf<String?>(null) }
+    var secretChatConfirm by rememberSaveable(state.info?.id) { mutableStateOf(false) }
+    var secretChatBusy by remember { mutableStateOf(false) }
+    var secretChatError by rememberSaveable(state.info?.id) { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             preparing = true; photoError = null
@@ -104,9 +122,10 @@ fun ProfileScreen(
         info = groupInfo, state = state, lastSeenStyle = lastSeenStyle, observeFile = observeFile, downloadFile = downloadFile,
         onBack = { if (!saving && !preparing) onBack() }, onRefresh = onRefresh, onAvatarClick = { showPhoto = true },
         onDelete = onDelete, onDeleted = onDeleted,
-        onMembers = onMembers, onOpenUser = onOpenUser, sharedMessages = sharedMessages, confirmExport = confirmExport,
+        onMembers = onMembers, onOpenUser = onOpenUser, onStatistics = onStatistics,
+        sharedMessages = sharedMessages, confirmExport = confirmExport,
         messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
-        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage
+        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage, autoDownloadFile = autoDownloadFile
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
             if (!isOwnProfile) ChatInfoMenu(
@@ -136,13 +155,53 @@ fun ProfileScreen(
                     ProfileSubtitle(info, lastSeenStyle)
                     ProfileBadges(info)
                     if (isOwnProfile) {
+                        // Edit and photo change share one row, so the header takes one action line instead of two.
                         Spacer(Modifier.height(14.dp))
-                        FilledTonalButton(onClick = onEdit, enabled = !state.isLoading && state.error == null && !saving && !preparing, shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.height(46.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.profile_action_edit), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                        TextButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !saving && !preparing) { Text(if (preparing) stringResource(R.string.profile_photo_preparing) else stringResource(R.string.profile_action_change_photo), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalButton(onClick = onEdit, enabled = !state.isLoading && state.error == null && !saving && !preparing, shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f, fill = false).heightIn(min = 48.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.profile_action_edit), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                            TextButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !saving && !preparing, modifier = Modifier.weight(1f, fill = false).heightIn(min = 48.dp)) { Text(if (preparing) stringResource(R.string.profile_photo_preparing) else stringResource(R.string.profile_action_change_photo), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                        }
+                    } else if (info.kind == ProfileKind.Person || info.kind == ProfileKind.Secret) {
+                        Spacer(Modifier.height(14.dp))
+                        FilledTonalButton(
+                            onClick = { onGifts(info.id, false, info.title) },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)
+                        ) {
+                            Icon(Icons.Rounded.CardGiftcard, null, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.size(8.dp))
+                            Text(stringResource(R.string.profile_monetization_gifts_send), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    val canStartSecretChat = startSecretChat != null && info.kind == ProfileKind.Person && !info.isSelf &&
+                        SecretChatEligibility.canStart(
+                            userId = info.id,
+                            isSelf = info.isSelf,
+                            isBot = info.kind == ProfileKind.Bot || info.status is ProfilePresence.Bot,
+                            isDeleted = info.status is ProfilePresence.DeletedAccount
+                        )
+                    if (canStartSecretChat) {
+                        TextButton(
+                            onClick = { secretChatError = null; secretChatConfirm = true },
+                            enabled = !secretChatBusy
+                        ) {
+                            Icon(Icons.Rounded.Lock, null, modifier = Modifier.size(18.dp), tint = palette.accent)
+                            Spacer(Modifier.size(8.dp))
+                            Text(stringResource(R.string.secret_chat_start_from_profile), color = palette.accentInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
+                if (isOwnProfile) ProfileMonetizationLinks(
+                    onPremium = onPremium,
+                    onStars = onStars,
+                    onGifts = { onGifts(info.id, true, info.title) }
+                )
                 ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null))
+                if (onManage != null && info.groupAdmin?.canManageAnything == true) {
+                    GroupManagementEntry(info.kind, onManage)
+                }
                 if (info.personalChatId > 0L) {
                     TextButton(onClick = { onOpenLinkedChannel(info.personalChatId) },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -157,7 +216,7 @@ fun ProfileScreen(
                 }
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
-                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage)
+                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile, protectedContent = protectedContent)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
             }
@@ -172,7 +231,8 @@ fun ProfileScreen(
             profileId = state.info?.id ?: 0L, avatar = photo, own = isOwnProfile,
             observeFile = observeFile, downloadFile = downloadFile, loadPhotos = loadProfilePhotos,
             deletePhoto = deleteMyProfilePhoto, setAsMain = setPreviousProfilePhoto,
-            onChanged = onRefresh, onClose = { showPhoto = false }
+            onChanged = onRefresh, onClose = { showPhoto = false },
+            autoDownloadFile = autoDownloadFile
         )
     }
     pendingPhoto?.let { selected ->
@@ -201,6 +261,53 @@ fun ProfileScreen(
                     } }) { Text(if (saving) stringResource(R.string.common_saving) else stringResource(R.string.profile_photo_set), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
             }
         }
+    }
+    state.info?.takeIf { secretChatConfirm }?.let { info ->
+        AlertDialog(
+            onDismissRequest = { if (!secretChatBusy) { secretChatConfirm = false; secretChatError = null } },
+            title = { Text(stringResource(R.string.secret_chat_start_title)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.secret_chat_start_message), color = palette.textSecondary, fontSize = 14.sp)
+                    secretChatError?.let {
+                        Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp).errorAnnouncement())
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !secretChatBusy,
+                    onClick = {
+                        val create = startSecretChat ?: return@TextButton
+                        if (secretChatBusy) return@TextButton
+                        scope.launch {
+                            secretChatBusy = true
+                            secretChatError = null
+                            try {
+                                create(info.id)
+                                    .onSuccess { chatId ->
+                                        secretChatConfirm = false
+                                        onSecretChatOpened(chatId)
+                                    }
+                                    .onFailure {
+                                        secretChatError = it.userMessage(context, R.string.secret_chat_create_failed)
+                                    }
+                            } finally {
+                                secretChatBusy = false
+                            }
+                        }
+                    }
+                ) {
+                    if (secretChatBusy) CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
+                    else Text(stringResource(R.string.secret_chat_start_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !secretChatBusy, onClick = { secretChatConfirm = false; secretChatError = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            }
+        )
     }
 }
 
@@ -284,7 +391,7 @@ internal fun profileRows(context: Context, info: ProfileInfo, withSharedCounts: 
 @Composable
 internal fun ProfileRowsCard(rows: List<Pair<String, String>>) {
     val palette = beyGramPalette()
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
         rows.forEachIndexed { index, (label, value) ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
             InfoRow(label, value)
@@ -302,6 +409,44 @@ internal fun ProfileBadges(info: ProfileInfo) {
     )
 }
 
+/** Points of entry to the read-only monetization screens; they never buy anything by themselves. */
+@Composable
+private fun ProfileMonetizationLinks(onPremium: () -> Unit, onStars: () -> Unit, onGifts: () -> Unit) {
+    val palette = beyGramPalette()
+    Text(
+        stringResource(R.string.profile_monetization_header),
+        color = palette.textSecondary,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp)
+            .semantics { heading() }
+    )
+    Column(
+        Modifier.profileCardSurface(palette.surface)
+            .padding(vertical = 4.dp)
+    ) {
+        MonetizationLinkRow(Icons.Rounded.WorkspacePremium, stringResource(R.string.profile_monetization_premium), onPremium)
+        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 54.dp))
+        MonetizationLinkRow(Icons.Rounded.Star, stringResource(R.string.profile_monetization_stars), onStars)
+        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 54.dp))
+        MonetizationLinkRow(Icons.Rounded.CardGiftcard, stringResource(R.string.profile_monetization_gifts_own), onGifts)
+    }
+}
+
+@Composable
+private fun MonetizationLinkRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Text(label, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f).padding(start = 12.dp))
+        Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
+    }
+}
+
 @Composable
 internal fun InfoRow(label: String, value: String) {
     val palette = beyGramPalette()
@@ -317,7 +462,7 @@ internal fun AdministratorsSection(administrators: List<ProfileAdmin>, onOpenUse
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_admins_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
         administrators.forEachIndexed { index, admin ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
             Box(Modifier.fillMaxWidth().clickable { onOpenUser(admin.userId) }) {
@@ -332,7 +477,7 @@ private fun MembersSection(info: ProfileInfo, observeFile: (Int) -> StateFlow<Me
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_members_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
         info.memberPreview.forEachIndexed { index, member ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 82.dp))
             MemberRow(member, observeFile, downloadFile) { onOpenUser(member.userId) }
@@ -355,7 +500,7 @@ private fun HiddenTabsSection(hiddenTabs: List<MainTab>, onOpenTab: (MainTab) ->
     val palette = beyGramPalette()
     Text(stringResource(R.string.profile_hidden_tabs_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
         hiddenTabs.forEachIndexed { index, tab ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { onOpenTab(tab) }.padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {

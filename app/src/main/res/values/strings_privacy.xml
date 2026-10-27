@@ -59,4 +59,11 @@
     <string name="err_report_spam_unavailable">Telegram не предложил вариант жалобы на спам.</string>
     <string name="err_report_spam_requires_text">Telegram требует описать причину жалобы. Это можно сделать в официальном клиенте.</string>
     <string name="err_report_spam_requires_messages">Telegram требует выбрать сообщения для жалобы.</string>
+    <string name="message_action_report">Пожаловаться</string>
+    <string name="message_report_title">Пожаловаться на сообщение</string>
+    <string name="message_report_reason_spam">Спам</string>
+    <string name="message_report_reason_violence">Насилие</string>
+    <string name="message_report_reason_personal">Личные данные</string>
+    <string name="message_report_done">Жалоба отправлена</string>
+    <string name="err_message_report_unavailable">Не удалось отправить жалобу. Telegram не предложил подходящую причину.</string>
 </resources>

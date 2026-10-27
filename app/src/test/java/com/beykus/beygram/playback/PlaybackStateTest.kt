@@ -1,6 +1,9 @@
 package com.beykus.beygram.playback
 
+import com.beykus.beygram.domain.model.MediaKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackStateTest {
@@ -16,10 +19,33 @@ class PlaybackStateTest {
     }
 
     @Test
+    fun fractionUsesMessageDurationWhenTheContainerHasNoIndex() {
+        val item = PlaybackItem("Voice:1", MediaKind.Voice, "/voice.ogg", "Voice", durationSeconds = 10)
+        assertEquals(0.5f, PlaybackState(item = item, positionMs = 5_000L).fraction, 0.0001f)
+    }
+
+    @Test
     fun speedLabelDropsZeroOnlyForWholeNumbers() {
         assertEquals("1", speedLabel(1f))
         assertEquals("2", speedLabel(2f))
         assertEquals("0.5", speedLabel(0.5f))
         assertEquals("1.5", speedLabel(1.5f))
+    }
+
+    @Test
+    fun bufferingVoiceNoteKeepsResumeIntentWithoutBeingAudible() {
+        val item = PlaybackItem("Voice:1", MediaKind.Voice, "/voice.ogg", "Voice", durationSeconds = 10)
+        val state = PlaybackState(item = item, playing = false, intentPlaying = true, isBuffering = true)
+        assertFalse(state.playing)
+        assertTrue(state.intentPlaying)
+        assertTrue(state.isBuffering)
+    }
+
+    @Test
+    fun previousRestartPreservesPlaybackIntent() {
+        val item = PlaybackItem("Audio:1", MediaKind.Audio, "/music.ogg", "Music", durationSeconds = 180)
+        assertTrue(PlaybackState(item = item, playing = false, intentPlaying = true).restartResumeIntent())
+        assertTrue(PlaybackState(item = item, playing = true, intentPlaying = false).restartResumeIntent())
+        assertFalse(PlaybackState(item = item, playing = false, intentPlaying = false).restartResumeIntent())
     }
 }

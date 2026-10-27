@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_auto_download_title">Media auto-download</string>
+    <string name="auto_download_intro">Choose what the app downloads by itself on each network. Manual downloads always work.</string>
+    <string name="auto_download_network_wifi">Wi-Fi</string>
+    <string name="auto_download_network_mobile">Mobile data</string>
+    <string name="auto_download_network_roaming">Roaming</string>
+    <string name="auto_download_network_other">Other network</string>
+    <string name="auto_download_limit_title">Size limit</string>
+    <string name="auto_download_limit_mb">%1$d MB</string>
+    <string name="auto_download_limit_unlimited">No limit</string>
+    <string name="auto_download_data_saver">Save data</string>
+    <string name="auto_download_data_saver_detail">Turns off all automatic downloads on mobile data, roaming and metered Wi-Fi. The Download button keeps working.</string>
+    <string name="auto_download_secret_note">Secret chats, disappearing photos and spoiler attachments are never downloaded automatically.</string>
+    <string name="auto_download_manual_note">The Download button on an attachment always downloads it, even above the limit.</string>
+    <string name="auto_download_streaming_note">Fast-start videos can play while downloading. If the file index is at the end, the video opens after the full download.</string>
+    <string name="auto_download_save_failed">Could not save the settings</string>
+    <string name="traffic_summary_title">Traffic usage</string>
+    <string name="traffic_summary_metered">Connection is metered</string>
+    <string name="traffic_summary_unmetered">Connection has no data limit</string>
+    <string name="traffic_summary_data_saver_on">Data saver is on</string>
+    <string name="traffic_summary_data_saver_off">Data saver is off</string>
+    <string name="traffic_summary_data_saver_blocks_auto">Automatic downloads are off on this network</string>
+    <string name="traffic_summary_auto_active">Auto-downloads: %1$d</string>
+    <string name="traffic_summary_manual_active">Manual downloads: %1$d</string>
+    <string name="traffic_summary_active_both">Auto-downloads: %1$d · Manual: %2$d</string>
+    <string name="traffic_summary_idle">Nothing is downloading right now</string>
+    <string name="traffic_summary_auto_total">Automatic</string>
+    <string name="traffic_summary_manual_total">Manual</string>
+    <string name="traffic_summary_total">Total</string>
+    <string name="traffic_summary_session_note">Counted since the app started. Only downloaded files are included.</string>
+    <string name="traffic_network_wifi_metered">Metered Wi-Fi</string>
+    <string name="traffic_network_offline">No network</string>
+    <string name="traffic_origin_auto">Auto</string>
+    <string name="traffic_origin_manual">Manual</string>
+    <string name="traffic_badge_progress">%1$s · %2$s of %3$s · %4$s</string>
+    <string name="traffic_badge_progress_unknown">%1$s · %2$s · %3$s</string>
+    <string name="traffic_size_bytes">%1$d B</string>
+    <string name="traffic_size_kb">%1$d KB</string>
+    <string name="traffic_size_mb">%1$.1f MB</string>
+    <string name="traffic_size_gb">%1$.1f GB</string>
+</resources>

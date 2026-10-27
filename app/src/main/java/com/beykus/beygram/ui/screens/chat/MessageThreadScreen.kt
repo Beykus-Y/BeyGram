@@ -61,13 +61,16 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.MessageThread
+import com.beykus.beygram.domain.model.PollVotersPage
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.mergeThreadHistory
 import com.beykus.beygram.domain.model.mergeThreadMessages
@@ -99,7 +102,10 @@ internal fun MessageThreadScreen(
     initialReplyToId: Long = 0L,
     onDraftChange: (String, List<MessageTextEntity>, Long) -> Unit = { _, _, _ -> },
     onBack: () -> Unit,
-    onOpenProfile: (Long) -> Unit
+    onOpenProfile: (Long) -> Unit,
+    /** Repository-backed automatic download for the shared media viewer. */
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -121,9 +127,18 @@ internal fun MessageThreadScreen(
     var sending by remember { mutableStateOf(false) }
     var sendError by remember { mutableStateOf<String?>(null) }
     var reactionTarget by remember { mutableStateOf<Pair<Long, ChatMessage>?>(null) }
-    var reactionOptions by remember { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    var reactionOptions by remember(conversation) { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    // A Stars reaction or a paid media payment on the post leaves the post copy stale, so the post is reloaded after it.
+    fun reloadPost() {
+        scope.launch { conversation.messageContext(channelChatId, postId).onSuccess { context -> post = context.messages.firstOrNull { it.id == postId } } }
+    }
+    val paidReactions = rememberPaidReactions(conversation) { reloadPost() }
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
     var selectedMediaChatId by remember { mutableStateOf(0L) }
+    var stickerSetId by remember { mutableStateOf<Long?>(null) }
+    // A view-once message is deleted as soon as it is opened; keep its page for this viewer session.
+    var retainedViewOnce by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
+    var openedViewOnceIds by remember(channelChatId, postId) { mutableStateOf(emptySet<Long>()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val messageLimits by conversation.messageLimits.collectAsStateWithLifecycle()
 
@@ -200,12 +215,16 @@ internal fun MessageThreadScreen(
             replyTarget = messages.firstOrNull { it.id == replyTargetId }
         }
     }
-    LaunchedEffect(reactionTarget) {
+    LaunchedEffect(conversation, reactionTarget) {
         val target = reactionTarget ?: return@LaunchedEffect
         reactionOptions = conversation.availableReactions(target.first, target.second.id).getOrDefault(emptyList())
     }
 
     fun changeReaction(chatId: Long, message: ChatMessage, option: ReactionOption, addToRecent: Boolean) {
+        if (option.isPaid) {
+            paidReactions.open(chatId, message.id)
+            return
+        }
         scope.launch {
             conversation.toggleReaction(chatId, message.id, option, addToRecent)
                 .onSuccess { reactions ->
@@ -361,7 +380,7 @@ internal fun MessageThreadScreen(
                         observeFile = observeFile,
                         onDownloadFile = downloadFile,
                         onOpenProfile = onOpenProfile,
-                        onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId },
+                        onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
                         onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
                         onRetry = {
                             scope.launch {
@@ -380,7 +399,28 @@ internal fun MessageThreadScreen(
                             }
                         } else null,
                         onReaction = { option -> changeReaction(message.chatId, message, option, addToRecent = false) },
-                        observeCustomEmoji = conversation::observeCustomEmoji
+                        onStickerOpen = { id -> stickerSetId = id },
+                        observeCustomEmoji = conversation::observeCustomEmoji,
+                        onPollVote = { chatId, messageId, choices ->
+                            scope.launch {
+                                conversation.votePoll(chatId, messageId, choices)
+                                    .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                            }
+                        },
+                        onPollStop = { chatId, messageId ->
+                            scope.launch {
+                                conversation.stopPoll(chatId, messageId)
+                                    .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                            }
+                        },
+                        onLoadPollVoters = { chatId, messageId, optionIndex, offset ->
+                            conversation.pollVoters(chatId, messageId, optionIndex, offset)
+                        },
+                        onAddPollOption = { chatId, messageId, text ->
+                            conversation.addPollOption(chatId, messageId, text)
+                        },
+                        paidContent = rememberPaidContentActions(conversation),
+                        onOpenMessageEntity = onOpenMessageEntity
                     )
                 }
                 if (loadingOlder) item(key = "older_loading") {
@@ -410,13 +450,34 @@ internal fun MessageThreadScreen(
                                 message = root,
                                 observeFile = observeFile,
                                 onDownloadFile = downloadFile,
-                                onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId },
+                                onOpen = { selectedMediaId = root.id; selectedMediaChatId = channelChatId; if (root.isViewOnce) retainedViewOnce = root },
+                                onStickerOpen = { media -> stickerSetId = media.stickerSetId },
                                 onPlayed = { conversation.openMessageContent(channelChatId, root.id) },
                                 onActions = { reactionTarget = channelChatId to root },
                                 onReplyClick = ::jump,
                                 onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
                                 observeCustomEmoji = conversation::observeCustomEmoji,
-                                onRetry = {}
+                                onPollVote = { messageId, choices ->
+                                    scope.launch {
+                                        conversation.votePoll(channelChatId, messageId, choices)
+                                            .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                                    }
+                                },
+                                onPollStop = { messageId ->
+                                    scope.launch {
+                                        conversation.stopPoll(channelChatId, messageId)
+                                            .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                    }
+                                },
+                                onLoadPollVoters = { messageId, optionIndex, offset ->
+                                    conversation.pollVoters(channelChatId, messageId, optionIndex, offset)
+                                },
+                                onAddPollOption = { messageId, text ->
+                                    conversation.addPollOption(channelChatId, messageId, text)
+                                },
+                                onRetry = {},
+                                paidContent = rememberPaidContentActions(conversation) { reloadPost() },
+                                onOpenMessageEntity = onOpenMessageEntity
                             )
                         }
                     }
@@ -427,7 +488,7 @@ internal fun MessageThreadScreen(
         reactionTarget?.let { (chatId, message) ->
             MessageReactionPicker(
                 options = reactionOptions,
-                chosen = message.reactions.filter { it.isChosen }.mapTo(hashSetOf()) { it.option },
+                chosen = message.reactions.filter { it.isChosen && !it.isPaid }.mapTo(hashSetOf()) { it.option },
                 observeCustomEmoji = conversation::observeCustomEmoji,
                 observeFile = observeFile,
                 downloadFile = downloadFile,
@@ -510,30 +571,60 @@ internal fun MessageThreadScreen(
         channelChatId -> listOfNotNull(post)
         else -> messages.filter { it.chatId == selectedMediaChatId }
     }.filter { it.media != null }
-    val viewed = mediaMessages.firstOrNull { it.id == selectedMediaId }
+    val liveViewed = mediaMessages.firstOrNull { it.id == selectedMediaId }
+    val retainedViewed = retainedViewOnce?.takeIf { it.id == selectedMediaId }
+    val viewed = liveViewed ?: retainedViewed
+    LaunchedEffect(selectedMediaId, liveViewed?.media?.fileId, liveViewed?.isViewOnce) {
+        if (selectedMediaId == null) {
+            retainedViewOnce = null
+            return@LaunchedEffect
+        }
+        if (liveViewed?.media != null && liveViewed.isViewOnce) retainedViewOnce = liveViewed
+    }
     var viewerCanSave by remember(selectedMediaId) { mutableStateOf(false) }
     LaunchedEffect(selectedMediaId, viewed?.chatId) {
         viewerCanSave = if (selectedMediaId != null && viewed != null) {
             conversation.messageCapabilities(viewed.chatId, viewed.id).getOrNull()?.canSave == true
         } else false
     }
-    if (viewed?.media != null) {
-        MediaViewer(
-            pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it) } },
-            selectedId = viewed.id,
-            onSelect = { selectedMediaId = it },
-            observeFile = observeFile,
-            downloadFile = downloadFile,
-            onViewed = { id -> conversation.openMessageContent(viewed.chatId, id) },
-            onClose = { selectedMediaId = null; selectedMediaChatId = 0L },
-            title = viewed.senderName.ifBlank { channelTitle },
-            subtitle = viewed.time,
-            canExport = viewerCanSave,
-            confirmExport = { id ->
-                conversation.messageCapabilities(viewed.chatId, id).getOrNull()?.canSave == true
-            }
-        )
+    if (viewed != null) {
+        val viewedMedia = viewed.media
+        if (viewedMedia != null) {
+            val viewerPages = MediaViewerPolicy.retainViewOncePage(
+                pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, viewed.chatId) } },
+                retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId)
+            )
+            MediaViewer(
+                pages = viewerPages,
+                selectedId = viewed.id,
+                onSelect = { selectedMediaId = it },
+                observeFile = observeFile,
+                downloadFile = downloadFile,
+                autoDownloadFile = autoDownloadFile,
+                onViewed = { id ->
+                    val once = (mediaMessages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
+                    if (!once || id !in openedViewOnceIds) {
+                        if (once) openedViewOnceIds = openedViewOnceIds + id
+                        conversation.openMessageContent(viewed.chatId, id)
+                    }
+                },
+                onClose = { selectedMediaId = null; selectedMediaChatId = 0L },
+                title = viewed.senderName.ifBlank { channelTitle },
+                subtitle = viewed.time,
+                canExport = viewerCanSave && !viewed.isViewOnce,
+                confirmExport = { id ->
+                    conversation.messageCapabilities(viewed.chatId, id).getOrNull()?.canSave == true
+                }
+            )
+        }
     }
+    StickerSetBrowser(
+        setId = stickerSetId,
+        conversation = conversation,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        onDismiss = { stickerSetId = null }
+    )
 }
 
 @Composable
@@ -549,7 +640,14 @@ private fun ThreadCommentRow(
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)?,
     onReaction: (ReactionOption) -> Unit,
-    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>
+    onPollVote: (chatId: Long, messageId: Long, optionIndices: List<Int>) -> Unit,
+    onPollStop: (chatId: Long, messageId: Long) -> Unit,
+    onLoadPollVoters: suspend (chatId: Long, messageId: Long, optionIndex: Int, offset: Int) -> Result<PollVotersPage>,
+    onAddPollOption: suspend (chatId: Long, messageId: Long, text: String) -> Result<Unit>,
+    onStickerOpen: (Long) -> Unit,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    paidContent: PaidContentActions? = null
 ) {
     val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp), verticalAlignment = Alignment.Top) {
@@ -578,6 +676,7 @@ private fun ThreadCommentRow(
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
                 onOpen = { onOpenMedia() },
+                onStickerOpen = { media -> onStickerOpen(media.stickerSetId) },
                 onPlayed = onPlayed,
                 onActions = onActions,
                 onReplyClick = onReplyClick,
@@ -585,7 +684,15 @@ private fun ThreadCommentRow(
                 onReaction = { _, option -> onReaction(option) },
                 observeCustomEmoji = observeCustomEmoji,
                 onRetry = onRetry,
-                onSenderClick = openSender
+                onSenderClick = openSender,
+                onPollVote = { messageId, choices -> onPollVote(message.chatId, messageId, choices) },
+                onPollStop = { messageId -> onPollStop(message.chatId, messageId) },
+                onLoadPollVoters = { messageId, optionIndex, offset ->
+                    onLoadPollVoters(message.chatId, messageId, optionIndex, offset)
+                },
+                onAddPollOption = { messageId, text -> onAddPollOption(message.chatId, messageId, text) },
+                paidContent = paidContent,
+                onOpenMessageEntity = onOpenMessageEntity
             )
         }
     }

@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -20,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.R
+import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.deeplink.copyableMessageLinks
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -31,12 +35,20 @@ import kotlinx.coroutines.launch
 /** A separate history window keeps distant replies from creating gaps in the main pagination. */
 @Composable
 internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: ConversationRepository,
-    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClose: () -> Unit) {
+    observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClose: () -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    allowEntityCopy: Boolean = true) {
     var context by remember(chatId, targetId) { mutableStateOf<MessageContext?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf<ChatMessage?>(null) }
+    var stickerSetId by remember { mutableStateOf<Long?>(null) }
+    var viewerItem by remember { mutableStateOf<MediaViewerItem?>(null) }
+    var viewerChatId by remember { mutableStateOf(0L) }
+    var openedViewOnceIds by remember(chatId, targetId) { mutableStateOf(emptySet<Long>()) }
     var rights by remember { mutableStateOf<MessageRights?>(null) }
+    var copyLinks by remember(chatId, targetId) { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(selected?.id) {
         rights = null
         val message = selected ?: return@LaunchedEffect
@@ -47,6 +59,11 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     val androidContext = LocalContext.current
     val list = rememberLazyListState()
     val reactionScope = rememberCoroutineScope()
+    // The window keeps its own copy of the messages, so the copy is reloaded after a Stars reaction, poll change or paid media payment.
+    fun reloadSnapshot() {
+        reactionScope.launch { conversation.messageContext(chatId, targetId).onSuccess { context = it } }
+    }
+    val paidReactions = rememberPaidReactions(conversation) { reloadSnapshot() }
     LaunchedEffect(chatId, targetId, attempt) {
         context = null; error = null
         val result = conversation.messageContext(chatId, targetId)
@@ -57,6 +74,10 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     }
     // The dialog keeps its own copy of the messages, so the reactions TDLib returns are written back into that copy.
     fun react(messageId: Long, reaction: ReactionOption) {
+        if (reaction.isPaid) {
+            paidReactions.open(chatId, messageId)
+            return
+        }
         reactionScope.launch {
             conversation.toggleReaction(chatId, messageId, reaction, addToRecent = false)
                 .onSuccess { reactions -> context = context?.let { current -> current.copy(messages = current.messages.map { if (it.id == messageId) it.copy(reactions = reactions) else it }) } }
@@ -81,14 +102,75 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                 context == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 else -> LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(context!!.messages, key = { it.id }) { message ->
-                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = { selected = message }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) })
+                        MessageBubble(message, observeFile, downloadFile, highlighted = message.id == targetId, onOpen = {
+                            selected = message
+                            viewerItem = message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, message.chatId) }
+                            viewerChatId = message.chatId
+                        }, onStickerOpen = { media -> stickerSetId = media.stickerSetId },
+                            onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
+                            onActions = if (!allowEntityCopy || message.isViewOnce) null else copyableMessageLinks(message.text, message.entities)
+                                .takeIf { it.isNotEmpty() }
+                                ?.let { links -> { copyLinks = links } },
+                            onPollVote = { messageId, choices ->
+                                reactionScope.launch {
+                                    conversation.votePoll(message.chatId, messageId, choices)
+                                        .onSuccess { reloadSnapshot() }
+                                        .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_vote_failed), Toast.LENGTH_SHORT).show() }
+                                }
+                            },
+                            onPollStop = { messageId ->
+                                reactionScope.launch {
+                                    conversation.stopPoll(message.chatId, messageId)
+                                        .onSuccess { reloadSnapshot() }
+                                        .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_stop_failed), Toast.LENGTH_SHORT).show() }
+                                }
+                            },
+                            onLoadPollVoters = { messageId, optionIndex, offset ->
+                                conversation.pollVoters(message.chatId, messageId, optionIndex, offset)
+                            },
+                            onAddPollOption = { messageId, text ->
+                                conversation.addPollOption(message.chatId, messageId, text)
+                                    .onSuccess { reloadSnapshot() }
+                            },
+                            paidContent = rememberPaidContentActions(conversation) { reloadSnapshot() },
+                            onOpenMessageEntity = onOpenMessageEntity)
                     }
                 }
             }
         }
     }
-    selected?.let { message -> message.media?.let { media -> MediaViewer(pages = listOf(MediaViewerItem(message.id, media)), selectedId = message.id, onSelect = {},
-        observeFile = observeFile, downloadFile = downloadFile, onViewed = { id -> conversation.openMessageContent(message.chatId, id) }, onClose = { selected = null },
-        canExport = MediaViewerPolicy.rightsFor(message.id, rights)?.canSave == true,
-        confirmExport = { id -> conversation.messageCapabilities(message.chatId, id).getOrNull()?.canSave == true }) } }
+    StickerSetBrowser(
+        setId = stickerSetId,
+        conversation = conversation,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        onDismiss = { stickerSetId = null }
+    )
+    if (copyLinks.isNotEmpty()) MessageLinkCopyDialog(
+        links = copyLinks,
+        onCopy = { value ->
+            androidContext.getSystemService(ClipboardManager::class.java)
+                ?.setPrimaryClip(ClipData.newPlainText(androidContext.getString(R.string.message_action_copy_entity), value))
+            Toast.makeText(androidContext, androidContext.getString(R.string.message_entity_copied), Toast.LENGTH_SHORT).show()
+            copyLinks = emptyList()
+        },
+        onDismiss = { copyLinks = emptyList() }
+    )
+    // The viewer keeps its own opened page; deleting the live message must not dismiss it mid-view.
+    val activeItem = viewerItem
+    if (activeItem != null) {
+        val activeChatId = viewerChatId.takeIf { it > 0L } ?: chatId
+        val pages = MediaViewerPolicy.retainViewOncePage(listOf(activeItem), activeItem)
+        MediaViewer(pages = pages, selectedId = activeItem.messageId, onSelect = {},
+            observeFile = observeFile, downloadFile = downloadFile, autoDownloadFile = autoDownloadFile,
+            onViewed = { id ->
+                if (!activeItem.viewOnce || id !in openedViewOnceIds) {
+                    if (activeItem.viewOnce) openedViewOnceIds = openedViewOnceIds + id
+                    conversation.openMessageContent(activeChatId, id)
+                }
+            },
+            onClose = { viewerItem = null; viewerChatId = 0L; selected = null },
+            canExport = MediaViewerPolicy.rightsFor(activeItem.messageId, rights)?.canSave == true && !activeItem.viewOnce,
+            confirmExport = { id -> conversation.messageCapabilities(activeChatId, id).getOrNull()?.canSave == true })
+    }
 }

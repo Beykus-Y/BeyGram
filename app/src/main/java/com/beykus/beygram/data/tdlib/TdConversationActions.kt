@@ -33,9 +33,10 @@ internal class TdConversationActions(
         when (name) {
             "message_text_length_max" -> _limits.update { it.copy(text = limit) }
             "message_caption_length_max" -> _limits.update { it.copy(caption = limit) }
+            "paid_reaction_star_count_max" -> _limits.update { it.copy(paidReactionStarMax = limit) }
         }
     }
-    fun initialize() { scope.launch { listOf("message_text_length_max", "message_caption_length_max").forEach { name -> runCatching { option(name, request(TdApi.GetOption(name))) } } } }
+    fun initialize() { scope.launch { listOf("message_text_length_max", "message_caption_length_max", "paid_reaction_star_count_max").forEach { name -> runCatching { option(name, request(TdApi.GetOption(name))) } } } }
 
     suspend fun capabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = conversationResult {
         val properties = request(TdApi.GetMessageProperties(chatId, messageId))
@@ -312,24 +313,131 @@ internal class TdConversationActions(
 
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         requireFutureSchedule(options)
+        if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_media_only))
         val bounded = boundTelegramText(text, entities, limits.value.text)
         if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft }, replyId, forumTopicId, options)
     }.onFailure { recordSendFailure("text", it) }
+
+    /** A poll carries its own question and options; no caption is involved, so only the send options are checked. */
+    suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = pollResult<Unit> {
+        requireFutureSchedule(options)
+        val value = poll.normalized()
+        value.problem()?.let { throw UserMessageException(it.message()) }
+        send(chatId, inputMessagePoll(value), replyId, forumTopicId, options)
+    }.onFailure { recordSendFailure("poll", it) }
+
+    suspend fun sendLocation(chatId: Long, point: GeoPoint, live: Boolean, replyId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = conversationResult<Unit> {
+        requireFutureSchedule(options)
+        if (!point.isValid) throw UserMessageException(UiText.Res(R.string.chat_location_unavailable))
+        val location = TdApi.Location(point.latitude, point.longitude, point.accuracyMeters)
+        val content: TdApi.InputMessageContent = if (live) {
+            TdApi.InputMessageLiveLocation().apply {
+                this.location = TdApi.LiveLocation().apply {
+                    this.location = location
+                    livePeriod = LIVE_LOCATION_PERIOD_SECONDS
+                    heading = 0
+                    proximityAlertRadius = 0
+                }
+            }
+        } else {
+            TdApi.InputMessageLocation().apply { this.location = location }
+        }
+        send(chatId, content, replyId, forumTopicId, options)
+    }.onFailure { recordSendFailure("location", it) }
+
+    suspend fun sendDice(chatId: Long, emoji: String, replyId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = conversationResult<Unit> {
+        requireFutureSchedule(options)
+        val value = emoji.trim()
+        if (value.isEmpty()) throw UserMessageException(UiText.Res(R.string.chat_dice_send_failed))
+        send(chatId, TdApi.InputMessageDice().apply { this.emoji = value; clearDraft = false }, replyId, forumTopicId, options)
+    }.onFailure { recordSendFailure("dice", it) }
+
+    suspend fun votePoll(chatId: Long, messageId: Long, optionIndices: List<Int>): Result<Unit> = conversationResult<Unit> {
+        val choices = optionIndices.distinct().sorted()
+        if (choices.isEmpty()) throw UserMessageException(UiText.Res(R.string.chat_poll_restriction_other))
+        request(TdApi.SetPollAnswer(chatId, messageId, choices.toIntArray()))
+        refreshMappedMessage(chatId, messageId)
+    }.onFailure { recordSendFailure("poll_vote", it) }
+
+    suspend fun stopPoll(chatId: Long, messageId: Long): Result<Unit> = conversationResult<Unit> {
+        request(TdApi.StopPoll().apply { this.chatId = chatId; this.messageId = messageId; replyMarkup = null })
+        refreshMappedMessage(chatId, messageId)
+    }.onFailure { recordSendFailure("poll_stop", it) }
+
+    /**
+     * Appends an option only when TDLib reports canAddOption on the current message. The server can revoke that
+     * permission between the bubble render and this request, so the check is repeated here.
+     */
+    suspend fun addPollOption(chatId: Long, messageId: Long, text: String): Result<Unit> = conversationResult<Unit> {
+        val current = request(TdApi.GetMessage(chatId, messageId))
+        val poll = (map(current).special as? MessageSpecialContent.Poll)?.poll
+            ?: throw UserMessageException(UiText.Res(R.string.chat_poll_add_option_unavailable))
+        if (!poll.canAddOption || poll.isClosed) {
+            throw UserMessageException(UiText.Res(R.string.chat_poll_add_option_unavailable))
+        }
+        val value = text.trim()
+        poll.addOptionProblem(value)?.let { throw UserMessageException(it.message()) }
+        val option = TdApi.InputPollOption().apply {
+            this.text = formattedText(value, emptyList())
+            media = null
+        }
+        request(TdApi.AddPollOption(chatId, messageId, option))
+        refreshMappedMessage(chatId, messageId)
+    }.onFailure { recordSendFailure("poll_add_option", it) }
+
+    /** TDLib stops a live-location share only when EditMessageLiveLocation.location is null. */
+    suspend fun stopLiveLocation(chatId: Long, messageId: Long): Result<Unit> = conversationResult<Unit> {
+        val updated = request(stopLiveLocationRequest(chatId, messageId))
+        if (updated.schedulingState == null) history.put(map(updated))
+    }.onFailure { recordSendFailure("live_location_stop", it) }
+
+    private suspend fun refreshMappedMessage(chatId: Long, messageId: Long) {
+        val message = try {
+            request(TdApi.GetMessage(chatId, messageId))
+        } catch (_: TimeoutCancellationException) {
+            return
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return
+        }
+        if (message.schedulingState == null) {
+            history.put(map(message))
+            hydrateReply(message)
+        }
+    }
     /** Отправляет карточку контакта как TDLib InputMessageContact, а не как текст с vCard. */
-    suspend fun sendContact(chatId: Long, contact: TdApi.Contact): Result<Unit> = conversationResult<Unit> {
-        send(chatId, contactMessageContent(contact), null)
+    suspend fun sendContact(
+        chatId: Long,
+        contact: TdApi.Contact,
+        replyId: Long? = null,
+        forumTopicId: Long = 0L,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<Unit> = conversationResult<Unit> {
+        requireFutureSchedule(options)
+        send(chatId, contactMessageContent(contact), replyId, forumTopicId, options)
     }.onFailure { recordSendFailure("contact", it) }
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         requireFutureSchedule(options)
+        requireViewOnceSupported(media, options)
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         val bounded = boundTelegramText(caption, entities, limits.value.caption)
-        send(chatId, media.toInputContent(bounded.text, bounded.entities), replyId, forumTopicId, options)
+        send(chatId, media.toInputContent(bounded.text, bounded.entities, selfDestructType(options)), replyId, forumTopicId, options)
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
+
+    /** A sticker keeps its native content type; TDLib sends it by file id without downloading the picker preview. */
+    suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyId: Long?, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
+        requireFutureSchedule(options)
+        require(sticker.kind == MediaKind.Sticker && sticker.remoteFileId > 0) { "Sticker file id is missing" }
+        send(chatId, sticker.toInputContent(""), replyId, forumTopicId, options)
+    }.onSuccess { recordMediaAccepted("sticker") }.onFailure { recordSendFailure("sticker", it) }
+
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
         requireFutureSchedule(options)
+        if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_single_media))
         val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
@@ -445,12 +553,29 @@ internal class TdConversationActions(
         // Editing a scheduled message must not insert it into the visible chat history before it is sent.
         if (message.schedulingState == null) { history.put(map(message)); hydrateReply(message) }
     }
-    suspend fun delete(chatId: Long, messageId: Long, deleteScope: DeleteMessageScope): Result<Unit> = conversationResult {
-        val properties = request(TdApi.GetMessageProperties(chatId, messageId))
-        val allowed = if (deleteScope == DeleteMessageScope.ForEveryone) properties.canBeDeletedForAllUsers else properties.canBeDeletedOnlyForSelf
-        if (!allowed) throw UserMessageException(UiText.Res(R.string.err_delete_option_unavailable))
-        request(TdApi.DeleteMessages(chatId, longArrayOf(messageId), deleteScope == DeleteMessageScope.ForEveryone))
-        history.delete(chatId, listOf(messageId))
+    suspend fun delete(chatId: Long, messageId: Long, deleteScope: DeleteMessageScope): Result<Unit> =
+        deleteMessages(chatId, listOf(messageId), deleteScope)
+
+    /**
+     * Deletes all [messageIds] with one DeleteMessages request. Every message is checked for the chosen scope first:
+     * TDLib applies one revoke flag to the whole batch, so a mixed batch must not silently delete more or less than asked.
+     */
+    suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, deleteScope: DeleteMessageScope): Result<Unit> = conversationResult {
+        val ids = messageIds.distinct().sorted()
+        require(ids.isNotEmpty()) { "Нет сообщений для удаления" }
+        if (ids.size > MAX_MESSAGE_BATCH_SIZE) throw UserMessageException(
+            UiText.Res(R.string.err_messages_too_many, listOf(MAX_MESSAGE_BATCH_SIZE))
+        )
+        val blocked = ids.any { messageId ->
+            val properties = request(TdApi.GetMessageProperties(chatId, messageId))
+            if (deleteScope == DeleteMessageScope.ForEveryone) !properties.canBeDeletedForAllUsers
+            else !properties.canBeDeletedOnlyForSelf
+        }
+        if (blocked) throw UserMessageException(UiText.Res(
+            if (ids.size == 1) R.string.err_delete_option_unavailable else R.string.err_messages_cannot_delete
+        ))
+        request(deleteMessagesRequest(chatId, ids, deleteScope == DeleteMessageScope.ForEveryone))
+        history.delete(chatId, ids)
     }
 
     /**
@@ -468,10 +593,50 @@ internal class TdConversationActions(
      * Пересылка обычная или без автора ([asCopy]). TDLib сам отказывает, если сообщение нельзя переслать
      * или содержимое защищено.
      */
-    suspend fun forward(fromChatId: Long, messageId: Long, toChatId: Long, asCopy: Boolean = false): Result<Unit> = conversationResult {
-        if (!request(TdApi.GetMessageProperties(fromChatId, messageId)).canBeForwarded) throw UserMessageException(UiText.Res(R.string.err_message_cannot_forward))
-        val forwarded = request(forwardMessagesRequest(toChatId, fromChatId, messageId, asCopy))
-        if (!forwarded.messages.orEmpty().any { it != null }) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
+    suspend fun forward(
+        fromChatId: Long,
+        messageId: Long,
+        toChatId: Long,
+        asCopy: Boolean = false,
+        messageThreadId: Long? = null,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<Unit> = forwardMessages(fromChatId, listOf(messageId), toChatId, asCopy, messageThreadId, options).map { Unit }
+
+    /**
+     * One ForwardMessages request for a whole selection. Album members are kept next to each other by the caller, so
+     * TDLib can preserve the album. Each message is checked separately: one protected message refuses the whole batch
+     * instead of silently forwarding only part of the selection.
+     */
+    suspend fun forwardMessages(
+        fromChatId: Long,
+        messageIds: List<Long>,
+        toChatId: Long,
+        asCopy: Boolean = false,
+        messageThreadId: Long? = null,
+        options: MessageSendOptions = MessageSendOptions()
+    ): Result<ForwardedMessages> = conversationResult {
+        // TDLib requires strictly increasing IDs and caps one request at 100 messages.
+        val ids = messageIds.distinct().sorted()
+        require(ids.isNotEmpty()) { "Нет сообщений для пересылки" }
+        if (ids.size > MAX_MESSAGE_BATCH_SIZE) throw UserMessageException(
+            UiText.Res(R.string.err_messages_too_many, listOf(MAX_MESSAGE_BATCH_SIZE))
+        )
+        val blocked = ids.any { messageId ->
+            !request(TdApi.GetMessageProperties(fromChatId, messageId)).canBeForwarded
+        }
+        if (blocked) throw UserMessageException(UiText.Res(
+            if (ids.size == 1) R.string.err_message_cannot_forward else R.string.err_messages_cannot_forward
+        ))
+        requireFutureSchedule(options)
+        val forwarded = request(
+            forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(options))
+        )
+        val returned = forwarded.messages.orEmpty()
+        val forwardedIds = ids.filterIndexed { index, _ -> returned.getOrNull(index) != null }
+        val forwardedSet = forwardedIds.toSet()
+        val failedIds = ids.filterNot { it in forwardedSet }
+        if (forwardedIds.isEmpty()) throw UserMessageException(UiText.Res(R.string.chat_forward_failed))
+        ForwardedMessages(forwardedIds, failedIds)
     }
 
     /** A Telegram link to the message; comments in a thread need the thread form. */
@@ -484,7 +649,8 @@ internal class TdConversationActions(
     /**
      * Reactions the user can add to the message, in the picker's order: TDLib's top, recent and popular reactions, then the chat's
      * own list, or every active emoji when the chat allows all of them. Premium-only ones are left out for users without Premium,
-     * and so are custom emoji, which only Premium users can add.
+     * and so are custom emoji, which only Premium users can add. A Stars reaction is listed only where TDLib lists one for the message;
+     * choosing it opens the Stars confirmation rather than adding it.
      */
     suspend fun availableReactions(chatId: Long, messageId: Long): Result<List<ReactionOption>> = conversationResult<List<ReactionOption>> {
         val available = request(TdApi.GetMessageAvailableReactions(chatId, messageId, PICKER_ROW_SIZE))
@@ -496,8 +662,10 @@ internal class TdConversationActions(
      * Removes [reaction] when the user chose it, otherwise adds it. When the message is at the chat's reaction limit, the first
      * chosen reaction in the server's order makes room, and it comes back if the new reaction can't be added.
      * [addToRecent] is set only for a reaction picked from the extended menu. Returns the message's reactions after the change.
+     * A paid reaction is rejected before any request: Stars are spent only by [TdPaidReactions], after the user confirmed the amount.
      */
     suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> = conversationResult<List<MessageReaction>> {
+        if (reaction.isPaid) throw UserMessageException(UiText.Res(R.string.chat_reaction_paid_confirmation_required))
         reactionLocks.withLock(chatId to messageId) {
             val chosen = request(TdApi.GetMessage(chatId, messageId)).interactionInfo?.reactions?.reactions.orEmpty()
                 .filter { it.isChosen && it.type !is TdApi.ReactionTypePaid }
@@ -642,6 +810,70 @@ internal class TdConversationActions(
 private const val TAG = "BeyGramNet"
 private const val FORUM_TOPIC_PAGE_SIZE = 100
 private const val MAX_FORUM_TOPIC_PAGES = 20
+/** Telegram's shortest live-location window offered by the composer. */
+private const val LIVE_LOCATION_PERIOD_SECONDS = 15 * 60
+
+private fun PollDraftProblem.message(): UiText = when (this) {
+    PollDraftProblem.QuestionEmpty -> UiText.Res(R.string.poll_error_question_empty)
+    PollDraftProblem.QuestionTooLong -> UiText.Res(
+        R.string.poll_error_question_long, listOf(OutgoingPoll.MAX_POLL_QUESTION_LENGTH)
+    )
+    PollDraftProblem.TooFewOptions -> UiText.Res(R.string.poll_error_options_few)
+    PollDraftProblem.TooManyOptions -> UiText.Res(
+        R.string.poll_error_options_many, listOf(OutgoingPoll.MAX_POLL_OPTIONS)
+    )
+    PollDraftProblem.OptionEmpty -> UiText.Res(R.string.poll_error_option_empty)
+    PollDraftProblem.OptionTooLong -> UiText.Res(
+        R.string.poll_error_option_long, listOf(OutgoingPoll.MAX_POLL_OPTION_LENGTH)
+    )
+    PollDraftProblem.CorrectAnswerMissing -> UiText.Res(R.string.poll_error_correct_missing)
+    PollDraftProblem.CorrectAnswerInvalid -> UiText.Res(R.string.poll_error_correct_invalid)
+    PollDraftProblem.CorrectAnswerCount -> UiText.Res(R.string.poll_error_correct_count)
+}
+
+private fun PollOptionAddProblem.message(): UiText = when (this) {
+    PollOptionAddProblem.Empty -> UiText.Res(R.string.poll_error_option_empty)
+    PollOptionAddProblem.TooLong -> UiText.Res(
+        R.string.poll_error_option_long, listOf(OutgoingPoll.MAX_POLL_OPTION_LENGTH)
+    )
+    PollOptionAddProblem.Duplicate -> UiText.Res(R.string.poll_option_error_duplicate)
+    PollOptionAddProblem.LimitReached -> UiText.Res(
+        R.string.poll_error_options_many, listOf(OutgoingPoll.MAX_POLL_OPTIONS)
+    )
+}
+
+/** Builds TDLib's native poll content. Kept separate from the request so its parameters are testable. */
+internal fun inputMessagePoll(poll: OutgoingPoll): TdApi.InputMessagePoll {
+    val value = poll.normalized()
+    return TdApi.InputMessagePoll().apply {
+        question = formattedText(value.question, emptyList())
+        this.options = value.options.map { option ->
+            TdApi.InputPollOption().apply {
+                text = formattedText(option, emptyList())
+                media = null
+            }
+        }.toTypedArray()
+        description = null
+        media = null
+        // Quizzes are anonymous in Telegram; regular polls keep the composer choice.
+        isAnonymous = value.isAnonymous || value.isQuiz
+        allowsMultipleAnswers = value.allowsMultipleAnswers
+        // Telegram quizzes are answered once; regular polls let the user change an answer.
+        allowsRevoting = !value.isQuiz
+        membersOnly = false
+        countryCodes = emptyArray()
+        shuffleOptions = false
+        hideResultsUntilCloses = false
+        type = if (value.isQuiz) TdApi.InputPollTypeQuiz().apply {
+            correctOptionIds = value.correctOptionIndices.sorted().toIntArray()
+            explanation = value.explanation.takeIf { it.isNotBlank() }?.let { formattedText(it, emptyList()) }
+            explanationMedia = null
+        } else TdApi.InputPollTypeRegular().apply { allowAddingOptions = false }
+        openPeriod = 0
+        closeDate = 0
+        isClosed = false
+    }
+}
 
 /** TDLib scheduling state for a Unix timestamp in seconds; null keeps an immediate send. */
 internal fun scheduledState(atSeconds: Long?): TdApi.MessageSchedulingState? =
@@ -657,9 +889,38 @@ private fun requireFutureSchedule(options: MessageSendOptions) {
     if (!options.scheduledTimeIsFuture()) throw UserMessageException(UiText.Res(R.string.err_schedule_time_future))
 }
 
-internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(text.take(180)) else UiText.Res(when (media?.kind) {
-    MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title
-})
+/** View-once is TDLib's per-message immediately-self-destructing photo/video. */
+internal fun selfDestructType(options: MessageSendOptions): TdApi.MessageSelfDestructType? =
+    if (options.viewOnce) TdApi.MessageSelfDestructTypeImmediately() else null
+
+private fun requireViewOnceSupported(media: OutgoingMedia, options: MessageSendOptions) {
+    if (!options.viewOnce) return
+    if (options.scheduledAtSeconds != null) throw UserMessageException(UiText.Res(R.string.err_view_once_scheduled))
+    if (media.kind !in setOf(MediaKind.Photo, MediaKind.Video)) {
+        throw UserMessageException(UiText.Res(R.string.err_view_once_media_only))
+    }
+}
+
+internal fun ChatMessage.preview(): UiText = if (text.isNotBlank()) UiText.Raw(text.take(180)) else when (val content = special) {
+    is MessageSpecialContent.Poll -> content.poll.question.takeIf { it.isNotBlank() }
+        ?.let { UiText.Res(R.string.chat_preview_poll, listOf(it.take(80))) }
+        ?: UiText.Res(R.string.chat_preview_poll_empty)
+    is MessageSpecialContent.Location -> UiText.Res(R.string.chat_preview_location)
+    is MessageSpecialContent.LiveLocation -> UiText.Res(R.string.chat_preview_live_location)
+    is MessageSpecialContent.Venue -> content.venue.title.takeIf { it.isNotBlank() }
+        ?.let { UiText.Res(R.string.chat_preview_venue, listOf(it.take(80))) }
+        ?: UiText.Res(R.string.chat_preview_location)
+    is MessageSpecialContent.Contact -> UiText.Raw(content.contact.displayName.take(180))
+    is MessageSpecialContent.Dice -> UiText.Res(R.string.chat_preview_dice, listOf(content.dice.emoji))
+    is MessageSpecialContent.PaidMedia -> UiText.Res(R.string.paid_content_preview_media)
+    is MessageSpecialContent.Invoice -> content.invoice.title.takeIf { it.isNotBlank() }
+        ?.let { UiText.Res(R.string.paid_content_preview_invoice, listOf(it.take(80))) }
+        ?: UiText.Res(R.string.paid_content_invoice)
+    is MessageSpecialContent.Unsupported -> UiText.Res(R.string.message_title)
+    null -> UiText.Res(when (media?.kind) {
+        MediaKind.Photo -> R.string.media_kind_photo; MediaKind.Video -> R.string.media_kind_video; MediaKind.Animation -> R.string.media_kind_animation; MediaKind.Audio -> R.string.media_kind_audio; MediaKind.Document -> R.string.media_kind_file; MediaKind.Voice -> R.string.media_kind_voice; MediaKind.VideoNote -> R.string.media_kind_video_note; MediaKind.Sticker -> R.string.media_kind_sticker; null -> R.string.message_title
+    })
+}
 
 internal fun messageLinkRequest(chatId: Long, messageId: Long, inMessageThread: Boolean) =
     TdApi.GetMessageLink(chatId, messageId, 0, 0, "", false, inMessageThread)
@@ -723,8 +984,29 @@ private fun TdApi.ChatMemberStatus?.allowsThreadComment(chatPermissions: TdApi.C
     else -> false
 }
 
+internal fun forwardMessagesRequest(
+    toChatId: Long,
+    fromChatId: Long,
+    messageIds: List<Long>,
+    asCopy: Boolean,
+    messageThreadId: Long? = null,
+    options: TdApi.MessageSendOptions = TdApi.MessageSendOptions()
+) = TdApi.ForwardMessages(
+    toChatId,
+    messageThreadId?.takeIf { it > 0L }?.let { TdApi.MessageTopicForum(it.toInt()) },
+    fromChatId,
+    messageIds.toLongArray(),
+    options,
+    asCopy,
+    false
+)
+
+/** Single-message overload kept for shared-media forwarding and focused protocol tests. */
 internal fun forwardMessagesRequest(toChatId: Long, fromChatId: Long, messageId: Long, asCopy: Boolean) =
-    TdApi.ForwardMessages(toChatId, null, fromChatId, longArrayOf(messageId), TdApi.MessageSendOptions(), asCopy, false)
+    forwardMessagesRequest(toChatId, fromChatId, listOf(messageId), asCopy)
+
+internal fun deleteMessagesRequest(chatId: Long, messageIds: List<Long>, revoke: Boolean) =
+    TdApi.DeleteMessages(chatId, messageIds.toLongArray(), revoke)
 
 internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L) = TdApi.SearchChatMessages().apply {
     this.chatId = chatId
@@ -743,6 +1025,14 @@ internal fun pinMessageRequest(chatId: Long, messageId: Long, pinned: Boolean): 
     if (pinned) TdApi.PinChatMessage(chatId, messageId, true, false)
     else TdApi.UnpinChatMessage(chatId, messageId)
 
+/** TDLib's documented stop operation: a null location clears the share, not a zero live period. */
+internal fun stopLiveLocationRequest(chatId: Long, messageId: Long) = TdApi.EditMessageLiveLocation().apply {
+    this.chatId = chatId
+    this.messageId = messageId
+    replyMarkup = null
+    location = null
+}
+
 /** Медиа в журнале видны и принятые, и неудачные: текстовые сообщения слишком частые, поэтому там только сбои. */
 private fun recordMediaAccepted(kind: String) = recordAppEvent(
     kind = EventKind.TDLIB,
@@ -754,18 +1044,44 @@ private fun recordMediaAccepted(kind: String) = recordAppEvent(
 /** Пишем каждый сбой отправки. Проверка до запроса (пустой текст, ответ недоступен) без причины TDLib получает local_check. */
 private fun recordSendFailure(kind: String, error: Throwable) {
     val cause = error.cause
+    val tdlibError = cause as? TdRequestError
     val reason = when {
-        cause is TdRequestError -> "tdlib_${cause.code}"
+        tdlibError != null -> "tdlib_${tdlibError.code}"
         cause == null && error is UserMessageException -> "local_check"
         else -> (cause ?: error).javaClass.simpleName
+    }
+    val attrs = buildMap {
+        put("kind", kind)
+        put("reason", reason)
+        // The original TDLib code/message explains server-side refusals. redactedTdlibMessage keeps diagnostics
+        // free of poll text and personal data while preserving TDLib's fixed ASCII error phrases.
+        tdlibError?.let { failure ->
+            put("tdlib_code", failure.code.toString())
+            redactedTdlibMessage(failure.message)?.let { put("tdlib_message", it) }
+        }
     }
     recordAppEvent(
         kind = EventKind.TDLIB,
         code = "send_request_failed",
         text = "Отправка не удалась: $kind, причина: $reason",
         severity = Severity.ERROR,
-        attrs = mapOf("kind" to kind, "reason" to reason)
+        attrs = attrs
     )
+}
+
+/**
+ * Diagnostics-safe copy of a TDLib server message. TDLib error strings are fixed phrases, but quoted fragments and
+ * non-ASCII text are removed anyway so no poll question/option or personal data can reach the event log.
+ */
+internal fun redactedTdlibMessage(message: String?): String? {
+    if (message.isNullOrBlank()) return null
+    val withoutQuoted = message.replace(Regex("\"[^\"]*\""), "<text>")
+    return withoutQuoted
+        .filter { it.code in 0x20..0x7E }
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(160)
+        .ifBlank { null }
 }
 
 /** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */

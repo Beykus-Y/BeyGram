@@ -74,4 +74,49 @@
     <string name="service_unknown_member">Mitglied #%1$s</string>
     <string name="service_videochat_ended">Der Videochat wurde beendet</string>
     <string name="service_videochat_started">Videochat gestartet</string>
+    <!-- #377 subtask B: gift, Premium gift, Stars and giveaway service lines -->
+    <string name="service_gift_sent_stars">Geschenk gesendet: %1$s Stars</string>
+    <string name="service_gift_received_stars">Geschenk erhalten: %1$s Stars</string>
+    <string name="service_gift_stars">Geschenk: %1$s Stars</string>
+    <string name="service_gift_sent">Geschenk gesendet</string>
+    <string name="service_gift_received">Geschenk erhalten</string>
+    <string name="service_gift">Geschenk</string>
+    <string name="service_gift_converted_stars">Geschenk in %1$s Stars umgewandelt</string>
+    <string name="service_gift_converted">Geschenk in Stars umgewandelt</string>
+    <string name="service_gift_refunded">Geschenk erstattet</string>
+    <string name="service_gift_note">„%1$s“</string>
+    <string name="service_upgraded_gift">Einzigartiges Geschenk: %1$s #%2$d</string>
+    <string name="service_upgraded_gift_refunded">Einzigartiges Geschenk erstattet</string>
+    <plurals name="service_gift_premium_months">
+        <item quantity="one">Telegram-Premium-Geschenk für %1$d Monat</item>
+        <item quantity="other">Telegram-Premium-Geschenk für %1$d Monate</item>
+    </plurals>
+    <plurals name="service_gift_premium_days">
+        <item quantity="one">Telegram-Premium-Geschenk für %1$d Tag</item>
+        <item quantity="other">Telegram-Premium-Geschenk für %1$d Tage</item>
+    </plurals>
+    <string name="service_gift_premium">Telegram-Premium-Geschenk</string>
+    <plurals name="service_gift_premium_code_months">
+        <item quantity="one">Premium-Geschenkcode für %1$d Monat</item>
+        <item quantity="other">Premium-Geschenkcode für %1$d Monate</item>
+    </plurals>
+    <plurals name="service_gift_premium_code_days">
+        <item quantity="one">Premium-Geschenkcode für %1$d Tag</item>
+        <item quantity="other">Premium-Geschenkcode für %1$d Tage</item>
+    </plurals>
+    <string name="service_gift_premium_code">Premium-Geschenkcode</string>
+    <string name="service_gifted_stars">%1$s Stars verschenkt</string>
+    <string name="service_gifted_ton">%1$s TON verschenkt</string>
+    <plurals name="service_giveaway_started">
+        <item quantity="one">Verlosung für %1$d Gewinner</item>
+        <item quantity="other">Verlosung für %1$d Gewinner</item>
+    </plurals>
+    <string name="service_giveaway_stars_created">Stars-Verlosung erstellt: %1$s Stars</string>
+    <string name="service_giveaway_prize_stars">Verlosungspreis: %1$s Stars</string>
+    <string name="service_giveaway_completed">Verlosung abgeschlossen</string>
+    <string name="service_giveaway_winners">Gewinner der Verlosung: %1$d</string>
+    <string name="service_giveaway_refunded">Verlosung erstattet</string>
+    <string name="service_paid_messages_refunded">Bezahlte Nachrichten erstattet: %1$s Stars</string>
+    <string name="service_paid_message_price">Nachrichtenpreis geändert auf %1$s Stars</string>
+    <string name="service_paid_message_free">Nachrichten sind jetzt kostenlos</string>
 </resources>

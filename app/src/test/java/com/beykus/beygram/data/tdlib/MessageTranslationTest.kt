@@ -1,11 +1,11 @@
 package com.beykus.beygram.data.tdlib
 
-import com.beykus.beygram.R
-import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.SpeechRecognitionFailure
+import com.beykus.beygram.domain.model.SpeechRecognitionFailureReason
 import com.beykus.beygram.domain.model.TextStyleKind
 import com.beykus.beygram.domain.model.TranslationPolicy
 import org.drinkless.tdlib.TdApi
@@ -48,7 +48,7 @@ class MessageTranslationTest {
     @Test fun `speech recognition states map to text pending and friendly error`() {
         assertEquals(TranscriptionSnapshot(text = "hello"), TdApi.SpeechRecognitionResultText("hello").toTranscriptionSnapshot())
         assertEquals(TranscriptionSnapshot(pendingText = "hel"), TdApi.SpeechRecognitionResultPending("hel").toTranscriptionSnapshot())
-        assertEquals(TranscriptionSnapshot(error = UiText.Res(R.string.err_transcription_failed)),
+        assertEquals(TranscriptionSnapshot(error = SpeechRecognitionFailure(SpeechRecognitionFailureReason.Other)),
             TdApi.SpeechRecognitionResultError(TdApi.Error(400, "SPEECH_RECOGNITION_FAILED")).toTranscriptionSnapshot())
         assertEquals(TranscriptionSnapshot(), (null as TdApi.SpeechRecognitionResult?).toTranscriptionSnapshot())
     }
@@ -67,7 +67,7 @@ class MessageTranslationTest {
         val original = ChatMessage(id = 7, chatId = 1, text = "caption", time = "12:00", isOutgoing = false,
             senderName = "Alice")
         val media = MessageMedia(MediaKind.Voice, 9, transcriptionText = "recognized")
-        val updated = original.withUpdatedContent(TdApi.MessageVoiceNote(), media, "caption", emptyList(), null)
+        val updated = original.withUpdatedContent(TdApi.MessageVoiceNote(), media, null, "caption", emptyList(), null)
         assertEquals("recognized", updated.media?.transcriptionText)
         assertEquals("Alice", updated.senderName)
         assertEquals("caption", updated.text)

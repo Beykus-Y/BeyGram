@@ -34,6 +34,8 @@ class MediaViewerPolicyTest {
     @Test fun secureFollowsSettledPage() {
         assertTrue(MediaViewerPolicy.secureWhileShowing(secret))
         assertFalse(MediaViewerPolicy.secureWhileShowing(plain))
+        // View-once media in an ordinary private chat is still a one-time secret while its viewer is open.
+        assertTrue(MediaViewerPolicy.secureWhileShowing(plain, viewOnce = true))
     }
 
     @Test fun neighbourSecretPageStaysClosedWhileSwipeIsNotSettled() {
@@ -61,5 +63,43 @@ class MediaViewerPolicyTest {
 
     @Test fun noLoadedRightsAllowNothing() {
         assertNull(MediaViewerPolicy.rightsFor(10, null))
+    }
+
+    @Test fun deletedViewOncePageStaysInViewerUntilClosed() {
+        val retained = MediaViewerItem(messageId = 20, media = plain, viewOnce = true)
+        val other = MediaViewerItem(messageId = 21, media = plain)
+
+        assertEquals(listOf(retained, other), MediaViewerPolicy.retainViewOncePage(listOf(other), retained))
+        assertEquals(listOf(retained), MediaViewerPolicy.retainViewOncePage(emptyList(), retained))
+    }
+
+    @Test fun deletedViewOncePageKeepsItsPlace() {
+        val retained = MediaViewerItem(messageId = 20, media = plain, viewOnce = true)
+        val older = MediaViewerItem(messageId = 19, media = plain)
+        val newer = MediaViewerItem(messageId = 23, media = plain)
+        val newest = MediaViewerItem(messageId = 30, media = plain)
+
+        assertEquals(
+            listOf(older, retained, newer, newest),
+            MediaViewerPolicy.retainViewOncePage(listOf(older, newer, newest), retained)
+        )
+        assertEquals(
+            listOf(newest, newer, retained, older),
+            MediaViewerPolicy.retainViewOncePage(listOf(newest, newer, older), retained)
+        )
+        assertEquals(listOf(older, retained), MediaViewerPolicy.retainViewOncePage(listOf(older), retained))
+    }
+
+    @Test fun retainedViewOncePageIsNotDuplicated() {
+        val retained = MediaViewerItem(messageId = 20, media = plain, viewOnce = true)
+        val pages = listOf(MediaViewerItem(messageId = 20, media = secret), retained)
+
+        assertEquals(pages, MediaViewerPolicy.retainViewOncePage(pages, retained))
+    }
+
+    @Test fun ordinaryDeletedPageIsNotRetained() {
+        val ordinary = MediaViewerItem(messageId = 20, media = plain, viewOnce = false)
+        assertEquals(emptyList<MediaViewerItem>(), MediaViewerPolicy.retainViewOncePage(emptyList(), ordinary))
+        assertEquals(emptyList<MediaViewerItem>(), MediaViewerPolicy.retainViewOncePage(emptyList(), null))
     }
 }

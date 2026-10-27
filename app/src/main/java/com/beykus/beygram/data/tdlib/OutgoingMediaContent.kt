@@ -1,14 +1,25 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.data.media.Mp4StreamingProbe
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.OutgoingMedia
 import org.drinkless.tdlib.TdApi
+import java.io.File
 
-internal fun OutgoingMedia.toInputContent(caption: String, entities: List<MessageTextEntity> = emptyList()): TdApi.InputMessageContent {
-    val local = TdApi.InputFileLocal(path)
+internal fun OutgoingMedia.toInputContent(
+    caption: String,
+    entities: List<MessageTextEntity> = emptyList(),
+    selfDestructType: TdApi.MessageSelfDestructType? = null
+): TdApi.InputMessageContent {
+    // A server-side file is sent by id: TDLib neither downloads it nor uploads it again.
+    val local = if (remoteFileId > 0) TdApi.InputFileId(remoteFileId) else TdApi.InputFileLocal(path)
     val formattedCaption = formattedText(caption, entities)
-    val thumb = thumbnailPath?.let { TdApi.InputThumbnail(TdApi.InputFileLocal(it), thumbnailWidth, thumbnailHeight) }
+    val thumb = when {
+        thumbnailRemoteFileId > 0 -> TdApi.InputThumbnail(TdApi.InputFileId(thumbnailRemoteFileId), thumbnailWidth, thumbnailHeight)
+        thumbnailPath != null -> TdApi.InputThumbnail(TdApi.InputFileLocal(thumbnailPath), thumbnailWidth, thumbnailHeight)
+        else -> null
+    }
     return when (kind) {
         MediaKind.Photo -> TdApi.InputMessagePhoto().apply {
             photo = TdApi.InputPhoto().apply {
@@ -19,6 +30,7 @@ internal fun OutgoingMedia.toInputContent(caption: String, entities: List<Messag
                 addedStickerFileIds = intArrayOf()
             }
             this.caption = formattedCaption
+            this.selfDestructType = selfDestructType
         }
         MediaKind.Video -> TdApi.InputMessageVideo().apply {
             video = TdApi.InputVideo().apply {
@@ -27,11 +39,13 @@ internal fun OutgoingMedia.toInputContent(caption: String, entities: List<Messag
                 width = this@toInputContent.width
                 height = this@toInputContent.height
                 duration = durationSeconds
-                // The original container may have its index at the end of the file.
-                supportsStreaming = false
+                // Only a fast-start MP4 can be played before the recipient downloads the whole file.
+                // A container with moov at the end keeps the flag false instead of promising streaming.
+                supportsStreaming = runCatching { Mp4StreamingProbe.supportsStreaming(File(path)) }.getOrDefault(false)
                 addedStickerFileIds = intArrayOf()
             }
             this.caption = formattedCaption
+            this.selfDestructType = selfDestructType
         }
         MediaKind.VideoNote -> TdApi.InputMessageVideoNote().apply {
             videoNote = local
@@ -44,6 +58,27 @@ internal fun OutgoingMedia.toInputContent(caption: String, entities: List<Messag
             duration = durationSeconds
             waveform = this@toInputContent.waveform
             this.caption = formattedCaption
+        }
+        // Stickers and GIFs must keep their native bubble type instead of falling back to a document.
+        MediaKind.Sticker -> TdApi.InputMessageSticker().apply {
+            sticker = local
+            thumbnail = thumb
+            width = this@toInputContent.width
+            height = this@toInputContent.height
+            emoji = this@toInputContent.emoji
+        }
+        MediaKind.Animation -> TdApi.InputMessageAnimation().apply {
+            animation = TdApi.InputAnimation(
+                local,
+                thumb,
+                intArrayOf(),
+                durationSeconds,
+                this@toInputContent.width,
+                this@toInputContent.height
+            )
+            this.caption = formattedCaption
+            showCaptionAboveMedia = false
+            hasSpoiler = false
         }
         else -> TdApi.InputMessageDocument().apply {
             document = TdApi.InputDocument(local, thumb, true)

@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -44,6 +45,7 @@ import com.beykus.beygram.domain.model.TelegramProxyKind
 import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
+import com.beykus.beygram.ui.text.pluralForm
 
 /** Название типа прокси, как в макете. */
 internal val TelegramProxyKind.label: String
@@ -63,15 +65,9 @@ internal fun bestReachable(probes: Map<String, com.beykus.beygram.domain.model.M
         .mapNotNull { probe -> if (probe.telegramReachable) probe.delayMillis?.let { probe.connectionName to it } else null }
         .minByOrNull { it.second }
 
-/** «1 сервер», «2 сервера», «5 серверов» по правилам русского языка. */
+/** «1 сервер», «2 сервера», «5 серверов»: форма по языку интерфейса. */
 @Composable internal fun serversCountText(count: Int): String {
-    val lastTwo = count % 100
-    val last = count % 10
-    val word = when {
-        last == 1 && lastTwo != 11 -> stringResource(R.string.proxy_servers_one)
-        last in 2..4 && lastTwo !in 12..14 -> stringResource(R.string.proxy_servers_few)
-        else -> stringResource(R.string.proxy_servers_many)
-    }
+    val word = stringResource(pluralForm(LocalConfiguration.current.locales[0].language, count, R.string.proxy_servers_one, R.string.proxy_servers_few, R.string.proxy_servers_many))
     return "$count $word"
 }
 

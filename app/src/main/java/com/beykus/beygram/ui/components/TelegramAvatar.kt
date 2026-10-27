@@ -21,11 +21,12 @@ fun TelegramAvatar(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val backgroundDownload = LocalBackgroundMediaDownload.current
     Box(modifier.size(size).clip(CircleShape).background(color)) {
         Avatar(initials, color, size)
         photo?.let {
             val file by remember(it.smallFileId) { observeFile(it.smallFileId) }.collectAsStateWithLifecycle()
-            LaunchedEffect(it.smallFileId) { downloadFile(it.smallFileId) }
+            LaunchedEffect(it.smallFileId) { (backgroundDownload ?: downloadFile)(it.smallFileId) }
             file.localPath?.let { path -> LocalMediaImage(path, Modifier.size(size)) }
         }
     }

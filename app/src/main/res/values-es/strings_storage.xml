@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="storage_category_files">Archivos</string>
+    <string name="storage_category_music">Música</string>
+    <string name="storage_category_other">Stickers y otros</string>
+    <string name="storage_category_photos">Fotos</string>
+    <string name="storage_category_videos">Videos</string>
+    <string name="storage_category_voice_notes">Mensajes de voz y video</string>
+    <string name="storage_clear_all">Borrar toda la caché</string>
+    <string name="storage_clear_all_title">¿Borrar toda la caché?</string>
+    <string name="storage_clear_confirm">Borrar</string>
+    <string name="storage_clear_failed">No se pudo borrar la caché. Inténtalo de nuevo.</string>
+    <string name="storage_clear_selected">Borrar seleccionados</string>
+    <string name="storage_clear_selected_title">¿Borrar los elementos seleccionados?</string>
+    <string name="storage_clear_text">Los archivos se eliminarán de este dispositivo y se descargarán de nuevo cuando sea necesario. Tus chats y mensajes no se modificarán.</string>
+    <string name="storage_clearing">Borrando archivos… %1$d%%</string>
+    <string name="storage_database">Base de datos y datos de la aplicación</string>
+    <string name="storage_database_detail">Mensajes, chats y registros. La limpieza de la caché no afecta a estos datos.</string>
+    <string name="storage_footnote">El límite de caché y el período de conservación se comprueban al iniciar sesión, cada 6 horas y después de los cambios. Tus conversaciones nunca se eliminan.</string>
+    <string name="storage_freed">Espacio liberado: %1$s</string>
+    <string name="storage_limit_detail">Si la caché supera este límite, BeyGram elimina los archivos que llevan más tiempo sin abrirse.</string>
+    <string name="storage_limit_gigabytes">%1$d GB</string>
+    <string name="storage_limit_title">Límite de tamaño de la caché</string>
+    <string name="storage_limit_unlimited">Sin límite</string>
+    <string name="storage_load_failed">No se pudo calcular el almacenamiento. Inténtalo más tarde.</string>
+    <string name="storage_retention_detail">Los archivos que no se hayan abierto durante mucho tiempo se eliminan tras el período seleccionado.</string>
+    <string name="storage_retention_forever">Para siempre</string>
+    <string name="storage_retention_month">1 mes</string>
+    <string name="storage_retention_three_days">3 días</string>
+    <string name="storage_retention_title">Conservar archivos durante</string>
+    <string name="storage_retention_week">1 semana</string>
+    <string name="storage_selected_size">Seleccionado para limpiar: %1$s</string>
+    <string name="storage_settings_save_failed">No se pudo guardar este ajuste. El valor anterior no ha cambiado.</string>
+    <string name="storage_size_bytes">%1$s B</string>
+    <string name="storage_size_gigabytes">%1$s GB</string>
+    <string name="storage_size_kilobytes">%1$s KB</string>
+    <string name="storage_size_megabytes">%1$s MB</string>
+    <string name="storage_uploads">Archivos pendientes de subir</string>
+    <string name="storage_uploads_detail">Los archivos sin enviar permanecen hasta que se envíen. Las copias de archivos enviados se eliminan según la antigüedad de la caché y los límites de tamaño, a menos que el chat abierto las necesite.</string>
+    <string name="storage_usage_loading">Calculando el almacenamiento de archivos…</string>
+    <string name="storage_usage_title">Almacenamiento de la aplicación</string>
+</resources>

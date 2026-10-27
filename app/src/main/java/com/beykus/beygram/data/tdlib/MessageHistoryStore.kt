@@ -6,6 +6,7 @@ import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.LiveMessageArrival
 import com.beykus.beygram.domain.model.MessageIdReplacement
 import com.beykus.beygram.domain.model.MessageSendState
+import com.beykus.beygram.domain.model.MessageSpecialContent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,7 +31,18 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     /** Файлы медиа, которые показывают сообщения открытых и загруженных чатов: их локальные копии нужны ленте и просмотрщику. */
     fun mediaFileIds(): Set<Int> = synchronized(lock) {
         (cachedChats + openedChats).flatMap { chatId -> states[chatId]?.value?.let { it.messages + it.outsideWindowMessages }.orEmpty() }
-            .flatMap { message -> listOfNotNull(message.media?.fileId, message.media?.thumbnailFileId) }
+            .flatMap { message ->
+                buildList {
+                    message.media?.fileId?.let { add(it) }
+                    message.media?.thumbnailFileId?.let { add(it) }
+                    // Dice animations are part of the message content; keeping them avoids re-downloading every time
+                    // the chat is reopened and lets storage cleanup leave a visible throw alone.
+                    (message.special as? MessageSpecialContent.Dice)?.dice?.let { dice ->
+                        dice.initialState?.assets?.forEach { add(it.fileId); it.thumbnailFileId?.let { thumb -> add(thumb) } }
+                        dice.finalState?.assets?.forEach { add(it.fileId); it.thumbnailFileId?.let { thumb -> add(thumb) } }
+                    }
+                }
+            }
             .filter { it != 0 }.toSet()
     }
 

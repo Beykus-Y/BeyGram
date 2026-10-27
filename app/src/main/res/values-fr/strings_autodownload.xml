@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_auto_download_title">Téléchargement automatique des médias</string>
+    <string name="auto_download_intro">Choisissez ce que l’application télécharge automatiquement sur chaque réseau. Les téléchargements manuels fonctionnent toujours.</string>
+    <string name="auto_download_network_wifi">Wi-Fi</string>
+    <string name="auto_download_network_mobile">Données mobiles</string>
+    <string name="auto_download_network_roaming">Itinérance</string>
+    <string name="auto_download_network_other">Autre réseau</string>
+    <string name="auto_download_limit_title">Limite de taille</string>
+    <string name="auto_download_limit_mb">%1$d Mo</string>
+    <string name="auto_download_limit_unlimited">Sans limite</string>
+    <string name="auto_download_data_saver">Économiser les données</string>
+    <string name="auto_download_data_saver_detail">Désactive tous les téléchargements automatiques sur les données mobiles, en itinérance et en Wi-Fi limité. Le bouton Télécharger reste disponible.</string>
+    <string name="auto_download_secret_note">Les discussions secrètes, les photos éphémères et les pièces jointes masquées ne sont jamais téléchargées automatiquement.</string>
+    <string name="auto_download_manual_note">Le bouton Télécharger d’une pièce jointe la télécharge toujours, même au-delà de la limite.</string>
+    <string name="auto_download_streaming_note">Les vidéos à démarrage rapide peuvent être lues pendant le téléchargement. Si l’index du fichier se trouve à la fin, la vidéo s’ouvre après le téléchargement complet.</string>
+    <string name="auto_download_save_failed">Impossible d’enregistrer les paramètres</string>
+    <string name="traffic_summary_title">Consommation de données</string>
+    <string name="traffic_summary_metered">La connexion est limitée</string>
+    <string name="traffic_summary_unmetered">La connexion n’a pas de limite de données</string>
+    <string name="traffic_summary_data_saver_on">L’économiseur de données est activé</string>
+    <string name="traffic_summary_data_saver_off">L’économiseur de données est désactivé</string>
+    <string name="traffic_summary_data_saver_blocks_auto">Les téléchargements automatiques sont désactivés sur ce réseau</string>
+    <string name="traffic_summary_auto_active">Téléchargements auto : %1$d</string>
+    <string name="traffic_summary_manual_active">Téléchargements manuels : %1$d</string>
+    <string name="traffic_summary_active_both">Téléchargements auto : %1$d · Manuels : %2$d</string>
+    <string name="traffic_summary_idle">Aucun téléchargement en cours</string>
+    <string name="traffic_summary_auto_total">Automatique</string>
+    <string name="traffic_summary_manual_total">Manuel</string>
+    <string name="traffic_summary_total">Total</string>
+    <string name="traffic_summary_session_note">Compté depuis le lancement de l’application. Seuls les fichiers téléchargés sont inclus.</string>
+    <string name="traffic_network_wifi_metered">Wi-Fi limité</string>
+    <string name="traffic_network_offline">Pas de réseau</string>
+    <string name="traffic_origin_auto">Auto</string>
+    <string name="traffic_origin_manual">Manuel</string>
+    <string name="traffic_badge_progress">%1$s · %2$s sur %3$s · %4$s</string>
+    <string name="traffic_badge_progress_unknown">%1$s · %2$s · %3$s</string>
+    <string name="traffic_size_bytes">%1$d o</string>
+    <string name="traffic_size_kb">%1$d Ko</string>
+    <string name="traffic_size_mb">%1$.1f Mo</string>
+    <string name="traffic_size_gb">%1$.1f Go</string>
+</resources>

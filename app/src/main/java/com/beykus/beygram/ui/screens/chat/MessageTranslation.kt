@@ -34,8 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.settings.TRANSLATION_LANGUAGES
+import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.ui.components.beyGramPalette
+import kotlinx.coroutines.flow.StateFlow
 
 /** UI-only state for one message and one target language. Results are cached for the chat visit by the screen. */
 internal sealed interface TranslationUiState {
@@ -107,6 +110,9 @@ internal fun TranslationBlock(
     onCancel: () -> Unit,
     onDismiss: () -> Unit,
     messageId: Long,
+    observeCustomEmoji: ((Long) -> StateFlow<CustomEmoji?>)? = null,
+    observeFile: ((Int) -> StateFlow<MediaFileState>)? = null,
+    downloadFile: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val palette = beyGramPalette()
@@ -135,7 +141,8 @@ internal fun TranslationBlock(
                             modifier = Modifier.size(18.dp))
                     }
                 }
-                FormattedMessageText(state.translation.text, state.translation.entities, messageId)
+                FormattedMessageText(state.translation.text, state.translation.entities, messageId,
+                    observeCustomEmoji = observeCustomEmoji, observeFile = observeFile, downloadFile = downloadFile)
             }
             is TranslationUiState.Failed -> Column(Modifier.padding(top = 6.dp)) {
                 Text(state.error, color = palette.danger, fontSize = 13.sp)

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_auto_download_title">Medien-Autodownload</string>
+    <string name="auto_download_intro">Legen Sie fest, was die App in jedem Netz automatisch lädt. Manuelle Downloads funktionieren immer.</string>
+    <string name="auto_download_network_wifi">WLAN</string>
+    <string name="auto_download_network_mobile">Mobile Daten</string>
+    <string name="auto_download_network_roaming">Roaming</string>
+    <string name="auto_download_network_other">Anderes Netz</string>
+    <string name="auto_download_limit_title">Größenlimit</string>
+    <string name="auto_download_limit_mb">%1$d MB</string>
+    <string name="auto_download_limit_unlimited">Kein Limit</string>
+    <string name="auto_download_data_saver">Daten sparen</string>
+    <string name="auto_download_data_saver_detail">Deaktiviert alle automatischen Downloads in mobilen Netzen, im Roaming und in getaktetem WLAN. Die Schaltfläche „Herunterladen“ funktioniert weiterhin.</string>
+    <string name="auto_download_secret_note">Geheime Chats, selbstlöschende Fotos und Spoiler-Anhänge werden nie automatisch geladen.</string>
+    <string name="auto_download_manual_note">Die Schaltfläche „Herunterladen“ lädt einen Anhang immer, auch über dem Limit.</string>
+    <string name="auto_download_streaming_note">Fast-Start-Videos können während des Downloads abspielen. Liegt der Dateiindex am Ende, öffnet sich das Video erst nach dem vollständigen Download.</string>
+    <string name="auto_download_save_failed">Einstellungen konnten nicht gespeichert werden</string>
+    <string name="traffic_summary_title">Datenverbrauch</string>
+    <string name="traffic_summary_metered">Verbindung gilt als getaktet</string>
+    <string name="traffic_summary_unmetered">Verbindung ohne Datenlimit</string>
+    <string name="traffic_summary_data_saver_on">Datensparen ist aktiv</string>
+    <string name="traffic_summary_data_saver_off">Datensparen ist inaktiv</string>
+    <string name="traffic_summary_data_saver_blocks_auto">Automatische Downloads sind in diesem Netz deaktiviert</string>
+    <string name="traffic_summary_auto_active">Automatische Downloads: %1$d</string>
+    <string name="traffic_summary_manual_active">Manuelle Downloads: %1$d</string>
+    <string name="traffic_summary_active_both">Automatische Downloads: %1$d · Manuell: %2$d</string>
+    <string name="traffic_summary_idle">Zurzeit werden keine Dateien geladen</string>
+    <string name="traffic_summary_auto_total">Automatisch</string>
+    <string name="traffic_summary_manual_total">Manuell</string>
+    <string name="traffic_summary_total">Gesamt</string>
+    <string name="traffic_summary_session_note">Gezählt seit dem Start der App. Nur heruntergeladene Dateien werden berücksichtigt.</string>
+    <string name="traffic_network_wifi_metered">Getaktetes WLAN</string>
+    <string name="traffic_network_offline">Kein Netz</string>
+    <string name="traffic_origin_auto">Auto</string>
+    <string name="traffic_origin_manual">Manuell</string>
+    <string name="traffic_badge_progress">%1$s · %2$s von %3$s · %4$s</string>
+    <string name="traffic_badge_progress_unknown">%1$s · %2$s · %3$s</string>
+    <string name="traffic_size_bytes">%1$d B</string>
+    <string name="traffic_size_kb">%1$d KB</string>
+    <string name="traffic_size_mb">%1$.1f MB</string>
+    <string name="traffic_size_gb">%1$.1f GB</string>
+</resources>

@@ -2,6 +2,7 @@ package com.beykus.beygram.domain.repository
 
 import com.beykus.beygram.diagnostics.report.BotConfirmation
 import com.beykus.beygram.domain.model.AuthState
+import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChannelAdminEventPage
 import com.beykus.beygram.domain.model.ChannelEventFilter
 import com.beykus.beygram.domain.model.ChannelStatisticsSummary
@@ -10,8 +11,21 @@ import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
+import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftsInfo
+import com.beykus.beygram.domain.model.ReceivedGiftsPage
+import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
+import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
+import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
+import com.beykus.beygram.domain.model.PremiumInfo
+import com.beykus.beygram.domain.model.PremiumPlan
+import com.beykus.beygram.domain.model.StarTopUpOption
+import com.beykus.beygram.domain.model.StarsTopUpOutcome
+import com.beykus.beygram.domain.model.StarTransactionsPage
+import com.beykus.beygram.domain.model.StarsInfo
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.BlockedSenderKind
 import com.beykus.beygram.domain.model.BlockedSendersPage
@@ -21,15 +35,26 @@ import com.beykus.beygram.domain.model.PrivacySettingState
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.ReactionOption
+import com.beykus.beygram.domain.model.StoryDetail
+import com.beykus.beygram.domain.model.StoryArchivePage
+import com.beykus.beygram.domain.model.StoryPostEvent
+import com.beykus.beygram.domain.model.StoryPostPermission
+import com.beykus.beygram.domain.model.StoryPostTarget
+import com.beykus.beygram.domain.model.StoryPostTicket
+import com.beykus.beygram.domain.model.StorySubmissionState
+import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ProfileState
 import com.beykus.beygram.domain.model.ProfileEdit
 import com.beykus.beygram.domain.model.SavedTelegramProxy
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.repository.ReportBotChannel
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
-interface TelegramRepository : ConversationRepository, NotificationRepository, ReportBotChannel, StorageRepository {
+interface TelegramRepository : ConversationRepository, NotificationRepository, ReportBotChannel, StorageRepository,
+    AccountSecurityRepository, GroupAdministrationRepository {
     /** Текущее состояние авторизации. Обновляется реактивно при каждом ответе TDLib. */
     val authState: StateFlow<AuthState>
 
@@ -55,6 +80,61 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun deleteServerFolder(folderId: Int): Result<Unit>
     suspend fun reorderServerFolders(ids: List<Int>, mainPosition: Int): Result<Unit>
 
+    /** Active stories from the main story list, already filtered for secret chats and blocked senders. */
+    val activeStories: StateFlow<List<ChatStories>>
+    /** Asks TDLib for the main story list again; updates then arrive through [activeStories]. */
+    fun refreshActiveStories()
+    /** Loads the next page when the story bar reaches its end. */
+    fun loadMoreActiveStories()
+    /** Last published metadata of one author, kept while the viewer reconnects. */
+    fun cachedActiveStory(chatId: Long): ChatStories?
+    /** Terminal results of PostStory, including the later upload success/failure update. */
+    val storyPostEvents: SharedFlow<StoryPostEvent>
+    /** Full story content is requested only when the viewer opens it. */
+    suspend fun loadStory(posterChatId: Long, storyId: Int): Result<StoryDetail>
+    /** Detail of a story already loaded in this process; used when the network is unavailable. */
+    fun cachedStory(posterChatId: Long, storyId: Int): StoryDetail?
+    /** Directly checks the active list; an empty success is the only confirmation that all stories are gone. */
+    suspend fun confirmActiveStoryIds(posterChatId: Long): Result<Set<Int>>
+    /** Informs TDLib that the story is being viewed; the unread marker is updated optimistically. */
+    suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit>
+    suspend fun closeStory(posterChatId: Long, storyId: Int): Result<Unit>
+    suspend fun storyReactions(): Result<List<ReactionOption>>
+    /** Pass null to remove the current reaction. */
+    suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?): Result<Unit>
+    /** Sends a normal chat message that quotes the story, as Telegram clients do. */
+    suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit>
+    suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit>
+    /** Expired stories of the signed-in user, newest first. Pass the last page's nextFromStoryId for more. */
+    suspend fun storyArchive(fromStoryId: Int = 0): Result<StoryArchivePage>
+    suspend fun storyPostPermission(chatId: Long): Result<StoryPostPermission>
+    /** Chats where the signed-in user may post a story; self is always included first. */
+    suspend fun storyPostTargets(): Result<List<StoryPostTarget>>
+    /** Lets a closed publisher hand a still-uploading story's file cleanup to the repository. */
+    fun abandonStoryUpload(posterChatId: Long, storyId: Int)
+    /** The publisher closed before PostStory returned a ticket. */
+    fun abandonStorySubmission(submissionId: String)
+    suspend fun storyCaptionLimit(): Result<Int>
+    /** Edit a caption of an own story; pass an empty string to clear it. */
+    suspend fun editStoryCaption(posterChatId: Long, storyId: Int, caption: String): Result<Unit>
+    /** Privacy can only be changed for the signed-in user's own story. */
+    suspend fun setStoryPrivacy(storyId: Int, privacy: StoryPrivacy, selectedUserIds: List<Long> = emptyList()): Result<Unit>
+    /** Toggle whether an expired story stays accessible in the profile. */
+    suspend fun setStoryPostedToChatPage(posterChatId: Long, storyId: Int, posted: Boolean): Result<Unit>
+    /** State of one publisher-owned submission, keyed by a UI-persisted identifier. */
+    fun storySubmissionState(submissionId: String): StateFlow<StorySubmissionState>
+    suspend fun publishStory(
+        submissionId: String,
+        targetChatId: Long,
+        media: OutgoingMedia,
+        caption: String,
+        privacy: StoryPrivacy,
+        selectedUserIds: List<Long> = emptyList(),
+        activePeriodSeconds: Int,
+        protectContent: Boolean,
+        keepInProfile: Boolean
+    ): Result<StoryPostTicket>
+
     val connectionState: StateFlow<TelegramConnectionState>
     val myProfile: StateFlow<ProfileState>
     val bioLengthLimit: StateFlow<Int>
@@ -71,6 +151,52 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit>
     /** Reuse an existing Telegram profile photo as the current (non-public) avatar. */
     suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit>
+
+    /** Read-only Premium status, capabilities and plans. */
+    suspend fun premiumInfo(): Result<PremiumInfo>
+
+    /**
+     * Re-checks a confirmed plan against TDLib and resolves Telegram's external checkout URL.
+     * The app never charges, never collects card data and never retries this request.
+     */
+    suspend fun premiumPaymentUrl(plan: PremiumPlan): PremiumCheckoutOutcome
+
+    /** Inspect a Premium gift code without applying it. The code is never stored or logged. */
+    suspend fun checkPremiumGiftCode(code: String): Result<PremiumGiftCodeInfo>
+
+    /** Apply one Premium gift code after explicit confirmation. Never retried by the repository. */
+    suspend fun applyPremiumGiftCode(code: String): PremiumGiftCodeApplyOutcome
+
+    /** Stars balance, the first page of transactions and the current top-up options. */
+    suspend fun starsInfo(): Result<StarsInfo>
+
+    /**
+     * Re-checks a confirmed Stars package and returns only external payment pages. A card form
+     * or a form that spends existing Stars is rejected; SendPaymentForm is never called.
+     */
+    suspend fun starsTopUpPayment(option: StarTopUpOption): StarsTopUpOutcome
+
+    /** Next transaction page, newest-offset cursor from [StarsInfo.nextOffset]. */
+    suspend fun starTransactions(offset: String): Result<StarTransactionsPage>
+
+    /** Gift catalog and, for the own profile, received gifts and collections. */
+    suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo>
+
+    /** Next page of the signed-in user's received gifts, from [GiftsInfo.receivedNextOffset]. */
+    suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> =
+        Result.failure(UnsupportedOperationException())
+
+    /**
+     * Sends one gift after explicit confirmation. [text] is plain and checked against the
+     * server limit; [isPrivate] shows the sender's name and the text only to the recipient. The repository never retries it.
+     */
+    suspend fun sendGift(
+        profileId: Long,
+        isSelf: Boolean,
+        giftId: Long,
+        text: String,
+        isPrivate: Boolean
+    ): GiftSendOutcome
 
     /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
     suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>
@@ -135,6 +261,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Отправляет контакт в чат сообщением TDLib с карточкой и vCard. */
     suspend fun sendContact(chatId: Long, userId: Long): Result<Unit>
+
+    /**
+     * Creates a device-specific E2E secret chat with a regular user through CreateNewSecretChat and returns its chat id.
+     * The caller must not create one with itself or a bot; the implementation validates this again with TDLib.
+     */
+    suspend fun createSecretChat(userId: Long): Result<Long>
 
     /** Открывает личный чат с пользователем и возвращает идентификатор чата. */
     suspend fun openPrivateChat(userId: Long): Result<Long>
@@ -223,5 +355,17 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun deleteVideoNoteLossTest(messageId: Long): Result<Unit>
 
     fun observeFile(fileId: Int): StateFlow<MediaFileState>
+
+    /** Explicit user download; always allowed and unaffected by auto-download limits. */
     fun downloadFile(fileId: Int)
+    /**
+     * Downloads a small UI asset such as an avatar or thumbnail. It does not apply the media policy,
+     * but it is counted as automatic traffic because the user did not press Download.
+     */
+    fun downloadFileInBackground(fileId: Int)
+    /** Stops a download that was only needed by a closed screen; completed files stay available. */
+    fun cancelFileDownload(fileId: Int)
+
+    /** Automatic download that the repository may deny, cancel or skip according to the local policy. */
+    fun autoDownloadFile(request: AutoDownloadRequest)
 }

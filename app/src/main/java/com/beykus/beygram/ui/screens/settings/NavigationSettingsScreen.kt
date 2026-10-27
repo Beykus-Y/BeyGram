@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -39,7 +38,7 @@ import com.beykus.beygram.ui.components.icon
 import com.beykus.beygram.ui.components.title
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
-/** Настройка нижнего меню: какие разделы показывать внизу экрана. Чаты показываются всегда. */
+/** Настройка навигации: какие разделы показывать. Чаты показываются всегда; на широком экране разделы стоят рейкой. */
 @Composable
 fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (TabVisibility) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()
@@ -57,7 +56,7 @@ fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (Tab
             Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
                 ChatsLockedRow()
                 optional.forEach { tab ->
-                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
+                    SettingsRowDivider()
                     TabSwitchRow(tab, checked = visibility.isVisible(tab)) { visible ->
                         onVisibilityChange(visibility.withVisible(tab, visible))
                     }
@@ -71,7 +70,7 @@ fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (Tab
                 Text(stringResource(R.string.nav_preview_caption), color = palette.textSecondary, fontSize = 12.sp)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     MainTab.entries.filter { visibility.isVisible(it) }.forEach { tab ->
-                        MainTabItem(tab, selected = tab == MainTab.Chats, onSelect = {}, pillHeight = 30.dp, iconSize = 22.dp)
+                        MainTabItem(tab, selected = tab == MainTab.Chats, onSelect = {}, pillHeight = 30.dp, iconSize = 22.dp, interactive = false)
                     }
                 }
             }
