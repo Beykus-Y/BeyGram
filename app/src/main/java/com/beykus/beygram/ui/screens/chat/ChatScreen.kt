@@ -754,6 +754,16 @@ fun ChatScreen(
         selectionDeleteBusy = false
         selectionDeleteError = null
     }
+    // A long press on a bubble starts multi-select with that message already picked; the one-message action sheet is
+    // reached from the selection bar while exactly one message is selected.
+    fun selectOnLongPress(messageId: Long) {
+        messages.firstOrNull { it.id == messageId }?.let { enterSelection(it) }
+    }
+    fun openSingleSelectionActions() {
+        val id = selectionIds.singleOrNull() ?: return
+        exitSelection()
+        actionsId = id
+    }
     fun toggleSelection(message: ChatMessage) {
         val group = selectionGroupIds(messages, message.id)
         val removing = group.all { it in selectionIds }
@@ -1410,6 +1420,7 @@ fun ChatScreen(
             canCopy = selectionCanCopy,
             canSave = selectionCanSave,
             onClose = ::exitSelection,
+            onMore = if (selectionIds.size == 1) ::openSingleSelectionActions else null,
             onForward = { forwardAsCopy = false; selectionForwardOpen = true; selectionError = null },
             onDelete = ::requestSelectionDelete,
             onCopy = ::copySelection,
@@ -1559,7 +1570,7 @@ fun ChatScreen(
                                 MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                     highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
-                                    onOpen = { selectedMediaId = it }, onActions = { actionsId = it }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                    onOpen = { selectedMediaId = it }, onActions = ::selectOnLongPress, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                     onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
                                     selectionMode = selectionMode,
                                     selected = listItem.messages.all { it.id in selectionIds },
@@ -1610,7 +1621,7 @@ fun ChatScreen(
                             if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
                             else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                             else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
-                                highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { actionsId = message.id }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { selectOnLongPress(message.id) }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                 onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                                 onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, ::requestBotWebApp) },
                                 onBubblePositioned = bubblePosition,
@@ -2516,7 +2527,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
     val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
-    val messageActionsLabel = stringResource(R.string.a11y_message_actions)
+    val selectMessageLabel = stringResource(R.string.message_action_select)
     val selectionLabel = if (selectionMode) stringResource(if (selected) R.string.message_selection_deselect else R.string.message_selection_select) else null
     val selectionState = if (selectionMode) stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected) else null
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
@@ -2544,7 +2555,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 message.media != null && !message.media.kind.playsInline() -> openMediaLabel
                                 else -> null
                             },
-                            onLongClickLabel = if (selectionMode) selectionLabel else messageActionsLabel,
+                            onLongClickLabel = if (selectionMode) selectionLabel else selectMessageLabel,
                             onClick = {
                                 when {
                                     selectionMode -> onToggleSelection()
