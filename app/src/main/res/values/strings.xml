@@ -861,6 +861,14 @@
     <string name="forward_choose_topic">Выберите тему в «%1$s»</string>
     <string name="forward_topics_failed">Не удалось загрузить темы</string>
     <string name="forward_topic_general">Основная тема</string>
+    <string name="forward_search_hint">Поиск чатов</string>
+    <string name="forward_comment_hint">Комментарий (необязательно)</string>
+    <string name="forward_selected_count">Выбрано: %1$d</string>
+    <string name="forward_send_count">Переслать (%1$d)</string>
+    <string name="forward_no_results">Ничего не найдено</string>
+    <string name="forward_pick_hint">Нажмите чат, чтобы выбрать. Отправка только по кнопке.</string>
+    <string name="forward_failed_chats">Не удалось отправить в %1$d чатов. Выбраны только они.</string>
+    <string name="forward_sent_to_chats">Переслано в чатов: %1$d</string>
     <string name="message_link">Ссылка на сообщение</string>
     <string name="message_link_copied">Ссылка скопирована</string>
     <string name="message_entity_copied">Скопировано</string>

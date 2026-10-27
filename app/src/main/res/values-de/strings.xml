@@ -661,4 +661,12 @@
     <string name="player_sleep_in_minutes">In %1$d Min. stoppen</string>
     <string name="player_sleep_remaining">Schlaftimer · noch %1$d Min.</string>
     <string name="player_sleep_cancel">Timer ausschalten (noch %1$d Min.)</string>
+    <string name="forward_search_hint">Chats suchen</string>
+    <string name="forward_comment_hint">Kommentar (optional)</string>
+    <string name="forward_selected_count">Ausgewählt: %1$d</string>
+    <string name="forward_send_count">Weiterleiten (%1$d)</string>
+    <string name="forward_no_results">Nichts gefunden</string>
+    <string name="forward_pick_hint">Chats antippen, um sie auszuwählen. Gesendet wird erst per Schaltfläche.</string>
+    <string name="forward_failed_chats">Senden an %1$d Chats fehlgeschlagen. Nur diese bleiben ausgewählt.</string>
+    <string name="forward_sent_to_chats">In %1$d Chats weitergeleitet</string>
 </resources>
