@@ -77,7 +77,8 @@ internal fun MessageActionsBar(
     onForward: () -> Unit = {},
     onForwardCopy: () -> Unit = {},
     onSelect: () -> Unit = {},
-    onTranslate: (() -> Unit)? = null
+    onTranslate: (() -> Unit)? = null,
+    onReport: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
@@ -128,6 +129,10 @@ internal fun MessageActionsBar(
                                 leadingIcon = { Icon(Icons.Rounded.Translate, null, tint = palette.accent) },
                                 onClick = { moreOpen = false; translate() }
                             )
+                            onReport?.let { report -> DropdownMenuItem(
+                                text = { Text(stringResource(R.string.message_action_report)) },
+                                onClick = { moreOpen = false; report() }
+                            ) }
                         }
                     }
                 }

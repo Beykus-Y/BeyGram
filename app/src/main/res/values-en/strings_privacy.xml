@@ -59,4 +59,11 @@
     <string name="err_report_spam_unavailable">Telegram didn\'t offer a spam report option.</string>
     <string name="err_report_spam_requires_text">Telegram requires a report description. Please use the official client for this report.</string>
     <string name="err_report_spam_requires_messages">Telegram requires selecting messages to report.</string>
+    <string name="message_action_report">Report</string>
+    <string name="message_report_title">Report message</string>
+    <string name="message_report_reason_spam">Spam</string>
+    <string name="message_report_reason_violence">Violence</string>
+    <string name="message_report_reason_personal">Personal data</string>
+    <string name="message_report_done">Report sent</string>
+    <string name="err_message_report_unavailable">Could not send the report. Telegram did not offer a matching reason.</string>
 </resources>

@@ -226,6 +226,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun setSenderBlocked(kind: com.beykus.beygram.domain.model.BlockedSenderKind, senderId: Long, blocked: Boolean): Result<Unit> = unavailable()
     override suspend fun reportSpam(chatId: Long): Result<Unit> = unavailable()
     override suspend fun reportSpamForUser(userId: Long): Result<Unit> = unavailable()
+    override suspend fun reportMessages(chatId: Long, messageIds: List<Long>, reason: com.beykus.beygram.domain.model.MessageReportReason): Result<Unit> = unavailable()
     override val groupCreation: StateFlow<com.beykus.beygram.domain.model.GroupCreationState> =
         MutableStateFlow<com.beykus.beygram.domain.model.GroupCreationState>(com.beykus.beygram.domain.model.GroupCreationState.Idle).asStateFlow()
     override fun beginGroupCreation(title: String, memberUserIds: List<Long>): Result<Unit> = unavailable()

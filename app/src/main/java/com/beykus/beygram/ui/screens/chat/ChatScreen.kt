@@ -193,6 +193,7 @@ fun ChatScreen(
     }
     // Translation is manual and cached for this chat visit, per message and target language.
     var translationPickerId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    var reportMessageId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var translationLanguages by remember(chat.id) { mutableStateOf<Map<Long, String>>(emptyMap()) }
     var translationStates by remember(chat.id) { mutableStateOf<Map<Pair<Long, String>, TranslationUiState>>(emptyMap()) }
     // A cached translation is valid only for the exact source text/entities that produced it.
@@ -1448,6 +1449,9 @@ fun ChatScreen(
             onTranslate = if (actionMessage.mediaAlbumId == 0L && actionMessage.sendState == MessageSendState.Sent &&
                 TranslationPolicy.canTranslate(chat.isSecret, actionMessage.text.isNotBlank())) {
                 { translationPickerId = actionMessage.id; closeActions() }
+            } else null,
+            onReport = if (!actionMessage.isOutgoing && !chat.isSecret) {
+                { reportMessageId = actionMessage.id; closeActions() }
             } else null
         ) else if (searching) ChatSearchBar(
             query = searchQuery,
@@ -1482,6 +1486,19 @@ fun ChatScreen(
                 currentLanguageCode = translationDefaultLanguage(),
                 onSelect = { chooseTranslationLanguage(translationTargetMessage, it) },
                 onDismiss = { translationPickerId = null }
+            )
+        }
+        reportMessageId?.let { id ->
+            MessageReportDialog(
+                onSelect = { reason ->
+                    reportMessageId = null
+                    scope.launch {
+                        conversation.reportMessages(chat.id, listOf(id), reason)
+                            .onSuccess { Toast.makeText(context, context.getString(R.string.message_report_done), Toast.LENGTH_SHORT).show() }
+                            .onFailure { error = it.userMessage(context, R.string.err_message_report_unavailable) }
+                    }
+                },
+                onDismiss = { reportMessageId = null }
             )
         }
         reactionOwner?.takeIf { !deleting }?.let { owner ->

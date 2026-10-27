@@ -196,6 +196,8 @@ interface ConversationRepository {
     suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, scope: DeleteMessageScope): Result<Unit>
     /** Marks a chat unread without changing its read watermark; the chat list shows an unread marker. */
     suspend fun markChatUnread(chatId: Long): Result<Unit>
+    /** Sends a complaint about messages to Telegram with the chosen reason. Nothing is sent before the user picks one. */
+    suspend fun reportMessages(chatId: Long, messageIds: List<Long>, reason: MessageReportReason): Result<Unit>
     /**
      * Forwards a message. With [asCopy] the original sender is hidden, like Telegram's "Forward without author";
      * TDLib refuses either form when the message can't be forwarded. [messageThreadId] targets a forum topic.
