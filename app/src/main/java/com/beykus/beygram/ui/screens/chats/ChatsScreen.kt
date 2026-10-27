@@ -486,7 +486,8 @@ fun ChatsScreen(
                 item(key = "pinned_header") {
                     Text(stringResource(R.string.chats_section_pinned), modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
                 }
-                items(pinnedChats, key = { "pinned_${it.id}" }) { chat ->
+                // Same key as the regular rows, so a pin or unpin moves the row instead of replacing it.
+                items(pinnedChats, key = { it.id }) { chat ->
                     SwipeChatRow(
                         modifier = Modifier.animateItem(
                             fadeInSpec = listFadeSpec,
