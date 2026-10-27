@@ -1036,6 +1036,11 @@ object PlaybackEngine {
      * A queue row is a direct Play action: never toggle the current track or modify the queue order.
      * Media3 emits the same item transition as hardware Next/Previous, keeping the system session in sync.
      */
+    fun playQueueItem(key: String) {
+        val index = _state.value.queue.indexOfFirst { it.key == key }
+        if (index >= 0) playQueueIndex(index)
+    }
+
     fun playQueueIndex(index: Int) {
         val snapshot = _state.value
         if (!canSelectQueueIndex(snapshot, index)) return
