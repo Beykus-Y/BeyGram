@@ -60,6 +60,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * «Настройки → Звук и воспроизведение → Музыка». Ищет музыкальные аудиосообщения во всех доступных аккаунту чатах
@@ -89,6 +90,7 @@ internal fun MusicSearchScreen(
     val searchJob = remember(accountId) { mutableStateOf<Job?>(null) }
     // Public results come from the optional music bot. They have their own job and state, so a bot failure
     // never touches the account's own results.
+    val latestSelection = remember(accountId) { AtomicLong() }
     var publicResults by remember(accountId) { mutableStateOf<List<InlineBotResult>>(emptyList()) }
     var publicAvailable by remember(accountId) { mutableStateOf(true) }
     val publicJob = remember(accountId) { mutableStateOf<Job?>(null) }
@@ -156,9 +158,11 @@ internal fun MusicSearchScreen(
     }
 
     fun playBotTrack(result: InlineBotResult) {
+        val selection = latestSelection.incrementAndGet()
         scope.launch {
             conversation.musicBotTrack(result.queryId, result.id).onSuccess { track ->
-                track ?: return@onSuccess
+                // A newer tap wins: an older download that finishes later must not replace what the user picked last.
+                if (track == null || selection != latestSelection.get()) return@onSuccess
                 val item = PlaybackItem(
                     key = "bot:${result.queryId}:${result.id}",
                     kind = MediaKind.Audio,
@@ -168,7 +172,8 @@ internal fun MusicSearchScreen(
                     performer = track.performer,
                     trackTitle = track.title,
                     mimeType = track.mimeType,
-                    sizeBytes = track.sizeBytes
+                    sizeBytes = track.sizeBytes,
+                    accountId = accountId
                 )
                 PlaybackEngine.playQueue(
                     context,
@@ -181,6 +186,7 @@ internal fun MusicSearchScreen(
     }
 
     fun play(message: ChatMessage) {
+        latestSelection.incrementAndGet()
         val queue = results.mapNotNull { musicItem(it, chats, observeFile, accountId) }
         val index = queue.indexOfFirst { it.origin?.chatId == message.chatId && it.origin?.messageId == message.id }
         if (index < 0) return
