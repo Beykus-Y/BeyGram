@@ -1642,7 +1642,7 @@ fun ChatScreen(
                                 onMusicPlay = { selected ->
                                     // Never build a cross-topic, protected or secret conversation playlist.
                                     if (chat.isSecret || chat.hasProtectedContent || selected.systemPrivate) {
-                                        PlaybackEngine.toggle(context, selected)
+                                        PlaybackEngine.toggle(context, selected.copy(secret = true))
                                     } else if (PlaybackEngine.state.value.item?.key == selected.key) {
                                         // A second tap preserves any pages already appended to the active queue.
                                         PlaybackEngine.toggle(context, selected)
