@@ -1619,6 +1619,7 @@
     <string name="feature_pin_chat">Закрепить чат</string>
     <string name="feature_unpin_chat">Открепить чат</string>
     <string name="feature_mute_chat">Выключить звук</string>
+    <string name="feature_copy_chat_title">Скопировать название</string>
     <string name="feature_unmute_chat">Включить звук</string>
     <string name="feature_delete_chat">Удалить чат</string>
     <string name="feature_delete_chat_warning">Удалить «%1$s» из своего списка и стереть историю только для вас? Отменить это действие нельзя.</string>

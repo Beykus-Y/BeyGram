@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chats
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -48,6 +50,16 @@ internal fun ChatActionsSheet(
         }
         TextButton(onClick = { perform { setMuted(!chat.isMuted) } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(if (chat.isMuted) R.string.feature_unmute_chat else R.string.feature_mute_chat))
+        }
+        TextButton(
+            onClick = {
+                context.getSystemService(ClipboardManager::class.java)
+                    ?.setPrimaryClip(ClipData.newPlainText(chat.title, chat.title))
+                onClose()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(R.string.feature_copy_chat_title))
         }
         if (!chat.isMarkedAsUnread && chat.unreadCount == 0) {
             TextButton(onClick = { perform(setUnread) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {

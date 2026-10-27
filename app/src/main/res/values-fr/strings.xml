@@ -111,6 +111,7 @@
     <string name="feature_pin_chat">Épingler la discussion</string>
     <string name="feature_unpin_chat">Désépingler la discussion</string>
     <string name="feature_mute_chat">Mettre en sourdine</string>
+    <string name="feature_copy_chat_title">Copier le nom du chat</string>
     <string name="feature_unmute_chat">Réactiver le son</string>
     <string name="feature_delete_chat">Supprimer la discussion</string>
     <string name="feature_delete_chat_warning">Retirer %1$s et son historique de votre compte uniquement ? Cette action est irréversible.</string>
