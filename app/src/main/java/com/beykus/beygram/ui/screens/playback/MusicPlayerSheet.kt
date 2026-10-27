@@ -1092,7 +1092,7 @@ private fun QueuePanel(
                     onMoveDown = {
                         if (row.index < current.size - 1) PlaybackEngine.moveInQueue(row.index, row.index + 1)
                     },
-                    onPlayNow = { PlaybackEngine.playQueueIndex(row.index) },
+                    onPlayNow = { PlaybackEngine.playQueueItem(row.item.key) },
                     onPlayNext = {
                         val item = row.item
                         if (item.isMusic) PlaybackEngine.playNext(item)
