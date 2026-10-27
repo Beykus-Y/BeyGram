@@ -2123,6 +2123,7 @@ fun ChatScreen(
     }
     if (forwardIds.isNotEmpty()) ForwardChatDialog(
         chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
+        commentLimit = limits.text,
         loadTopics = { conversation.forumTopics(it) },
         // Each target is one forward request. A target that refuses the messages, or refuses the comment after them,
         // stays selected so a retry only touches it; the others are already sent and drop out of the selection.
@@ -2146,7 +2147,8 @@ fun ChatScreen(
                         continue
                     }
                     if (comment.isNotEmpty()) {
-                        conversation.sendMessage(target.chatId, comment, forumTopicId = target.topicId).onFailure {
+                        // The draft belongs to the destination composer, which this forward must not clear.
+                        conversation.sendMessage(target.chatId, comment, forumTopicId = target.topicId, clearDraft = false).onFailure {
                             failed += target
                             lastError = it.userMessage(context, R.string.chat_forward_failed)
                         }

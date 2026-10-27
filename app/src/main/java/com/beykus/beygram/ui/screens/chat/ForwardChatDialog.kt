@@ -80,6 +80,8 @@ internal fun ForwardChatDialog(
     downloadFile: (Int) -> Unit,
     asCopy: Boolean = false,
     allowComment: Boolean = true,
+    /** Telegram text limit in code points; a longer comment is refused here, never silently cut. */
+    commentLimit: Int = Int.MAX_VALUE,
     loadTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
     onSend: suspend (List<ForwardTarget>, String) -> List<ForwardTarget>,
     onClose: () -> Unit
@@ -97,6 +99,7 @@ internal fun ForwardChatDialog(
     var topicError by remember { mutableStateOf<String?>(null) }
     var sending by remember { mutableStateOf(false) }
     val locked = busy || sending || loadingTopics
+    val commentOverLimit = comment.codePointCount(0, comment.length) > commentLimit
 
     fun isPicked(chatId: Long, topicId: Long) = targets.any { it.chatId == chatId && it.topicId == topicId }
 
@@ -141,7 +144,7 @@ internal fun ForwardChatDialog(
     }
 
     fun send() {
-        if (locked || targets.isEmpty()) return
+        if (locked || targets.isEmpty() || commentOverLimit) return
         scope.launch {
             sending = true
             val failed = try {
@@ -216,7 +219,13 @@ internal fun ForwardChatDialog(
                             enabled = !locked,
                             placeholder = { Text(stringResource(R.string.forward_comment_hint)) },
                             maxLines = 3,
+                            isError = commentOverLimit,
                             modifier = Modifier.fillMaxWidth()
+                        )
+                        if (commentOverLimit) Text(
+                            stringResource(R.string.chat_truncated_notice, commentLimit),
+                            color = palette.warningText, fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 4.dp)
                         )
                         Spacer(Modifier.height(8.dp))
                     }
@@ -226,7 +235,7 @@ internal fun ForwardChatDialog(
                             else stringResource(R.string.forward_selected_count, targets.size),
                             color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f)
                         )
-                        Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked) {
+                        Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !commentOverLimit) {
                             Text(stringResource(R.string.forward_send_count, targets.size))
                         }
                     }
