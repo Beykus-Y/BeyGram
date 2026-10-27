@@ -87,6 +87,7 @@
     <string name="chats_search_local_empty_hint">Find a person, bot or public chat with Find in Telegram</string>
     <string name="chats_start_conversation">Start a conversation</string>
     <string name="contacts_action_copy">Copy phone number</string>
+    <string name="contacts_action_copy_username">Copy @username</string>
     <string name="contacts_action_delete">Remove contact</string>
     <string name="contacts_action_edit">Edit contact</string>
     <string name="contacts_action_share">Share contact</string>
@@ -110,6 +111,7 @@
     <string name="contacts_field_phone">Phone number</string>
     <string name="contacts_load_failed">Could not load contacts</string>
     <string name="contacts_number_copied">Phone number copied</string>
+    <string name="contacts_username_copied">Username copied</string>
     <string name="contacts_number_hidden">Phone number is hidden</string>
     <string name="contacts_open_chat_failed">Could not open chat</string>
     <string name="contacts_save">Save</string>
