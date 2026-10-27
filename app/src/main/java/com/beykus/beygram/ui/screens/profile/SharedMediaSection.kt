@@ -111,7 +111,8 @@ internal fun SharedMediaSection(
     messageRights: suspend (Long) -> MessageCapabilities?, forwardMessage: suspend (Long, Long) -> Result<Unit>, chats: List<ChatPreview>,
     onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit,
     /** Repository-backed automatic download for the shared-media viewer. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    protectedContent: Boolean = false
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -137,7 +138,8 @@ internal fun SharedMediaSection(
         val kind = chatSharedKinds[page]
         SharedMediaPageContent(kind, chatId, tabs.getValue(kind), onMore = { loadMore(kind) }, observeFile = observeFile, downloadFile = downloadFile,
             confirmExport = confirmExport, onContentOpened = onContentOpened,
-            onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = openMessage, autoDownloadFile = autoDownloadFile)
+            onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = openMessage, autoDownloadFile = autoDownloadFile,
+            protectedContent = protectedContent)
     }
 
     SharedMediaViewer(media = tabs.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
@@ -255,14 +257,15 @@ private fun SharedMediaPageContent(
     kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
     onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit,
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    protectedContent: Boolean = false
 ) {
     // Первую страницу грузим, как только вкладку показали; неудачную попытку повторяем при следующем показе.
     LaunchedEffect(kind) { if (!tab.loaded) onMore() }
     when {
         tab.messages.isEmpty() -> SharedMediaStatus(kind, tab, onRetry = onMore)
         kind == SharedMediaKind.Media -> SharedMediaGrid(tab, onMore, observeFile, downloadFile, onOpenMedia, onOpenMessage)
-        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage, autoDownloadFile)
+        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage, autoDownloadFile, protectedContent)
     }
 }
 
@@ -322,7 +325,8 @@ private fun SharedMediaList(
     kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
     onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit,
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    protectedContent: Boolean = false
 ) {
     val listState = rememberLazyListState()
     val shown = remember(kind, tab.messages) { tab.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null } }
@@ -332,6 +336,7 @@ private fun SharedMediaList(
         items(shown, key = { it.id }) { message ->
             if (kind == SharedMediaKind.Music) {
                 message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage, autoDownloadFile,
+                    protectedContent = protectedContent,
                     loadOlderMusic = {
                         val known = tab.messages.mapTo(HashSet()) { it.id }
                         if (tab.hasOlder) tab.loadOlder()
@@ -431,7 +436,8 @@ internal fun SharedMusicRow(
     chatId: Long, tracks: List<ChatMessage>, message: ChatMessage, media: MessageMedia,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onOpenMessage: (Long) -> Unit,
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
-    loadOlderMusic: (suspend () -> List<ChatMessage>)? = null
+    loadOlderMusic: (suspend () -> List<ChatMessage>)? = null,
+    protectedContent: Boolean = false
 ) {
     val context = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
@@ -473,6 +479,10 @@ internal fun SharedMusicRow(
                         sizeBytes = file.size,
                         viewOnce = message.isViewOnce
                     )
+                    if (protectedContent || current.systemPrivate) {
+                        PlaybackEngine.toggle(context, current.copy(secret = true))
+                        return@SharedRow
+                    }
                     val queue = tracks.mapNotNull { track ->
                         if (track.id == message.id) current
                         else musicTrack(track, chatId, observeFile, label, accountId)
