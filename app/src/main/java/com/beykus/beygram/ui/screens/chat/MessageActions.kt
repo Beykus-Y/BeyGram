@@ -53,6 +53,8 @@ import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.domain.model.MessageSpecialContent
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.motionEntrance
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.width
 
@@ -235,7 +237,7 @@ private fun DeleteChoice(text: String, selected: Boolean, enabled: Boolean, onSe
 @Composable
 internal fun EditBanner(original: String, isCaption: Boolean, count: Int, limit: Int, error: String?, onClose: () -> Unit) {
     val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.Edit, null, tint = palette.accent, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(if (isCaption) stringResource(R.string.message_edit_caption_banner) else stringResource(R.string.message_edit_banner), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
