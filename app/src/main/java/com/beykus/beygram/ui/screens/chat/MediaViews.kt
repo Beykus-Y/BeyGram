@@ -421,7 +421,9 @@ internal fun MediaPreview(
      * Opens the sticker's set. Without it a sticker tap does nothing: a sticker must never fall back to the generic
      * media viewer, which has no sticker actions of its own.
      */
-    onStickerOpen: (() -> Unit)? = null
+    onStickerOpen: (() -> Unit)? = null,
+    /** The chat may supply an ordered, lazily paged music queue instead of a standalone track. */
+    onMusicPlay: ((PlaybackItem) -> Unit)? = null
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -503,14 +505,19 @@ internal fun MediaPreview(
             downloadFile(thumbId)
         }
         if (audioPath == null) { pendingPlaybackRow.value = row; downloadFile(media.fileId) }
-        else startAudio(context, media.playbackItem(audioPath, audioTitle, origin,
-            artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce))
+        else {
+            val item = media.playbackItem(audioPath, audioTitle, origin,
+                artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce)
+            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item) else startAudio(context, item)
+        }
     }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
         if (waitingForAudio && audioPath != null) {
             pendingPlaybackRow.value = null
-            startAudio(context, media.playbackItem(audioPath, audioTitle, origin, artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce))
+            val item = media.playbackItem(audioPath, audioTitle, origin,
+                artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce)
+            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item) else startAudio(context, item)
         }
     }
     DisposableEffect(row) {
