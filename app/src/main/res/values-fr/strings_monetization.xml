@@ -153,6 +153,7 @@
     <string name="gifts_catalog_own_hint">Les cadeaux peuvent être envoyés depuis le profil d’un autre utilisateur.</string>
     <string name="gifts_catalog_empty">Aucun cadeau disponible.</string>
     <string name="gifts_received_title">Cadeaux reçus</string>
+    <string name="gifts_gift_generic">Cadeau</string>
     <string name="gifts_received_empty">Aucun cadeau reçu pour l’instant.</string>
     <string name="gifts_received_error">Impossible de charger les cadeaux reçus</string>
     <string name="gifts_collections_title">Collections</string>

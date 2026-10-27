@@ -193,6 +193,7 @@
     <string name="gifts_catalog_own_hint">Отправлять подарки можно из профиля другого пользователя.</string>
     <string name="gifts_catalog_empty">Нет доступных подарков.</string>
     <string name="gifts_received_title">Полученные подарки</string>
+    <string name="gifts_gift_generic">Подарок</string>
     <string name="gifts_received_empty">Пока нет полученных подарков.</string>
     <string name="gifts_received_error">Не удалось загрузить полученные подарки</string>
     <string name="gifts_collections_title">Коллекции</string>

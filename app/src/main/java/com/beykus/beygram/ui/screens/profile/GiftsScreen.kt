@@ -738,10 +738,14 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
             .semantics(mergeDescendants = true) {}
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(gift.emoji.ifBlank { "🎁" }, fontSize = 28.sp)
+            // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
+            }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                // Regular gifts have no title from Telegram, so they show a generic name rather than the list heading.
                 Text(
-                    gift.name.ifBlank { stringResource(R.string.gifts_received_title) },
+                    gift.name.ifBlank { stringResource(R.string.gifts_gift_generic) },
                     color = palette.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
