@@ -157,11 +157,14 @@ internal fun rememberSharedMediaWindows(
     chatId: Long, load: suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>
 ): Map<SharedMediaKind, SharedMediaWindow> {
     val context = LocalContext.current
-    val currentLoad by rememberUpdatedState(load)
-    return remember(chatId) {
+    val accountId = LocalPlaybackAccountId.current
+    // Retained playback queues must not accidentally use another chat's callback after navigation.
+    val scopedLoad = remember(chatId, accountId) { mutableStateOf(load) }
+    SideEffect { scopedLoad.value = load }
+    return remember(chatId, accountId) {
         SharedMediaKind.entries.associateWith { kind ->
             SharedMediaWindow(
-                load = { from, newer -> currentLoad(kind, from, newer) },
+                load = { from, newer -> scopedLoad.value(kind, from, newer) },
                 failure = { error -> error.userMessage(context, R.string.profile_shared_load_failed) }
             )
         }
