@@ -2362,7 +2362,12 @@ private fun BeyGramAppContent(
                     draft = appearanceDraft ?: appearance,
                     onDraftChange = { appearanceDraft = it },
                     onSave = { config -> appearanceDraft = config; onAppearanceChange(config) },
-                    onBack = { appearanceDraft = null; routeName = appearanceReturnRouteName }
+                    onBack = { appearanceDraft = null; routeName = appearanceReturnRouteName },
+                    motion = motionSettings,
+                    onMotionChange = { next -> motionSettingsStore.update { next } },
+                    chatAnimations = chatAnimationSettings,
+                    onAnimatedEmojiChange = chatAnimationStore::setAnimatedEmoji,
+                    onMessageEffectsChange = chatAnimationStore::setMessageEffects
                 )
                 AppRoute.ChatAnimations -> ChatAnimationsScreen(
                     settings = chatAnimationSettings,
@@ -2446,7 +2451,6 @@ private fun BeyGramAppContent(
                         onPrivacy = { routeName = AppRoute.PrivacySettings.name },
                         onAccountSecurity = { routeName = AppRoute.AccountSecurity.name },
                         onSecondaryAccounts = { accountSwitcherVisible = true },
-                        onChatAnimations = { routeName = AppRoute.ChatAnimations.name },
                         onAppLock = { routeName = AppRoute.AppLock.name },
                         onEqualizer = { routeName = AppRoute.Equalizer.name },
                         onMusicSearch = { routeName = AppRoute.MusicSearch.name }

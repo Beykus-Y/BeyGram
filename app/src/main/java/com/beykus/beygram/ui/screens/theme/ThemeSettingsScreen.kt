@@ -44,7 +44,9 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.WallpaperFiles
+import com.beykus.beygram.data.settings.ChatAnimationSettings
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionSettings
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.theme.contrastIssues
 import com.beykus.beygram.ui.theme.resolveTokens
@@ -77,7 +79,12 @@ fun ThemeSettingsScreen(
     onDraftChange: (AppearanceConfig) -> Unit,
     onSave: (AppearanceConfig) -> Unit,
     onBack: () -> Unit,
-    manageWallpaperFiles: Boolean = true
+    manageWallpaperFiles: Boolean = true,
+    motion: MotionSettings = MotionSettings(),
+    onMotionChange: (MotionSettings) -> Unit = {},
+    chatAnimations: ChatAnimationSettings = ChatAnimationSettings(),
+    onAnimatedEmojiChange: (Boolean) -> Unit = {},
+    onMessageEffectsChange: (Boolean) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val systemDark = isSystemInDarkTheme()
@@ -272,7 +279,12 @@ fun ThemeSettingsScreen(
                                 systemDark = systemDark,
                                 onDraftChange = ::changeDraft,
                                 onDraftChangeContinuous = ::changeDraftContinuous,
-                                onOpenPreview = { openPage(AppearancePage.Preview) }
+                                onOpenPreview = { openPage(AppearancePage.Preview) },
+                                motion = motion,
+                                onMotionChange = onMotionChange,
+                                chatAnimations = chatAnimations,
+                                onAnimatedEmojiChange = onAnimatedEmojiChange,
+                                onMessageEffectsChange = onMessageEffectsChange
                             )
                             AppearancePage.Wallpapers -> AppearanceWallpapersPage(
                                 draft = draft,
