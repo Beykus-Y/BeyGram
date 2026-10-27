@@ -72,6 +72,9 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.canOpenGroupStatistics
 import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.MusicSessionStore
+import com.beykus.beygram.playback.restoreMusicSession
+import com.beykus.beygram.playback.saveableMusicSession
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.EqualizerRuntime
 import com.beykus.beygram.playback.EqualizerStore
@@ -172,6 +175,7 @@ import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
@@ -655,6 +659,38 @@ private fun BeyGramAppContent(
     LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
     // Смена выбранного аккаунта не должна оставлять музыку/очередь прошлого аккаунта в общем плеере.
     LaunchedEffect(selectedAccountId) { PlaybackEngine.setActiveAccount(selectedAccountId) }
+    val musicSessionStore = remember(context) { MusicSessionStore(context) }
+    // Restore only after the selected account's real repository is authorized. Paused restoration never
+    // prepares a stream or starts a service. Identity is validated against TDLib before creating a queue.
+    LaunchedEffect(authState, selectedAccountId, repositorySelection) {
+        if (authState != AuthState.Ready || repositorySelection == null) return@LaunchedEffect
+        val owner = selectedAccountId
+        PlaybackEngine.setActiveAccount(owner)
+        val saved = musicSessionStore.load(owner)
+        var pendingRestore = false
+        if (saved != null && PlaybackEngine.state.value.item == null) {
+            pendingRestore = !restoreMusicSession(context, repositorySelection, saved)
+        }
+        var lastWritten = saved
+        while (true) {
+            delay(5_000L)
+            val snapshot = PlaybackEngine.state.value
+            when {
+                snapshot.item == null && !pendingRestore && lastWritten != null -> {
+                    musicSessionStore.clear(owner)
+                    lastWritten = null
+                }
+                snapshot.item?.accountId == owner && snapshot.item.isMusic -> {
+                    val next = saveableMusicSession(snapshot, owner)
+                    if (next != null && next != lastWritten) {
+                        musicSessionStore.save(next)
+                        lastWritten = next
+                        pendingRestore = false
+                    }
+                }
+            }
+        }
+    }
     LaunchedEffect(Unit) {
         PlaybackEngine.showInChat.collect { origin ->
             if (currentAuthState != AuthState.Ready ||
