@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -71,7 +72,7 @@ internal class TdBotFeatures(client: () -> Client) {
      * removed afterwards. Sending clears the Saved Messages draft, so the draft is put back when nothing else has
      * written one meanwhile. A failed cleanup is ignored so the track still plays.
      */
-    suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> = requestResult {
+    suspend fun musicBotTrack(queryId: Long, resultId: String, cacheDir: File): Result<MusicBotTrack?> = requestResult {
         val savedMessagesChatId = request(TdApi.GetMe()).id
         val savedDraft = request(TdApi.GetChat(savedMessagesChatId)).draftMessage
         val sent = request(TdApi.SendInlineQueryResultMessage().apply {
@@ -86,8 +87,9 @@ internal class TdBotFeatures(client: () -> Client) {
             audioFileId = audio.audio.id
             val file = request(TdApi.DownloadFile(audio.audio.id, FILE_PRIORITY_MANUAL, 0L, 0L, true), DOWNLOAD_TIMEOUT_MS)
             if (!file.local.isDownloadingCompleted || file.local.path.isEmpty()) return@requestResult null
+            val track = copyOutOfTdlib(File(file.local.path), cacheDir)
             MusicBotTrack(
-                path = file.local.path,
+                path = track.absolutePath,
                 title = audio.title.orEmpty(),
                 performer = audio.performer.orEmpty(),
                 durationSeconds = audio.duration,
@@ -98,6 +100,16 @@ internal class TdBotFeatures(client: () -> Client) {
             runCatching { deleteTemporaryMessage(savedMessagesChatId, sent, audioFileId) }
             runCatching { restoreSavedMessagesDraft(savedMessagesChatId, savedDraft) }
         }
+    }
+
+    /**
+     * TDLib deletes a downloaded file together with the message it came from, so the track is copied into the app
+     * cache first. Earlier copies are removed so the cache holds only the latest bot track.
+     */
+    private fun copyOutOfTdlib(source: File, cacheDir: File): File {
+        cacheDir.listFiles()?.forEach { it.delete() }
+        cacheDir.mkdirs()
+        return source.copyTo(File(cacheDir, source.name), overwrite = true)
     }
 
     /** Uses the temporary id only while TDLib still reports it as pending; once sent, the confirmed id is looked up. */
