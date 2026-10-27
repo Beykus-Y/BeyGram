@@ -221,6 +221,8 @@ fun ChatScreen(
     var capabilitiesError by remember { mutableStateOf<String?>(null) }
     var capabilitiesAttempt by remember { mutableIntStateOf(0) }
     var selectedMediaId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
+    // Window bounds of media bubbles, read once when the viewer opens. A plain map: it must not recompose on scroll.
+    val mediaOrigins = remember { HashMap<Long, Rect>() }
     // Sticker messages open their set instead of the generic media viewer. Zero means "not in a set" and gets a
     // friendly placeholder from StickerSetSheet rather than a failed TDLib request.
     var openStickerSetId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
@@ -1627,6 +1629,7 @@ fun ChatScreen(
                                 onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                                 onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, ::requestBotWebApp) },
                                 onBubblePositioned = bubblePosition,
+                                onMediaBounds = { rect -> mediaOrigins[message.id] = rect },
                                 translation = translationState,
                                 onTranslationRetry = { retryTranslation(message) },
                                 onTranslationCancel = { cancelTranslation(message.id) },
@@ -2099,7 +2102,7 @@ fun ChatScreen(
     val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
         ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id) } })
     if (viewed != null && viewed.media != null) MediaViewer(
-        pages = viewerPages, selectedId = viewed.id, onSelect = { selectedMediaId = it },
+        pages = viewerPages, selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigins[viewed.id],
         observeFile = observeFile, downloadFile = onDownloadFile,
         onViewed = { id ->
             val once = (messages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
@@ -2477,6 +2480,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     /** Callers pass the chat/grouping decision; the sender name itself stays available for replies, search and profiles. */
     showSenderHeader: Boolean = true,
     onBubblePositioned: ((Rect) -> Unit)? = null,
+    /** Reports the window bounds of a bubble that carries media, so the viewer can open from it. */
+    onMediaBounds: ((Rect) -> Unit)? = null,
     translation: TranslationUiState? = null,
     onTranslationRetry: (() -> Unit)? = null,
     onTranslationCancel: (() -> Unit)? = null,
@@ -2548,6 +2553,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                         .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
+                        .then(if (onMediaBounds != null && message.media != null) Modifier.onGloballyPositioned { onMediaBounds(it.boundsInWindow()) } else Modifier)
                         .semantics {
                             if (selectionMode) {
                                 this.selected = selected

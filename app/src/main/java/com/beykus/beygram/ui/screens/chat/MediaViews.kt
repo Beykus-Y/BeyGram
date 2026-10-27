@@ -62,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -70,6 +71,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -830,7 +832,9 @@ internal fun MediaViewer(
     /** For profile galleries prefetch only thumbnails of adjacent pages, not full originals. */
     fullFileOnlyWhenActive: Boolean = false,
     /** Repository-backed automatic download; when absent the same local policy gates [downloadFile]. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    /** Window bounds of the tapped thumbnail. When set, the page grows out of it and returns there on close. */
+    originBounds: Rect? = null
 ) {
     // The source can shrink asynchronously while LazyLayout still holds indices from the previous frame.
     // Keep the count, keys and content aligned to the same immutable snapshot for this composition.
@@ -910,14 +914,14 @@ internal fun MediaViewer(
             if (externalError == null) onViewed(item.messageId)
         }
     }
-    // Open and close both fade, and the page grows from 96% at full intensity. The close waits for the exit before it
+    // Open and close both fade. The page grows from the tapped thumbnail when its bounds are known, otherwise from 96%
+    // at full intensity. The close waits for the exit before it
     // calls onClose, so the dialog leaves the tree only after it has animated out. Off and reduced motion start shown.
     val viewerSpec = rememberMotionSpec(MotionToken.MediaExpand)
     var viewerShown by remember { mutableStateOf(viewerSpec.isInstant) }
     var viewerClosing by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { viewerShown = true }
     val viewerProgress by animateFloatAsState(if (viewerShown) 1f else 0f, viewerSpec.animationSpec<Float>(), label = "mediaViewerProgress")
-    val viewerScale = 1f - 0.04f * (1f - viewerProgress) * viewerSpec.intensity
     fun requestClose() {
         if (viewerClosing) return
         viewerClosing = true
@@ -930,7 +934,16 @@ internal fun MediaViewer(
     Dialog(onDismissRequest = ::requestClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia, settledViewOnce)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         // Верхняя панель лежит поверх страницы: тап по картинке её прячет, крестик закрытия виден всегда.
         // Панель действий и сообщения стоят под страницей, потому что поверх неё лежит управление видео и аудио.
-        Column(Modifier.fillMaxSize().graphicsLayer { alpha = viewerProgress; scaleX = viewerScale; scaleY = viewerScale }.background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        val pageSize = LocalWindowInfo.current.containerSize
+        // Read in the draw phase, so the page moves per frame without recomposing the dialog content.
+        Column(Modifier.fillMaxSize().graphicsLayer {
+            val transform = mediaViewerTransform(originBounds, pageSize.width.toFloat(), pageSize.height.toFloat(), (1f - viewerProgress) * viewerSpec.intensity)
+            alpha = viewerProgress
+            scaleX = transform.scale
+            scaleY = transform.scale
+            translationX = transform.offsetX
+            translationY = transform.offsetY
+        }.background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { index -> mediaViewerPageKey(pageIds, index) }) { page ->
                     // Compose may request an index belonging to the preceding page count during an update.
