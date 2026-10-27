@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -739,7 +740,7 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The gift itself is the main visual, so the emoji gets a larger slot than the text around it.
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), contentAlignment = Alignment.Center) {
                 Text(gift.emoji.ifBlank { "🎁" }, fontSize = 36.sp)
             }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
