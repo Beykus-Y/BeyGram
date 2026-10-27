@@ -49,7 +49,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -739,9 +738,7 @@ private fun StarTransactionRow(transaction: StarTransactionItem) {
     val amountText = formatStarAmount(transaction.amount.starCount, transaction.amount.nanostarCount)
         .let { if (positive) "+$it" else it }
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {
