@@ -20,7 +20,7 @@ import android.webkit.MimeTypeMap
 import android.widget.ImageView
 import androidx.compose.foundation.Image
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -129,7 +129,8 @@ import com.beykus.beygram.playback.messagePlaybackOrigin
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
-import com.beykus.beygram.ui.accessibility.systemReducedMotion
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import com.beykus.beygram.ui.components.TrafficUsageBadge
@@ -644,7 +645,7 @@ internal fun MediaPreview(
         }
         val openLabel = stringResource(R.string.player_mini_open)
         val longPressLabel = stringResource(R.string.a11y_message_actions)
-        val reducedMotion = systemReducedMotion()
+        val playSpec = rememberMotionSpec(MotionToken.MicroFeedback)
         Row(
             Modifier.width(280.dp).clip(RoundedCornerShape(12.dp))
                 .combinedClickable(
@@ -728,7 +729,7 @@ internal fun MediaPreview(
                 }
                 Crossfade(
                     targetState = visual,
-                    animationSpec = tween(durationMillis = if (reducedMotion) 0 else 150),
+                    animationSpec = playSpec.animationSpec(),
                     label = "musicCardButton"
                 ) { shown ->
                     when (shown) {
@@ -909,10 +910,27 @@ internal fun MediaViewer(
             if (externalError == null) onViewed(item.messageId)
         }
     }
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia, settledViewOnce)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
+    // Open and close both fade, and the page grows from 96% at full intensity. The close waits for the exit before it
+    // calls onClose, so the dialog leaves the tree only after it has animated out. Off and reduced motion start shown.
+    val viewerSpec = rememberMotionSpec(MotionToken.MediaExpand)
+    var viewerShown by remember { mutableStateOf(viewerSpec.isInstant) }
+    var viewerClosing by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { viewerShown = true }
+    val viewerProgress by animateFloatAsState(if (viewerShown) 1f else 0f, viewerSpec.animationSpec<Float>(), label = "mediaViewerProgress")
+    val viewerScale = 1f - 0.04f * (1f - viewerProgress) * viewerSpec.intensity
+    fun requestClose() {
+        if (viewerClosing) return
+        viewerClosing = true
+        viewerShown = false
+        scope.launch {
+            delay(viewerSpec.durationMillis.toLong())
+            onClose()
+        }
+    }
+    Dialog(onDismissRequest = ::requestClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia, settledViewOnce)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         // Верхняя панель лежит поверх страницы: тап по картинке её прячет, крестик закрытия виден всегда.
         // Панель действий и сообщения стоят под страницей, потому что поверх неё лежит управление видео и аудио.
-        Column(Modifier.fillMaxSize().background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Column(Modifier.fillMaxSize().graphicsLayer { alpha = viewerProgress; scaleX = viewerScale; scaleY = viewerScale }.background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { index -> mediaViewerPageKey(pageIds, index) }) { page ->
                     // Compose may request an index belonging to the preceding page count during an update.
@@ -922,14 +940,14 @@ internal fun MediaViewer(
                             fullFileOnlyWhenActive = fullFileOnlyWhenActive,
                             revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                             onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
-                            onDismiss = onClose, onToggleControls = { controlsVisible = !controlsVisible }, controlsVisible = controlsVisible)
+                            onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible }, controlsVisible = controlsVisible)
                     }
                 }
                 Row(
                     Modifier.fillMaxWidth().align(Alignment.TopCenter).background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent).padding(horizontal = 6.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
+                    IconButton(onClick = ::requestClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
                     if (controlsVisible) {
                         Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
                             Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -4,11 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -81,10 +78,12 @@ import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.playback.playbackSpeedFor
 import com.beykus.beygram.playback.speedLabel
-import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.screens.chat.duration
 import kotlinx.coroutines.flow.collect
+import kotlin.math.roundToInt
 
 /** Цвета управления плеером: на светлом листе приложения и на тёмном фоне просмотрщика. */
 internal class NowPlayingColors(
@@ -125,7 +124,8 @@ fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? =
     var lastMini by remember { mutableStateOf(mini) }
     SideEffect { if (mini != null) lastMini = mini }
     var fullPlayerOpen by rememberSaveable { mutableStateOf(false) }
-    val reduced = systemReducedMotion()
+    val enterSpec = rememberMotionSpec(MotionToken.SheetEnter)
+    val exitSpec = rememberMotionSpec(MotionToken.SheetExit)
 
     LaunchedEffect(Unit) {
         MusicPlayerLauncher.openRequests.collect {
@@ -138,8 +138,11 @@ fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? =
 
     AnimatedVisibility(
         visible = mini != null,
-        enter = if (reduced) EnterTransition.None else fadeIn(tween(200)) + slideInVertically(tween(230)) { it / 2 },
-        exit = if (reduced) ExitTransition.None else fadeOut(tween(150)) + slideOutVertically(tween(180)) { it / 2 },
+        // The bar only slides and fades. Instant specs (Off, reduced motion) skip both, so it appears on its first frame.
+        enter = if (enterSpec.isInstant) EnterTransition.None else
+            enterSpec.fadeEnter() + slideInVertically(enterSpec.animationSpec()) { (it / 2 * enterSpec.intensity).roundToInt() },
+        exit = if (exitSpec.isInstant) ExitTransition.None else
+            exitSpec.fadeExit() + slideOutVertically(exitSpec.animationSpec()) { (it / 2 * exitSpec.intensity).roundToInt() },
         modifier = Modifier.fillMaxWidth()
     ) {
         val shown = mini ?: lastMini
@@ -165,7 +168,8 @@ fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? =
 private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> Unit) {
     val palette = beyGramPalette()
     val openLabel = stringResource(R.string.player_mini_open)
-    val reduced = systemReducedMotion()
+    val textSpec = rememberMotionSpec(MotionToken.BannerChange)
+    val playSpec = rememberMotionSpec(MotionToken.MicroFeedback)
     val subtitle = miniSubtitle(ui)
     Column(
         Modifier
@@ -204,7 +208,7 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> 
                 Column(Modifier.weight(1f)) {
                     Crossfade(
                         targetState = MiniPlayerText(ui.title, subtitle),
-                        animationSpec = tween(durationMillis = if (reduced) 0 else 200),
+                        animationSpec = textSpec.animationSpec(),
                         label = "miniPlayerText"
                     ) { text ->
                         Column {
@@ -267,7 +271,7 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> 
                 Box(contentAlignment = Alignment.Center) {
                     Crossfade(
                         targetState = playIcon,
-                        animationSpec = tween(durationMillis = if (reduced) 0 else 150),
+                        animationSpec = playSpec.animationSpec(),
                         label = "miniPlayPause"
                     ) { icon ->
                         Icon(icon, null, tint = palette.accentInk)
