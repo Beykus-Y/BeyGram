@@ -1433,6 +1433,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
     private val botFeatures = TdBotFeatures { client }
+    private val musicBotCacheDir = File(context.cacheDir, "music-bot")
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>) = botKeyboards.callback(chatId, messageId, data)
@@ -1442,7 +1443,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun musicBotSearch(query: String, offset: String): Result<InlineBotResults?> =
         botFeatures.musicBotSearch(query, offset)
     override suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> =
-        botFeatures.musicBotTrack(queryId, resultId)
+        botFeatures.musicBotTrack(queryId, resultId, musicBotCacheDir)
     override suspend fun sendInlineBotResult(
         chatId: Long,
         queryId: Long,
