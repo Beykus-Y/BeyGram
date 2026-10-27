@@ -217,8 +217,9 @@ private fun PlayerHeader(
     var sleepDialog by remember { mutableStateOf(false) }
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
     val minutesRemaining by produceState(0, sleepTimer) {
-        while (sleepTimer != null) {
-            value = sleepTimerRemainingMinutes(sleepTimer.deadlineElapsedMs, SystemClock.elapsedRealtime())
+        val activeTimer = sleepTimer
+        while (activeTimer != null) {
+            value = sleepTimerRemainingMinutes(activeTimer.deadlineElapsedMs, SystemClock.elapsedRealtime())
             delay(30_000L)
         }
     }
@@ -536,8 +537,9 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
     val palette = beyGramPalette()
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
     val minutesRemaining by produceState(0, sleepTimer) {
-        while (sleepTimer != null) {
-            value = sleepTimerRemainingMinutes(sleepTimer.deadlineElapsedMs, SystemClock.elapsedRealtime())
+        val activeTimer = sleepTimer
+        while (activeTimer != null) {
+            value = sleepTimerRemainingMinutes(activeTimer.deadlineElapsedMs, SystemClock.elapsedRealtime())
             delay(30_000L)
         }
     }
