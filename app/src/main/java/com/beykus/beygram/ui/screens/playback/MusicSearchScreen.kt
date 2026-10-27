@@ -176,11 +176,14 @@ internal fun MusicSearchScreen(
                     return@onSuccess
                 }
                 val key = "bot:${result.queryId}:${result.id}"
+                val playing = PlaybackEngine.state.value.item?.takeIf { it.key == key }
                 // Tapping the same result again: the player still reads the copy it has, so that copy is kept and the new one dropped.
-                val playingPath = PlaybackEngine.state.value.item?.takeIf { it.key == key }?.path?.takeIf { File(it).exists() }
+                val playingPath = playing?.path?.takeIf { File(it).exists() }
                 if (playingPath != null) MusicBotCache.discard(track.path)
+                // The player rebuilds its source only when the key changes. If the old copy was evicted, the new copy gets a new key.
+                val itemKey = if (playing != null && playingPath == null) "$key:${File(track.path).name}" else key
                 val item = PlaybackItem(
-                    key = key,
+                    key = itemKey,
                     kind = MediaKind.Audio,
                     path = playingPath ?: track.path,
                     title = track.title,
