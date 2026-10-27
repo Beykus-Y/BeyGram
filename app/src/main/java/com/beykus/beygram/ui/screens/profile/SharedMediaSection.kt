@@ -467,7 +467,8 @@ internal fun SharedMusicRow(
                     val current = media.playbackItem(
                         path, label, origin,
                         accountId = accountId,
-                        sizeBytes = file.size
+                        sizeBytes = file.size,
+                        viewOnce = message.isViewOnce
                     )
                     val queue = tracks.mapNotNull { track ->
                         if (track.id == message.id) current
@@ -508,6 +509,7 @@ internal fun SharedMusicRow(
 
 /** Трек очереди: скачанный файл или ещё не скачанный TDLib-файл, который плеер загрузит по требованию. */
 private fun musicTrack(message: ChatMessage, chatId: Long, observeFile: (Int) -> StateFlow<MediaFileState>, label: String, accountId: String): PlaybackItem? {
+    if (message.isViewOnce) return null
     val media = message.media?.takeUnless { it.isSecret || it.isSecretChat } ?: return null
     if (media.kind != MediaKind.Audio) return null
     val file = observeFile(media.fileId).value
