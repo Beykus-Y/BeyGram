@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_schedule_group_title">Envío invisible</string>
+    <string name="stealth_schedule_title">Enviar como mensajes programados de Telegram</string>
+    <string name="stealth_schedule_detail">El mensaje va al servidor de Telegram enseguida como mensaje programado, y el servidor lo publica pasado el tiempo elegido. La aplicación puede estar cerrada para entonces.</string>
+    <string name="stealth_schedule_footnote">Mientras el mensaje espera, puedes cancelarlo, moverlo o enviarlo ya desde los mensajes programados del chat. Para archivos el tiempo aumenta para dejar margen a la subida.</string>
+    <string name="stealth_schedule_limits">Esto reduce el riesgo de mostrarte en línea, pero no lo garantiza: la aplicación no controla tus otros dispositivos ni las reglas de Telegram. En chats secretos, chats con mensajes de pago, multimedia de visualización única y ubicación en tiempo real no se puede programar, y la aplicación pregunta si enviar ya.</string>
+    <plurals name="stealth_schedule_minutes">
+        <item quantity="one">%1$d min</item>
+        <item quantity="other">%1$d min</item>
+    </plurals>
+    <string name="stealth_schedule_done">Programado en el servidor de Telegram. El mensaje aparecerá en el chat a la hora fijada.</string>
+    <string name="stealth_schedule_failed">No se pudo programar el mensaje en el servidor de Telegram.</string>
+    <string name="stealth_schedule_unavailable_secret">Telegram no admite mensajes programados en chats secretos.</string>
+    <string name="stealth_schedule_unavailable_paid">Telegram no admite mensajes programados en chats con mensajes de pago.</string>
+    <string name="stealth_schedule_unavailable_chat">Telegram no admite mensajes programados en este chat.</string>
+    <string name="stealth_schedule_unavailable_content">La multimedia de visualización única y la ubicación en tiempo real no se pueden programar.</string>
+    <string name="stealth_schedule_fallback_title">¿Enviar ya?</string>
+    <string name="stealth_schedule_fallback_text">El mensaje no se ha enviado. Si lo envías ya, Telegram puede mostrarte en línea unos 30 segundos.</string>
+    <string name="stealth_schedule_fallback_send_now">Enviar ya</string>
+    <string name="stealth_schedule_retry">Reintentar envía el mensaje ya, no como mensaje programado.</string>
+    <string name="stealth_schedule_upload_failed">No se pudo subir el archivo por adelantado, así que el envío no se puede programar con seguridad.</string>
+</resources>

@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +46,7 @@ import com.beykus.beygram.data.settings.ChatStealthMode
 import com.beykus.beygram.data.settings.DelayedSendChoices
 import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.settings.StealthSettings
+import com.beykus.beygram.data.settings.StealthScheduleDelayChoices
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
@@ -161,6 +163,8 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
             ) { value -> update { it.copy(warnRiskyActions = value) } }
         }
 
+        ScheduledSendSection(settings = settings, update = ::update)
+
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -198,7 +202,45 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
     }
 }
 
-/** The delay before a plain text message is sent. It is convenience only, and the footnote says that it hides nothing. */
+/**
+ * Sending through Telegram's scheduled messages (#541): the server publishes the message after the chosen lead, so the
+ * app does not have to be open then. The leads start at 15 seconds because Telegram sends anything due within 10 at once.
+ */
+@Composable
+private fun ScheduledSendSection(settings: StealthSettings, update: ((StealthSettings) -> StealthSettings) -> Unit) {
+    val palette = beyGramPalette()
+    GroupTitle(stringResource(R.string.stealth_schedule_group_title))
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+        SwitchRow(
+            title = stringResource(R.string.stealth_schedule_title),
+            detail = stringResource(R.string.stealth_schedule_detail),
+            checked = settings.serverScheduledSend
+        ) { value -> update { it.copy(serverScheduledSend = value) } }
+        if (settings.serverScheduledSend) {
+            StealthScheduleDelayChoices.forEach { seconds ->
+                SettingsRowDivider(startInset = SettingsRowInset)
+                ChoiceRow(scheduleDelayLabel(seconds), selected = settings.scheduledSendDelaySeconds == seconds) {
+                    update { it.copy(scheduledSendDelaySeconds = seconds) }
+                }
+            }
+        }
+    }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(stringResource(R.string.stealth_schedule_footnote), color = palette.textSecondary, fontSize = 13.sp)
+        Text(stringResource(R.string.stealth_schedule_limits), color = palette.textSecondary, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun scheduleDelayLabel(seconds: Int): String = when {
+    seconds % 60 == 0 -> pluralStringResource(R.plurals.stealth_schedule_minutes, seconds / 60, seconds / 60)
+    else -> stringResource(R.string.delayed_send_seconds, seconds)
+}
+
+/** The local delay before a plain text message is sent. It is convenience only, and the footnote says that it hides nothing. */
 @Composable
 private fun DelayedSendSection(store: DelayedSendSettingsStore) {
     val palette = beyGramPalette()

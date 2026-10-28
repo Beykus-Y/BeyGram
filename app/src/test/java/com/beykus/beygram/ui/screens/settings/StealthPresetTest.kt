@@ -9,7 +9,7 @@ class StealthPresetTest {
     private val exceptions = mapOf(10L to ChatStealthMode.Allow, 20L to ChatStealthMode.Block)
     private val allSwitchesOn = StealthSettings(
         hideTyping = true, noReadReceipts = true, noContentOpen = true,
-        hideOnline = true, noStoryViews = true, warnRiskyActions = true
+        hideOnline = true, noStoryViews = true, warnRiskyActions = true, serverScheduledSend = true
     )
 
     @Test fun normalPresetTurnsEverySwitchOffAndKeepsChatExceptions() {
@@ -67,5 +67,12 @@ class StealthPresetTest {
                 )
             )
         )
+    }
+
+    @Test fun maximumWithoutServerScheduledSendIsCustomAndPresetsKeepTheChosenLead() {
+        assertEquals(StealthPresetKind.Custom, matchingPreset(allSwitchesOn.copy(serverScheduledSend = false)))
+        val applied = stealthPreset(StealthPresetKind.Normal, allSwitchesOn.copy(scheduledSendDelaySeconds = 60))
+        assertEquals(60, applied.scheduledSendDelaySeconds)
+        assertEquals(false, applied.serverScheduledSend)
     }
 }

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="delayed_send_group_title">Задержка отправки</string>
+    <string name="delayed_send_group_title">Локальная задержка отправки</string>
     <string name="delayed_send_off">Без задержки</string>
     <string name="delayed_send_seconds">%1$d с</string>
     <string name="delayed_send_minute">1 мин</string>
-    <string name="delayed_send_footnote">Сообщение ждёт на устройстве и уходит позже. Его можно отменить или отправить сразу. Это не скрывает, что вы были в сети: Telegram может показать вас в сети в момент отправки. Если приложение закрыто, сообщение уйдёт при следующем открытии чата или будет ждать вашего решения.</string>
+    <string name="delayed_send_footnote">Сообщение ждёт на устройстве и уходит позже. Его можно отменить или отправить сразу. Это не скрывает, что вы были в сети: Telegram может показать вас в сети в момент отправки. Если приложение закрыто, сообщение уйдёт при следующем открытии чата или будет ждать вашего решения. Это не режим невидимки: для скрытой отправки используйте «Отправка в невидимке» выше.</string>
 
     <string name="delayed_send_countdown">через %1$d с</string>
     <string name="delayed_send_waiting">Ждёт отправки</string>

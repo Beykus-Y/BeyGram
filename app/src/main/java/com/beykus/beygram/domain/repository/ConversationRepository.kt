@@ -77,14 +77,18 @@ interface ConversationRepository {
     suspend fun loadMessageThread(chatId: Long, messageId: Long): Result<MessageThread>
     /** One older page of comments, newest first in TDLib and mapped oldest first for the thread list. */
     suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long = 0L): Result<MessageThreadPage>
-    /** Sends into the discussion chat's thread, not into the channel; the reply keeps the target comment's thread. */
+    /**
+     * Sends into the discussion chat's thread, not into the channel; the reply keeps the target comment's thread.
+     * Null when stealth mode scheduled the comment on the server: it is not part of the thread yet.
+     */
     suspend fun sendThreadReply(
         discussionChatId: Long,
         threadId: Long,
         text: String,
         entities: List<MessageTextEntity> = emptyList(),
-        replyToMessageId: Long? = null
-    ): Result<ChatMessage>
+        replyToMessageId: Long? = null,
+        sendNowConsent: Boolean = false
+    ): Result<ChatMessage?>
     /** Permanent deletions observed in a chat; history windows alone cannot distinguish deleted vs unloaded rows. */
     fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>>
     fun openChat(chatId: Long)
@@ -161,8 +165,11 @@ interface ConversationRepository {
     suspend fun rescheduleMessage(chatId: Long, messageId: Long, atSeconds: Long): Result<Unit>
     /** Delivers a queued message immediately through TDLib. */
     suspend fun sendScheduledNow(chatId: Long, messageId: Long): Result<Unit>
-    /** Retries failed outgoing messages regardless of their content type. */
-    suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit>
+    /**
+     * Retries failed outgoing messages regardless of their content type. In stealth mode a resend that would go out at once
+     * fails with StealthScheduleUnavailableException unless [sendNowConsent] carries the user's explicit agreement.
+     */
+    suspend fun retryMessages(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean = false): Result<Unit>
     suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities>
     /** Per-chat notification preferences from TDLib; no local copy is created. */
     suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences>
@@ -306,6 +313,8 @@ interface ConversationRepository {
     fun interactionAllowed(effect: InteractionEffect, chatId: Long?): Boolean = true
     /** Whether a message send must be confirmed first: this account hides its online status and warns before risky actions. */
     fun stealthWarnsBeforeSending(): Boolean = false
+    /** Whether this account's sends go out as Telegram scheduled messages (stealth mode). The repository enforces it on every send. */
+    fun stealthSchedulesSends(): Boolean = false
     fun openMessageContent(chatId: Long, messageId: Long)
     /** Opens view-once content the user explicitly agreed to open although media-open marks are hidden. */
     fun openMessageContentWithConsent(chatId: Long, messageId: Long) = openMessageContent(chatId, messageId)

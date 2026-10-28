@@ -283,7 +283,17 @@ internal fun MessageThreadScreen(
         scope.launch { listState.animateScrollToItem(messages.lastIndex - index) }
     }
 
-    fun send() {
+    val stealthFallback = remember { StealthScheduleFallback() }
+    fun retryComment(chatId: Long, messageId: Long, sendNowConsent: Boolean) {
+        scope.launch {
+            conversation.retryMessages(chatId, listOf(messageId), sendNowConsent).onFailure { failure ->
+                if (!stealthFallback.offer(failure) { retryComment(chatId, messageId, sendNowConsent = true) }) {
+                    sendError = failure.userMessage(context, R.string.chat_retry_send_failed)
+                }
+            }
+        }
+    }
+    fun send(sendNowConsent: Boolean = false) {
         val current = thread ?: return
         if (!current.canReply || sending || text.isBlank()) return
         if (text.codePointCount(0, text.length) > messageLimits.text) {
@@ -297,12 +307,17 @@ internal fun MessageThreadScreen(
         sendError = null
         scope.launch {
             try {
-                conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo)
+                conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo, sendNowConsent)
                     .onSuccess { sent ->
-                        // TDLib may already have confirmed this comment, so the snapshot must not bring its temporary copy back.
-                        val history = conversation.observeChatHistory(current.discussionChatId).value
-                        messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history, current.discussionChatId, current.threadId)
-                        thread = current.copy(replyCount = current.replyCount + 1)
+                        if (sent != null) {
+                            // TDLib may already have confirmed this comment, so the snapshot must not bring its temporary copy back.
+                            val history = conversation.observeChatHistory(current.discussionChatId).value
+                            messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history, current.discussionChatId, current.threadId)
+                            thread = current.copy(replyCount = current.replyCount + 1)
+                        } else {
+                            // Stealth mode put the comment into Telegram's scheduled queue; it appears when the server publishes it.
+                            showStealthScheduledNotice(context)
+                        }
                         text = ""
                         entities = emptyList()
                         replyTarget = null
@@ -310,7 +325,11 @@ internal fun MessageThreadScreen(
                         onDraftChange("", emptyList(), 0L)
                         scope.launch { listState.animateScrollToItem(0) }
                     }
-                    .onFailure { sendError = it.userMessage(context, R.string.thread_comments_send_failed) }
+                    .onFailure { failure ->
+                        if (!stealthFallback.offer(failure) { send(sendNowConsent = true) }) {
+                            sendError = failure.userMessage(context, R.string.thread_comments_send_failed)
+                        }
+                    }
             } finally {
                 sending = false
             }
@@ -384,12 +403,7 @@ internal fun MessageThreadScreen(
                         onOpenProfile = onOpenProfile,
                         onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
                         onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
-                        onRetry = {
-                            scope.launch {
-                                conversation.retryMessages(message.chatId, listOf(message.id))
-                                    .onFailure { sendError = it.userMessage(context, R.string.chat_retry_send_failed) }
-                            }
-                        },
+                        onRetry = { retryComment(message.chatId, message.id, sendNowConsent = false) },
                         onActions = { reactionTarget = message.chatId to message },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {
@@ -590,6 +604,7 @@ internal fun MessageThreadScreen(
         } else false
     }
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(it.chatId, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, it.chatId)) }
+    stealthFallback.Dialog()
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(viewOnceAsked.chatId, viewOnceAsked.id) { selectedMediaId = null; selectedMediaChatId = 0L }
     if (viewed != null) {
         val viewedMedia = viewed.media

@@ -75,6 +75,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.ui.screens.chat.StealthScheduleFallback
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ReactionOption
@@ -523,6 +524,7 @@ fun StoryViewerScreen(
         }
     }
     var replySending by remember { mutableStateOf(false) }
+    val storyStealthFallback = remember { StealthScheduleFallback() }
     var deleting by remember { mutableStateOf(false) }
 
     val entry = snapshot
@@ -797,25 +799,31 @@ fun StoryViewerScreen(
         )
     }
 
+    fun sendStoryReply(text: String, sendNowConsent: Boolean) {
+        val scheduled = !sendNowConsent && repository.stealthSchedulesSends()
+        replySending = true
+        scope.launch {
+            repository.replyToStory(posterChatId, replyStoryId, text, sendNowConsent)
+                .onSuccess {
+                    replySending = false
+                    showReply = false
+                    notice = context.getString(if (scheduled) R.string.stealth_schedule_done else R.string.stories_reply_sent)
+                }
+                .onFailure { failure ->
+                    replySending = false
+                    // Stealth mode could not schedule the reply: nothing was sent, and only the user can choose to send now.
+                    if (!storyStealthFallback.offer(failure) { sendStoryReply(text, sendNowConsent = true) }) {
+                        notice = failure.userMessage(context, R.string.stories_reply_failed)
+                    }
+                }
+        }
+    }
+    storyStealthFallback.Dialog()
     if (showReply) {
         StoryReplyDialog(
             sending = replySending,
             onDismiss = { if (!replySending) showReply = false },
-            onSend = { text ->
-                replySending = true
-                scope.launch {
-                    repository.replyToStory(posterChatId, replyStoryId, text)
-                        .onSuccess {
-                            replySending = false
-                            showReply = false
-                            notice = context.getString(R.string.stories_reply_sent)
-                        }
-                        .onFailure {
-                            replySending = false
-                            notice = it.userMessage(context, R.string.stories_reply_failed)
-                        }
-                }
-            }
+            onSend = { text -> sendStoryReply(text, sendNowConsent = false) }
         )
     }
 

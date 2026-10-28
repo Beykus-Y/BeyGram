@@ -5,6 +5,7 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.InteractionEffect
+import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.StealthBlockedException
 import com.beykus.beygram.domain.model.ReactionOption
@@ -66,9 +67,12 @@ internal class TdStories(
     private val accountId: String,
     private val uploadsRoot: File,
     /** Stealth mode: false means this account must not open the stories posted by [posterChatId]. */
-    private val canViewStory: (posterChatId: Long) -> Boolean
+    private val canViewStory: (posterChatId: Long) -> Boolean,
+    stealthDelaySeconds: () -> Int? = { null }
 ) {
     private val requests = TdRequests(client)
+    // A story reply is a chat message, so stealth mode schedules it on the server like any other send (#541).
+    private val stealth = TdStealthScheduler(requests, stealthDelaySeconds)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private val active = mutableMapOf<Long, TdApi.ChatActiveStories>()
@@ -461,21 +465,26 @@ internal class TdStories(
         requests(TdApi.SetStoryReaction(posterChatId, storyId, reaction?.let(::reactionTypeOf), true))
     }
 
-    suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit> = storyRequest {
+    suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String, sendNowConsent: Boolean = false): Result<Unit> = storyRequest {
         val body = text.trim()
         if (body.isEmpty()) throw UserMessageException(UiText.Res(R.string.stories_reply_empty))
         val chat = requests(TdApi.GetChat(posterChatId))
         if (chat.type !is TdApi.ChatTypePrivate) {
             throw UserMessageException(UiText.Res(R.string.stories_reply_unavailable))
         }
-        requests(TdApi.SendMessage().apply {
-            this.chatId = posterChatId
-            this.replyTo = TdApi.InputMessageReplyToStory(posterChatId, storyId)
-            this.inputMessageContent = TdApi.InputMessageText().apply {
-                this.text = TdApi.FormattedText(body, emptyArray())
-                this.clearDraft = false
-            }
-        })
+        val options = MessageSendOptions(sendNowConsent = sendNowConsent)
+        val resolved = stealth.resolve(posterChatId, options)
+        stealth.scheduledRequest(resolved.scheduled) {
+            requests(TdApi.SendMessage().apply {
+                this.chatId = posterChatId
+                this.replyTo = TdApi.InputMessageReplyToStory(posterChatId, storyId)
+                this.options = sendOptions(resolved.options)
+                this.inputMessageContent = TdApi.InputMessageText().apply {
+                    this.text = TdApi.FormattedText(body, emptyArray())
+                    this.clearDraft = false
+                }
+            })
+        }
         Unit
     }
 

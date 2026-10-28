@@ -8,9 +8,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.MessageSendOptions
+import com.beykus.beygram.domain.model.StealthScheduleUnavailableException
 import com.beykus.beygram.domain.repository.ConversationRepository
+import com.beykus.beygram.ui.text.userMessage
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /** A send waits for the user's confirmation while hidden presence warns about sending and this chat session has not confirmed one. */
@@ -27,7 +33,9 @@ internal class StealthSendGuard(private val conversation: ConversationRepository
 
     /** Runs [action] at once, or after the user confirms the question. [onCancel] undoes what the caller staged for it. */
     fun run(onCancel: () -> Unit = {}, action: () -> Unit) {
-        if (stealthSendNeedsConfirmation(conversation.stealthWarnsBeforeSending(), confirmed)) {
+        // A send that stealth mode schedules on the server is not published now, so there is nothing to warn about yet.
+        // Should scheduling fail, StealthScheduleFallback asks before anything goes out at once.
+        if (!conversation.stealthSchedulesSends() && stealthSendNeedsConfirmation(conversation.stealthWarnsBeforeSending(), confirmed)) {
             pending = action
             pendingCancel = onCancel
         } else {
@@ -64,3 +72,48 @@ internal class StealthSendGuard(private val conversation: ConversationRepository
 @Composable
 internal fun rememberStealthSendGuard(chatId: Long, conversation: ConversationRepository): StealthSendGuard =
     remember(chatId, conversation) { StealthSendGuard(conversation) }
+
+/** True when stealth mode will turn a send with [options] into a server-scheduled message. */
+internal fun stealthWillSchedule(conversation: ConversationRepository, options: MessageSendOptions): Boolean =
+    options.scheduledAtSeconds == null && !options.sendNowConsent && conversation.stealthSchedulesSends()
+
+/** Tells the user that stealth mode handed the message to Telegram's scheduled queue instead of sending it now. */
+internal fun showStealthScheduledNotice(context: Context) {
+    Toast.makeText(context, context.getString(R.string.stealth_schedule_done), Toast.LENGTH_SHORT).show()
+}
+
+/**
+ * Stealth mode could not schedule a send on the server (#541). Nothing was sent; the user may agree to an ordinary send,
+ * which Telegram can show as activity. There is never a silent fallback: [sendNow] runs only from the dialog's button.
+ */
+internal class StealthScheduleFallback {
+    private var pending by mutableStateOf<Pair<StealthScheduleUnavailableException, () -> Unit>?>(null)
+
+    /** Asks the user when [error] is a refused stealth schedule and returns true; any other error is left to the caller. */
+    fun offer(error: Throwable?, sendNow: () -> Unit): Boolean {
+        if (error !is StealthScheduleUnavailableException) return false
+        pending = error to sendNow
+        return true
+    }
+
+    @Composable
+    fun Dialog() {
+        val (error, sendNow) = pending ?: return
+        val palette = beyGramPalette()
+        val context = LocalContext.current
+        AlertDialog(
+            onDismissRequest = { pending = null },
+            title = { Text(stringResource(R.string.stealth_schedule_fallback_title)) },
+            text = {
+                Text(error.userMessage(context, R.string.stealth_schedule_failed) + "\n\n" + stringResource(R.string.stealth_schedule_fallback_text))
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pending = null
+                    sendNow()
+                }) { Text(stringResource(R.string.stealth_schedule_fallback_send_now), color = palette.accent) }
+            },
+            dismissButton = { TextButton(onClick = { pending = null }) { Text(stringResource(R.string.common_cancel)) } }
+        )
+    }
+}

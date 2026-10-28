@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_schedule_group_title">Unsichtbar senden</string>
+    <string name="stealth_schedule_title">Als geplante Telegram-Nachrichten senden</string>
+    <string name="stealth_schedule_detail">Die Nachricht geht sofort als geplante Nachricht an den Telegram-Server, und der Server veröffentlicht sie nach der gewählten Zeit. Die App kann dann geschlossen sein.</string>
+    <string name="stealth_schedule_footnote">Solange die Nachricht wartet, können Sie sie in den geplanten Nachrichten des Chats abbrechen, verschieben oder sofort senden. Bei Dateien wird die Zeit für den Upload verlängert.</string>
+    <string name="stealth_schedule_limits">Das senkt das Risiko, online angezeigt zu werden, garantiert aber nichts: Ihre anderen Geräte und die Regeln von Telegram steuert die App nicht. Geheime Chats, Chats mit kostenpflichtigen Nachrichten, Einmal-Medien und Live-Standort lassen sich nicht planen; die App fragt dann, ob sofort gesendet werden soll.</string>
+    <plurals name="stealth_schedule_minutes">
+        <item quantity="one">%1$d Min.</item>
+        <item quantity="other">%1$d Min.</item>
+    </plurals>
+    <string name="stealth_schedule_done">Auf dem Telegram-Server geplant. Die Nachricht erscheint zur festgelegten Zeit im Chat.</string>
+    <string name="stealth_schedule_failed">Die Nachricht konnte auf dem Telegram-Server nicht geplant werden.</string>
+    <string name="stealth_schedule_unavailable_secret">Telegram unterstützt in geheimen Chats keine geplanten Nachrichten.</string>
+    <string name="stealth_schedule_unavailable_paid">Telegram unterstützt in Chats mit kostenpflichtigen Nachrichten keine geplanten Nachrichten.</string>
+    <string name="stealth_schedule_unavailable_chat">Telegram unterstützt in diesem Chat keine geplanten Nachrichten.</string>
+    <string name="stealth_schedule_unavailable_content">Einmal-Medien und Live-Standort lassen sich nicht planen.</string>
+    <string name="stealth_schedule_fallback_title">Sofort senden?</string>
+    <string name="stealth_schedule_fallback_text">Die Nachricht wurde nicht gesendet. Wenn Sie sie sofort senden, kann Telegram Sie etwa 30 Sekunden lang als online anzeigen.</string>
+    <string name="stealth_schedule_fallback_send_now">Sofort senden</string>
+    <string name="stealth_schedule_retry">Ein erneuter Versuch sendet die Nachricht sofort, nicht als geplante Nachricht.</string>
+    <string name="stealth_schedule_upload_failed">Die Datei konnte nicht vorab hochgeladen werden, daher lässt sich das Senden nicht zuverlässig planen.</string>
+</resources>

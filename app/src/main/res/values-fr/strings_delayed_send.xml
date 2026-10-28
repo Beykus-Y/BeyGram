@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="delayed_send_group_title">Délai d’envoi</string>
+    <string name="delayed_send_group_title">Délai d’envoi local</string>
     <string name="delayed_send_off">Sans délai</string>
     <string name="delayed_send_seconds">%1$d s</string>
     <string name="delayed_send_minute">1 min</string>
-    <string name="delayed_send_footnote">Le message attend sur cet appareil et part plus tard. Vous pouvez l’annuler ou l’envoyer tout de suite. Cela ne masque pas que vous étiez en ligne : Telegram peut vous afficher en ligne au moment de l’envoi. Si l’application est fermée, le message partira à la prochaine ouverture du chat ou attendra votre décision.</string>
+    <string name="delayed_send_footnote">Le message attend sur cet appareil et part plus tard. Vous pouvez l’annuler ou l’envoyer tout de suite. Cela ne masque pas que vous étiez en ligne : Telegram peut vous afficher en ligne au moment de l’envoi. Si l’application est fermée, le message partira à la prochaine ouverture du chat ou attendra votre décision. Ce n’est pas le mode invisible : pour un envoi discret, utilisez « Envoi invisible » ci-dessus.</string>
 
     <string name="delayed_send_countdown">dans %1$d s</string>
     <string name="delayed_send_waiting">En attente d’envoi</string>
