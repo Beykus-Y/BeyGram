@@ -195,7 +195,7 @@ private fun DelayedSendRow(entry: DelayedSendEntry, onCancel: () -> Unit, onDisc
 
 /**
  * The chat screen's delayed sending. The account is the conversation's TDLib account; without one, or with the delay off,
- * every send goes out at once. The account's queue is attached to [conversation] while this screen is composed.
+ * every send goes out at once. The account's queue is attached to [conversation] when this screen opens and stays attached after it closes.
  */
 @Composable
 internal fun rememberDelayedSend(chatId: Long, forumTopicId: Long, conversation: ConversationRepository): DelayedSendController {
@@ -207,7 +207,9 @@ internal fun rememberDelayedSend(chatId: Long, forumTopicId: Long, conversation:
     }
     DisposableEffect(queue, conversation) {
         queue?.attach(conversation)
-        onDispose { queue?.detach() }
+        // Kept attached after the chat closes: a message queued just before leaving must still go out on time.
+        // The next chat screen of this account attaches its own repository.
+        onDispose { }
     }
     val scope = rememberCoroutineScope()
     return remember(queue, delayFlow, chatId, forumTopicId, scope) {
