@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="composer_type_music">Музыка</string>
+    <string name="composer_extra_music">Трек: %1$s</string>
+    <string name="music_attach_title">Отправить музыку</string>
+    <string name="music_attach_intro">Найдите песню и нажмите стрелку рядом с ней: трек появится над полем ввода и уйдёт после кнопки «Отправить». Нажатие на название включает трек в плеере.</string>
+    <string name="music_attach_pick">Выбрать «%1$s» для отправки</string>
+</resources>

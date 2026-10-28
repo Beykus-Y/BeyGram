@@ -389,7 +389,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer> = unavailable()
     override suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?> = unavailable()
     override suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults?> = unavailable()
-    override suspend fun musicBotSearch(query: String, offset: String): Result<InlineBotResults?> = unavailable()
+    override suspend fun musicBotSearch(query: String, offset: String, contextChatId: Long): Result<InlineBotResults?> = unavailable()
     override suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> = unavailable()
     override suspend fun sendInlineBotResult(
         chatId: Long,
