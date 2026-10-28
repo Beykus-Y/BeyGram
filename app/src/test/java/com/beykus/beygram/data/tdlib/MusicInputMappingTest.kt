@@ -23,10 +23,10 @@ class MusicInputMappingTest {
 
         val content = media.toInputContent("") as TdApi.InputMessageAudio
 
-        assertEquals(42, (content.audio as TdApi.InputFileId).id)
-        assertEquals(185, content.duration)
-        assertEquals("Манит", content.title)
-        assertEquals("Люкселин", content.performer)
-        assertNull(content.albumCoverThumbnail)
+        assertEquals(42, (content.audio.audio as TdApi.InputFileId).id)
+        assertEquals(185, content.audio.duration)
+        assertEquals("Манит", content.audio.title)
+        assertEquals("Люкселин", content.audio.performer)
+        assertNull(content.audio.albumCoverThumbnail)
     }
 }

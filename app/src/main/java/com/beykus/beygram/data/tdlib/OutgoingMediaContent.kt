@@ -82,11 +82,7 @@ internal fun OutgoingMedia.toInputContent(
         }
         // Music keeps its player bubble and tags; only the music picker produces this kind.
         MediaKind.Audio -> TdApi.InputMessageAudio().apply {
-            audio = local
-            albumCoverThumbnail = thumb
-            duration = durationSeconds
-            title = this@toInputContent.title
-            performer = this@toInputContent.performer
+            audio = TdApi.InputAudio(local, thumb, durationSeconds, this@toInputContent.title, this@toInputContent.performer)
             this.caption = formattedCaption
         }
         else -> TdApi.InputMessageDocument().apply {
