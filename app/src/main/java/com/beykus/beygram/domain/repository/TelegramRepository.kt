@@ -243,8 +243,11 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Меняет настройку аккаунта, поэтому она действует на все устройства, где вошёл этот аккаунт. */
     suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit>
 
-    /** Отмечает прочитанными все сообщения чата, в том числе у архивных чатов. */
-    suspend fun markChatRead(chatId: Long): Result<Unit>
+    /**
+     * Отмечает прочитанными все сообщения чата, в том числе у архивных чатов.
+     * [consent] is a one-off user choice that lets this read through while stealth mode would block it.
+     */
+    suspend fun markChatRead(chatId: Long, consent: Boolean = false): Result<Unit>
 
 
     /** Контакты из адресной книги Telegram, по имени. */

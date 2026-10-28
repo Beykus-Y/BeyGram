@@ -319,7 +319,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun deleteTelegramAccount(password: String): Result<Unit> = unavailable()
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = unavailable()
     override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = unavailable()
-    override suspend fun markChatRead(chatId: Long): Result<Unit> = unavailable()
+    override suspend fun markChatRead(chatId: Long, consent: Boolean): Result<Unit> = unavailable()
     override suspend fun markChatUnread(chatId: Long): Result<Unit> = unavailable()
     override suspend fun loadContacts(): Result<List<ContactPreview>> = Result.success(emptyList())
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> = unavailable()

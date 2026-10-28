@@ -9,6 +9,7 @@ import com.beykus.beygram.domain.model.SpeechRecognitionException
 import com.beykus.beygram.domain.model.SpeechRecognitionFailure
 import com.beykus.beygram.domain.model.SpeechRecognitionFailureReason
 import com.beykus.beygram.domain.model.SpeechRecognitionTrial
+import com.beykus.beygram.domain.model.StealthBlockedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -182,6 +183,8 @@ catch (timeout: TimeoutCancellationException) {
 }
 catch (cancelled: CancellationException) { throw cancelled }
 catch (error: UserMessageException) { Result.failure(error) }
+// A stealth refusal is a decision, not a connection problem: the caller receives it unchanged, never wrapped.
+catch (blocked: StealthBlockedException) { Result.failure(blocked) }
 catch (error: Exception) {
     if (error.isFloodWait()) recordConnectionFailure(ConnectionFailure.FloodWait)
     Result.failure(UserMessageException(errorText(error), error))
