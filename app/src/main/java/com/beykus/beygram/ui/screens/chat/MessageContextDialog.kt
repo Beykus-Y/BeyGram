@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.copyableMessageLinks
 import com.beykus.beygram.domain.model.*
@@ -161,12 +162,16 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     if (activeItem != null) {
         val activeChatId = viewerChatId.takeIf { it > 0L } ?: chatId
         val pages = MediaViewerPolicy.retainViewOncePage(listOf(activeItem), activeItem)
-        MediaViewer(pages = pages, selectedId = activeItem.messageId, onSelect = {},
+        // Same consent question as in the chat: with media-open marks hidden, view-once content asks before it shows.
+        val viewOnceGate = rememberViewOnceStealthGate(activeChatId)
+        if (viewOnceGate.needsConsent(activeChatId, activeItem.messageId, activeItem.viewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, activeChatId))) {
+            viewOnceGate.ConsentDialog(activeChatId, activeItem.messageId) { viewerItem = null; viewerChatId = 0L; selected = null }
+        } else MediaViewer(pages = pages, selectedId = activeItem.messageId, onSelect = {},
             observeFile = observeFile, downloadFile = downloadFile, autoDownloadFile = autoDownloadFile,
             onViewed = { id ->
                 if (!activeItem.viewOnce || id !in openedViewOnceIds) {
                     if (activeItem.viewOnce) openedViewOnceIds = openedViewOnceIds + id
-                    conversation.openMessageContent(activeChatId, id)
+                    viewOnceGate.openContent(conversation, activeChatId, id)
                 }
             },
             onClose = { viewerItem = null; viewerChatId = 0L; selected = null },
