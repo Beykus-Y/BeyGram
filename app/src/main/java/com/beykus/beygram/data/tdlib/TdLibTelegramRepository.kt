@@ -2908,8 +2908,9 @@ class TdLibTelegramRepository private constructor(
                 }
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
-                // Logging out forgets the protection choices. Closing the client does not: it is re-created for this account.
-                if (isLegacyAccount) stealthSettings.clear()
+                // The chat exceptions name chats of the account that left, so they go. The switches stay: this state also
+                // comes when another device ends the session, and a re-login must not quietly lose the protection.
+                if (isLegacyAccount) stealthSettings.update { it.copy(chats = emptyMap()) }
             }
             is TdApi.AuthorizationStateClosed -> {
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()

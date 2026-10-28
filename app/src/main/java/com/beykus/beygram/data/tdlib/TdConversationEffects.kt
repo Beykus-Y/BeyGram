@@ -36,7 +36,6 @@ internal class TdConversationEffects(private val client: () -> Client, private v
             activities.remove(chatId)?.job?.cancel()
             sendActivity(chatId, TdApi.ChatActionCancel())
         }
-        uploads.keys.filterNot { policy.allows(InteractionEffect.Typing, it) }.forEach { uploads.remove(it) }
         updatePresence()
     }
     fun setForeground(active: Boolean) = synchronized(lock) {
