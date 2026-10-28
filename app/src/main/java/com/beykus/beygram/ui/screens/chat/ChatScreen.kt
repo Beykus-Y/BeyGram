@@ -1351,6 +1351,7 @@ fun ChatScreen(
 
     // Composer sends confirm first while hidden presence warns about sending; asked once per chat screen (see StealthSendGuard).
     val sendGuard = rememberStealthSendGuard(chat.id, conversation)
+    val delayed = rememberDelayedSend(chat.id, forumTopicId, conversation)
     /**
      * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
      * the choice applies to this send only and is not kept for the next one.
@@ -1373,6 +1374,8 @@ fun ChatScreen(
         }
         val outgoingAnimation = messageAnimations.direction(outgoing = true)
         val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
+        // A delayed text is stored first and only then cleared from the composer. A bot's forced reply is always sent directly.
+        if (botKeyboard?.forceReply != true && delayed.tryEnqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { MessageDraft() } })) return
         // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
         val launch = if (effectiveOptions.scheduledAtSeconds == null && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
             composerFieldBounds?.let { source ->
@@ -1934,6 +1937,7 @@ fun ChatScreen(
                 if (replyId != null) clearReply()
             }
         )
+        delayed.Strip(composerEmpty = draft.isEmpty() && replyId == null, onRestoreDraft = { restored -> updateDraft { restored } })
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) {

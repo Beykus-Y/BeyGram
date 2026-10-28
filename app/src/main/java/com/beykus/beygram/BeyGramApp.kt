@@ -169,6 +169,7 @@ import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.motion.MotionSettingsStore
 import com.beykus.beygram.data.settings.ChatAnimationSettingsStore
 import com.beykus.beygram.data.settings.ChatOverridesStore
+import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
@@ -2748,6 +2749,7 @@ private fun BeyGramAppContent(
                 AppRoute.StealthSettings -> key(selectedAccountId) {
                     StealthSettingsScreen(
                         store = (repository as? TdLibTelegramRepository)?.stealthSettings,
+                        delayStore = (repository as? TdLibTelegramRepository)?.let { DelayedSendSettingsStore.forAccount(context, it.accountId) },
                         onServerPrivacy = { routeName = AppRoute.PrivacySettings.name },
                         onBack = { routeName = AppRoute.PrivacySettings.name }
                     )

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="delayed_send_group_title">Retraso de envío</string>
+    <string name="delayed_send_off">Sin retraso</string>
+    <string name="delayed_send_seconds">%1$d s</string>
+    <string name="delayed_send_minute">1 min</string>
+    <string name="delayed_send_footnote">El mensaje espera en este dispositivo y se envía más tarde. Puedes cancelarlo o enviarlo ya. Esto no oculta que estabas en línea: Telegram puede mostrarte en línea en el momento del envío. Si la aplicación está cerrada, el mensaje se enviará la próxima vez que abras el chat o esperará tu decisión.</string>
+
+    <string name="delayed_send_countdown">en %1$d s</string>
+    <string name="delayed_send_waiting">Esperando envío</string>
+    <string name="delayed_send_sending">Enviando</string>
+    <string name="delayed_send_failed">No enviado</string>
+    <string name="delayed_send_uncertain">No se sabe si se envió</string>
+    <string name="delayed_send_cancel">Cancelar</string>
+    <string name="delayed_send_now">Enviar ahora</string>
+    <string name="delayed_send_retry">Enviar de nuevo</string>
+    <string name="delayed_send_delete">Eliminar</string>
+    <string name="delayed_send_clear_composer">Primero borra el campo de texto</string>
+    <string name="delayed_send_queue_full">Hay demasiados mensajes retrasados. Espera a que se envíe uno o cancela uno.</string>
+    <string name="delayed_send_queue_failed">No se pudo retrasar el mensaje. El texto sigue en el campo de texto.</string>
+</resources>

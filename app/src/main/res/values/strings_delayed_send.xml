@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="delayed_send_group_title">Задержка отправки</string>
+    <string name="delayed_send_off">Без задержки</string>
+    <string name="delayed_send_seconds">%1$d с</string>
+    <string name="delayed_send_minute">1 мин</string>
+    <string name="delayed_send_footnote">Сообщение ждёт на устройстве и уходит позже. Его можно отменить или отправить сразу. Это не скрывает, что вы были в сети: Telegram может показать вас в сети в момент отправки. Если приложение закрыто, сообщение уйдёт при следующем открытии чата или будет ждать вашего решения.</string>
+
+    <string name="delayed_send_countdown">через %1$d с</string>
+    <string name="delayed_send_waiting">Ждёт отправки</string>
+    <string name="delayed_send_sending">Отправляется</string>
+    <string name="delayed_send_failed">Не отправлено</string>
+    <string name="delayed_send_uncertain">Неизвестно, ушло ли</string>
+    <string name="delayed_send_cancel">Отменить</string>
+    <string name="delayed_send_now">Отправить</string>
+    <string name="delayed_send_retry">Отправить ещё раз</string>
+    <string name="delayed_send_delete">Удалить</string>
+    <string name="delayed_send_clear_composer">Сначала очистите поле ввода</string>
+    <string name="delayed_send_queue_full">Слишком много отложенных сообщений. Дождитесь отправки одного или отмените его.</string>
+    <string name="delayed_send_queue_failed">Не удалось отложить сообщение. Текст остался в поле ввода.</string>
+</resources>
