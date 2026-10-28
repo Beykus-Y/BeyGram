@@ -318,7 +318,7 @@ internal fun MessageThreadScreen(
                             // Stealth mode put the comment into Telegram's scheduled queue; it appears when the server publishes it.
                             showStealthScheduledNotice(context)
                         }
-                        text = """
+                        text = ""
                         entities = emptyList()
                         replyTarget = null
                         replyTargetId = 0L
