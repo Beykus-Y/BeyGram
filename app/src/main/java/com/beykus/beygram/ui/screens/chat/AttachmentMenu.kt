@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Poll
@@ -58,6 +59,7 @@ internal enum class AttachmentAction {
     PhotoVideo,
     File,
     Audio,
+    Music,
     Location,
     Contact,
     Poll,
@@ -66,12 +68,17 @@ internal enum class AttachmentAction {
     internal val isChatObject: Boolean
         get() = this == Location || this == Contact || this == Poll || this == Dice
 
+    /** A chosen track replaces the staged files like a poll does, so it is refused while files are staged. */
+    internal val replacesTray: Boolean
+        get() = isChatObject || this == Music
+
     @StringRes
     internal fun labelRes(): Int = when (this) {
         Camera -> R.string.composer_type_camera
         PhotoVideo -> R.string.composer_type_photo_video
         File -> R.string.composer_type_file
         Audio -> R.string.composer_type_audio
+        Music -> R.string.composer_type_music
         Location -> R.string.composer_type_location
         Contact -> R.string.composer_type_contact
         Poll -> R.string.composer_type_poll
@@ -79,9 +86,9 @@ internal enum class AttachmentAction {
     }
 }
 
-/** Polls disappear only where Telegram rejects them; every other type is always present. */
-internal fun attachmentActions(allowsPolls: Boolean): List<AttachmentAction> =
-    AttachmentAction.entries.filter { allowsPolls || it != AttachmentAction.Poll }
+/** Polls and music disappear only where Telegram rejects them; every other type is always present. */
+internal fun attachmentActions(allowsPolls: Boolean, allowsMusic: Boolean = true): List<AttachmentAction> =
+    AttachmentAction.entries.filter { (allowsPolls || it != AttachmentAction.Poll) && (allowsMusic || it != AttachmentAction.Music) }
 
 /**
  * Compact, vertically scrollable action grid. It deliberately has no sticker/GIF or quality
@@ -91,12 +98,13 @@ internal fun attachmentActions(allowsPolls: Boolean): List<AttachmentAction> =
 internal fun AttachmentMenu(
     allowsPolls: Boolean,
     enabled: Boolean,
+    allowsMusic: Boolean = true,
     chatObjectsEnabled: Boolean = true,
     onAction: (AttachmentAction) -> Unit,
     onClose: () -> Unit
 ) {
     val palette = beyGramPalette()
-    val actions = remember(allowsPolls) { attachmentActions(allowsPolls) }
+    val actions = remember(allowsPolls, allowsMusic) { attachmentActions(allowsPolls, allowsMusic) }
     val configuration = LocalConfiguration.current
     val maxHeight = (configuration.screenHeightDp * 0.5f).dp.coerceIn(160.dp, 380.dp)
     Column(
@@ -139,7 +147,7 @@ internal fun AttachmentMenu(
                 SectionTitle(stringResource(R.string.composer_menu_section_media))
             }
             items(actions.filterNot { it.isChatObject }, key = { it.name }) { action ->
-                AttachmentActionTile(action, enabled, onAction)
+                AttachmentActionTile(action, enabled && (chatObjectsEnabled || !action.replacesTray), onAction)
             }
             if (actions.any { it.isChatObject }) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "chat-section") {
@@ -172,6 +180,7 @@ private fun AttachmentActionTile(action: AttachmentAction, enabled: Boolean, onA
         AttachmentAction.PhotoVideo -> Icons.Rounded.Image
         AttachmentAction.File -> Icons.Rounded.Description
         AttachmentAction.Audio -> Icons.Rounded.GraphicEq
+        AttachmentAction.Music -> Icons.Rounded.MusicNote
         AttachmentAction.Location -> Icons.Rounded.LocationOn
         AttachmentAction.Contact -> Icons.Rounded.Person
         AttachmentAction.Poll -> Icons.Rounded.Poll

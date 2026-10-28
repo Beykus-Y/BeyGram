@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material.icons.rounded.Refresh
@@ -189,8 +190,11 @@ internal class AttachmentState(
     var pickLocation: () -> Unit = {}
     var pickContact: () -> Unit = {}
     var pickDice: () -> Unit = {}
+    var pickMusic: () -> Unit = {}
     /** False where Telegram rejects polls: secret chats and ordinary private chats with people. */
     var allowsPolls by mutableStateOf(true)
+    /** False in secret chats: a track found in the search is a server file that a secret chat cannot reuse. */
+    var allowsMusic by mutableStateOf(true)
     /** A poll send failed and [extra] still holds the composed poll, so Retry/Cancel are shown. */
     var extraSendFailed by mutableStateOf(false)
         private set
@@ -267,7 +271,7 @@ internal class AttachmentState(
     /** Runs one menu choice; every old type keeps its previous callback. */
     fun performAction(action: AttachmentAction) {
         if (sending || importing || locating) return
-        if (action.isChatObject && pending.isNotEmpty()) {
+        if (action.replacesTray && pending.isNotEmpty()) {
             // A poll/contact/dice replaces the whole tray, so never do that behind the user's back.
             errorState.value = context.getString(R.string.composer_menu_chat_unavailable)
             menuOpen = false
@@ -283,6 +287,7 @@ internal class AttachmentState(
             AttachmentAction.Contact -> pickContact()
             AttachmentAction.Poll -> pickPoll()
             AttachmentAction.Dice -> pickDice()
+            AttachmentAction.Music -> pickMusic()
         }
     }
 
@@ -1118,6 +1123,7 @@ internal fun AttachmentPanel(
         when {
             state.menuOpen -> AttachmentMenu(
                 allowsPolls = state.allowsPolls,
+                allowsMusic = state.allowsMusic,
                 enabled = !state.sending && !state.importing && !state.locating,
                 chatObjectsEnabled = state.pending.isEmpty(),
                 onAction = state::performAction,
@@ -1298,6 +1304,7 @@ private fun ExtraAttachmentCard(extra: MessageExtraDraft, enabled: Boolean, onRe
                 is MessageExtraDraft.Location -> Icons.Rounded.LocationOn
                 is MessageExtraDraft.Contact -> Icons.Rounded.Person
                 is MessageExtraDraft.Dice -> Icons.Rounded.Casino
+                is MessageExtraDraft.MusicFile, is MessageExtraDraft.MusicBotResult -> Icons.Rounded.MusicNote
             },
             contentDescription = null,
             tint = palette.accentInk,
@@ -1463,4 +1470,6 @@ private fun extraLabel(extra: MessageExtraDraft): String = when (extra) {
     is MessageExtraDraft.Location -> stringResource(R.string.composer_extra_location)
     is MessageExtraDraft.Contact -> stringResource(R.string.composer_extra_contact, extra.title)
     is MessageExtraDraft.Dice -> stringResource(R.string.composer_extra_dice, extra.emoji)
+    is MessageExtraDraft.MusicFile -> stringResource(R.string.composer_extra_music, extra.label)
+    is MessageExtraDraft.MusicBotResult -> stringResource(R.string.composer_extra_music, extra.label)
 }

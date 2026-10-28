@@ -478,6 +478,7 @@ fun ChatScreen(
                 is MessageExtraDraft.Location -> conversation.sendLocation(chat.id, draft.point, false, replyId, forumTopicId = forumTopicId, options = options)
                 is MessageExtraDraft.Contact -> conversation.sendContactCard(chat.id, draft.userId, replyId, forumTopicId = forumTopicId, options = options)
                 is MessageExtraDraft.Dice -> conversation.sendDice(chat.id, draft.emoji, replyId, forumTopicId = forumTopicId, options = options)
+                is MessageExtraDraft.MusicFile, is MessageExtraDraft.MusicBotResult -> conversation.sendMusicDraft(chat.id, draft, replyId, forumTopicId, options)
             }
             if (result.isSuccess) clearReply()
             result
@@ -494,7 +495,7 @@ fun ChatScreen(
         chat.isGroup || chat.isChannel -> chat.canSendPolls
         else -> chat.canSendPolls || info?.kind == ProfileKind.Bot
     }
-    ComposerExtraPickers(chat.id, pollsAllowed, conversation, attachments)
+    ComposerExtraPickers(chat.id, pollsAllowed, conversation, attachments, remember(accountId, chat.isSecret) { if (chat.isSecret) null else ComposerMusicSource(accountId, observeFile, onDownloadFile) })
     val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, accountId = accountId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.

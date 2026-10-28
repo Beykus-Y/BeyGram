@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +47,8 @@ import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.InlineBotResult
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageExtraDraft
+import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.playback.MusicBotCache
@@ -69,6 +72,9 @@ import java.util.concurrent.atomic.AtomicLong
  * «Настройки → Звук и воспроизведение → Музыка». Ищет музыкальные аудиосообщения во всех доступных аккаунту чатах
  * через TDLib-фильтр аудио; публичный поиск треков здесь не подключён. Нажатие на трек ставит в очередь общего
  * плеера все найденные треки, начиная с выбранного, без пересылки и без отправки в чат.
+ *
+ * С [onPick] это выбор трека для «Прикрепить → Музыка» в чате [pickChatId]: у строки появляется кнопка выбора,
+ * а сам трек уходит только после обычной кнопки «Отправить» в поле ввода.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,7 +83,9 @@ internal fun MusicSearchScreen(
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    pickChatId: Long = 0L,
+    onPick: ((MessageExtraDraft) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -104,7 +112,7 @@ internal fun MusicSearchScreen(
         publicResults = emptyList()
         publicAvailable = true
         publicJob.value = scope.launch {
-            conversation.musicBotSearch(needle).onSuccess { page ->
+            conversation.musicBotSearch(needle, contextChatId = pickChatId).onSuccess { page ->
                 publicAvailable = page != null
                 publicResults = page?.results.orEmpty()
             }.onFailure {
@@ -226,7 +234,7 @@ internal fun MusicSearchScreen(
             TopAppBar(
                 title = {
                     Text(
-                        stringResource(R.string.settings_music_title),
+                        stringResource(if (onPick != null) R.string.music_attach_title else R.string.settings_music_title),
                         color = palette.textPrimary,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -249,7 +257,7 @@ internal fun MusicSearchScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
             )
             if (query.isBlank()) Text(
-                stringResource(R.string.music_search_intro),
+                stringResource(if (onPick != null) R.string.music_attach_intro else R.string.music_search_intro),
                 color = palette.textSecondary,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -273,7 +281,8 @@ internal fun MusicSearchScreen(
                     if (item != null) MusicRow(
                         title = item.title,
                         subtitle = chats[message.chatId]?.title.orEmpty(),
-                        onClick = { play(message) }
+                        onClick = { play(message) },
+                        onSend = onPick?.let { pick -> musicFileDraft(message, chats, item.title)?.let { draft -> { pick(draft) } } }
                     )
                 }
                 // Keyed by the typed query, not by the account search, so a failed account search never hides this section.
@@ -293,7 +302,12 @@ internal fun MusicSearchScreen(
                         )
                     }
                     items(publicResults, key = { "public:${it.queryId}:${it.id}" }) { result ->
-                        MusicRow(title = result.title, subtitle = result.description, onClick = { playBotTrack(result) })
+                        MusicRow(
+                            title = result.title,
+                            subtitle = result.description,
+                            onClick = { playBotTrack(result) },
+                            onSend = onPick?.let { pick -> { pick(MessageExtraDraft.MusicBotResult(result.queryId, result.id, result.title)) } }
+                        )
                     }
                 }
                 if (nextOffset.isNotEmpty() && !loading) item(key = "more") {
@@ -308,7 +322,7 @@ internal fun MusicSearchScreen(
 }
 
 @Composable
-private fun MusicRow(title: String, subtitle: String, onClick: (() -> Unit)?) {
+private fun MusicRow(title: String, subtitle: String, onClick: (() -> Unit)?, onSend: (() -> Unit)? = null) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 64.dp)
@@ -327,7 +341,31 @@ private fun MusicRow(title: String, subtitle: String, onClick: (() -> Unit)?) {
             Text(title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle.isNotBlank()) Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        if (onSend != null) IconButton(onClick = onSend, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.music_attach_pick, title), tint = palette.accent)
+        }
     }
+}
+
+/**
+ * A chat track for the attachment menu, sent again by its server file id. Secret, view-once and protected tracks
+ * cannot be sent on, so they get no send button.
+ */
+private fun musicFileDraft(message: ChatMessage, chats: Map<Long, ChatPreview>, label: String): MessageExtraDraft.MusicFile? {
+    if (message.isViewOnce || chats[message.chatId]?.hasProtectedContent == true) return null
+    val media = message.media?.takeUnless { it.isSecret || it.isSecretChat } ?: return null
+    if (media.kind != MediaKind.Audio || media.fileId <= 0) return null
+    val outgoing = OutgoingMedia(
+        path = "",
+        fileName = media.fileName,
+        mimeType = media.mimeType,
+        kind = MediaKind.Audio,
+        durationSeconds = media.durationSeconds,
+        remoteFileId = media.fileId,
+        title = media.title,
+        performer = media.performer
+    )
+    return MessageExtraDraft.MusicFile(outgoing, label)
 }
 
 /**
