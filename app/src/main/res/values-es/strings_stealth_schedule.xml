@@ -20,4 +20,10 @@
     <string name="stealth_schedule_fallback_send_now">Enviar ya</string>
     <string name="stealth_schedule_retry">Reintentar envía el mensaje ya, no como mensaje programado.</string>
     <string name="stealth_schedule_upload_failed">No se pudo subir el archivo por adelantado, así que el envío no se puede programar con seguridad.</string>
+    <string name="stealth_schedule_custom">Tiempo propio</string>
+    <string name="stealth_schedule_custom_value">Tiempo propio: %1$s</string>
+    <string name="stealth_schedule_dialog_hint">Retraso en segundos, de 1 a 3600</string>
+    <string name="stealth_schedule_dialog_label">Segundos</string>
+    <string name="stealth_schedule_dialog_error">Introduce un número entero de 1 a 3600</string>
+    <string name="stealth_schedule_short_warning">Un retraso de menos de 15 segundos es demasiado corto para fiarse de los mensajes programados de Telegram: la app espera ese tiempo por sí misma y envía un mensaje normal. Telegram puede mostrarte en línea y, si cierras la app antes del envío, el mensaje puede no salir.</string>
 </resources>

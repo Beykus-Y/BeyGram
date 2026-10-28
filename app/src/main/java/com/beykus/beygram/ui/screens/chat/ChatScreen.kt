@@ -1380,11 +1380,12 @@ fun ChatScreen(
         }
         val outgoingAnimation = messageAnimations.direction(outgoing = true)
         val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
-        // Stealth mode hands the message to Telegram's scheduled queue (#541); the local delay is a separate convenience
-        // and is skipped then, so the server-side schedule is the only thing that holds the message.
+        // Stealth mode hands the message to Telegram's scheduled queue (#541), or waits out a short lead itself; the local
+        // delay is a separate convenience and is skipped then, so stealth sending is the only thing that holds the message.
         val stealthScheduled = stealthWillSchedule(conversation, effectiveOptions)
+        val stealthHolds = effectiveOptions.scheduledAtSeconds == null && conversation.stealthHoldsSends()
         // A delayed text is stored first and only then cleared from the composer. A bot's forced reply is always sent directly.
-        if (!stealthScheduled && !effectiveOptions.sendNowConsent && botKeyboard?.forceReply != true &&
+        if (!stealthScheduled && !stealthHolds && !effectiveOptions.sendNowConsent && botKeyboard?.forceReply != true &&
             delayed.tryEnqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { MessageDraft() } })) return
         // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
         val launch = if (effectiveOptions.scheduledAtSeconds == null && !stealthScheduled && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
@@ -1405,14 +1406,23 @@ fun ChatScreen(
                 }
             }
         } else null
+        // A stealth lead too short for the server is waited out by the repository and outlives this screen, so the draft is
+        // taken now: a later success must not clear text typed meanwhile. A failure puts it back if the composer is still empty.
+        val stealthWaitsLocally = stealthHolds && !stealthScheduled && !effectiveOptions.sendNowConsent
+        val submitted = composerDraft
+        if (stealthWaitsLocally) updateDraft { MessageDraft() }
         sending = true; error = null
         scope.launch {
             var delivered = false
             try {
-                val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId, options = effectiveOptions)
+                val result = conversation.sendMessage(
+                    chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId,
+                    clearDraft = !stealthWaitsLocally, options = effectiveOptions
+                )
+                if (stealthWaitsLocally && result.isFailure) updateDraft { current -> if (current.text.isEmpty()) submitted else current }
                 if (result.isSuccess) {
                     delivered = true
-                    updateDraft { MessageDraft() }
+                    if (!stealthWaitsLocally) updateDraft { MessageDraft() }
                     launch?.awaitingSend = false
                     if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }

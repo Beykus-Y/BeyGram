@@ -21,10 +21,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -38,6 +42,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -47,7 +52,9 @@ import com.beykus.beygram.data.settings.DelayedSendChoices
 import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.settings.StealthSettings
 import com.beykus.beygram.data.settings.StealthScheduleDelayChoices
+import com.beykus.beygram.data.settings.StealthScheduleDelayRange
 import com.beykus.beygram.data.settings.StealthSettingsStore
+import com.beykus.beygram.data.settings.stealthDelayUsesServer
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -204,11 +211,13 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
 
 /**
  * Sending through Telegram's scheduled messages (#541): the server publishes the message after the chosen lead, so the
- * app does not have to be open then. The leads start at 15 seconds because Telegram sends anything due within 10 at once.
+ * app does not have to be open then. The presets start at 15 seconds because Telegram sends anything due within 10 at once;
+ * «Своё время» accepts 1 second to an hour, and a lead under 15 seconds is waited out by the app with a warning.
  */
 @Composable
 private fun ScheduledSendSection(settings: StealthSettings, update: ((StealthSettings) -> StealthSettings) -> Unit) {
     val palette = beyGramPalette()
+    var editingCustom by remember { mutableStateOf(false) }
     GroupTitle(stringResource(R.string.stealth_schedule_group_title))
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
         SwitchRow(
@@ -223,15 +232,72 @@ private fun ScheduledSendSection(settings: StealthSettings, update: ((StealthSet
                     update { it.copy(scheduledSendDelaySeconds = seconds) }
                 }
             }
+            val custom = settings.scheduledSendDelaySeconds !in StealthScheduleDelayChoices
+            SettingsRowDivider(startInset = SettingsRowInset)
+            ChoiceRow(
+                if (custom) stringResource(R.string.stealth_schedule_custom_value, scheduleDelayLabel(settings.scheduledSendDelaySeconds))
+                else stringResource(R.string.stealth_schedule_custom),
+                selected = custom
+            ) { editingCustom = true }
         }
+    }
+    if (editingCustom) {
+        CustomDelayDialog(
+            initial = settings.scheduledSendDelaySeconds,
+            onDismiss = { editingCustom = false },
+            onConfirm = { seconds ->
+                editingCustom = false
+                update { it.copy(scheduledSendDelaySeconds = seconds) }
+            }
+        )
     }
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        if (settings.serverScheduledSend && !stealthDelayUsesServer(settings.scheduledSendDelaySeconds)) {
+            Text(stringResource(R.string.stealth_schedule_short_warning), color = palette.warningText, fontSize = 13.sp)
+        }
         Text(stringResource(R.string.stealth_schedule_footnote), color = palette.textSecondary, fontSize = 13.sp)
         Text(stringResource(R.string.stealth_schedule_limits), color = palette.textSecondary, fontSize = 13.sp)
     }
+}
+
+/** Asks for a lead in whole seconds within [StealthScheduleDelayRange]; anything else keeps the dialog open with an error. */
+@Composable
+private fun CustomDelayDialog(initial: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
+    val palette = beyGramPalette()
+    var text by remember { mutableStateOf(initial.toString()) }
+    val value = text.trim().toIntOrNull()?.takeIf { it in StealthScheduleDelayRange }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.stealth_schedule_custom)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.stealth_schedule_dialog_hint), color = palette.textSecondary, fontSize = 13.sp)
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { input -> text = input.filter(Char::isDigit).take(4) },
+                    label = { Text(stringResource(R.string.stealth_schedule_dialog_label)) },
+                    singleLine = true,
+                    isError = value == null,
+                    supportingText = if (value == null) {
+                        { Text(stringResource(R.string.stealth_schedule_dialog_error)) }
+                    } else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                if (value != null && !stealthDelayUsesServer(value)) {
+                    Text(stringResource(R.string.stealth_schedule_short_warning), color = palette.warningText, fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { value?.let(onConfirm) }, enabled = value != null) {
+                Text(stringResource(R.string.common_save), color = if (value != null) palette.accent else palette.textSecondary)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+    )
 }
 
 @Composable

@@ -284,21 +284,32 @@ class StealthSettingsStoreTest {
         assertEquals(null, migrated.scheduledSendDelay)
     }
 
-    @Test fun aLeadThatIsNotOfferedIsAReadError() {
+    @Test fun aLeadOutsideTheRangeIsAReadError() {
         val storage = FakeStealthStorage()
         StealthSettingsStore(storage).update { it.copy(serverScheduledSend = true) }
-        storage.stored["scheduled_send_delay"] = 5
+        storage.stored["scheduled_send_delay"] = 0
+        assertEquals(StealthSettings.FailClosed, StealthSettingsStore(storage).current)
+        storage.stored["scheduled_send_delay"] = 3601
         assertEquals(StealthSettings.FailClosed, StealthSettingsStore(storage).current)
     }
 
-    @Test fun anUnofferedLeadIsRoundedUpNeverBelowFifteenSeconds() {
-        val store = StealthSettingsStore(FakeStealthStorage())
-        store.update { it.copy(serverScheduledSend = true, scheduledSendDelaySeconds = 1) }
-        assertEquals(15, store.current.scheduledSendDelay)
-        store.update { it.copy(scheduledSendDelaySeconds = 45) }
-        assertEquals(60, store.current.scheduledSendDelay)
+    @Test fun aCustomLeadIsKeptAndClampedToOneSecondToAnHour() {
+        val storage = FakeStealthStorage()
+        val store = StealthSettingsStore(storage)
+        store.update { it.copy(serverScheduledSend = true, scheduledSendDelaySeconds = 45) }
+        assertEquals(45, StealthSettingsStore(storage).current.scheduledSendDelay)
         store.update { it.copy(scheduledSendDelaySeconds = 10_000) }
-        assertEquals(StealthScheduleDelayChoices.last(), store.current.scheduledSendDelay)
+        assertEquals(3600, store.current.scheduledSendDelay)
+        store.update { it.copy(scheduledSendDelaySeconds = 0) }
+        assertEquals(1, StealthSettingsStore(storage).current.scheduledSendDelay)
+    }
+
+    @Test fun onlyLeadsFromFifteenSecondsUseTheServerQueue() {
+        assertFalse(StealthSettings(serverScheduledSend = true, scheduledSendDelaySeconds = 14).schedulesOnServer)
+        assertTrue(StealthSettings(serverScheduledSend = true, scheduledSendDelaySeconds = 15).schedulesOnServer)
+        assertTrue(StealthSettings(serverScheduledSend = true).schedulesOnServer)
+        assertFalse(StealthSettings(scheduledSendDelaySeconds = 30).schedulesOnServer)
+        assertTrue(StealthSettings.FailClosed.schedulesOnServer)
     }
 
     @Test fun failClosedSchedulesEverySend() {

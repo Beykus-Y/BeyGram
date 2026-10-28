@@ -193,7 +193,7 @@ internal class TdConversationActions(
             clearDraft = false
         }
         val resolved = stealth.resolve(discussionChatId, MessageSendOptions(sendNowConsent = sendNowConsent))
-        val sent = stealth.scheduledRequest(resolved.scheduled) {
+        val sent = stealth.scheduledRequest(resolved) {
             request(threadReplyRequest(discussionChatId, threadId, replyTarget?.id, content, sendOptions(resolved.options)))
         }
         // A comment scheduled by stealth mode waits in the server's queue and is not part of the thread yet.
@@ -456,7 +456,7 @@ internal class TdConversationActions(
         }
         val resolved = stealth.resolve(chatId, options, media)
         val protocolOptions = sendOptions(resolved.options)
-        val messages = stealth.scheduledRequest(resolved.scheduled) { request(TdApi.SendMessageAlbum().apply {
+        val messages = stealth.scheduledRequest(resolved) { request(TdApi.SendMessageAlbum().apply {
             this.chatId = chatId
             this.options = protocolOptions
             inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
@@ -499,7 +499,7 @@ internal class TdConversationActions(
         val resolved = stealth.resolve(chatId, options, media, liveLocation)
         val protocolOptions = sendOptions(resolved.options)
         val inputContent = content(resolved.media)
-        val message = stealth.scheduledRequest(resolved.scheduled) { request(TdApi.SendMessage().apply {
+        val message = stealth.scheduledRequest(resolved) { request(TdApi.SendMessage().apply {
             this.chatId = chatId; inputMessageContent = inputContent; this.options = protocolOptions
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
@@ -651,7 +651,7 @@ internal class TdConversationActions(
         ))
         requireFutureSchedule(options)
         val resolved = stealth.resolve(toChatId, options)
-        val forwarded = stealth.scheduledRequest(resolved.scheduled) {
+        val forwarded = stealth.scheduledRequest(resolved) {
             request(forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved.options)))
         }
         val returned = forwarded.messages.orEmpty()
