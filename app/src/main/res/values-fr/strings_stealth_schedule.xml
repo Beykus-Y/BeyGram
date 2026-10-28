@@ -7,7 +7,6 @@
     <string name="stealth_schedule_limits">Cela réduit le risque d’apparaître en ligne sans le garantir : l’application ne contrôle ni vos autres appareils ni les règles de Telegram. Les chats secrets, les chats à messages payants, les médias à vue unique et la position en direct ne peuvent pas être programmés ; l’application demande alors s’il faut envoyer tout de suite.</string>
     <plurals name="stealth_schedule_minutes">
         <item quantity="one">%1$d min</item>
-        <item quantity="many">%1$d min</item>
         <item quantity="other">%1$d min</item>
     </plurals>
     <string name="stealth_schedule_done">Programmé sur le serveur Telegram. Le message apparaîtra dans le chat à l’heure prévue.</string>
