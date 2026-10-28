@@ -1406,14 +1406,23 @@ fun ChatScreen(
                 }
             }
         } else null
+        // A stealth lead too short for the server is waited out by the repository and outlives this screen, so the draft is
+        // taken now: a later success must not clear text typed meanwhile. A failure puts it back if the composer is still empty.
+        val stealthWaitsLocally = stealthHolds && !stealthScheduled && !effectiveOptions.sendNowConsent
+        val submitted = composerDraft
+        if (stealthWaitsLocally) updateDraft { MessageDraft() }
         sending = true; error = null
         scope.launch {
             var delivered = false
             try {
-                val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId, options = effectiveOptions)
+                val result = conversation.sendMessage(
+                    chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId,
+                    clearDraft = !stealthWaitsLocally, options = effectiveOptions
+                )
+                if (stealthWaitsLocally && result.isFailure) updateDraft { current -> if (current.text.isEmpty()) submitted else current }
                 if (result.isSuccess) {
                     delivered = true
-                    updateDraft { MessageDraft() }
+                    if (!stealthWaitsLocally) updateDraft { MessageDraft() }
                     launch?.awaitingSend = false
                     if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }

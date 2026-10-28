@@ -315,7 +315,7 @@ interface ConversationRepository {
     fun stealthWarnsBeforeSending(): Boolean = false
     /** Whether this account's sends go out as Telegram scheduled messages (stealth mode). The repository enforces it on every send. */
     fun stealthSchedulesSends(): Boolean = false
-    /** Whether stealth sending holds this account's sends, on the server or, for a lead under 11 seconds, in the app. */
+    /** Whether stealth sending holds this account's sends, on the server or, for a lead under 15 seconds, in the app. */
     fun stealthHoldsSends(): Boolean = false
     fun openMessageContent(chatId: Long, messageId: Long)
     /** Opens view-once content the user explicitly agreed to open although media-open marks are hidden. */

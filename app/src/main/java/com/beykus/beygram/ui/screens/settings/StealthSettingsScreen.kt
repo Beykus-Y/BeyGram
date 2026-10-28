@@ -212,7 +212,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
 /**
  * Sending through Telegram's scheduled messages (#541): the server publishes the message after the chosen lead, so the
  * app does not have to be open then. The presets start at 15 seconds because Telegram sends anything due within 10 at once;
- * «Своё время» accepts 1 second to an hour, and a lead of 10 seconds or less is waited out by the app with a warning.
+ * «Своё время» accepts 1 second to an hour, and a lead under 15 seconds is waited out by the app with a warning.
  */
 @Composable
 private fun ScheduledSendSection(settings: StealthSettings, update: ((StealthSettings) -> StealthSettings) -> Unit) {

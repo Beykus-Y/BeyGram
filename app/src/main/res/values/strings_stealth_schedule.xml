@@ -27,5 +27,5 @@
     <string name="stealth_schedule_dialog_hint">Задержка в секундах, от 1 до 3600</string>
     <string name="stealth_schedule_dialog_label">Секунды</string>
     <string name="stealth_schedule_dialog_error">Введите целое число от 1 до 3600</string>
-    <string name="stealth_schedule_short_warning">Задержка 10 секунд и меньше слишком короткая для отложенных сообщений Telegram: приложение само ждёт это время и отправляет обычное сообщение. Telegram может показать вас в сети, а если закрыть приложение до отправки, сообщение может не уйти.</string>
+    <string name="stealth_schedule_short_warning">Задержка меньше 15 секунд слишком короткая для надёжной отправки через отложенные сообщения Telegram: приложение само ждёт это время и отправляет обычное сообщение. Telegram может показать вас в сети, а если закрыть приложение до отправки, сообщение может не уйти.</string>
 </resources>

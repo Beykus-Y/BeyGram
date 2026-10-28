@@ -25,5 +25,5 @@
     <string name="stealth_schedule_dialog_hint">Délai en secondes, de 1 à 3600</string>
     <string name="stealth_schedule_dialog_label">Secondes</string>
     <string name="stealth_schedule_dialog_error">Saisissez un nombre entier de 1 à 3600</string>
-    <string name="stealth_schedule_short_warning">Un délai de 10 secondes ou moins est trop court pour les messages programmés de Telegram : l’application attend elle-même puis envoie un message ordinaire. Telegram peut vous afficher en ligne, et si l’application est fermée avant l’envoi, le message risque de ne pas partir.</string>
+    <string name="stealth_schedule_short_warning">Un délai de moins de 15 secondes est trop court pour se fier aux messages programmés de Telegram : l’application attend elle-même puis envoie un message ordinaire. Telegram peut vous afficher en ligne, et si l’application est fermée avant l’envoi, le message risque de ne pas partir.</string>
 </resources>

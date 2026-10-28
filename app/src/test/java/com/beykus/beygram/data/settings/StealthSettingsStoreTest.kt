@@ -304,9 +304,9 @@ class StealthSettingsStoreTest {
         assertEquals(1, StealthSettingsStore(storage).current.scheduledSendDelay)
     }
 
-    @Test fun onlyLeadsAboveTenSecondsUseTheServerQueue() {
-        assertFalse(StealthSettings(serverScheduledSend = true, scheduledSendDelaySeconds = 10).schedulesOnServer)
-        assertTrue(StealthSettings(serverScheduledSend = true, scheduledSendDelaySeconds = 11).schedulesOnServer)
+    @Test fun onlyLeadsFromFifteenSecondsUseTheServerQueue() {
+        assertFalse(StealthSettings(serverScheduledSend = true, scheduledSendDelaySeconds = 14).schedulesOnServer)
+        assertTrue(StealthSettings(serverScheduledSend = true, scheduledSendDelaySeconds = 15).schedulesOnServer)
         assertTrue(StealthSettings(serverScheduledSend = true).schedulesOnServer)
         assertFalse(StealthSettings(scheduledSendDelaySeconds = 30).schedulesOnServer)
         assertTrue(StealthSettings.FailClosed.schedulesOnServer)

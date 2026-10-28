@@ -19,7 +19,7 @@ import java.io.File
  * it itself, so the app may be closed by then. Nothing falls back to an ordinary send. A chat or content that cannot be
  * scheduled, or a refused date, fails with [StealthScheduleUnavailableException] unless the user agreed to send now.
  *
- * A lead shorter than Telegram's scheduled queue accepts («Своё время» below 11 seconds) is waited out by the app, and
+ * A lead shorter than Telegram's scheduled queue accepts («Своё время» under 15 seconds) is waited out by the app, and
  * the message then goes out as an ordinary send: the settings warn that this can show the account online.
  *
  * [delaySeconds] is read on every send, so a changed switch applies to the next one.

@@ -25,5 +25,5 @@
     <string name="stealth_schedule_dialog_hint">Delay in seconds, from 1 to 3600</string>
     <string name="stealth_schedule_dialog_label">Seconds</string>
     <string name="stealth_schedule_dialog_error">Enter a whole number from 1 to 3600</string>
-    <string name="stealth_schedule_short_warning">A delay of 10 seconds or less is too short for Telegram scheduled messages: the app waits this time itself and sends an ordinary message. Telegram may show you online, and if the app is closed before sending, the message may not go out.</string>
+    <string name="stealth_schedule_short_warning">A delay under 15 seconds is too short to rely on Telegram scheduled messages: the app waits this time itself and sends an ordinary message. Telegram may show you online, and if the app is closed before sending, the message may not go out.</string>
 </resources>

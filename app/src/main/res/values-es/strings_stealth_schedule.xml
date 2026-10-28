@@ -25,5 +25,5 @@
     <string name="stealth_schedule_dialog_hint">Retraso en segundos, de 1 a 3600</string>
     <string name="stealth_schedule_dialog_label">Segundos</string>
     <string name="stealth_schedule_dialog_error">Introduce un número entero de 1 a 3600</string>
-    <string name="stealth_schedule_short_warning">Un retraso de 10 segundos o menos es demasiado corto para los mensajes programados de Telegram: la app espera ese tiempo por sí misma y envía un mensaje normal. Telegram puede mostrarte en línea y, si cierras la app antes del envío, el mensaje puede no salir.</string>
+    <string name="stealth_schedule_short_warning">Un retraso de menos de 15 segundos es demasiado corto para fiarse de los mensajes programados de Telegram: la app espera ese tiempo por sí misma y envía un mensaje normal. Telegram puede mostrarte en línea y, si cierras la app antes del envío, el mensaje puede no salir.</string>
 </resources>

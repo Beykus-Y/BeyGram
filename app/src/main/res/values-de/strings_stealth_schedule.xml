@@ -25,5 +25,5 @@
     <string name="stealth_schedule_dialog_hint">Verzögerung in Sekunden, von 1 bis 3600</string>
     <string name="stealth_schedule_dialog_label">Sekunden</string>
     <string name="stealth_schedule_dialog_error">Gib eine ganze Zahl von 1 bis 3600 ein</string>
-    <string name="stealth_schedule_short_warning">Eine Verzögerung von 10 Sekunden oder weniger ist für geplante Telegram-Nachrichten zu kurz: Die App wartet selbst und sendet eine normale Nachricht. Telegram kann dich als online anzeigen, und wenn die App vor dem Senden geschlossen wird, geht die Nachricht eventuell nicht raus.</string>
+    <string name="stealth_schedule_short_warning">Eine Verzögerung unter 15 Sekunden ist für geplante Telegram-Nachrichten zu unzuverlässig: Die App wartet selbst und sendet eine normale Nachricht. Telegram kann dich als online anzeigen, und wenn die App vor dem Senden geschlossen wird, geht die Nachricht eventuell nicht raus.</string>
 </resources>

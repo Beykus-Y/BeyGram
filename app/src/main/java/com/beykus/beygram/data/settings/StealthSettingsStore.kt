@@ -77,10 +77,11 @@ val StealthScheduleDelayChoices: List<Int> = listOf(15, 30, 60, 120)
 val StealthScheduleDelayRange: IntRange = 1..3600
 
 /**
- * The shortest lead that Telegram keeps in the scheduled queue: TDLib sends a date at or before now+10 seconds at once.
- * A shorter lead is waited out by the app, and the message then goes out as an ordinary send that can show the account online.
+ * The shortest lead sent to Telegram's scheduled queue. TDLib sends a date at or before now+10 seconds at once, and the
+ * extra 5 seconds cover a slow request, as for the presets. A shorter lead is waited out by the app, and the message then
+ * goes out as an ordinary send that can show the account online.
  */
-const val STEALTH_SERVER_SCHEDULE_MIN_SECONDS = 11
+const val STEALTH_SERVER_SCHEDULE_MIN_SECONDS = 15
 
 fun stealthDelayUsesServer(seconds: Int): Boolean = seconds >= STEALTH_SERVER_SCHEDULE_MIN_SECONDS
 
