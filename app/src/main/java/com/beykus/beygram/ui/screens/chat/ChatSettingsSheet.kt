@@ -230,7 +230,7 @@ internal fun ChatSettingsSheet(
                     ChatStealthSection(
                         chatId = chatId,
                         store = store,
-                        onSaveFailed = { error = stealthSaveFailed }
+                        onSaved = { saved -> if (!saved) error = stealthSaveFailed else if (error == stealthSaveFailed) error = null }
                     )
                 }
                 if (isSecretChat) {
@@ -264,7 +264,7 @@ private fun SettingSwitch(title: String, checked: Boolean, enabled: Boolean, onC
  * status is the same in all chats, so no choice in this section changes it.
  */
 @Composable
-private fun ChatStealthSection(chatId: Long, store: StealthSettingsStore, onSaveFailed: () -> Unit) {
+private fun ChatStealthSection(chatId: Long, store: StealthSettingsStore, onSaved: (Boolean) -> Unit) {
     val palette = beyGramPalette()
     val settings by store.state.collectAsStateWithLifecycle()
     val mode = settings.chats[chatId] ?: ChatStealthMode.Inherit
@@ -273,7 +273,7 @@ private fun ChatStealthSection(chatId: Long, store: StealthSettingsStore, onSave
         val saved = store.update { current ->
             current.copy(chats = if (next == ChatStealthMode.Inherit) current.chats - chatId else current.chats + (chatId to next))
         }
-        if (!saved) onSaveFailed()
+        onSaved(saved)
     }
 
     Column(Modifier.fillMaxWidth()) {

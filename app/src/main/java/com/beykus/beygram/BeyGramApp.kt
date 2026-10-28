@@ -352,7 +352,8 @@ private fun BeyGramAppContent(
     val repository = repositorySelection ?: unavailableAccountRepository
     val authState by repository.authState.collectAsStateWithLifecycle()
     val legacyAuthState by legacyRepository.authState.collectAsStateWithLifecycle()
-    val markReadConfirmation = remember { MarkReadConfirmationState() }
+    // Keyed by the account's repository: a question asked for one account is dropped when the user switches to another.
+    val markReadConfirmation = remember(repository) { MarkReadConfirmationState() }
     val stealthSettings by rememberStealthSettings((repository as? TdLibTelegramRepository)?.stealthSettings)
     val markChatRead: suspend (ChatPreview) -> Boolean = { chat ->
         repository.markChatRead(chat.id).onFailure { failure ->
