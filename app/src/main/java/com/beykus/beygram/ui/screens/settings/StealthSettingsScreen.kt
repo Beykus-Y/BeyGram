@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.settings.ChatStealthMode
+import com.beykus.beygram.data.settings.DelayedSendChoices
+import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.settings.StealthSettings
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -50,10 +52,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * Stealth mode for the open account: the status, the protection levels and the switches behind them, what the mode
- * cannot hide, the server-side last-seen rule, and the chat exceptions. [store] is null while the account has no store.
+ * cannot hide, the server-side last-seen rule, the chat exceptions and the delay before sending. [store] is null while the
+ * account has no store; [delayStore] is null in the same case.
  */
 @Composable
-fun StealthSettingsScreen(store: StealthSettingsStore?, onServerPrivacy: () -> Unit, onBack: () -> Unit) {
+fun StealthSettingsScreen(
+    store: StealthSettingsStore?,
+    onServerPrivacy: () -> Unit,
+    onBack: () -> Unit,
+    delayStore: DelayedSendSettingsStore? = null
+) {
     val palette = beyGramPalette()
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -66,7 +74,7 @@ fun StealthSettingsScreen(store: StealthSettingsStore?, onServerPrivacy: () -> U
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
             )
         } else {
-            StealthSettingsBody(store = store, onServerPrivacy = onServerPrivacy)
+            StealthSettingsBody(store = store, onServerPrivacy = onServerPrivacy, delayStore = delayStore)
         }
     }
 }
@@ -79,7 +87,7 @@ internal fun rememberStealthSettings(store: StealthSettingsStore?): State<Stealt
 }
 
 @Composable
-private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServerPrivacy: () -> Unit) {
+private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServerPrivacy: () -> Unit, delayStore: DelayedSendSettingsStore?) {
     val palette = beyGramPalette()
     val settings by store.state.collectAsStateWithLifecycle()
     var saveFailed by remember { mutableStateOf(false) }
@@ -185,7 +193,38 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
             }
             Text(stringResource(R.string.stealth_exceptions_detail), color = palette.textSecondary, fontSize = 13.sp)
         }
+
+        if (delayStore != null) DelayedSendSection(delayStore)
     }
+}
+
+/** The delay before a plain text message is sent. It is convenience only, and the footnote says that it hides nothing. */
+@Composable
+private fun DelayedSendSection(store: DelayedSendSettingsStore) {
+    val palette = beyGramPalette()
+    val selectedDelay by store.delaySeconds.collectAsStateWithLifecycle()
+    var saveFailed by remember { mutableStateOf(false) }
+    GroupTitle(stringResource(R.string.delayed_send_group_title))
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+        DelayedSendChoices.forEachIndexed { index, seconds ->
+            if (index > 0) SettingsRowDivider(startInset = SettingsRowInset)
+            ChoiceRow(delayChoiceLabel(seconds), selected = selectedDelay == seconds) { saveFailed = !store.update(seconds) }
+        }
+    }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(stringResource(R.string.delayed_send_footnote), color = palette.textSecondary, fontSize = 13.sp)
+        if (saveFailed) Text(stringResource(R.string.stealth_save_failed), color = palette.danger, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun delayChoiceLabel(seconds: Int): String = when (seconds) {
+    0 -> stringResource(R.string.delayed_send_off)
+    60 -> stringResource(R.string.delayed_send_minute)
+    else -> stringResource(R.string.delayed_send_seconds, seconds)
 }
 
 @Composable

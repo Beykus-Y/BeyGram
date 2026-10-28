@@ -75,6 +75,7 @@ import com.beykus.beygram.data.media.AutoDownloadSettings
 import com.beykus.beygram.data.media.AutoDownloadTdlibMapping
 import com.beykus.beygram.data.media.TrafficUsageStore
 import com.beykus.beygram.data.media.currentAutoDownloadNetwork
+import com.beykus.beygram.data.delayed.DelayedSendQueue
 import com.beykus.beygram.data.media.decideAutoDownload
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.data.settings.StealthInteractionPolicy
@@ -2915,7 +2916,11 @@ class TdLibTelegramRepository private constructor(
                 cacheMaintenance.signedOut()
                 // The chat exceptions name chats of the account that left, so they go. The switches stay: this state also
                 // comes when another device ends the session, and a re-login must not quietly lose the protection.
-                if (isLegacyAccount) stealthSettings.update { it.copy(chats = emptyMap()) }
+                if (isLegacyAccount) {
+                    stealthSettings.update { it.copy(chats = emptyMap()) }
+                    // Queued messages were typed for the account that is leaving, so they are not sent after a later sign-in.
+                    DelayedSendQueue.forAccount(appContext, accountId).clear()
+                }
             }
             is TdApi.AuthorizationStateClosed -> {
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()

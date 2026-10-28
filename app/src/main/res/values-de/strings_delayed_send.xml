@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="delayed_send_group_title">Sendeverzögerung</string>
+    <string name="delayed_send_off">Ohne Verzögerung</string>
+    <string name="delayed_send_seconds">%1$d s</string>
+    <string name="delayed_send_minute">1 Min.</string>
+    <string name="delayed_send_footnote">Die Nachricht wartet auf diesem Gerät und wird später gesendet. Sie können sie abbrechen oder sofort senden. Dadurch wird nicht verborgen, dass Sie online waren: Telegram kann Sie im Moment des Sendens als online anzeigen. Ist die App geschlossen, wird die Nachricht beim nächsten Öffnen des Chats gesendet oder wartet auf Ihre Entscheidung.</string>
+
+    <string name="delayed_send_countdown">in %1$d s</string>
+    <string name="delayed_send_waiting">Wartet auf Versand</string>
+    <string name="delayed_send_sending">Wird gesendet</string>
+    <string name="delayed_send_failed">Nicht gesendet</string>
+    <string name="delayed_send_uncertain">Unklar, ob gesendet</string>
+    <string name="delayed_send_cancel">Abbrechen</string>
+    <string name="delayed_send_now">Jetzt senden</string>
+    <string name="delayed_send_retry">Erneut senden</string>
+    <string name="delayed_send_delete">Löschen</string>
+    <string name="delayed_send_clear_composer">Leeren Sie zuerst das Eingabefeld</string>
+    <string name="delayed_send_queue_full">Zu viele verzögerte Nachrichten. Warten Sie, bis eine gesendet ist, oder brechen Sie eine ab.</string>
+    <string name="delayed_send_queue_failed">Die Nachricht konnte nicht verzögert werden. Der Text bleibt im Eingabefeld.</string>
+</resources>

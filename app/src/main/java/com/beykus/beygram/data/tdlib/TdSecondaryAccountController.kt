@@ -10,8 +10,11 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.notifications.NotificationPreferencesStore
 import com.beykus.beygram.notifications.notificationPreferencesName
 import com.beykus.beygram.data.archive.archivePreferencesName
+import com.beykus.beygram.data.delayed.DelayedSendQueue
+import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.settings.chatOverridePreferencesName
+import com.beykus.beygram.data.settings.delayedSendPreferencesName
 import com.beykus.beygram.data.settings.stealthPreferencesName
 import com.beykus.beygram.data.settings.translationPreferencesName
 import kotlinx.coroutines.delay
@@ -580,9 +583,14 @@ internal class TdSecondaryAccountController private constructor(
             translationPreferencesName(accountId),
             chatOverridePreferencesName(accountId),
             stealthPreferencesName(accountId),
+            delayedSendPreferencesName(accountId),
             "pending_group_creation_$accountId",
             "mihomo_tdlib_proxy_$accountId"
         ).forEach { prefName -> app.deleteSharedPreferences(prefName) }
+        // Creating the queue can also create the account's stealth store, so this runs before the stealth store is released below.
+        DelayedSendQueue.forAccount(app, accountId).clear()
+        DelayedSendQueue.releaseAccount(accountId)
+        DelayedSendSettingsStore.releaseAccount(accountId)
         com.beykus.beygram.data.archive.ArchiveSettingsStore.releaseAccount(accountId)
         StealthSettingsStore.releaseAccount(accountId)
         restoreStore.forget(accountId)

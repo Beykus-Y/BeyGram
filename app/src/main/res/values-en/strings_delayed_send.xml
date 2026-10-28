@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="delayed_send_group_title">Send delay</string>
+    <string name="delayed_send_off">No delay</string>
+    <string name="delayed_send_seconds">%1$d s</string>
+    <string name="delayed_send_minute">1 min</string>
+    <string name="delayed_send_footnote">The message waits on this device and is sent later. You can cancel it or send it now. This does not hide that you were online: Telegram may show you online at the moment of sending. If the app is closed, the message is sent the next time you open the chat, or it waits for your decision.</string>
+
+    <string name="delayed_send_countdown">in %1$d s</string>
+    <string name="delayed_send_waiting">Waiting to send</string>
+    <string name="delayed_send_sending">Sending</string>
+    <string name="delayed_send_failed">Not sent</string>
+    <string name="delayed_send_uncertain">Unknown whether it was sent</string>
+    <string name="delayed_send_cancel">Cancel</string>
+    <string name="delayed_send_now">Send now</string>
+    <string name="delayed_send_retry">Send again</string>
+    <string name="delayed_send_delete">Delete</string>
+    <string name="delayed_send_clear_composer">Clear the message field first</string>
+    <string name="delayed_send_queue_full">Too many delayed messages. Wait for one to be sent or cancel one.</string>
+    <string name="delayed_send_queue_failed">Couldn\'t delay the message. The text is still in the field.</string>
+</resources>
