@@ -4,7 +4,9 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ChatStories
+import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.StealthBlockedException
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.StoryDetail
 import com.beykus.beygram.domain.model.StoryArchivePage
@@ -62,7 +64,9 @@ internal class TdStories(
     private val profiles: TdProfiles,
     private val mediaFiles: MediaFileStore,
     private val accountId: String,
-    private val uploadsRoot: File
+    private val uploadsRoot: File,
+    /** Stealth mode: false means this account must not open the stories posted by [posterChatId]. */
+    private val canViewStory: (posterChatId: Long) -> Boolean
 ) {
     private val requests = TdRequests(client)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -74,6 +78,8 @@ internal class TdStories(
     private val storyCache = object : LinkedHashMap<Pair<Long, Int>, StoryDetail>(16, 0.75f, true) {}
     private val hiddenStories = mutableSetOf<Pair<Long, Int>>()
     private val readOverrides = mutableMapOf<Long, Int>()
+    /** Stories whose OpenStory was sent. Only these get a CloseStory, so a refused open leaves nothing behind. */
+    private val openedStories = mutableSetOf<Pair<Long, Int>>()
     private val requestedChats = mutableSetOf<Long>()
     private val blockedChats = mutableSetOf<Long>()
     private val unblockedChats = mutableSetOf<Long>()
@@ -127,6 +133,7 @@ internal class TdStories(
             storyCache.clear()
             hiddenStories.clear()
             readOverrides.clear()
+            openedStories.clear()
             requestedChats.clear()
             blockedChats.clear()
             unblockedChats.clear()
@@ -424,16 +431,25 @@ internal class TdStories(
         requests(TdApi.GetStory(posterChatId, storyId, false)).toDetail().also(::cacheStory)
     }
 
-    suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit> = storyRequest {
-        requests(TdApi.OpenStory(posterChatId, storyId))
-        synchronized(lock) {
-            readOverrides[posterChatId] = maxOf(readOverrides[posterChatId] ?: 0, storyId)
+    suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit> {
+        // Checked before anything is sent: a refused story gets no OpenStory, so no read mark either.
+        if (!canViewStory(posterChatId)) return Result.failure(StealthBlockedException(InteractionEffect.StoryView))
+        return storyRequest {
+            // Tracked before the request leaves, so a cancelled await still gets its CloseStory later.
+            synchronized(lock) { openedStories.add(posterChatId to storyId) }
+            requests(TdApi.OpenStory(posterChatId, storyId))
+            synchronized(lock) {
+                readOverrides[posterChatId] = maxOf(readOverrides[posterChatId] ?: 0, storyId)
+            }
+            publish()
         }
-        publish()
     }
 
     suspend fun closeStory(posterChatId: Long, storyId: Int): Result<Unit> = storyRequest {
-        requests(TdApi.CloseStory(posterChatId, storyId))
+        // Only a story whose OpenStory was sent is closed. The pair is forgotten whether or not the close succeeds.
+        val wasOpened = synchronized(lock) { openedStories.remove(posterChatId to storyId) }
+        if (wasOpened) requests(TdApi.CloseStory(posterChatId, storyId))
+        Unit
     }
 
     suspend fun availableReactions(): Result<List<ReactionOption>> = storyRequest {

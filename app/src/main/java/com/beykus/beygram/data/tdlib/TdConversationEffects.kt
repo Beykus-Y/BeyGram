@@ -11,6 +11,8 @@ import org.drinkless.tdlib.TdApi
 private const val ACTIVITY_REFRESH_NS = 4_000_000_000L
 /** Typing stops on its own this long after the last keystroke. */
 private const val TYPING_LIFETIME_NS = 5_000_000_000L
+/** The same bound as TdRequests: a TDLib that never answers must not hold a retry or a caller forever. */
+private const val VIEW_ANSWER_TIMEOUT_MS = 30_000L
 
 /** The only gateway for conversation receipts, presence and chat activity; no receipts are queued while suppressed. */
 internal class TdConversationEffects(private val client: () -> Client, private val policy: InteractionPolicy) {
@@ -27,7 +29,16 @@ internal class TdConversationEffects(private val client: () -> Client, private v
     private val uploads = mutableMapOf<Long, MutableMap<Long, ChatActivity>>()
 
     fun authorized() = synchronized(lock) { ready = true; lastOnline = null; updatePresence() }
-    fun refreshPolicy() = synchronized(lock) { viewed.clear(); updatePresence() }
+    fun refreshPolicy() = synchronized(lock) {
+        viewed.clear()
+        // A chat that no longer allows typing loses its indicator now, not when its loop wakes up next.
+        activities.keys.filterNot { policy.allows(InteractionEffect.Typing, it) }.forEach { chatId ->
+            activities.remove(chatId)?.job?.cancel()
+            sendActivity(chatId, TdApi.ChatActionCancel())
+        }
+        uploads.keys.filterNot { policy.allows(InteractionEffect.Typing, it) }.forEach { uploads.remove(it) }
+        updatePresence()
+    }
     fun setForeground(active: Boolean) = synchronized(lock) {
         foreground = active
         if (!active) viewed.clear()
@@ -54,19 +65,43 @@ internal class TdConversationEffects(private val client: () -> Client, private v
         if (batch.isEmpty()) return
         scope.launch {
             repeat(3) { attempt ->
-                if (!synchronized(lock) { canRead(chatId) }) return@launch
-                val result = conversationResult { TdRequests(client)(TdApi.ViewMessages(chatId, batch, TdApi.MessageSourceChatHistory(), false)) }
-                if (result.isSuccess) return@launch
+                // Decided under the lock right before the send, so a policy change made since the last check still wins.
+                val answer = synchronized(lock) {
+                    if (!canRead(chatId)) return@launch
+                    sendViewLocked(chatId, batch, TdApi.MessageSourceChatHistory(), forceRead = false)
+                }
+                if (conversationResult { awaitView(answer) }.isSuccess) return@launch
                 if (attempt < 2) delay(1500L * (attempt + 1))
             }
             synchronized(lock) { viewed[chatId]?.removeAll(batch.toSet()) }
         }
     }
     fun contentOpened(chatId: Long, messageId: Long) = synchronized(lock) {
-        if (ready && foreground && chatId in opened && policy.allows(InteractionEffect.OpenContent, chatId)) {
-            client().send(TdApi.OpenMessageContent(chatId, messageId), Client.ResultHandler { })
-        }
+        if (policy.allows(InteractionEffect.OpenContent, chatId)) sendOpenContentLocked(chatId, messageId)
     }
+
+    /**
+     * Only for view-once content the user explicitly chooses to open (package C). It skips the OpenContent switch
+     * and nothing else: the chat must still be open and in the foreground.
+     */
+    fun contentOpenedWithConsent(chatId: Long, messageId: Long) = synchronized(lock) { sendOpenContentLocked(chatId, messageId) }
+
+    /**
+     * Marks the chat read up to [lastMessageId]. Returns false, with nothing sent, when the policy blocks it and the
+     * user did not give [consent] for this one read. An unauthorized client throws, as TDLib errors do.
+     */
+    suspend fun markRead(chatId: Long, lastMessageId: Long, consent: Boolean): Boolean {
+        val answer = synchronized(lock) {
+            // Not signed in is a different failure from a stealth refusal, so it is not reported as a block.
+            check(ready) { "Chat cannot be marked read before authorization" }
+            if (!(consent || policy.allows(InteractionEffect.ReadHistory, chatId))) return false
+            sendViewLocked(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), forceRead = true)
+        }
+        awaitView(answer)
+        return true
+    }
+
+    fun allows(effect: InteractionEffect, chatId: Long?): Boolean = policy.allows(effect, chatId)
 
     /** Shows [activity] to the chat's other members. Calling it again for the same activity keeps it alive. */
     fun startActivity(chatId: Long, activity: ChatActivity) = synchronized(lock) { startLocked(chatId, activity) }
@@ -159,6 +194,27 @@ internal class TdConversationEffects(private val client: () -> Client, private v
 
     private fun sendActivity(chatId: Long, action: TdApi.ChatAction) {
         client().send(TdApi.SendChatAction(chatId, null, "", action), Client.ResultHandler { })
+    }
+
+    /** Caller holds [lock]. */
+    private fun sendOpenContentLocked(chatId: Long, messageId: Long) {
+        if (ready && foreground && chatId in opened) client().send(TdApi.OpenMessageContent(chatId, messageId), Client.ResultHandler { })
+    }
+
+    /**
+     * Caller holds [lock]. The request leaves here, under the same lock as its decision. The answer is awaited by
+     * [awaitView] outside the lock, because no lock may be held while a coroutine is suspended.
+     */
+    private fun sendViewLocked(chatId: Long, messageIds: LongArray, source: TdApi.MessageSource, forceRead: Boolean): CompletableDeferred<TdApi.Object> {
+        val answer = CompletableDeferred<TdApi.Object>()
+        client().send(TdApi.ViewMessages(chatId, messageIds, source, forceRead), Client.ResultHandler { answer.complete(it) })
+        return answer
+    }
+
+    /** Fails the way TdRequests fails: a TDLib error throws its TdRequestError, and a silent TDLib times out. */
+    private suspend fun awaitView(answer: CompletableDeferred<TdApi.Object>) {
+        val result = withTimeout(VIEW_ANSWER_TIMEOUT_MS) { answer.await() }
+        if (result is TdApi.Error) throw TdRequestError(result.code, result.message)
     }
 
     private class ActivityLoop(val activity: ChatActivity, var touchedAt: Long) {

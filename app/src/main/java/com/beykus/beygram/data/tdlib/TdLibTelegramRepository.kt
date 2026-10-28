@@ -77,6 +77,8 @@ import com.beykus.beygram.data.media.TrafficUsageStore
 import com.beykus.beygram.data.media.currentAutoDownloadNetwork
 import com.beykus.beygram.data.media.decideAutoDownload
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.data.settings.StealthInteractionPolicy
+import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.storage.StorageSettingsStore
 import com.beykus.beygram.domain.model.CachePolicy
@@ -138,7 +140,9 @@ import com.beykus.beygram.domain.model.PrivacySettingState
 import com.beykus.beygram.domain.model.orderedArchivedChats
 import com.beykus.beygram.domain.model.orderedMainChats
 import com.beykus.beygram.domain.model.TelegramConnectionState
+import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.domain.model.InteractionPolicy
+import com.beykus.beygram.domain.model.StealthBlockedException
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSpecialContent
@@ -212,6 +216,8 @@ import java.util.Date
 class TdLibTelegramRepository private constructor(
     context: Context,
     policy: InteractionPolicy,
+    /** The account's stealth switches, shared with the UI. [policy] reads the same instance on every decision. */
+    val stealthSettings: StealthSettingsStore,
     private val nativeSecondary: TdSecondaryNativeLogin? = null
 ) : TelegramRepository {
     val accountId: String = nativeSecondary?.accountId ?: TdAccountStorageLayout.LEGACY_ACCOUNT_ID
@@ -492,7 +498,8 @@ class TdLibTelegramRepository private constructor(
             }
         })
     }
-    private val stories = TdStories({ client }, profiles, mediaFiles, accountId, File(appContext.filesDir, "uploads"))
+    private val stories = TdStories({ client }, profiles, mediaFiles, accountId, File(appContext.filesDir, "uploads"),
+        canViewStory = { chatId -> policy.allows(InteractionEffect.StoryView, chatId) })
     private val groupAdministration = TdGroupAdministration(tdRequests, profiles)
     private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
@@ -1010,12 +1017,15 @@ class TdLibTelegramRepository private constructor(
         settings.keepUnmutedChatsArchived = !enabled
         TdRequests { client }(TdApi.SetArchiveChatListSettings(settings)); Unit
     }
-    override suspend fun markChatRead(chatId: Long): Result<Unit> = conversationResult {
+    override suspend fun markChatRead(chatId: Long, consent: Boolean): Result<Unit> = conversationResult {
         val lastMessageId = chatCache[chatId]?.lastMessageId?.takeIf { it > 0L }
         val markedAsUnread = chatCache[chatId]?.isMarkedAsUnread == true
         // An empty chat can still be marked unread; clearing that marker must not require a message to view.
         if (!canMarkChatRead(lastMessageId, markedAsUnread)) throw UserMessageException(UiText.Res(R.string.err_chat_no_messages))
-        if (lastMessageId != null) TdRequests { client }(TdApi.ViewMessages(chatId, longArrayOf(lastMessageId), TdApi.MessageSourceChatList(), true))
+        // A refused read sends nothing, and the unread marker is kept too, so the chat is left exactly as it was.
+        if (lastMessageId != null && !conversationEffects.markRead(chatId, lastMessageId, consent)) {
+            throw StealthBlockedException(InteractionEffect.ReadHistory)
+        }
         // Opening a chat also clears an explicit "unread" marker, not only the server read watermark.
         if (markedAsUnread) TdRequests { client }(markChatReadToggleRequest(chatId))
         Unit
@@ -1485,6 +1495,13 @@ class TdLibTelegramRepository private constructor(
     private val customEmojis = TdCustomEmojis(client = { client })
     private val messageEffects = TdMessageEffects(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
+    /** A changed stealth switch applies at once: running chat activity stops and the read bookkeeping is reset. */
+    private val stealthPolicyListener: () -> Unit = { conversationEffects.refreshPolicy() }
+
+    init {
+        // Registered once conversationEffects exists, so a change can never reach a half-built repository.
+        stealthSettings.addListener(stealthPolicyListener)
+    }
 
     // ---- Память и кэш --------------------------------------------------------
 
@@ -1772,6 +1789,8 @@ class TdLibTelegramRepository private constructor(
             if (secondaryDisposed) return
             secondaryDisposed = true
         }
+        // The store outlives this repository (the UI shares it), so it must not keep this repository reachable.
+        stealthSettings.removeListener(stealthPolicyListener)
         networkMonitor.stop()
         autoDownloadNetworkMonitor.stop()
         autoDownloadSettingsJob?.cancel()
@@ -2889,6 +2908,8 @@ class TdLibTelegramRepository private constructor(
                 }
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
+                // Logging out forgets the protection choices. Closing the client does not: it is re-created for this account.
+                if (isLegacyAccount) stealthSettings.clear()
             }
             is TdApi.AuthorizationStateClosed -> {
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()
@@ -3473,9 +3494,14 @@ class TdLibTelegramRepository private constructor(
         private const val CHAT_LIST_PUBLISH_DELAY_MS = 100L
         @Volatile private var instance: TdLibTelegramRepository? = null
 
-        fun getInstance(context: Context, policy: InteractionPolicy = InteractionPolicy.Standard): TdLibTelegramRepository =
+        /** The store is created before the repository, so the saved switches apply from the first authorization on. */
+        fun getInstance(
+            context: Context,
+            stealth: StealthSettingsStore = StealthSettingsStore.forAccount(context.applicationContext, TdAccountStorageLayout.LEGACY_ACCOUNT_ID),
+            policy: InteractionPolicy = StealthInteractionPolicy(stealth)
+        ): TdLibTelegramRepository =
             instance ?: synchronized(this) {
-                instance ?: TdLibTelegramRepository(context.applicationContext, policy).also {
+                instance ?: TdLibTelegramRepository(context.applicationContext, policy, stealth).also {
                     instance = it
                     MultiAccountDiagnostics.milestone(
                         code = "legacy_repository",
@@ -3493,11 +3519,12 @@ class TdLibTelegramRepository private constructor(
         internal fun forExistingSecondary(
             context: Context,
             native: TdSecondaryNativeLogin,
-            policy: InteractionPolicy = InteractionPolicy.Standard
+            stealth: StealthSettingsStore = StealthSettingsStore.forAccount(context.applicationContext, native.accountId),
+            policy: InteractionPolicy = StealthInteractionPolicy(stealth)
         ): TdLibTelegramRepository {
             require(native.accountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
             check(native.authPhase.value == TdAccountAuthPhase.READY && !native.routePaused.value)
-            return TdLibTelegramRepository(context.applicationContext, policy, native)
+            return TdLibTelegramRepository(context.applicationContext, policy, stealth, native)
         }
     }
 }

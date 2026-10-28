@@ -10,7 +10,9 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.notifications.NotificationPreferencesStore
 import com.beykus.beygram.notifications.notificationPreferencesName
 import com.beykus.beygram.data.archive.archivePreferencesName
+import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.settings.chatOverridePreferencesName
+import com.beykus.beygram.data.settings.stealthPreferencesName
 import com.beykus.beygram.data.settings.translationPreferencesName
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
@@ -577,10 +579,12 @@ internal class TdSecondaryAccountController private constructor(
             notificationPreferencesName(accountId),
             translationPreferencesName(accountId),
             chatOverridePreferencesName(accountId),
+            stealthPreferencesName(accountId),
             "pending_group_creation_$accountId",
             "mihomo_tdlib_proxy_$accountId"
         ).forEach { prefName -> app.deleteSharedPreferences(prefName) }
         com.beykus.beygram.data.archive.ArchiveSettingsStore.releaseAccount(accountId)
+        StealthSettingsStore.releaseAccount(accountId)
         restoreStore.forget(accountId)
         restoreStore.clearDeletionPending(accountId)
     }
