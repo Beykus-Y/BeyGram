@@ -14,6 +14,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -38,6 +39,7 @@ import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -97,11 +99,15 @@ internal class DelayedSendController(
         if (storing) return true
         storing = true
         scope.launch {
-            val result = store.enqueue(chatId, topicId, replyTo ?: 0L, text, entities, options.disableNotification, delaySeconds)
-            storing = false
-            result.onSuccess { onQueued() }.onFailure { error ->
-                val message = if (error is DelayedSendQueueFullException) R.string.delayed_send_queue_full else R.string.delayed_send_queue_failed
-                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            // Not cancellable: once the message is stored it will be sent, so leaving the chat in between must still
+            // clear the draft. Otherwise the old text comes back and is easily sent twice.
+            withContext(NonCancellable) {
+                val result = store.enqueue(chatId, topicId, replyTo ?: 0L, text, entities, options.disableNotification, delaySeconds)
+                storing = false
+                result.onSuccess { onQueued() }.onFailure { error ->
+                    val message = if (error is DelayedSendQueueFullException) R.string.delayed_send_queue_full else R.string.delayed_send_queue_failed
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
             }
         }
         return true
@@ -201,9 +207,12 @@ private fun DelayedSendRow(entry: DelayedSendEntry, onCancel: () -> Unit, onDisc
 internal fun rememberDelayedSend(chatId: Long, forumTopicId: Long, conversation: ConversationRepository): DelayedSendController {
     val context = LocalContext.current
     val accountId = (conversation as? TdLibTelegramRepository)?.accountId
-    val queue = remember(accountId) { accountId?.let { DelayedSendQueue.forAccount(context, it) } }
-    val delayFlow = remember(accountId) {
-        accountId?.let { DelayedSendSettingsStore.forAccount(context, it).delaySeconds } ?: NoDelayedSendSeconds
+    // The first use of an account reads its stored queue and settings from disk, so it happens off the main thread.
+    val queue by produceState<DelayedSendQueue?>(null, accountId) {
+        value = accountId?.let { withContext(Dispatchers.IO) { DelayedSendQueue.forAccount(context, it) } }
+    }
+    val delayFlow by produceState(NoDelayedSendSeconds, accountId) {
+        value = accountId?.let { withContext(Dispatchers.IO) { DelayedSendSettingsStore.forAccount(context, it).delaySeconds } } ?: NoDelayedSendSeconds
     }
     DisposableEffect(queue, conversation) {
         queue?.attach(conversation)

@@ -197,8 +197,14 @@ internal class DelayedSendQueue private constructor(context: Context, private va
     private fun nextDue(): List<DelayedSendEntry> = synchronized(lock) {
         val blocked: Set<String> = if (stealth.current.hideOnline) heldAtLoad else emptySet()
         val now = System.currentTimeMillis()
+        // A chat keeps its order: while an older message of it failed, is uncertain or is held, the newer ones wait too.
+        val stuckSince = HashMap<Long, Long>()
+        _entries.value.filter { it.status != DelayedSendStatus.Queued || it.id in blocked }.forEach { stuck ->
+            stuckSince[stuck.chatId] = minOf(stuckSince[stuck.chatId] ?: Long.MAX_VALUE, stuck.createdAtMillis)
+        }
         _entries.value
             .filter { it.status == DelayedSendStatus.Queued && it.id !in blocked && (it.id in dueIds || it.notBeforeMillis <= now) }
+            .filter { it.createdAtMillis < (stuckSince[it.chatId] ?: Long.MAX_VALUE) }
             .sortedBy { it.createdAtMillis }
     }
 
