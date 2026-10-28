@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_title">Режим невидимки</string>
+    <string name="stealth_status_on">Включён</string>
+    <string name="stealth_status_off">Выключен</string>
+    <string name="stealth_unavailable">Сейчас недоступно для этого аккаунта</string>
+    <string name="stealth_fail_closed">Сохранённые настройки не удалось прочитать. Все сигналы заблокированы, пока вы не сохраните настройки заново. Любое изменение сохраняет их.</string>
+    <string name="stealth_save_failed">Не удалось сохранить настройку</string>
+
+    <string name="stealth_group_presets">Уровень защиты</string>
+    <string name="stealth_preset_normal">Обычный</string>
+    <string name="stealth_preset_hidden_reading">Скрытое чтение</string>
+    <string name="stealth_preset_maximum">Максимальная защита</string>
+    <string name="stealth_preset_custom">Свои настройки</string>
+
+    <string name="stealth_group_switches">Что скрывать</string>
+    <string name="stealth_hide_typing_title">Не показывать, что я печатаю</string>
+    <string name="stealth_hide_typing_detail">Также скрывает запись голосовых и видео и отправку файлов.</string>
+    <string name="stealth_no_read_receipts_title">Не отмечать сообщения прочитанными</string>
+    <string name="stealth_no_read_receipts_detail">Чаты остаются непрочитанными для собеседника. Открытие и прокрутка чата не отправляют отметку. Кнопка «%1$s» сначала спрашивает.</string>
+    <string name="stealth_no_content_open_title">Не сообщать об открытии медиа</string>
+    <string name="stealth_no_content_open_detail">Голосовые и видео не отмечаются прослушанными и просмотренными. Одноразовые медиа спрашивают перед открытием.</string>
+    <string name="stealth_no_story_views_title">Не просматривать истории заметно</string>
+    <string name="stealth_no_story_views_detail">Истории открываются без добавления в список просмотревших и остаются непросмотренными.</string>
+    <string name="stealth_hide_online_title">Скрывать статус «в сети»</string>
+    <string name="stealth_hide_online_detail">Приложение не сообщает, что вы в сети. Telegram всё равно показывает вас в сети около 30 секунд, когда вы отправляете сообщение, читаете личное сообщение или печатаете.</string>
+    <string name="stealth_warn_risky_title">Предупреждать перед действиями, которые могут показать активность</string>
+    <string name="stealth_warn_risky_detail">Касается отправки сообщений и реакций.</string>
+
+    <string name="stealth_limits_title">Ограничения</string>
+    <string name="stealth_limits_scope">Работает только в этом приложении и только для этого аккаунта. Другие устройства и приложения, где вы вошли, не меняются.</string>
+    <string name="stealth_limits_actions">Отправка сообщения, реакция, голосование, ответ на историю или использование бота видны собеседникам.</string>
+    <string name="stealth_limits_online">Даже при скрытом времени захода Telegram может показать вас в сети около 30 секунд после таких действий.</string>
+
+    <string name="stealth_server_last_seen_title">Кто видит время захода</string>
+    <string name="stealth_server_last_seen_detail">Это правило Telegram для всех ваших устройств.</string>
+
+    <string name="stealth_exceptions_count">Исключения для чатов: %1$d</string>
+    <string name="stealth_exceptions_detail">Настраиваются в настройках чата</string>
+
+    <string name="stealth_chat_title">Невидимка в этом чате</string>
+    <string name="stealth_chat_inherit">Как в общих настройках</string>
+    <string name="stealth_chat_allow">Разрешить в этом чате</string>
+    <string name="stealth_chat_block">Всегда скрывать в этом чате</string>
+    <string name="stealth_chat_footnote">Статус «в сети» общий для всех чатов и здесь не меняется.</string>
+
+    <string name="stealth_mark_read_title">Отметить прочитанным?</string>
+    <string name="stealth_mark_read_text">Собеседники увидят, что сообщения прочитаны. Режим невидимки для этого действия не сработает.</string>
+    <string name="stealth_mark_read_confirm">Отметить</string>
+    <plurals name="stealth_mark_all_read_text">
+        <item quantity="one">Собеседники в %1$d чате увидят, что сообщения прочитаны.</item>
+        <item quantity="few">Собеседники в %1$d чатах увидят, что сообщения прочитаны.</item>
+        <item quantity="many">Собеседники в %1$d чатах увидят, что сообщения прочитаны.</item>
+        <item quantity="other">Собеседники в %1$d чатах увидят, что сообщения прочитаны.</item>
+    </plurals>
+</resources>

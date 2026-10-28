@@ -73,6 +73,8 @@ import com.beykus.beygram.navigation.TabVisibility
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.canOpenGroupStatistics
 import com.beykus.beygram.domain.model.PublicChatOpenResult
+import com.beykus.beygram.domain.model.InteractionEffect
+import com.beykus.beygram.domain.model.StealthBlockedException
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.MusicSessionStore
 import com.beykus.beygram.playback.restoreMusicSession
@@ -117,6 +119,9 @@ import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
 import com.beykus.beygram.ui.screens.chats.NewChatScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchSession
+import com.beykus.beygram.ui.screens.chats.MarkReadConfirmationDialog
+import com.beykus.beygram.ui.screens.chats.MarkReadConfirmationState
+import com.beykus.beygram.ui.screens.chats.MarkReadRequest
 import com.beykus.beygram.ui.screens.stories.StoryPublisherScreen
 import com.beykus.beygram.ui.screens.stories.StoryViewerScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
@@ -127,6 +132,8 @@ import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.PrivacySettingsScreen
+import com.beykus.beygram.ui.screens.settings.StealthSettingsScreen
+import com.beykus.beygram.ui.screens.settings.rememberStealthSettings
 import com.beykus.beygram.ui.screens.settings.AccountSecurityScreen
 import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
@@ -345,7 +352,15 @@ private fun BeyGramAppContent(
     val repository = repositorySelection ?: unavailableAccountRepository
     val authState by repository.authState.collectAsStateWithLifecycle()
     val legacyAuthState by legacyRepository.authState.collectAsStateWithLifecycle()
-    val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
+    // Keyed by the account's repository: a question asked for one account is dropped when the user switches to another.
+    val markReadConfirmation = remember(repository) { MarkReadConfirmationState() }
+    val stealthSettings by rememberStealthSettings((repository as? TdLibTelegramRepository)?.stealthSettings)
+    val markChatRead: suspend (ChatPreview) -> Boolean = { chat ->
+        repository.markChatRead(chat.id).onFailure { failure ->
+            // A stealth refusal waits for the answer in the dialog. The swipe action ignores this result, so nothing shows.
+            if (failure is StealthBlockedException) markReadConfirmation.ask(MarkReadRequest.Chat(chat))
+        }.isSuccess
+    }
     val markAllReadScope = rememberCoroutineScope()
     val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
     val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
@@ -1601,7 +1616,15 @@ private fun BeyGramAppContent(
             onAccountPicker = { accountSwitcherVisible = true },
             onArchiveClick = { routeName = AppRoute.Archive.name },
             onMarkRead = markChatRead,
-            onMarkAllRead = { chats -> markAllReadScope.launch { chats.forEach { markChatRead(it) } } },
+            onMarkAllRead = { chats ->
+                // Stealth mode may refuse some of these reads: ask once for the whole list. Cancelling runs nothing.
+                val refused = chats.count { !stealthSettings.allows(InteractionEffect.ReadHistory, it.id) }
+                if (refused > 0) {
+                    markReadConfirmation.ask(MarkReadRequest.All(chats, refused))
+                } else {
+                    markAllReadScope.launch { chats.forEach { repository.markChatRead(it.id) } }
+                }
+            },
             onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
             onArchive = archiveChat,
             onPinChat = repository::setChatPinned,
@@ -2716,8 +2739,17 @@ private fun BeyGramAppContent(
                         loadPrivacy = repository::loadPrivacySettings,
                         savePrivacy = repository::setPrivacySetting,
                         loadContacts = repository::loadContacts,
+                        stealthActive = stealthSettings.protectionActive,
+                        onStealth = { routeName = AppRoute.StealthSettings.name },
                         onBlockedSenders = { routeName = AppRoute.BlockedSenders.name },
                         onBack = { routeName = AppRoute.Settings.name }
+                    )
+                }
+                AppRoute.StealthSettings -> key(selectedAccountId) {
+                    StealthSettingsScreen(
+                        store = (repository as? TdLibTelegramRepository)?.stealthSettings,
+                        onServerPrivacy = { routeName = AppRoute.PrivacySettings.name },
+                        onBack = { routeName = AppRoute.PrivacySettings.name }
                     )
                 }
                 AppRoute.BlockedSenders -> key(selectedAccountId) {
@@ -2938,6 +2970,14 @@ private fun BeyGramAppContent(
     if (!locked) noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
         text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
     if (!locked) ProxyRestoreDialog(vpnBackend = vpnBackend)
+    if (!locked) MarkReadConfirmationDialog(markReadConfirmation) { request ->
+        markAllReadScope.launch {
+            when (request) {
+                is MarkReadRequest.Chat -> repository.markChatRead(request.chat.id, consent = true)
+                is MarkReadRequest.All -> request.chats.forEach { repository.markChatRead(it.id, consent = true) }
+            }
+        }
+    }
 }
 
 private data class DeepLinkInvitePrompt(

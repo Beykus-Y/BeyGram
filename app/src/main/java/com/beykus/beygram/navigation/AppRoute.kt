@@ -30,6 +30,7 @@ enum class AppRoute {
     NavigationSettings,
     LastSeenSettings,
     PrivacySettings,
+    StealthSettings,
     BlockedSenders,
     Updates,
     VideoMessageSettings,

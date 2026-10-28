@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_title">Stealth mode</string>
+    <string name="stealth_status_on">On</string>
+    <string name="stealth_status_off">Off</string>
+    <string name="stealth_unavailable">Not available for this account right now</string>
+    <string name="stealth_fail_closed">The saved settings could not be read. Until you save the settings again, all signals are blocked. Any change saves them.</string>
+    <string name="stealth_save_failed">Couldn\'t save the setting</string>
+
+    <string name="stealth_group_presets">Protection level</string>
+    <string name="stealth_preset_normal">Normal</string>
+    <string name="stealth_preset_hidden_reading">Hidden reading</string>
+    <string name="stealth_preset_maximum">Maximum protection</string>
+    <string name="stealth_preset_custom">Custom settings</string>
+
+    <string name="stealth_group_switches">What to hide</string>
+    <string name="stealth_hide_typing_title">Do not show that I am typing</string>
+    <string name="stealth_hide_typing_detail">Also hides recording voice and video messages and uploading files.</string>
+    <string name="stealth_no_read_receipts_title">Do not mark messages as read</string>
+    <string name="stealth_no_read_receipts_detail">Chats stay unread for the other person. Opening and scrolling a chat do not send a read mark. The “%1$s” button asks first.</string>
+    <string name="stealth_no_content_open_title">Do not report opening media</string>
+    <string name="stealth_no_content_open_detail">Voice and video messages are not marked as listened or viewed. One-time media asks before it opens.</string>
+    <string name="stealth_no_story_views_title">View stories unnoticed</string>
+    <string name="stealth_no_story_views_detail">Stories open without adding you to the viewers list and stay unread.</string>
+    <string name="stealth_hide_online_title">Hide the online status</string>
+    <string name="stealth_hide_online_detail">The app does not report that you are online. Telegram still shows you online for about 30 seconds when you send a message, read a private message or type.</string>
+    <string name="stealth_warn_risky_title">Warn before actions that can show activity</string>
+    <string name="stealth_warn_risky_detail">Applies to sending messages and reactions.</string>
+
+    <string name="stealth_limits_title">Limits</string>
+    <string name="stealth_limits_scope">Works only in this app and only for this account. Other devices and apps where you are signed in are not affected.</string>
+    <string name="stealth_limits_actions">Sending a message, a reaction, a vote, a reply to a story or using a bot is visible to others.</string>
+    <string name="stealth_limits_online">Even with last seen hidden, Telegram may show you online for about 30 seconds after such actions.</string>
+
+    <string name="stealth_server_last_seen_title">Who can see when you were last seen</string>
+    <string name="stealth_server_last_seen_detail">This is a Telegram rule for all your devices.</string>
+
+    <string name="stealth_exceptions_count">Chat exceptions: %1$d</string>
+    <string name="stealth_exceptions_detail">Set in the settings of each chat</string>
+
+    <string name="stealth_chat_title">Stealth mode in this chat</string>
+    <string name="stealth_chat_inherit">As in the general settings</string>
+    <string name="stealth_chat_allow">Allow in this chat</string>
+    <string name="stealth_chat_block">Always hide in this chat</string>
+    <string name="stealth_chat_footnote">The online status is the same in all chats and is not changed here.</string>
+
+    <string name="stealth_mark_read_title">Mark as read?</string>
+    <string name="stealth_mark_read_text">The other person will see that the messages are read. Stealth mode does not apply to this action.</string>
+    <string name="stealth_mark_read_confirm">Mark</string>
+    <plurals name="stealth_mark_all_read_text">
+        <item quantity="one">The people you talk to in %1$d chat will see that the messages are read.</item>
+        <item quantity="other">The people you talk to in %1$d chats will see that the messages are read.</item>
+    </plurals>
+</resources>
