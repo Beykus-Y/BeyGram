@@ -1455,8 +1455,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?> = botFeatures.commandMenu(chatId)
     override suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults?> =
         botFeatures.inlineQuery(chatId, username, query, offset)
-    override suspend fun musicBotSearch(query: String, offset: String): Result<InlineBotResults?> =
-        botFeatures.musicBotSearch(query, offset)
+    override suspend fun musicBotSearch(query: String, offset: String, contextChatId: Long): Result<InlineBotResults?> =
+        botFeatures.musicBotSearch(query, offset, contextChatId)
     override suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> =
         botFeatures.musicBotTrack(queryId, resultId, musicBotCacheDir)
     override suspend fun sendInlineBotResult(
@@ -2908,8 +2908,9 @@ class TdLibTelegramRepository private constructor(
                 }
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
-                // Logging out forgets the protection choices. Closing the client does not: it is re-created for this account.
-                if (isLegacyAccount) stealthSettings.clear()
+                // The chat exceptions name chats of the account that left, so they go. The switches stay: this state also
+                // comes when another device ends the session, and a re-login must not quietly lose the protection.
+                if (isLegacyAccount) stealthSettings.update { it.copy(chats = emptyMap()) }
             }
             is TdApi.AuthorizationStateClosed -> {
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()

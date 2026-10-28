@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="composer_type_music">Música</string>
+    <string name="composer_extra_music">Pista: %1$s</string>
+    <string name="music_attach_title">Enviar música</string>
+    <string name="music_attach_intro">Busca una canción y toca la flecha junto a ella. La pista aparece sobre el campo de mensaje y se envía al tocar Enviar. Toca un título para escucharlo antes.</string>
+    <string name="music_attach_pick">Elegir «%1$s» para enviar</string>
+</resources>

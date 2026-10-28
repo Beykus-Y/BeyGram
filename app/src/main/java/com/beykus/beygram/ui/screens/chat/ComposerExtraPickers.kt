@@ -2,6 +2,8 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -9,24 +11,40 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageExtraDraft
+import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.security.AppLockManager
+import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.playback.MusicSearchScreen
 import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Poll, location, contact and dice choices of the attachment menu. Kept out of [ChatScreen] so its
+ * Poll, location, contact, dice and music choices of the attachment menu. Kept out of [ChatScreen] so its
  * composable body stays under the JVM method size limit; each choice ends in [AttachmentState.prepareExtra].
  */
 @Composable
-internal fun ComposerExtraPickers(chatId: Long, pollsAllowed: Boolean, conversation: ConversationRepository, attachments: AttachmentState) {
+internal fun ComposerExtraPickers(
+    chatId: Long,
+    pollsAllowed: Boolean,
+    conversation: ConversationRepository,
+    attachments: AttachmentState,
+    music: ComposerMusicSource? = null
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     attachments.allowsPolls = pollsAllowed
+    attachments.allowsMusic = music != null
+    var musicPickerOpen by remember(chatId) { mutableStateOf(false) }
     var pollComposerOpen by remember(chatId) { mutableStateOf(false) }
     var contactPickerOpen by remember(chatId) { mutableStateOf(false) }
     var dicePickerOpen by remember(chatId) { mutableStateOf(false) }
@@ -75,6 +93,7 @@ internal fun ComposerExtraPickers(chatId: Long, pollsAllowed: Boolean, conversat
     attachments.pickLocation = { requestLocation() }
     attachments.pickContact = { contactPickerOpen = true }
     attachments.pickDice = { dicePickerOpen = true }
+    attachments.pickMusic = { musicPickerOpen = true }
 
     if (pollComposerOpen) PollComposerDialog(
         onDismiss = { pollComposerOpen = false },
@@ -94,6 +113,13 @@ internal fun ComposerExtraPickers(chatId: Long, pollsAllowed: Boolean, conversat
             attachments.prepareExtra(MessageExtraDraft.Contact(contact.userId, contact.title))
         }
     )
+    if (musicPickerOpen && music != null) MusicPickerDialog(chatId, conversation, music,
+        onDismiss = { musicPickerOpen = false },
+        onPick = { draft ->
+            musicPickerOpen = false
+            attachments.prepareExtra(draft)
+        }
+    )
     if (dicePickerOpen) DicePickerDialog(
         onDismiss = { dicePickerOpen = false },
         onPick = { emoji ->
@@ -101,4 +127,51 @@ internal fun ComposerExtraPickers(chatId: Long, pollsAllowed: Boolean, conversat
             attachments.prepareExtra(MessageExtraDraft.Dice(emoji))
         }
     )
+}
+
+/** What the music picker needs from the chat: the account and its file access. Null where music cannot be sent. */
+internal class ComposerMusicSource(
+    val accountId: String,
+    val observeFile: (Int) -> StateFlow<MediaFileState>,
+    val downloadFile: (Int) -> Unit
+)
+
+/** The shared music search, full screen over the chat; a picked track goes to the composer panel, not straight to the chat. */
+@Composable
+private fun MusicPickerDialog(
+    chatId: Long,
+    conversation: ConversationRepository,
+    music: ComposerMusicSource,
+    onDismiss: () -> Unit,
+    onPick: (MessageExtraDraft) -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Surface(Modifier.fillMaxSize(), color = beyGramPalette().screen) {
+            MusicSearchScreen(
+                accountId = music.accountId,
+                conversation = conversation,
+                observeFile = music.observeFile,
+                downloadFile = music.downloadFile,
+                onBack = onDismiss,
+                pickChatId = chatId,
+                onPick = onPick
+            )
+        }
+    }
+}
+
+/** Sends a track picked in the music search with the composer's reply, topic and delivery options. */
+internal suspend fun ConversationRepository.sendMusicDraft(
+    chatId: Long,
+    draft: MessageExtraDraft,
+    replyId: Long?,
+    forumTopicId: Long,
+    options: MessageSendOptions
+): Result<Unit> = when (draft) {
+    is MessageExtraDraft.MusicFile -> sendMedia(chatId, draft.media, "", replyId, forumTopicId = forumTopicId, options = options)
+    is MessageExtraDraft.MusicBotResult -> sendInlineBotResult(chatId, draft.queryId, draft.resultId, replyId, forumTopicId, options)
+    else -> Result.failure(IllegalArgumentException("Not a music draft"))
 }

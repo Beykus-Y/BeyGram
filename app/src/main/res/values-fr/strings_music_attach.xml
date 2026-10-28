@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="composer_type_music">Musique</string>
+    <string name="composer_extra_music">Piste : %1$s</string>
+    <string name="music_attach_title">Envoyer de la musique</string>
+    <string name="music_attach_intro">Cherchez un morceau et touchez la flèche à côté. La piste apparaît au-dessus du champ de saisie et part quand vous touchez Envoyer. Touchez un titre pour l’écouter avant.</string>
+    <string name="music_attach_pick">Choisir « %1$s » pour l’envoyer</string>
+</resources>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="composer_type_music">Musik</string>
+    <string name="composer_extra_music">Titel: %1$s</string>
+    <string name="music_attach_title">Musik senden</string>
+    <string name="music_attach_intro">Suche einen Song und tippe auf den Pfeil daneben. Der Titel erscheint über dem Eingabefeld und wird mit „Senden“ verschickt. Tippe auf einen Titel, um ihn vorher anzuhören.</string>
+    <string name="music_attach_pick">„%1$s“ zum Senden auswählen</string>
+</resources>

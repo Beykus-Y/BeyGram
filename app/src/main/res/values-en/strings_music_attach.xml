@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="composer_type_music">Music</string>
+    <string name="composer_extra_music">Track: %1$s</string>
+    <string name="music_attach_title">Send music</string>
+    <string name="music_attach_intro">Find a song and tap the arrow next to it. The track appears above the message field and is sent when you tap Send. Tap a title to play it first.</string>
+    <string name="music_attach_pick">Choose “%1$s” to send</string>
+</resources>
