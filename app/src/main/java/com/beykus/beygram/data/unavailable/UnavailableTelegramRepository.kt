@@ -150,7 +150,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun closeStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
     override suspend fun storyReactions(): Result<List<ReactionOption>> = Result.success(emptyList())
     override suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?): Result<Unit> = unavailable()
-    override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit> = unavailable()
+    override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String, sendNowConsent: Boolean): Result<Unit> = unavailable()
     override suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
     override suspend fun storyArchive(fromStoryId: Int): Result<StoryArchivePage> = Result.success(StoryArchivePage())
     override suspend fun storyPostPermission(chatId: Long): Result<StoryPostPermission> = unavailable()
@@ -434,7 +434,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun linkedDiscussionChatId(chatId: Long): Result<Long> = unavailable()
     override suspend fun loadMessageThread(chatId: Long, messageId: Long): Result<MessageThread> = unavailable()
     override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long): Result<MessageThreadPage> = unavailable()
-    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?): Result<ChatMessage> = unavailable()
+    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?, sendNowConsent: Boolean): Result<ChatMessage?> = unavailable()
     override fun openChat(chatId: Long) {}
     override fun closeChat(chatId: Long) {}
     override fun loadOlderMessages(chatId: Long) {}

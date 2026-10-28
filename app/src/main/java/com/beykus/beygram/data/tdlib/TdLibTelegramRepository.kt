@@ -500,7 +500,8 @@ class TdLibTelegramRepository private constructor(
         })
     }
     private val stories = TdStories({ client }, profiles, mediaFiles, accountId, File(appContext.filesDir, "uploads"),
-        canViewStory = { chatId -> policy.allows(InteractionEffect.StoryView, chatId) })
+        canViewStory = { chatId -> policy.allows(InteractionEffect.StoryView, chatId) },
+        stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
     private val groupAdministration = TdGroupAdministration(tdRequests, profiles)
     private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
@@ -635,8 +636,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun storyReactions() = stories.availableReactions()
     override suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?) =
         stories.setReaction(posterChatId, storyId, reaction)
-    override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String) =
-        stories.replyToStory(posterChatId, storyId, text)
+    override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String, sendNowConsent: Boolean) =
+        stories.replyToStory(posterChatId, storyId, text, sendNowConsent)
     override suspend fun deleteStory(posterChatId: Long, storyId: Int) = stories.deleteStory(posterChatId, storyId)
     override suspend fun storyArchive(fromStoryId: Int) = stories.archive(fromStoryId)
     override suspend fun storyPostPermission(chatId: Long) = stories.postPermission(chatId)
@@ -1448,7 +1449,7 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
-    private val botFeatures = TdBotFeatures { client }
+    private val botFeatures = TdBotFeatures({ client }, stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
     private val musicBotCacheDir = File(context.cacheDir, MusicBotCache.DIR_NAME)
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
@@ -1491,7 +1492,8 @@ class TdLibTelegramRepository private constructor(
     }
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
-        onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) })
+        onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) },
+        stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
     private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
     private val messageEffects = TdMessageEffects(client = { client })
@@ -1604,8 +1606,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
     override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long) =
         conversationActions.threadComments(discussionChatId, threadId, fromMessageId)
-    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?) =
-        conversationActions.sendThreadReply(discussionChatId, threadId, text, entities, replyToMessageId)
+    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?, sendNowConsent: Boolean) =
+        conversationActions.sendThreadReply(discussionChatId, threadId, text, entities, replyToMessageId, sendNowConsent)
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
         conversationActions.search(chatId, query, fromMessageId, filter = filter)
     override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter) =
@@ -2283,6 +2285,7 @@ class TdLibTelegramRepository private constructor(
     }
     override fun interactionAllowed(effect: InteractionEffect, chatId: Long?): Boolean = conversationEffects.allows(effect, chatId)
     override fun stealthWarnsBeforeSending(): Boolean = stealthSettings.current.let { it.hideOnline && it.warnRiskyActions }
+    override fun stealthSchedulesSends(): Boolean = stealthSettings.current.scheduledSendDelay != null
 
     override fun cancelFileDownload(fileId: Int) {
         client.send(TdApi.CancelDownloadFile(fileId, false), errorHandler())

@@ -462,17 +462,20 @@ fun ChatScreen(
     val attachments = rememberAttachmentState(
         chatId = chat.id,
         sendMedia = { media, caption, options ->
+            val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
             else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
-            if (result.isSuccess) clearReply()
+            if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
         },
         sendSticker = { sticker, options ->
+            val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = conversation.sendSticker(chat.id, sticker, replyId, forumTopicId = forumTopicId, options = options)
-            if (result.isSuccess) clearReply()
+            if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
         },
         sendExtra = { draft, options ->
+            val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = when (draft) {
                 is MessageExtraDraft.Poll -> conversation.sendPoll(chat.id, draft.poll, replyId, forumTopicId = forumTopicId, options = options)
                 is MessageExtraDraft.Location -> conversation.sendLocation(chat.id, draft.point, false, replyId, forumTopicId = forumTopicId, options = options)
@@ -480,7 +483,7 @@ fun ChatScreen(
                 is MessageExtraDraft.Dice -> conversation.sendDice(chat.id, draft.emoji, replyId, forumTopicId = forumTopicId, options = options)
                 is MessageExtraDraft.MusicFile, is MessageExtraDraft.MusicBotResult -> conversation.sendMusicDraft(chat.id, draft, replyId, forumTopicId, options)
             }
-            if (result.isSuccess) clearReply()
+            if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
         }
     )
@@ -1374,10 +1377,14 @@ fun ChatScreen(
         }
         val outgoingAnimation = messageAnimations.direction(outgoing = true)
         val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
+        // Stealth mode hands the message to Telegram's scheduled queue (#541); the local delay is a separate convenience
+        // and is skipped then, so the server-side schedule is the only thing that holds the message.
+        val stealthScheduled = stealthWillSchedule(conversation, effectiveOptions)
         // A delayed text is stored first and only then cleared from the composer. A bot's forced reply is always sent directly.
-        if (botKeyboard?.forceReply != true && delayed.tryEnqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { MessageDraft() } })) return
+        if (!stealthScheduled && !effectiveOptions.sendNowConsent && botKeyboard?.forceReply != true &&
+            delayed.tryEnqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { MessageDraft() } })) return
         // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
-        val launch = if (effectiveOptions.scheduledAtSeconds == null && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
+        val launch = if (effectiveOptions.scheduledAtSeconds == null && !stealthScheduled && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
             composerFieldBounds?.let { source ->
                 composerLaunchCounter += 1
                 ComposerLaunch(
@@ -1408,8 +1415,12 @@ fun ChatScreen(
                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
                     if (effectiveOptions.scheduledAtSeconds != null) {
                         Toast.makeText(context, context.getString(R.string.chat_schedule_success), Toast.LENGTH_SHORT).show()
+                    } else if (stealthScheduled) {
+                        showStealthScheduledNotice(context)
                     }
-                } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
+                } else if (!attachments.stealthFallback.offer(result.exceptionOrNull()) { sendCurrentDraft(effectiveOptions.copy(sendNowConsent = true)) }) {
+                    error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
+                }
             } finally {
                 launch?.awaitingSend = false
                 if (!delivered) {
@@ -2228,6 +2239,7 @@ fun ChatScreen(
         dismissButton = { TextButton(onClick = { pinConfirm = false }) { Text(stringResource(R.string.common_cancel)) } }
     )
     sendGuard.Dialog()
+    attachments.stealthFallback.Dialog()
     if (sendOptionsOpen) SendOptionsDialog(
         canSchedule = !chat.isSecret,
         onDismiss = { sendOptionsOpen = false; pendingSticker = null },

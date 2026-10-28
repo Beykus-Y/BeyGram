@@ -6,7 +6,8 @@ import java.io.File
 
 /**
  * Static guard for the stealth gate. Read receipts, typing, presence, opened content and story views reach TDLib
- * only through their gate file. A new route must go through the gate, or be added here on purpose.
+ * only through their gate file, and message sends only through files that apply stealth scheduling. A new route must go
+ * through the gate, or be added here on purpose.
  */
 class StealthBoundaryTest {
     private val gatedRequests = mapOf(
@@ -15,7 +16,13 @@ class StealthBoundaryTest {
         "TdApi.SendChatAction(" to setOf("TdConversationEffects.kt"),
         "SetOption(\"online\"" to setOf("TdConversationEffects.kt"),
         "TdApi.OpenStory(" to setOf("TdStories.kt"),
-        "TdApi.CloseStory(" to setOf("TdStories.kt")
+        "TdApi.CloseStory(" to setOf("TdStories.kt"),
+        // Sends: each file resolves its options through TdStealthScheduler, so stealth mode schedules them on the server.
+        // TdReportBotChannel and TdVideoNoteLossTransport are diagnostics the user starts by hand; they send at once.
+        "TdApi.SendMessage(" to setOf("TdConversationActions.kt", "TdStories.kt", "TdReportBotChannel.kt", "TdVideoNoteLossTransport.kt"),
+        "TdApi.SendMessageAlbum(" to setOf("TdConversationActions.kt"),
+        "TdApi.ForwardMessages(" to setOf("TdConversationActions.kt"),
+        "TdApi.SendInlineQueryResultMessage(" to setOf("TdBotFeatures.kt")
     )
 
     @Test fun sensitiveTdlibRequestsAppearOnlyInTheirGateFiles() {

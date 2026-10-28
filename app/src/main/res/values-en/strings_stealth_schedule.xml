@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_schedule_group_title">Stealth sending</string>
+    <string name="stealth_schedule_title">Send as Telegram scheduled messages</string>
+    <string name="stealth_schedule_detail">The message goes to the Telegram server at once as a scheduled message, and the server publishes it after the chosen time. The app may be closed by then.</string>
+    <string name="stealth_schedule_footnote">While the message waits, you can cancel it, move it or send it now from the chat\'s scheduled messages. For files the time grows to leave room for the upload.</string>
+    <string name="stealth_schedule_limits">This lowers the chance of showing you online but does not guarantee it: the app does not control your other devices or Telegram\'s rules. Secret chats, chats with paid messages, view-once media and live location cannot be scheduled, and the app asks whether to send at once.</string>
+    <plurals name="stealth_schedule_minutes">
+        <item quantity="one">%1$d min</item>
+        <item quantity="other">%1$d min</item>
+    </plurals>
+    <string name="stealth_schedule_done">Scheduled on the Telegram server. The message appears in the chat at the set time.</string>
+    <string name="stealth_schedule_failed">Could not schedule the message on the Telegram server.</string>
+    <string name="stealth_schedule_unavailable_secret">Telegram does not support scheduled messages in secret chats.</string>
+    <string name="stealth_schedule_unavailable_paid">Telegram does not support scheduled messages in chats with paid messages.</string>
+    <string name="stealth_schedule_unavailable_chat">Telegram does not support scheduled messages in this chat.</string>
+    <string name="stealth_schedule_unavailable_content">View-once media and live location cannot be scheduled.</string>
+    <string name="stealth_schedule_fallback_title">Send now?</string>
+    <string name="stealth_schedule_fallback_text">The message was not sent. If you send it now, Telegram may show you online for about 30 seconds.</string>
+    <string name="stealth_schedule_fallback_send_now">Send now</string>
+</resources>

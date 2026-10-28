@@ -167,6 +167,8 @@ internal class AttachmentState(
         set(value) { viewOnceState.value = value }
     var notice by mutableStateOf<String?>(null)
         private set
+    /** Asks before an ordinary send when stealth mode could not schedule one; the chat screen shows its dialog. */
+    val stealthFallback = StealthScheduleFallback()
     val canRetryCapture: Boolean get() = captureRetry.value.canRetry
     val pending: List<OutgoingMedia> get() = pendingState.value
     val error: String? get() = errorState.value
@@ -311,7 +313,7 @@ internal class AttachmentState(
             errorState.value = null
             try {
                 val result = sendSticker(media, MessageSendOptions())
-                if (result.isFailure) errorState.value = result.exceptionOrNull().userMessage(context, R.string.sticker_picker_send_failed)
+                if (result.isFailure) stickerFailed(media, MessageSendOptions(), result.exceptionOrNull())
             } finally { sending = false }
         }
     }
@@ -324,9 +326,14 @@ internal class AttachmentState(
             errorState.value = null
             try {
                 val result = sendSticker(media, options)
-                if (result.isFailure) errorState.value = result.exceptionOrNull().userMessage(context, R.string.sticker_picker_send_failed)
+                if (result.isFailure) stickerFailed(media, options, result.exceptionOrNull())
             } finally { sending = false }
         }
+    }
+
+    private fun stickerFailed(media: OutgoingMedia, options: MessageSendOptions, failure: Throwable?) {
+        if (stealthFallback.offer(failure) { sendStickerWithOptions(media, options.copy(sendNowConsent = true)) }) return
+        errorState.value = failure.userMessage(context, R.string.sticker_picker_send_failed)
     }
 
     fun prepare(uris: List<android.net.Uri>, asDocument: Boolean) {
@@ -968,7 +975,9 @@ internal class AttachmentState(
                 errorState.value = null
                 try {
                     val result = sendExtra(preparedExtra, options)
-                    if (result.isFailure) {
+                    if (result.isFailure && stealthFallback.offer(result.exceptionOrNull()) { send(caption, options.copy(sendNowConsent = true), onCaptionChange) }) {
+                        // Nothing was sent; the prepared item stays for the user's choice.
+                    } else if (result.isFailure) {
                         errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed)
                         // Keep the prepared poll in the composer; a retry is always an explicit user action.
                         extraSendFailed = preparedExtra is MessageExtraDraft.Poll
@@ -999,7 +1008,12 @@ internal class AttachmentState(
                 }
                 for (batch in batches) {
                     val result = sendMedia(batch.map { it.second }, nextCaption, options)
-                    if (result.isFailure) { errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed); break }
+                    if (result.isFailure) {
+                        val retryCaption = nextCaption
+                        val asked = stealthFallback.offer(result.exceptionOrNull()) { send(retryCaption, options.copy(sendNowConsent = true), onCaptionChange) }
+                        if (!asked) errorState.value = result.exceptionOrNull().userMessage(context, R.string.composer_send_failed)
+                        break
+                    }
                     val sent = batch.map { it.first }
                     pendingState.value = ArrayList(pending.filterNot { item -> sent.any { it.samePendingAttachment(item) } })
                     if (sent.any { qualityState.value.containsKey(it.path) }) {

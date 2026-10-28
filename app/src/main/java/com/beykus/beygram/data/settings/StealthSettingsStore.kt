@@ -24,12 +24,20 @@ data class StealthSettings(
     val hideOnline: Boolean = false,       // OnlinePresence (account-wide only, never per chat)
     val noStoryViews: Boolean = false,     // StoryView
     val warnRiskyActions: Boolean = false, // UI-only flag for later packages
+    /** Sends go out as Telegram scheduled messages that the server publishes later (account-wide). */
+    val serverScheduledSend: Boolean = false,
+    /** Lead of a server-scheduled text send; always one of [StealthScheduleDelayChoices]. */
+    val scheduledSendDelaySeconds: Int = DEFAULT_STEALTH_SCHEDULE_DELAY_SECONDS,
     val chats: Map<Long, ChatStealthMode> = emptyMap(),
     val failClosed: Boolean = false
 ) {
     val protectionActive: Boolean
         get() = failClosed || hideTyping || noReadReceipts || noContentOpen || hideOnline || noStoryViews ||
-            chats.values.any { it == ChatStealthMode.Block }
+            serverScheduledSend || chats.values.any { it == ChatStealthMode.Block }
+
+    /** The lead for a server-scheduled send, or null when sends go out at once. Fail-closed data always schedules. */
+    val scheduledSendDelay: Int?
+        get() = if (failClosed || serverScheduledSend) scheduledSendDelaySeconds else null
 
     fun allows(effect: InteractionEffect, chatId: Long?): Boolean {
         if (failClosed) return false
@@ -50,10 +58,18 @@ data class StealthSettings(
     companion object {
         val FailClosed = StealthSettings(
             hideTyping = true, noReadReceipts = true, noContentOpen = true, hideOnline = true,
-            noStoryViews = true, warnRiskyActions = true, failClosed = true
+            noStoryViews = true, warnRiskyActions = true, serverScheduledSend = true, failClosed = true
         )
     }
 }
+
+/**
+ * The leads a user can pick for a server-scheduled send, in seconds. Telegram sends a message scheduled less than
+ * 10 seconds ahead at once, so nothing below 15 seconds is offered: the margin covers clock skew and a slow request.
+ */
+val StealthScheduleDelayChoices: List<Int> = listOf(15, 30, 60, 120)
+
+const val DEFAULT_STEALTH_SCHEDULE_DELAY_SECONDS = 15
 
 /** Storage behind [StealthSettingsStore]; values use the SharedPreferences types (Boolean, Int, String). */
 internal interface StealthStorage {
@@ -91,7 +107,9 @@ internal fun stealthPreferencesName(accountId: String): String {
     return if (accountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID) "stealth-mode" else "stealth-mode_$accountId"
 }
 
-private const val CURRENT_VERSION = 1
+// Version 2 added the server-scheduled send; version 1 data reads with it off.
+private const val CURRENT_VERSION = 2
+private const val VERSION_WITHOUT_SCHEDULED_SEND = 1
 private const val KEY_VERSION = "version"
 private const val KEY_PROTECTION_ON = "protection_on"
 private const val KEY_HIDE_TYPING = "hide_typing"
@@ -100,6 +118,8 @@ private const val KEY_NO_CONTENT_OPEN = "no_content_open"
 private const val KEY_HIDE_ONLINE = "hide_online"
 private const val KEY_NO_STORY_VIEWS = "no_story_views"
 private const val KEY_WARN_RISKY_ACTIONS = "warn_risky_actions"
+private const val KEY_SCHEDULED_SEND = "scheduled_send"
+private const val KEY_SCHEDULED_SEND_DELAY = "scheduled_send_delay"
 private const val CHAT_KEY_PREFIX = "chat:"
 
 /**
@@ -197,7 +217,8 @@ class StealthInteractionPolicy(private val store: StealthSettingsStore) : Intera
 }
 
 private fun parse(stored: Map<String, *>): StealthSettings {
-    check(stored[KEY_VERSION] == CURRENT_VERSION) { "Unknown stealth settings version" }
+    val version = stored[KEY_VERSION]
+    check(version == CURRENT_VERSION || version == VERSION_WITHOUT_SCHEDULED_SEND) { "Unknown stealth settings version" }
     val chats = HashMap<Long, ChatStealthMode>()
     for ((key, value) in stored) {
         if (!key.startsWith(CHAT_KEY_PREFIX)) continue
@@ -215,6 +236,12 @@ private fun parse(stored: Map<String, *>): StealthSettings {
         hideOnline = stored.flag(KEY_HIDE_ONLINE),
         noStoryViews = stored.flag(KEY_NO_STORY_VIEWS),
         warnRiskyActions = stored.flag(KEY_WARN_RISKY_ACTIONS),
+        serverScheduledSend = if (version == CURRENT_VERSION) stored.flag(KEY_SCHEDULED_SEND) else false,
+        scheduledSendDelaySeconds = if (version == CURRENT_VERSION) {
+            (stored[KEY_SCHEDULED_SEND_DELAY] as Int).also { check(it in StealthScheduleDelayChoices) { "Unknown scheduled send delay" } }
+        } else {
+            DEFAULT_STEALTH_SCHEDULE_DELAY_SECONDS
+        },
         chats = chats
     )
 }
@@ -232,6 +259,8 @@ private fun StealthSettings.toStoredValues(): Map<String, Any> {
     values[KEY_HIDE_ONLINE] = hideOnline
     values[KEY_NO_STORY_VIEWS] = noStoryViews
     values[KEY_WARN_RISKY_ACTIONS] = warnRiskyActions
+    values[KEY_SCHEDULED_SEND] = serverScheduledSend
+    values[KEY_SCHEDULED_SEND_DELAY] = scheduledSendDelaySeconds
     for ((chatId, mode) in chats) {
         val stored = when (mode) {
             ChatStealthMode.Allow -> "allow"
@@ -243,9 +272,11 @@ private fun StealthSettings.toStoredValues(): Map<String, Any> {
     return values
 }
 
-/** Inherit means "no exception", so it is never stored or compared. */
-private fun StealthSettings.normalized(): StealthSettings =
-    copy(chats = chats.filterValues { it != ChatStealthMode.Inherit })
+/** Inherit means "no exception", so it is never stored or compared. A lead that is not offered rounds up to one that is. */
+private fun StealthSettings.normalized(): StealthSettings = copy(
+    chats = chats.filterValues { it != ChatStealthMode.Inherit },
+    scheduledSendDelaySeconds = StealthScheduleDelayChoices.firstOrNull { it >= scheduledSendDelaySeconds } ?: StealthScheduleDelayChoices.last()
+)
 
 /**
  * True when [candidate] allows nothing that [previous] refuses, for the account-wide switches and for every chat
@@ -253,7 +284,11 @@ private fun StealthSettings.normalized(): StealthSettings =
  */
 private fun isAtLeastAsStrict(candidate: StealthSettings, previous: StealthSettings): Boolean {
     val contexts = listOf<Long?>(null) + (candidate.chats.keys + previous.chats.keys).toList()
-    return InteractionEffect.entries.all { effect ->
+    val effects = InteractionEffect.entries.all { effect ->
         contexts.all { chatId -> !candidate.allows(effect, chatId) || previous.allows(effect, chatId) }
     }
+    // Turning the scheduled send off, or shortening its lead, is looser.
+    val previousDelay = previous.scheduledSendDelay ?: return effects
+    val candidateDelay = candidate.scheduledSendDelay ?: return false
+    return effects && candidateDelay >= previousDelay
 }

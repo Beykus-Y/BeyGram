@@ -128,12 +128,12 @@ class StealthSettingsStoreTest {
     @Test fun unknownVersionFailsClosedOnlyWhenProtected() {
         val protectedStorage = FakeStealthStorage()
         StealthSettingsStore(protectedStorage).update { it.copy(noStoryViews = true) }
-        protectedStorage.stored["version"] = 2
+        protectedStorage.stored["version"] = 7
         assertEquals(StealthSettings.FailClosed, StealthSettingsStore(protectedStorage).current)
 
         val openStorage = FakeStealthStorage()
         StealthSettingsStore(openStorage).update { it.copy(warnRiskyActions = true) }
-        openStorage.stored["version"] = 2
+        openStorage.stored["version"] = 7
         assertEquals(StealthSettings(), StealthSettingsStore(openStorage).current)
     }
 
@@ -260,5 +260,63 @@ class StealthSettingsStoreTest {
     @Test(expected = IllegalArgumentException::class)
     fun preferenceNamesRejectPathEscapes() {
         stealthPreferencesName("../legacy")
+    }
+
+    @Test fun serverScheduledSendAndItsLeadSurviveANewStore() {
+        val storage = FakeStealthStorage()
+        assertTrue(StealthSettingsStore(storage).update { it.copy(serverScheduledSend = true, scheduledSendDelaySeconds = 60) })
+        val reopened = StealthSettingsStore(storage).current
+        assertTrue(reopened.serverScheduledSend)
+        assertEquals(60, reopened.scheduledSendDelay)
+        assertTrue(reopened.protectionActive)
+    }
+
+    @Test fun versionOneDataReadsWithServerScheduledSendOff() {
+        val storage = FakeStealthStorage()
+        StealthSettingsStore(storage).update { it.copy(hideOnline = true) }
+        storage.stored.remove("scheduled_send")
+        storage.stored.remove("scheduled_send_delay")
+        storage.stored["version"] = 1
+        val migrated = StealthSettingsStore(storage).current
+        assertFalse(migrated.failClosed)
+        assertTrue(migrated.hideOnline)
+        assertFalse(migrated.serverScheduledSend)
+        assertEquals(null, migrated.scheduledSendDelay)
+    }
+
+    @Test fun aLeadThatIsNotOfferedIsAReadError() {
+        val storage = FakeStealthStorage()
+        StealthSettingsStore(storage).update { it.copy(serverScheduledSend = true) }
+        storage.stored["scheduled_send_delay"] = 5
+        assertEquals(StealthSettings.FailClosed, StealthSettingsStore(storage).current)
+    }
+
+    @Test fun anUnofferedLeadIsRoundedUpNeverBelowFifteenSeconds() {
+        val store = StealthSettingsStore(FakeStealthStorage())
+        store.update { it.copy(serverScheduledSend = true, scheduledSendDelaySeconds = 1) }
+        assertEquals(15, store.current.scheduledSendDelay)
+        store.update { it.copy(scheduledSendDelaySeconds = 45) }
+        assertEquals(60, store.current.scheduledSendDelay)
+        store.update { it.copy(scheduledSendDelaySeconds = 10_000) }
+        assertEquals(StealthScheduleDelayChoices.last(), store.current.scheduledSendDelay)
+    }
+
+    @Test fun failClosedSchedulesEverySend() {
+        assertEquals(DEFAULT_STEALTH_SCHEDULE_DELAY_SECONDS, StealthSettings.FailClosed.scheduledSendDelay)
+        assertEquals(null, StealthSettings().scheduledSendDelay)
+    }
+
+    @Test fun failedCommitNeverTurnsServerScheduledSendOffOrShortensIt() {
+        val storage = FakeStealthStorage()
+        val store = StealthSettingsStore(storage)
+        assertTrue(store.update { it.copy(serverScheduledSend = true, scheduledSendDelaySeconds = 30) })
+
+        storage.commitsSucceed = false
+        assertFalse(store.update { it.copy(serverScheduledSend = false) })
+        assertEquals(30, store.current.scheduledSendDelay)
+        assertFalse(store.update { it.copy(scheduledSendDelaySeconds = 15) })
+        assertEquals(30, store.current.scheduledSendDelay)
+        assertFalse(store.update { it.copy(scheduledSendDelaySeconds = 120) })
+        assertEquals(120, store.current.scheduledSendDelay)
     }
 }

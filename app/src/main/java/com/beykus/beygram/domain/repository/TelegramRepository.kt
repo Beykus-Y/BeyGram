@@ -102,8 +102,11 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun storyReactions(): Result<List<ReactionOption>>
     /** Pass null to remove the current reaction. */
     suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?): Result<Unit>
-    /** Sends a normal chat message that quotes the story, as Telegram clients do. */
-    suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit>
+    /**
+     * Sends a normal chat message that quotes the story, as Telegram clients do. In stealth mode it is scheduled on the
+     * server; [sendNowConsent] is the user's explicit agreement to send at once when that is not possible.
+     */
+    suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String, sendNowConsent: Boolean = false): Result<Unit>
     suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit>
     /** Expired stories of the signed-in user, newest first. Pass the last page's nextFromStoryId for more. */
     suspend fun storyArchive(fromStoryId: Int = 0): Result<StoryArchivePage>

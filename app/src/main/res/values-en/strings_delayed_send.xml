@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="delayed_send_group_title">Send delay</string>
+    <string name="delayed_send_group_title">Local send delay</string>
     <string name="delayed_send_off">No delay</string>
     <string name="delayed_send_seconds">%1$d s</string>
     <string name="delayed_send_minute">1 min</string>
-    <string name="delayed_send_footnote">The message waits on this device and is sent later. You can cancel it or send it now. This does not hide that you were online: Telegram may show you online at the moment of sending. If the app is closed, the message is sent the next time you open the chat, or it waits for your decision.</string>
+    <string name="delayed_send_footnote">The message waits on this device and is sent later. You can cancel it or send it now. This does not hide that you were online: Telegram may show you online at the moment of sending. If the app is closed, the message is sent the next time you open the chat, or it waits for your decision. This is not stealth mode: for hidden sending use “Stealth sending” above.</string>
 
     <string name="delayed_send_countdown">in %1$d s</string>
     <string name="delayed_send_waiting">Waiting to send</string>

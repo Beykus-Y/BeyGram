@@ -12,7 +12,12 @@ data class MessageSendOptions(
      * Sends a single photo/video as self-destructing "view once" media. This is TDLib's per-message
      * MessageSelfDestructTypeImmediately, not the chat-wide auto-delete timer.
      */
-    val viewOnce: Boolean = false
+    val viewOnce: Boolean = false,
+    /**
+     * The user agreed to send at once although stealth mode schedules sends on the server (#541). Without it a send
+     * that cannot be scheduled fails instead of going out as an ordinary message.
+     */
+    val sendNowConsent: Boolean = false
 ) {
     companion object {
         /**

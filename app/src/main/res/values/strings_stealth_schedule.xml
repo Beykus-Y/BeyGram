@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_schedule_group_title">Отправка в невидимке</string>
+    <string name="stealth_schedule_title">Отправлять через отложенные сообщения Telegram</string>
+    <string name="stealth_schedule_detail">Сообщение сразу уходит на сервер Telegram как запланированное, и сервер публикует его через выбранное время. Приложение к этому моменту может быть закрыто.</string>
+    <string name="stealth_schedule_footnote">Пока сообщение ждёт, его можно отменить, перенести или отправить сразу в списке отложенных сообщений чата. Для файлов время увеличивается с запасом на загрузку.</string>
+    <string name="stealth_schedule_limits">Это снижает риск показать вас в сети, но не гарантирует невидимость: другие ваши устройства и правила Telegram приложение не контролирует. В секретных чатах, в чатах с платными сообщениями, для одноразовых медиа и трансляции геопозиции запланировать нельзя, и приложение спросит, отправить ли сразу.</string>
+    <plurals name="stealth_schedule_minutes">
+        <item quantity="one">%1$d мин</item>
+        <item quantity="few">%1$d мин</item>
+        <item quantity="many">%1$d мин</item>
+        <item quantity="other">%1$d мин</item>
+    </plurals>
+    <string name="stealth_schedule_done">Запланировано на сервере Telegram. Сообщение появится в чате в назначенное время.</string>
+    <string name="stealth_schedule_failed">Не удалось запланировать отправку на сервере Telegram.</string>
+    <string name="stealth_schedule_unavailable_secret">В секретных чатах Telegram не поддерживает отложенные сообщения.</string>
+    <string name="stealth_schedule_unavailable_paid">В чатах с платными сообщениями Telegram не поддерживает отложенные сообщения.</string>
+    <string name="stealth_schedule_unavailable_chat">В этом чате Telegram не поддерживает отложенные сообщения.</string>
+    <string name="stealth_schedule_unavailable_content">Одноразовые медиа и трансляцию геопозиции нельзя запланировать.</string>
+    <string name="stealth_schedule_fallback_title">Отправить сразу?</string>
+    <string name="stealth_schedule_fallback_text">Сообщение не отправлено. Если отправить его сразу, Telegram может показать вас в сети около 30 секунд.</string>
+    <string name="stealth_schedule_fallback_send_now">Отправить сразу</string>
+</resources>
