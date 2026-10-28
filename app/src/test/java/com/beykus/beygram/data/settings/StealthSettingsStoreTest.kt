@@ -144,6 +144,13 @@ class StealthSettingsStoreTest {
         assertEquals(StealthSettings.FailClosed, StealthSettingsStore(storage).current)
     }
 
+    @Test fun missingProtectionFlagNextToBrokenDataCountsAsProtected() {
+        val storage = FakeStealthStorage()
+        storage.stored["version"] = 1
+        storage.stored["hide_online"] = "on"
+        assertEquals(StealthSettings.FailClosed, StealthSettingsStore(storage).current)
+    }
+
     @Test fun unreadableProtectionFlagCountsAsProtected() {
         val storage = FakeStealthStorage()
         storage.stored["version"] = 3

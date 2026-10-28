@@ -166,9 +166,9 @@ class StealthSettingsStore internal constructor(private val storage: StealthStor
         return try {
             parse(stored)
         } catch (_: Exception) {
-            // Unreadable data is enforced only when protection was on. A missing flag means it was never enabled.
-            val protectionOn = stored[KEY_PROTECTION_ON]
-            if (protectionOn == null || protectionOn == false) StealthSettings() else StealthSettings.FailClosed
+            // Only a readable "protection off" falls back to normal behaviour. A missing or broken flag next to other
+            // stored values may hide protection the user turned on, so everything stays refused.
+            if (stored[KEY_PROTECTION_ON] == false) StealthSettings() else StealthSettings.FailClosed
         }
     }
 
