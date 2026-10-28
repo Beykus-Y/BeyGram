@@ -20,4 +20,10 @@
     <string name="stealth_schedule_fallback_send_now">Sofort senden</string>
     <string name="stealth_schedule_retry">Ein erneuter Versuch sendet die Nachricht sofort, nicht als geplante Nachricht.</string>
     <string name="stealth_schedule_upload_failed">Die Datei konnte nicht vorab hochgeladen werden, daher lässt sich das Senden nicht zuverlässig planen.</string>
+    <string name="stealth_schedule_custom">Eigene Zeit</string>
+    <string name="stealth_schedule_custom_value">Eigene Zeit: %1$s</string>
+    <string name="stealth_schedule_dialog_hint">Verzögerung in Sekunden, von 1 bis 3600</string>
+    <string name="stealth_schedule_dialog_label">Sekunden</string>
+    <string name="stealth_schedule_dialog_error">Gib eine ganze Zahl von 1 bis 3600 ein</string>
+    <string name="stealth_schedule_short_warning">Eine Verzögerung von 10 Sekunden oder weniger ist für geplante Telegram-Nachrichten zu kurz: Die App wartet selbst und sendet eine normale Nachricht. Telegram kann dich als online anzeigen, und wenn die App vor dem Senden geschlossen wird, geht die Nachricht eventuell nicht raus.</string>
 </resources>

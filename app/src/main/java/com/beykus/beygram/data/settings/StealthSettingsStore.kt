@@ -26,7 +26,7 @@ data class StealthSettings(
     val warnRiskyActions: Boolean = false, // UI-only flag for later packages
     /** Sends go out as Telegram scheduled messages that the server publishes later (account-wide). */
     val serverScheduledSend: Boolean = false,
-    /** Lead of a server-scheduled text send; always one of [StealthScheduleDelayChoices]. */
+    /** Lead of a stealth send in seconds; a preset from [StealthScheduleDelayChoices] or a custom value in [StealthScheduleDelayRange]. */
     val scheduledSendDelaySeconds: Int = DEFAULT_STEALTH_SCHEDULE_DELAY_SECONDS,
     val chats: Map<Long, ChatStealthMode> = emptyMap(),
     val failClosed: Boolean = false
@@ -38,6 +38,10 @@ data class StealthSettings(
     /** The lead for a server-scheduled send, or null when sends go out at once. Fail-closed data always schedules. */
     val scheduledSendDelay: Int?
         get() = if (failClosed || serverScheduledSend) scheduledSendDelaySeconds else null
+
+    /** True when the stealth lead is long enough for Telegram's scheduled queue; a shorter one is only waited out locally. */
+    val schedulesOnServer: Boolean
+        get() = scheduledSendDelay?.let(::stealthDelayUsesServer) == true
 
     fun allows(effect: InteractionEffect, chatId: Long?): Boolean {
         if (failClosed) return false
@@ -64,10 +68,21 @@ data class StealthSettings(
 }
 
 /**
- * The leads a user can pick for a server-scheduled send, in seconds. Telegram sends a message scheduled less than
- * 10 seconds ahead at once, so nothing below 15 seconds is offered: the margin covers clock skew and a slow request.
+ * The preset leads for a server-scheduled send, in seconds. Telegram sends a message scheduled 10 seconds ahead or less
+ * at once, so the presets start at 15 seconds: the margin covers a slow request.
  */
 val StealthScheduleDelayChoices: List<Int> = listOf(15, 30, 60, 120)
+
+/** The leads «Своё время» accepts, from one second to one hour. */
+val StealthScheduleDelayRange: IntRange = 1..3600
+
+/**
+ * The shortest lead that Telegram keeps in the scheduled queue: TDLib sends a date at or before now+10 seconds at once.
+ * A shorter lead is waited out by the app, and the message then goes out as an ordinary send that can show the account online.
+ */
+const val STEALTH_SERVER_SCHEDULE_MIN_SECONDS = 11
+
+fun stealthDelayUsesServer(seconds: Int): Boolean = seconds >= STEALTH_SERVER_SCHEDULE_MIN_SECONDS
 
 const val DEFAULT_STEALTH_SCHEDULE_DELAY_SECONDS = 15
 
@@ -238,7 +253,7 @@ private fun parse(stored: Map<String, *>): StealthSettings {
         warnRiskyActions = stored.flag(KEY_WARN_RISKY_ACTIONS),
         serverScheduledSend = if (version == CURRENT_VERSION) stored.flag(KEY_SCHEDULED_SEND) else false,
         scheduledSendDelaySeconds = if (version == CURRENT_VERSION) {
-            (stored[KEY_SCHEDULED_SEND_DELAY] as Int).also { check(it in StealthScheduleDelayChoices) { "Unknown scheduled send delay" } }
+            (stored[KEY_SCHEDULED_SEND_DELAY] as Int).also { check(it in StealthScheduleDelayRange) { "Unknown scheduled send delay" } }
         } else {
             DEFAULT_STEALTH_SCHEDULE_DELAY_SECONDS
         },
@@ -272,10 +287,10 @@ private fun StealthSettings.toStoredValues(): Map<String, Any> {
     return values
 }
 
-/** Inherit means "no exception", so it is never stored or compared. A lead that is not offered rounds up to one that is. */
+/** Inherit means "no exception", so it is never stored or compared. A lead outside the accepted range is clamped into it. */
 private fun StealthSettings.normalized(): StealthSettings = copy(
     chats = chats.filterValues { it != ChatStealthMode.Inherit },
-    scheduledSendDelaySeconds = StealthScheduleDelayChoices.firstOrNull { it >= scheduledSendDelaySeconds } ?: StealthScheduleDelayChoices.last()
+    scheduledSendDelaySeconds = scheduledSendDelaySeconds.coerceIn(StealthScheduleDelayRange)
 )
 
 /**

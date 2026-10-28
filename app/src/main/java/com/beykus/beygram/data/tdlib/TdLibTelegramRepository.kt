@@ -2285,7 +2285,8 @@ class TdLibTelegramRepository private constructor(
     }
     override fun interactionAllowed(effect: InteractionEffect, chatId: Long?): Boolean = conversationEffects.allows(effect, chatId)
     override fun stealthWarnsBeforeSending(): Boolean = stealthSettings.current.let { it.hideOnline && it.warnRiskyActions }
-    override fun stealthSchedulesSends(): Boolean = stealthSettings.current.scheduledSendDelay != null
+    override fun stealthSchedulesSends(): Boolean = stealthSettings.current.schedulesOnServer
+    override fun stealthHoldsSends(): Boolean = stealthSettings.current.scheduledSendDelay != null
 
     override fun cancelFileDownload(fileId: Int) {
         client.send(TdApi.CancelDownloadFile(fileId, false), errorHandler())

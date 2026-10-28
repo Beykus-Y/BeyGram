@@ -474,7 +474,7 @@ internal class TdStories(
         }
         val options = MessageSendOptions(sendNowConsent = sendNowConsent)
         val resolved = stealth.resolve(posterChatId, options)
-        stealth.scheduledRequest(resolved.scheduled) {
+        stealth.scheduledRequest(resolved) {
             requests(TdApi.SendMessage().apply {
                 this.chatId = posterChatId
                 this.replyTo = TdApi.InputMessageReplyToStory(posterChatId, storyId)
