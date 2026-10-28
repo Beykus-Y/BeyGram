@@ -222,8 +222,8 @@ internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> In
             }
         }
         val resolved = stealth.resolve(chatId, options)
-        function.options = sendOptions(resolved)
-        stealth.scheduledRequest(resolved !== options) { request(function) }
+        function.options = sendOptions(resolved.options)
+        stealth.scheduledRequest(resolved.scheduled) { request(function) }
         Unit
     }
 

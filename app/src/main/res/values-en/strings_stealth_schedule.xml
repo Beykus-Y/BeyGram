@@ -18,4 +18,6 @@
     <string name="stealth_schedule_fallback_title">Send now?</string>
     <string name="stealth_schedule_fallback_text">The message was not sent. If you send it now, Telegram may show you online for about 30 seconds.</string>
     <string name="stealth_schedule_fallback_send_now">Send now</string>
+    <string name="stealth_schedule_retry">A retry sends the message at once, not as a scheduled message.</string>
+    <string name="stealth_schedule_upload_failed">The file could not be uploaded in advance, so the send cannot be scheduled reliably.</string>
 </resources>

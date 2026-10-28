@@ -2388,8 +2388,8 @@ class TdLibTelegramRepository private constructor(
         conversationActions.rescheduleMessage(chatId, messageId, atSeconds)
     override suspend fun sendScheduledNow(chatId: Long, messageId: Long): Result<Unit> =
         conversationActions.sendScheduledNow(chatId, messageId)
-    override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> =
-        conversationActions.retryMessages(chatId, messageIds)
+    override suspend fun retryMessages(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean): Result<Unit> =
+        conversationActions.retryMessages(chatId, messageIds, sendNowConsent)
 
     override fun openChat(chatId: Long) {
         botKeyboards.refresh(chatId)

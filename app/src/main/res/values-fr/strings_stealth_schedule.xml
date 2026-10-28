@@ -19,4 +19,6 @@
     <string name="stealth_schedule_fallback_title">Envoyer tout de suite ?</string>
     <string name="stealth_schedule_fallback_text">Le message n’a pas été envoyé. Si vous l’envoyez tout de suite, Telegram peut vous afficher en ligne environ 30 secondes.</string>
     <string name="stealth_schedule_fallback_send_now">Envoyer tout de suite</string>
+    <string name="stealth_schedule_retry">Réessayer envoie le message tout de suite, pas comme message programmé.</string>
+    <string name="stealth_schedule_upload_failed">Le fichier n’a pas pu être envoyé à l’avance, l’envoi ne peut donc pas être programmé de façon fiable.</string>
 </resources>

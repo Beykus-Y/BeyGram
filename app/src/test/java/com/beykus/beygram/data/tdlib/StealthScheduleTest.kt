@@ -1,9 +1,9 @@
 package com.beykus.beygram.data.tdlib
 
-import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageSendOptions
-import com.beykus.beygram.domain.model.OutgoingMedia
+import org.drinkless.tdlib.TdApi
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,10 +30,16 @@ class StealthScheduleTest {
         assertEquals(15L + STEALTH_MAX_UPLOAD_ALLOWANCE_SECONDS, stealthScheduleAt(0L, 15, Long.MAX_VALUE / 2))
     }
 
-    @Test fun mediaAlreadyOnTheServerNeedsNoUploadTime() {
-        val remote = OutgoingMedia(path = "", fileName = "s.webp", mimeType = "image/webp", kind = MediaKind.Sticker, size = 50_000, remoteFileId = 7)
-        assertEquals(0L, remote.uploadBytes())
-        val local = OutgoingMedia(path = "/tmp/none", fileName = "p.jpg", mimeType = "image/jpeg", kind = MediaKind.Photo, size = 2_000_000)
-        assertEquals(2_000_000L, local.uploadBytes())
+    @Test fun preliminaryUploadIsDoneWhenAllBytesAreUpOrTdlibHoldsTheRest() {
+        assertTrue(preuploadDone(file(size = 100, uploaded = 100, active = true)))
+        assertTrue(preuploadDone(file(size = 100, uploaded = 90, active = false)))
+        assertTrue(preuploadDone(file(size = 100, uploaded = 0, active = false, completed = true)))
+        assertFalse(preuploadDone(file(size = 100, uploaded = 0, active = true)))
+        assertFalse(preuploadDone(file(size = 100, uploaded = 40, active = true)))
+        // Not started yet: nothing is up, so the upload is not done.
+        assertFalse(preuploadDone(file(size = 100, uploaded = 0, active = false)))
     }
+
+    private fun file(size: Long, uploaded: Long, active: Boolean, completed: Boolean = false) =
+        TdApi.File(1, size, size, TdApi.LocalFile(), TdApi.RemoteFile("", "", active, completed, uploaded))
 }

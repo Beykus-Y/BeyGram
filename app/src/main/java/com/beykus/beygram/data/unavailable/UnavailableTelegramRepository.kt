@@ -476,7 +476,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun recentAnimations(offset: String): Result<AnimationPage> = unavailable()
     override suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = unavailable()
     override suspend fun isPremiumAccount(): Result<Boolean> = unavailable()
-    override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()
+    override suspend fun retryMessages(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean): Result<Unit> = unavailable()
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = unavailable()
     override suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences> = unavailable()
     override suspend fun setChatNotificationPreferences(chatId: Long, preferences: ChatNotificationPreferences): Result<Unit> = unavailable()

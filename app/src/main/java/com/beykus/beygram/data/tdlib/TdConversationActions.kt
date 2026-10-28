@@ -193,8 +193,8 @@ internal class TdConversationActions(
             clearDraft = false
         }
         val resolved = stealth.resolve(discussionChatId, MessageSendOptions(sendNowConsent = sendNowConsent))
-        val sent = stealth.scheduledRequest(resolved.scheduledAtSeconds != null) {
-            request(threadReplyRequest(discussionChatId, threadId, replyTarget?.id, content, sendOptions(resolved)))
+        val sent = stealth.scheduledRequest(resolved.scheduled) {
+            request(threadReplyRequest(discussionChatId, threadId, replyTarget?.id, content, sendOptions(resolved.options)))
         }
         // A comment scheduled by stealth mode waits in the server's queue and is not part of the thread yet.
         if (sent.schedulingState != null) return@conversationResult null
@@ -325,7 +325,7 @@ internal class TdConversationActions(
         if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_media_only))
         val bounded = boundTelegramText(text, entities, limits.value.text)
         if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
-        send(chatId, TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft }, replyId, forumTopicId, options)
+        send(chatId, replyId, forumTopicId, options) { TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft } }
     }.onFailure { recordSendFailure("text", it) }
 
     /** A poll carries its own question and options; no caption is involved, so only the send options are checked. */
@@ -333,7 +333,7 @@ internal class TdConversationActions(
         requireFutureSchedule(options)
         val value = poll.normalized()
         value.problem()?.let { throw UserMessageException(it.message()) }
-        send(chatId, inputMessagePoll(value), replyId, forumTopicId, options)
+        send(chatId, replyId, forumTopicId, options) { inputMessagePoll(value) }
     }.onFailure { recordSendFailure("poll", it) }
 
     suspend fun sendLocation(chatId: Long, point: GeoPoint, live: Boolean, replyId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = conversationResult<Unit> {
@@ -352,14 +352,14 @@ internal class TdConversationActions(
         } else {
             TdApi.InputMessageLocation().apply { this.location = location }
         }
-        send(chatId, content, replyId, forumTopicId, options, liveLocation = live)
+        send(chatId, replyId, forumTopicId, options, liveLocation = live) { content }
     }.onFailure { recordSendFailure("location", it) }
 
     suspend fun sendDice(chatId: Long, emoji: String, replyId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = conversationResult<Unit> {
         requireFutureSchedule(options)
         val value = emoji.trim()
         if (value.isEmpty()) throw UserMessageException(UiText.Res(R.string.chat_dice_send_failed))
-        send(chatId, TdApi.InputMessageDice().apply { this.emoji = value; clearDraft = false }, replyId, forumTopicId, options)
+        send(chatId, replyId, forumTopicId, options) { TdApi.InputMessageDice().apply { this.emoji = value; clearDraft = false } }
     }.onFailure { recordSendFailure("dice", it) }
 
     suspend fun votePoll(chatId: Long, messageId: Long, optionIndices: List<Int>): Result<Unit> = conversationResult<Unit> {
@@ -425,14 +425,16 @@ internal class TdConversationActions(
         options: MessageSendOptions = MessageSendOptions()
     ): Result<Unit> = conversationResult<Unit> {
         requireFutureSchedule(options)
-        send(chatId, contactMessageContent(contact), replyId, forumTopicId, options)
+        send(chatId, replyId, forumTopicId, options) { contactMessageContent(contact) }
     }.onFailure { recordSendFailure("contact", it) }
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         requireFutureSchedule(options)
         requireViewOnceSupported(media, options)
         android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
         val bounded = boundTelegramText(caption, entities, limits.value.caption)
-        send(chatId, media.toInputContent(bounded.text, bounded.entities, selfDestructType(options)), replyId, forumTopicId, options, uploadBytes = media.uploadBytes())
+        send(chatId, replyId, forumTopicId, options, media = listOf(media)) { uploaded ->
+            uploaded.single().toInputContent(bounded.text, bounded.entities, selfDestructType(options))
+        }
         android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
     }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
 
@@ -440,7 +442,7 @@ internal class TdConversationActions(
     suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyId: Long?, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         requireFutureSchedule(options)
         require(sticker.kind == MediaKind.Sticker && sticker.remoteFileId > 0) { "Sticker file id is missing" }
-        send(chatId, sticker.toInputContent(""), replyId, forumTopicId, options)
+        send(chatId, replyId, forumTopicId, options) { sticker.toInputContent("") }
     }.onSuccess { recordMediaAccepted("sticker") }.onFailure { recordSendFailure("sticker", it) }
 
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
@@ -452,12 +454,12 @@ internal class TdConversationActions(
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
             request(TdApi.GetMessage(chatId, it))
         }
-        val resolved = stealth.resolve(chatId, options, uploadBytes = media.sumOf { it.uploadBytes() })
-        val protocolOptions = sendOptions(resolved)
-        val messages = stealth.scheduledRequest(resolved !== options) { request(TdApi.SendMessageAlbum().apply {
+        val resolved = stealth.resolve(chatId, options, media)
+        val protocolOptions = sendOptions(resolved.options)
+        val messages = stealth.scheduledRequest(resolved.scheduled) { request(TdApi.SendMessageAlbum().apply {
             this.chatId = chatId
             this.options = protocolOptions
-            inputMessageContents = media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
+            inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
@@ -474,26 +476,31 @@ internal class TdConversationActions(
         PinnedMessagePage(page.messages.orEmpty().filterNotNull().map(map), page.totalCount, page.nextFromMessageId)
     }
 
-    suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = conversationResult {
+    suspend fun retryMessages(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean = false): Result<Unit> = conversationResult {
         val orderedIds = messageIds.distinct().sorted()
         require(orderedIds.isNotEmpty()) { "Нет сообщений для повтора" }
+        // A resend goes out as the message was; in stealth mode only one still waiting in the scheduled queue may go.
+        stealth.checkResend(chatId, orderedIds, sendNowConsent)
         request(TdApi.ResendMessages(chatId, orderedIds.toLongArray(), null, 0L))
         Unit
     }
     /** [forumTopicId] is used only without a reply target: a reply already carries its topic. */
+    /** [content] is built from the media that stealth mode may have uploaded ahead of the send. */
     private suspend fun send(
-        chatId: Long, content: TdApi.InputMessageContent, replyId: Long?, forumTopicId: Long = 0L,
-        options: MessageSendOptions = MessageSendOptions(), uploadBytes: Long = 0L, liveLocation: Boolean = false
+        chatId: Long, replyId: Long?, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(),
+        media: List<OutgoingMedia> = emptyList(), liveLocation: Boolean = false,
+        content: (List<OutgoingMedia>) -> TdApi.InputMessageContent
     ) {
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
             request(TdApi.GetMessage(chatId, it))
         }
         // Resolved last, so the scheduled date is taken as close to the request as possible.
-        val resolved = stealth.resolve(chatId, options, uploadBytes, liveLocation)
-        val protocolOptions = sendOptions(resolved)
-        val message = stealth.scheduledRequest(resolved !== options) { request(TdApi.SendMessage().apply {
-            this.chatId = chatId; inputMessageContent = content; this.options = protocolOptions
+        val resolved = stealth.resolve(chatId, options, media, liveLocation)
+        val protocolOptions = sendOptions(resolved.options)
+        val inputContent = content(resolved.media)
+        val message = stealth.scheduledRequest(resolved.scheduled) { request(TdApi.SendMessage().apply {
+            this.chatId = chatId; inputMessageContent = inputContent; this.options = protocolOptions
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
@@ -644,8 +651,8 @@ internal class TdConversationActions(
         ))
         requireFutureSchedule(options)
         val resolved = stealth.resolve(toChatId, options)
-        val forwarded = stealth.scheduledRequest(resolved !== options) {
-            request(forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved)))
+        val forwarded = stealth.scheduledRequest(resolved.scheduled) {
+            request(forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved.options)))
         }
         val returned = forwarded.messages.orEmpty()
         val forwardedIds = ids.filterIndexed { index, _ -> returned.getOrNull(index) != null }

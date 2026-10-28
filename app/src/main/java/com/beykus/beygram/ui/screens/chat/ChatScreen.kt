@@ -449,12 +449,6 @@ fun ChatScreen(
     }
     // Chip taps leave the user's recent reactions alone; only a reaction picked from the extended menu is added there.
     fun react(messageId: Long, reaction: ReactionOption) = setReaction(messageId, reaction, addToRecent = false)
-    fun retryFailedMessages(messageIds: List<Long>) {
-        scope.launch {
-            val result = conversation.retryMessages(chat.id, messageIds)
-            result.exceptionOrNull()?.let { error = it.message ?: context.getString(R.string.chat_retry_send_failed) }
-        }
-    }
     fun capturedRecording(media: OutgoingMedia, previewFirst: Boolean) {
         if (previewFirst) recordingRecovery.showPreview(listOf(media))
         else sendRecordedMedia(listOf(media))
@@ -487,6 +481,15 @@ fun ChatScreen(
             result
         }
     )
+    fun retryFailedMessages(messageIds: List<Long>, sendNowConsent: Boolean = false) {
+        scope.launch {
+            val result = conversation.retryMessages(chat.id, messageIds, sendNowConsent)
+            val failure = result.exceptionOrNull() ?: return@launch
+            // A resend that stealth mode cannot keep scheduled goes out only after the user agrees.
+            if (attachments.stealthFallback.offer(failure) { retryFailedMessages(messageIds, sendNowConsent = true) }) return@launch
+            error = failure.message ?: context.getString(R.string.chat_retry_send_failed)
+        }
+    }
     // View-once is a regular-private-chat photo/video feature. TDLib rejects per-message self-destruct in secret chats,
     // groups, channels and Saved Messages, so those keep only the separate chat-wide TTL controls.
     val allowViewOnce = !chat.isSecret && !chat.isGroup && !chat.isChannel && !chat.isSavedMessages

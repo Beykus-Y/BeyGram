@@ -18,4 +18,6 @@
     <string name="stealth_schedule_fallback_title">Sofort senden?</string>
     <string name="stealth_schedule_fallback_text">Die Nachricht wurde nicht gesendet. Wenn Sie sie sofort senden, kann Telegram Sie etwa 30 Sekunden lang als online anzeigen.</string>
     <string name="stealth_schedule_fallback_send_now">Sofort senden</string>
+    <string name="stealth_schedule_retry">Ein erneuter Versuch sendet die Nachricht sofort, nicht als geplante Nachricht.</string>
+    <string name="stealth_schedule_upload_failed">Die Datei konnte nicht vorab hochgeladen werden, daher lässt sich das Senden nicht zuverlässig planen.</string>
 </resources>

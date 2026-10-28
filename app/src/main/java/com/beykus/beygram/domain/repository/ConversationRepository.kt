@@ -165,8 +165,11 @@ interface ConversationRepository {
     suspend fun rescheduleMessage(chatId: Long, messageId: Long, atSeconds: Long): Result<Unit>
     /** Delivers a queued message immediately through TDLib. */
     suspend fun sendScheduledNow(chatId: Long, messageId: Long): Result<Unit>
-    /** Retries failed outgoing messages regardless of their content type. */
-    suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit>
+    /**
+     * Retries failed outgoing messages regardless of their content type. In stealth mode a resend that would go out at once
+     * fails with StealthScheduleUnavailableException unless [sendNowConsent] carries the user's explicit agreement.
+     */
+    suspend fun retryMessages(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean = false): Result<Unit>
     suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities>
     /** Per-chat notification preferences from TDLib; no local copy is created. */
     suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences>

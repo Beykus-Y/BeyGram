@@ -284,6 +284,15 @@ internal fun MessageThreadScreen(
     }
 
     val stealthFallback = remember { StealthScheduleFallback() }
+    fun retryComment(chatId: Long, messageId: Long, sendNowConsent: Boolean) {
+        scope.launch {
+            conversation.retryMessages(chatId, listOf(messageId), sendNowConsent).onFailure { failure ->
+                if (!stealthFallback.offer(failure) { retryComment(chatId, messageId, sendNowConsent = true) }) {
+                    sendError = failure.userMessage(context, R.string.chat_retry_send_failed)
+                }
+            }
+        }
+    }
     fun send(sendNowConsent: Boolean = false) {
         val current = thread ?: return
         if (!current.canReply || sending || text.isBlank()) return
@@ -394,12 +403,7 @@ internal fun MessageThreadScreen(
                         onOpenProfile = onOpenProfile,
                         onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
                         onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
-                        onRetry = {
-                            scope.launch {
-                                conversation.retryMessages(message.chatId, listOf(message.id))
-                                    .onFailure { sendError = it.userMessage(context, R.string.chat_retry_send_failed) }
-                            }
-                        },
+                        onRetry = { retryComment(message.chatId, message.id, sendNowConsent = false) },
                         onActions = { reactionTarget = message.chatId to message },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {

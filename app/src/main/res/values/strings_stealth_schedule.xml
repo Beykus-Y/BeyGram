@@ -20,4 +20,6 @@
     <string name="stealth_schedule_fallback_title">Отправить сразу?</string>
     <string name="stealth_schedule_fallback_text">Сообщение не отправлено. Если отправить его сразу, Telegram может показать вас в сети около 30 секунд.</string>
     <string name="stealth_schedule_fallback_send_now">Отправить сразу</string>
+    <string name="stealth_schedule_retry">Повтор отправит сообщение сразу, а не через отложенные сообщения.</string>
+    <string name="stealth_schedule_upload_failed">Не удалось заранее загрузить файл, поэтому отправку нельзя надёжно запланировать.</string>
 </resources>
