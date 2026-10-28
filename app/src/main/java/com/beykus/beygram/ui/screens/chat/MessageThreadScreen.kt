@@ -65,6 +65,7 @@ import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSendState
@@ -139,6 +140,7 @@ internal fun MessageThreadScreen(
     // A view-once message is deleted as soon as it is opened; keep its page for this viewer session.
     var retainedViewOnce by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
     var openedViewOnceIds by remember(channelChatId, postId) { mutableStateOf(emptySet<Long>()) }
+    val viewOnceGate = rememberViewOnceStealthGate(channelChatId to postId)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val messageLimits by conversation.messageLimits.collectAsStateWithLifecycle()
 
@@ -587,9 +589,11 @@ internal fun MessageThreadScreen(
             conversation.messageCapabilities(viewed.chatId, viewed.id).getOrNull()?.canSave == true
         } else false
     }
+    val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(it.chatId, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, it.chatId)) }
+    if (viewOnceAsked != null) viewOnceGate.ConsentDialog(viewOnceAsked.chatId, viewOnceAsked.id) { selectedMediaId = null; selectedMediaChatId = 0L }
     if (viewed != null) {
         val viewedMedia = viewed.media
-        if (viewedMedia != null) {
+        if (viewedMedia != null && viewOnceAsked == null) {
             val viewerPages = MediaViewerPolicy.retainViewOncePage(
                 pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, viewed.chatId) } },
                 retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId)
@@ -605,7 +609,7 @@ internal fun MessageThreadScreen(
                     val once = (mediaMessages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
                     if (!once || id !in openedViewOnceIds) {
                         if (once) openedViewOnceIds = openedViewOnceIds + id
-                        conversation.openMessageContent(viewed.chatId, id)
+                        viewOnceGate.openContent(conversation, viewed.chatId, id)
                     }
                 },
                 onClose = { selectedMediaId = null; selectedMediaChatId = 0L },

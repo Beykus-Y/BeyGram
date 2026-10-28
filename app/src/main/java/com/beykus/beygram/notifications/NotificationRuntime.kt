@@ -2,6 +2,7 @@ package com.beykus.beygram.notifications
 
 import android.content.Context
 import com.beykus.beygram.R
+import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
@@ -65,6 +66,9 @@ class NotificationRuntime private constructor(private val context: Context) {
         if (accountId == "legacy") preferences else secondaryPreferences.computeIfAbsent(accountId) {
             NotificationPreferencesStore(context, it)
         }
+
+    /** Read on every attempt, so a change of the account's stealth switch applies to the next reply. */
+    private fun hidesOnline(accountId: String): Boolean = StealthSettingsStore.forAccount(context, accountId).current.hideOnline
 
     /**
      * Shared Android renderer, separate account-tag and watermark namespaces.
@@ -186,7 +190,7 @@ class NotificationRuntime private constructor(private val context: Context) {
                 }
                 // Android may kill the process immediately after this broadcast;
                 // persistent outbox replay happens on the next account READY.
-                val deliver = launch { deliverSecondaryReply(accountId, entry) }
+                val deliver = launch { deliverSecondaryReply(accountId, entry, firstDirectAttempt = true) }
                 withTimeoutOrNull(REPLY_BROADCAST_MILLIS) { deliver.join() }
                 if (secondaries[accountId] == null)
                     TelegramNotificationService.reconcileFromAllowedContext(context, "reply")
@@ -209,7 +213,7 @@ class NotificationRuntime private constructor(private val context: Context) {
         }
     }
 
-    private suspend fun deliverSecondaryReply(accountId: String, entry: ReplyOutbox.Entry) {
+    private suspend fun deliverSecondaryReply(accountId: String, entry: ReplyOutbox.Entry, firstDirectAttempt: Boolean = false) {
         val id = "$accountId:${entry.id}"
         if (!secondaryRepliesInFlight.add(id)) return
         try {
@@ -223,6 +227,17 @@ class NotificationRuntime private constructor(private val context: Context) {
             val registered = secondaries[accountId] ?: return
             val source = registered.source as? TdLibTelegramRepository ?: return
             if (source.accountId != accountId || source.authState.value != AuthState.Ready) return
+            if (!stealthAllowsReplyAttempt(hidesOnline(accountId), firstDirectAttempt)) {
+                // A held reply is not kept for a later send: it leaves the outbox and its notification shows the failure.
+                withContext(Dispatchers.IO) { outbox.remove(entry.id) }
+                val newest = source.notifications.value.groups.firstOrNull { it.id == entry.groupId }
+                    ?.notices?.maxOfOrNull { it.id } ?: entry.maxId
+                registered.renderer.markReplyFailed(entry.groupId, newest)
+                invalidations.update { it + 1 }
+                recordAppEvent(EventKind.NOTIFICATION, "secondary_reply_stealth_held",
+                    "Ответ вторичного аккаунта не отправлен: включён режим невидимки", Severity.WARNING)
+                return
+            }
             val failed = try {
                 if (entry.text.codePointCount(0, entry.text.length) > source.messageLimits.value.text)
                     throw IllegalArgumentException("Telegram reply text too long")
@@ -391,7 +406,7 @@ class NotificationRuntime private constructor(private val context: Context) {
             id = UUID.randomUUID().toString(), session = session, chatId = chatId, groupId = groupId, maxId = maxId,
             replyToMessageId = replyToMessageId, topicId = topicId, text = text, createdAtMillis = now, attempts = 0
         )
-        return PendingReply(entry, stored = saved != null)
+        return PendingReply(entry, stored = saved != null, firstDirectAttempt = true)
     }
     /** Sends one reply. Returns false when the send failed and the reply stays stored for another attempt. */
     private suspend fun deliverReply(pending: PendingReply): Boolean {
@@ -401,6 +416,16 @@ class NotificationRuntime private constructor(private val context: Context) {
         try {
             // A stored reply that is no longer in the outbox was sent already, or cleared by a sign-out.
             if (pending.stored && !outbox { isStored(entry.id) }) return true
+            // With hidden presence only the attempt made from the notification may send. A later automatic one is held: it leaves
+            // the outbox and its notification shows the reply as failed.
+            if (!stealthAllowsReplyAttempt(hidesOnline(TdAccountStorageLayout.LEGACY_ACCOUNT_ID), pending.firstDirectAttempt)) {
+                if (pending.stored) outbox { remove(entry.id) }
+                val newest = repository?.notifications?.value?.groups?.firstOrNull { it.id == entry.groupId }?.notices?.maxOfOrNull { it.id } ?: entry.maxId
+                renderer.markReplyFailed(entry.groupId, newest)
+                recordAppEvent(EventKind.NOTIFICATION, "reply_stealth_held", "Ответ из уведомления не отправлен: включён режим невидимки", Severity.WARNING)
+                refresh()
+                return true
+            }
             val failure = sendReply(pending).exceptionOrNull()
             if (failure is AccountChangedException) {
                 // The reply was made in a session that has signed out since. It is dropped without a failed mark.
@@ -467,8 +492,8 @@ class NotificationRuntime private constructor(private val context: Context) {
     }
     /** Outbox files are read and written off the main thread. */
     private suspend fun <T> outbox(block: ReplyOutbox.() -> T): T = withContext(Dispatchers.IO) { replyOutbox.block() }
-    /** A reply on its way to Telegram. Only a [stored] reply is kept on disk until it is sent. */
-    private class PendingReply(val entry: ReplyOutbox.Entry, val stored: Boolean)
+    /** A reply on its way to Telegram. Only a [stored] reply is kept on disk until it is sent. [firstDirectAttempt] is the attempt the user made from the notification. */
+    private class PendingReply(val entry: ReplyOutbox.Entry, val stored: Boolean, val firstDirectAttempt: Boolean = false)
     /** The session that made the reply signed out before the reply was sent. */
     private class AccountChangedException : IllegalStateException("Telegram account changed before the reply was sent")
     /**

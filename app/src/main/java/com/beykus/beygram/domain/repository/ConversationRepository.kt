@@ -302,7 +302,13 @@ interface ConversationRepository {
     ): Result<ChatExportSummary>
     fun setAppForeground(foreground: Boolean)
     fun refreshInteractionPolicy()
+    /** Whether this account's stealth settings let [effect] reach Telegram for [chatId]. Accounts without stealth settings allow everything. */
+    fun interactionAllowed(effect: InteractionEffect, chatId: Long?): Boolean = true
+    /** Whether a message send must be confirmed first: this account hides its online status and warns before risky actions. */
+    fun stealthWarnsBeforeSending(): Boolean = false
     fun openMessageContent(chatId: Long, messageId: Long)
+    /** Opens view-once content the user explicitly agreed to open although media-open marks are hidden. */
+    fun openMessageContentWithConsent(chatId: Long, messageId: Long) = openMessageContent(chatId, messageId)
     /** Names of the people typing in the chat right now; empty when nobody is. A blank name means the sender's name is unknown. */
     fun observeTyping(chatId: Long): StateFlow<List<String>>
     /**

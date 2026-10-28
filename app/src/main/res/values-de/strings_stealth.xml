@@ -25,7 +25,7 @@
     <string name="stealth_hide_online_title">Online-Status verbergen</string>
     <string name="stealth_hide_online_detail">Die App meldet nicht, dass Sie online sind. Telegram zeigt Sie trotzdem etwa 30 Sekunden lang als online, wenn Sie eine Nachricht senden, eine Privatnachricht lesen oder schreiben.</string>
     <string name="stealth_warn_risky_title">Vor Aktionen warnen, die Aktivität zeigen können</string>
-    <string name="stealth_warn_risky_detail">Betrifft das Senden von Nachrichten und Reaktionen.</string>
+    <string name="stealth_warn_risky_detail">Fragt vor dem Senden einer Nachricht nach. Telegram zeigt Sie möglicherweise etwa 30 Sekunden lang als online.</string>
 
     <string name="stealth_limits_title">Grenzen</string>
     <string name="stealth_limits_scope">Funktioniert nur in dieser App und nur für dieses Konto. Andere Geräte und Apps, in denen Sie angemeldet sind, bleiben unverändert.</string>

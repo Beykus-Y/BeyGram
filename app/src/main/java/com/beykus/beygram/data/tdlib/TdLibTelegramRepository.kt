@@ -2277,6 +2277,11 @@ class TdLibTelegramRepository private constructor(
     override fun openMessageContent(chatId: Long, messageId: Long) {
         conversationEffects.contentOpened(chatId, messageId)
     }
+    override fun openMessageContentWithConsent(chatId: Long, messageId: Long) {
+        conversationEffects.contentOpenedWithConsent(chatId, messageId)
+    }
+    override fun interactionAllowed(effect: InteractionEffect, chatId: Long?): Boolean = conversationEffects.allows(effect, chatId)
+    override fun stealthWarnsBeforeSending(): Boolean = stealthSettings.current.let { it.hideOnline && it.warnRiskyActions }
 
     override fun cancelFileDownload(fileId: Int) {
         client.send(TdApi.CancelDownloadFile(fileId, false), errorHandler())

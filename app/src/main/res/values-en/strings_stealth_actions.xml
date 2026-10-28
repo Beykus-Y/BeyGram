@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_view_once_title">Open one-time media?</string>
+    <string name="stealth_view_once_text">The sender will find out that you opened it, and it will disappear after viewing. Stealth mode won\'t hide this view.</string>
+    <string name="stealth_view_once_open">Open</string>
+    <string name="stealth_send_warning_title">Send message?</string>
+    <string name="stealth_send_warning_text">Telegram will show you online for about 30 seconds, even if your status is hidden.</string>
+    <string name="stealth_send_warning_send">Send</string>
+</resources>

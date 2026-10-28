@@ -1349,6 +1349,8 @@ fun ChatScreen(
         onFocusHandled()
     }
 
+    // Composer sends confirm first while hidden presence warns about sending; asked once per chat screen (see StealthSendGuard).
+    val sendGuard = rememberStealthSendGuard(chat.id, conversation)
     /**
      * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
      * the choice applies to this send only and is not kept for the next one.
@@ -2013,7 +2015,7 @@ fun ChatScreen(
                             } finally { editBusy = false }
                         }
                     } else {
-                        sendCurrentDraft(MessageSendOptions())
+                        sendGuard.run { sendCurrentDraft(MessageSendOptions()) }
                     }
                 }
                 .semantics {
@@ -2103,14 +2105,17 @@ fun ChatScreen(
     // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
     val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
         ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id) } })
-    if (viewed != null && viewed.media != null) MediaViewer(
+    val viewOnceGate = rememberViewOnceStealthGate(chat.id)
+    val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(chat.id, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)) }
+    if (viewOnceAsked != null) viewOnceGate.ConsentDialog(chat.id, viewOnceAsked.id) { selectedMediaId = null }
+    if (viewed != null && viewed.media != null && viewOnceAsked == null) MediaViewer(
         pages = viewerPages, selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigins[viewed.id],
         observeFile = observeFile, downloadFile = onDownloadFile,
         onViewed = { id ->
             val once = (messages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
             if (!once || id !in openedViewOnceIds) {
                 if (once) openedViewOnceIds = openedViewOnceIds + id
-                conversation.openMessageContent(chat.id, id)
+                viewOnceGate.openContent(conversation, chat.id, id)
             }
         }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
@@ -2218,12 +2223,13 @@ fun ChatScreen(
         },
         dismissButton = { TextButton(onClick = { pinConfirm = false }) { Text(stringResource(R.string.common_cancel)) } }
     )
+    sendGuard.Dialog()
     if (sendOptionsOpen) SendOptionsDialog(
         canSchedule = !chat.isSecret,
         onDismiss = { sendOptionsOpen = false; pendingSticker = null },
-        onSendNow = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions()) },
-        onSendSilently = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(disableNotification = true)) },
-        onSchedule = { at -> sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(scheduledAtSeconds = at)) }
+        onSendNow = { sendOptionsOpen = false; sendGuard.run { sendCurrentDraft(MessageSendOptions()) } },
+        onSendSilently = { sendOptionsOpen = false; sendGuard.run { sendCurrentDraft(MessageSendOptions(disableNotification = true)) } },
+        onSchedule = { at -> sendOptionsOpen = false; sendGuard.run { sendCurrentDraft(MessageSendOptions(scheduledAtSeconds = at)) } }
     )
     if (scheduledMessagesOpen) ScheduledMessagesDialog(
         chatId = chat.id,
