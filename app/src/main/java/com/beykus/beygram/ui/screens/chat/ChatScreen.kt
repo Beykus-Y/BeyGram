@@ -2109,7 +2109,7 @@ fun ChatScreen(
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(chat.id, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)) }
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(chat.id, viewOnceAsked.id) { selectedMediaId = null }
     if (viewed != null && viewed.media != null && viewOnceAsked == null) MediaViewer(
-        pages = viewerPages, selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigins[viewed.id],
+        pages = viewOnceGate.swipeable(viewerPages, chat.id, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)), selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigins[viewed.id],
         observeFile = observeFile, downloadFile = onDownloadFile,
         onViewed = { id ->
             val once = (messages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
@@ -2227,9 +2227,9 @@ fun ChatScreen(
     if (sendOptionsOpen) SendOptionsDialog(
         canSchedule = !chat.isSecret,
         onDismiss = { sendOptionsOpen = false; pendingSticker = null },
-        onSendNow = { sendOptionsOpen = false; sendGuard.run { sendCurrentDraft(MessageSendOptions()) } },
-        onSendSilently = { sendOptionsOpen = false; sendGuard.run { sendCurrentDraft(MessageSendOptions(disableNotification = true)) } },
-        onSchedule = { at -> sendOptionsOpen = false; sendGuard.run { sendCurrentDraft(MessageSendOptions(scheduledAtSeconds = at)) } }
+        onSendNow = { sendOptionsOpen = false; sendGuard.run({ pendingSticker = null }) { sendCurrentDraft(MessageSendOptions()) } },
+        onSendSilently = { sendOptionsOpen = false; sendGuard.run({ pendingSticker = null }) { sendCurrentDraft(MessageSendOptions(disableNotification = true)) } },
+        onSchedule = { at -> sendOptionsOpen = false; sendGuard.run({ pendingSticker = null }) { sendCurrentDraft(MessageSendOptions(scheduledAtSeconds = at)) } }
     )
     if (scheduledMessagesOpen) ScheduledMessagesDialog(
         chatId = chat.id,

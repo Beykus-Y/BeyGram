@@ -599,7 +599,7 @@ internal fun MessageThreadScreen(
                 retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId)
             )
             MediaViewer(
-                pages = viewerPages,
+                pages = viewOnceGate.swipeable(viewerPages, viewed.chatId, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, viewed.chatId)),
                 selectedId = viewed.id,
                 onSelect = { selectedMediaId = it },
                 observeFile = observeFile,

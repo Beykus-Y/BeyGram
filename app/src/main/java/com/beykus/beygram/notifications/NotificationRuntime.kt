@@ -215,6 +215,8 @@ class NotificationRuntime private constructor(private val context: Context) {
 
     private suspend fun deliverSecondaryReply(accountId: String, entry: ReplyOutbox.Entry, firstDirectAttempt: Boolean = false) {
         val id = "$accountId:${entry.id}"
+        // Checked before the in-flight claim, so a flush never blocks the direct attempt of a reply stored a moment ago.
+        if (stealthReplyLeftForDirectAttempt(hidesOnline(accountId), firstDirectAttempt, System.currentTimeMillis() - entry.createdAtMillis)) return
         if (!secondaryRepliesInFlight.add(id)) return
         try {
             val outbox = secondaryReplyOutbox(accountId)
@@ -411,6 +413,9 @@ class NotificationRuntime private constructor(private val context: Context) {
     /** Sends one reply. Returns false when the send failed and the reply stays stored for another attempt. */
     private suspend fun deliverReply(pending: PendingReply): Boolean {
         val entry = pending.entry
+        // Checked before the in-flight claim, so a flush never blocks the direct attempt of a reply stored a moment ago.
+        // It returns false, so the retry flush comes back for the reply and holds it if it is still there.
+        if (stealthReplyLeftForDirectAttempt(hidesOnline(TdAccountStorageLayout.LEGACY_ACCOUNT_ID), pending.firstDirectAttempt, System.currentTimeMillis() - entry.createdAtMillis)) return false
         // One attempt at a time: a flush does not send a reply that the broadcast is still sending.
         if (!replyInFlight.add(entry.id)) return true
         try {

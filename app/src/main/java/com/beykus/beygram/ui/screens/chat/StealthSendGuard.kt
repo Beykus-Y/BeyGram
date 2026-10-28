@@ -23,14 +23,21 @@ internal fun stealthSendNeedsConfirmation(warns: Boolean, confirmed: Boolean): B
 internal class StealthSendGuard(private val conversation: ConversationRepository) {
     private var confirmed by mutableStateOf(false)
     private var pending by mutableStateOf<(() -> Unit)?>(null)
+    private var pendingCancel: () -> Unit = {}
 
-    /** Runs [action] at once, or after the user confirms the question. */
-    fun run(action: () -> Unit) {
+    /** Runs [action] at once, or after the user confirms the question. [onCancel] undoes what the caller staged for it. */
+    fun run(onCancel: () -> Unit = {}, action: () -> Unit) {
         if (stealthSendNeedsConfirmation(conversation.stealthWarnsBeforeSending(), confirmed)) {
             pending = action
+            pendingCancel = onCancel
         } else {
             action()
         }
+    }
+
+    private fun cancel() {
+        pending = null
+        pendingCancel().also { pendingCancel = {} }
     }
 
     @Composable
@@ -38,17 +45,18 @@ internal class StealthSendGuard(private val conversation: ConversationRepository
         val action = pending ?: return
         val palette = beyGramPalette()
         AlertDialog(
-            onDismissRequest = { pending = null },
+            onDismissRequest = ::cancel,
             title = { Text(stringResource(R.string.stealth_send_warning_title)) },
             text = { Text(stringResource(R.string.stealth_send_warning_text)) },
             confirmButton = {
                 TextButton(onClick = {
                     pending = null
+                    pendingCancel = {}
                     confirmed = true
                     action()
                 }) { Text(stringResource(R.string.stealth_send_warning_send), color = palette.accent) }
             },
-            dismissButton = { TextButton(onClick = { pending = null }) { Text(stringResource(R.string.common_cancel)) } }
+            dismissButton = { TextButton(onClick = ::cancel) { Text(stringResource(R.string.common_cancel)) } }
         )
     }
 }

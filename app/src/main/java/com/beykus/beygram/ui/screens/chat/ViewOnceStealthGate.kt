@@ -33,6 +33,13 @@ internal class ViewOnceStealthGate {
 
     fun consented(chatId: Long, messageId: Long): Boolean = (chatId to messageId) in consentedKeys
 
+    /**
+     * The pages the viewer may swipe to. While media-open marks are hidden, a view-once page other than [selectedId] that has no
+     * consent yet is left out: the pager would show it before the question could be asked. Tapping it in the chat asks first.
+     */
+    fun swipeable(pages: List<MediaViewerItem>, chatId: Long, selectedId: Long, allowed: Boolean): List<MediaViewerItem> =
+        if (allowed) pages else pages.filter { !it.viewOnce || it.messageId == selectedId || consented(chatId, it.messageId) }
+
     /** With the user's consent the opening skips the stealth refusal; otherwise it is the normal request, which the switch decides. */
     fun openContent(conversation: ConversationRepository, chatId: Long, messageId: Long) {
         if (consented(chatId, messageId)) conversation.openMessageContentWithConsent(chatId, messageId)
