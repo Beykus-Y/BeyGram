@@ -6,6 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -126,8 +129,11 @@ internal class DelayedSendController(
     /** Takes a waiting message back into the composer. The caller has checked that the composer is empty. */
     private fun restore(id: String, onRestoreDraft: (MessageDraft) -> Unit) {
         scope.launch {
-            val entry = withContext(Dispatchers.IO) { queue?.cancel(id) } ?: return@launch
-            onRestoreDraft(MessageDraft(entry.text, entry.entities, entry.replyToMessageId.takeIf { it > 0L }))
+            // Not cancellable: once the entry is removed from the queue its text must reach the draft, or it is lost.
+            withContext(NonCancellable) {
+                val entry = withContext(Dispatchers.IO) { queue?.cancel(id) } ?: return@withContext
+                onRestoreDraft(MessageDraft(entry.text, entry.entities, entry.replyToMessageId.takeIf { it > 0L }))
+            }
         }
     }
 
@@ -141,7 +147,8 @@ internal class DelayedSendController(
         val rows = all.filter { it.chatId == chatId && it.topicId == forumTopicId }
         if (rows.isEmpty()) return
         val palette = beyGramPalette()
-        Column(Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 12.dp, vertical = 4.dp)) {
+        // Bounded and scrollable: a backlog of waiting messages must never push the composer off the screen.
+        Column(Modifier.fillMaxWidth().heightIn(max = 168.dp).background(palette.surface).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp)) {
             rows.forEach { entry ->
                 DelayedSendRow(
                     entry = entry,

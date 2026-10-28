@@ -45,6 +45,8 @@ internal class DelayedSendQueue private constructor(context: Context, private va
     // Guarded by [lock]: ids whose wait is over, and messages held at load under "hide online".
     private val dueIds = HashSet<String>()
     private val heldAtLoad = HashSet<String>()
+    /** Messages the user sent with «Send now»: they go out even while an older message of the chat is stuck. */
+    private val explicitIds = HashSet<String>()
 
     private val _entries = MutableStateFlow<List<DelayedSendEntry>>(emptyList())
     val entries: StateFlow<List<DelayedSendEntry>> = _entries.asStateFlow()
@@ -84,6 +86,7 @@ internal class DelayedSendQueue private constructor(context: Context, private va
         runCatching {
             val now = System.currentTimeMillis()
             val entry = synchronized(lock) {
+                pruneExpiredLocked(now)
                 if (_entries.value.size >= DELAYED_SEND_MAX_ENTRIES) throw DelayedSendQueueFullException()
                 val created = DelayedSendEntry(
                     id = UUID.randomUUID().toString(),
@@ -147,6 +150,7 @@ internal class DelayedSendQueue private constructor(context: Context, private va
             }
             heldAtLoad.remove(id)
             dueIds.add(id)
+            explicitIds.add(id)
         }
         scope.launch { dispatchDue() }
     }
@@ -158,6 +162,7 @@ internal class DelayedSendQueue private constructor(context: Context, private va
             _entries.value = emptyList()
             dueIds.clear()
             heldAtLoad.clear()
+            explicitIds.clear()
             failed
         }
         return failures == 0
@@ -195,16 +200,17 @@ internal class DelayedSendQueue private constructor(context: Context, private va
     }
 
     private fun nextDue(): List<DelayedSendEntry> = synchronized(lock) {
-        val blocked: Set<String> = if (stealth.current.hideOnline) heldAtLoad else emptySet()
         val now = System.currentTimeMillis()
+        pruneExpiredLocked(now)
+        val blocked: Set<String> = if (stealth.current.hideOnline) heldAtLoad else emptySet()
         // A chat keeps its order: while an older message of it failed, is uncertain or is held, the newer ones wait too.
         val stuckSince = HashMap<Long, Long>()
         _entries.value.filter { it.status != DelayedSendStatus.Queued || it.id in blocked }.forEach { stuck ->
             stuckSince[stuck.chatId] = minOf(stuckSince[stuck.chatId] ?: Long.MAX_VALUE, stuck.createdAtMillis)
         }
         _entries.value
-            .filter { it.status == DelayedSendStatus.Queued && it.id !in blocked && (it.id in dueIds || it.notBeforeMillis <= now) }
-            .filter { it.createdAtMillis < (stuckSince[it.chatId] ?: Long.MAX_VALUE) }
+            .filter { it.status == DelayedSendStatus.Queued && it.id !in blocked && it.id in dueIds }
+            .filter { it.id in explicitIds || it.createdAtMillis < (stuckSince[it.chatId] ?: Long.MAX_VALUE) }
             .sortedBy { it.createdAtMillis }
     }
 
@@ -265,6 +271,16 @@ internal class DelayedSendQueue private constructor(context: Context, private va
         _entries.value = _entries.value.filterNot { it.id == id }
         dueIds.remove(id)
         heldAtLoad.remove(id)
+        explicitIds.remove(id)
+    }
+
+    /**
+     * Drops messages older than the TTL from disk and memory, also in a long-running process. A message that is being
+     * sent is left alone. Call under [lock].
+     */
+    private fun pruneExpiredLocked(nowMillis: Long) {
+        _entries.value.filter { it.status != DelayedSendStatus.Dispatching && nowMillis - it.createdAtMillis > DELAYED_SEND_TTL_MILLIS }
+            .forEach { if (outbox.remove(it.id)) removeLocked(it.id) }
     }
 
     companion object {
