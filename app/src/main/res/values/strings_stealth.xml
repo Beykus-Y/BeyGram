@@ -25,7 +25,7 @@
     <string name="stealth_hide_online_title">Скрывать статус «в сети»</string>
     <string name="stealth_hide_online_detail">Приложение не сообщает, что вы в сети. Telegram всё равно показывает вас в сети около 30 секунд, когда вы отправляете сообщение, читаете личное сообщение или печатаете.</string>
     <string name="stealth_warn_risky_title">Предупреждать перед действиями, которые могут показать активность</string>
-    <string name="stealth_warn_risky_detail">Касается отправки сообщений и реакций.</string>
+    <string name="stealth_warn_risky_detail">Спрашивает перед отправкой сообщения. Telegram может показать вас в сети около 30 секунд.</string>
 
     <string name="stealth_limits_title">Ограничения</string>
     <string name="stealth_limits_scope">Работает только в этом приложении и только для этого аккаунта. Другие устройства и приложения, где вы вошли, не меняются.</string>

@@ -25,7 +25,7 @@
     <string name="stealth_hide_online_title">Masquer le statut « en ligne »</string>
     <string name="stealth_hide_online_detail">L’application n’indique pas que vous êtes en ligne. Telegram vous affiche tout de même en ligne pendant environ 30 secondes lorsque vous envoyez un message, lisez un message privé ou écrivez.</string>
     <string name="stealth_warn_risky_title">Prévenir avant les actions qui peuvent révéler une activité</string>
-    <string name="stealth_warn_risky_detail">S’applique à l’envoi de messages et aux réactions.</string>
+    <string name="stealth_warn_risky_detail">Demande confirmation avant l’envoi d’un message. Telegram peut vous afficher en ligne pendant environ 30 secondes.</string>
 
     <string name="stealth_limits_title">Limites</string>
     <string name="stealth_limits_scope">Ne fonctionne que dans cette application et uniquement pour ce compte. Les autres appareils et applications où vous êtes connecté ne sont pas concernés.</string>
