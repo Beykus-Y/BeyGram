@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -115,6 +116,8 @@ fun PrivacySettingsScreen(
     loadPrivacy: suspend () -> Result<List<PrivacySettingState>>,
     savePrivacy: suspend (PrivacySetting, PrivacyRules) -> Result<Unit>,
     loadContacts: suspend () -> Result<List<ContactPreview>>,
+    stealthActive: Boolean,
+    onStealth: () -> Unit,
     onBlockedSenders: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -226,6 +229,7 @@ fun PrivacySettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(stringResource(R.string.privacy_intro), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
+            StealthModeLink(active = stealthActive, onClick = onStealth)
             loadError?.let { message ->
                 Surface(shape = RoundedCornerShape(16.dp), color = palette.warningSurface) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -379,6 +383,26 @@ private fun PrivacySettingRow(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun StealthModeLink(active: Boolean, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface)
+            .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Rounded.VisibilityOff, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+            Text(stringResource(R.string.stealth_title), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(
+                stringResource(if (active) R.string.stealth_status_on else R.string.stealth_status_off),
+                color = palette.textSecondary, fontSize = 13.sp
+            )
+        }
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
     }
 }
 

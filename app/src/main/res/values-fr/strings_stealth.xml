@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_title">Mode furtif</string>
+    <string name="stealth_status_on">Activé</string>
+    <string name="stealth_status_off">Désactivé</string>
+    <string name="stealth_unavailable">Indisponible pour ce compte pour le moment</string>
+    <string name="stealth_fail_closed">Les réglages enregistrés n’ont pas pu être lus. Tant que vous ne les enregistrez pas à nouveau, tous les signaux sont bloqués. Toute modification les enregistre.</string>
+    <string name="stealth_save_failed">Impossible d’enregistrer le réglage</string>
+
+    <string name="stealth_group_presets">Niveau de protection</string>
+    <string name="stealth_preset_normal">Normal</string>
+    <string name="stealth_preset_hidden_reading">Lecture discrète</string>
+    <string name="stealth_preset_maximum">Protection maximale</string>
+    <string name="stealth_preset_custom">Réglages personnalisés</string>
+
+    <string name="stealth_group_switches">Ce qui est masqué</string>
+    <string name="stealth_hide_typing_title">Ne pas montrer que j’écris</string>
+    <string name="stealth_hide_typing_detail">Masque aussi l’enregistrement de messages vocaux et vidéo et l’envoi de fichiers.</string>
+    <string name="stealth_no_read_receipts_title">Ne pas marquer les messages comme lus</string>
+    <string name="stealth_no_read_receipts_detail">Les discussions restent non lues pour l’autre personne. Ouvrir une discussion ou la faire défiler n’envoie aucune marque de lecture. Le bouton « %1$s » demande d’abord confirmation.</string>
+    <string name="stealth_no_content_open_title">Ne pas signaler l’ouverture des médias</string>
+    <string name="stealth_no_content_open_detail">Les messages vocaux et vidéo ne sont pas marqués comme écoutés ou vus. Les médias à usage unique demandent confirmation avant ouverture.</string>
+    <string name="stealth_no_story_views_title">Voir les stories sans être remarqué</string>
+    <string name="stealth_no_story_views_detail">Les stories s’ouvrent sans vous ajouter à la liste des personnes qui les ont vues, et restent non vues.</string>
+    <string name="stealth_hide_online_title">Masquer le statut « en ligne »</string>
+    <string name="stealth_hide_online_detail">L’application n’indique pas que vous êtes en ligne. Telegram vous affiche tout de même en ligne pendant environ 30 secondes lorsque vous envoyez un message, lisez un message privé ou écrivez.</string>
+    <string name="stealth_warn_risky_title">Prévenir avant les actions qui peuvent révéler une activité</string>
+    <string name="stealth_warn_risky_detail">S’applique à l’envoi de messages et aux réactions.</string>
+
+    <string name="stealth_limits_title">Limites</string>
+    <string name="stealth_limits_scope">Ne fonctionne que dans cette application et uniquement pour ce compte. Les autres appareils et applications où vous êtes connecté ne sont pas concernés.</string>
+    <string name="stealth_limits_actions">Envoyer un message, réagir, voter, répondre à une story ou utiliser un bot est visible par les autres.</string>
+    <string name="stealth_limits_online">Même si la dernière connexion est masquée, Telegram peut vous afficher en ligne pendant environ 30 secondes après de telles actions.</string>
+
+    <string name="stealth_server_last_seen_title">Qui peut voir la dernière connexion</string>
+    <string name="stealth_server_last_seen_detail">Il s’agit d’une règle Telegram pour tous vos appareils.</string>
+
+    <string name="stealth_exceptions_count">Exceptions pour les discussions : %1$d</string>
+    <string name="stealth_exceptions_detail">Réglables dans les paramètres de chaque discussion</string>
+
+    <string name="stealth_chat_title">Mode furtif dans cette discussion</string>
+    <string name="stealth_chat_inherit">Comme dans les réglages généraux</string>
+    <string name="stealth_chat_allow">Autoriser dans cette discussion</string>
+    <string name="stealth_chat_block">Toujours masquer dans cette discussion</string>
+    <string name="stealth_chat_footnote">Le statut « en ligne » est le même pour toutes les discussions et n’est pas modifié ici.</string>
+
+    <string name="stealth_mark_read_title">Marquer comme lu ?</string>
+    <string name="stealth_mark_read_text">Les autres personnes verront que les messages ont été lus. Le mode furtif ne s’applique pas à cette action.</string>
+    <string name="stealth_mark_read_confirm">Marquer</string>
+    <plurals name="stealth_mark_all_read_text">
+        <item quantity="one">Vos correspondants dans %1$d discussion verront que les messages ont été lus.</item>
+        <item quantity="other">Vos correspondants dans %1$d discussions verront que les messages ont été lus.</item>
+    </plurals>
+</resources>

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -21,6 +22,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,6 +47,9 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.WallpaperPresets
 import com.beykus.beygram.data.settings.ChatOverridesStore
+import com.beykus.beygram.data.settings.ChatStealthMode
+import com.beykus.beygram.data.settings.StealthSettingsStore
+import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.domain.model.ChatNotificationPreferences
 import com.beykus.beygram.domain.model.NotificationSoundOption
 import com.beykus.beygram.domain.repository.ConversationRepository
@@ -81,6 +87,9 @@ internal fun ChatSettingsSheet(
     var error by remember(chatId) { mutableStateOf<String?>(null) }
     var soundMenu by remember { mutableStateOf(false) }
     val secretChats by conversation.secretChats.collectAsStateWithLifecycle()
+    // Null for an account without a TDLib repository: the stealth section is then left out.
+    val stealthStore = (conversation as? TdLibTelegramRepository)?.stealthSettings
+    val stealthSaveFailed = stringResource(R.string.stealth_save_failed)
 
     LaunchedEffect(chatId, conversation, isSecretChat) {
         loading = true
@@ -216,6 +225,14 @@ internal fun ChatSettingsSheet(
                         enabled = !busy
                     ) { Text(stringResource(R.string.chat_settings_reset), color = palette.accent) }
                 }
+                stealthStore?.let { store ->
+                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(vertical = 8.dp))
+                    ChatStealthSection(
+                        chatId = chatId,
+                        store = store,
+                        onSaveFailed = { error = stealthSaveFailed }
+                    )
+                }
                 if (isSecretChat) {
                     HorizontalDivider(color = palette.divider, modifier = Modifier.padding(vertical = 8.dp))
                     SecretChatSettingsSection(
@@ -239,5 +256,44 @@ private fun SettingSwitch(title: String, checked: Boolean, enabled: Boolean, onC
     Row(Modifier.fillMaxWidth().clickable(enabled = enabled) { onCheckedChange(!checked) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = palette.textPrimary, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+    }
+}
+
+/**
+ * The per-chat stealth exception. The account-wide switches apply to every chat that is not named here. The online
+ * status is the same in all chats, so no choice in this section changes it.
+ */
+@Composable
+private fun ChatStealthSection(chatId: Long, store: StealthSettingsStore, onSaveFailed: () -> Unit) {
+    val palette = beyGramPalette()
+    val settings by store.state.collectAsStateWithLifecycle()
+    val mode = settings.chats[chatId] ?: ChatStealthMode.Inherit
+
+    fun choose(next: ChatStealthMode) {
+        val saved = store.update { current ->
+            current.copy(chats = if (next == ChatStealthMode.Inherit) current.chats - chatId else current.chats + (chatId to next))
+        }
+        if (!saved) onSaveFailed()
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.stealth_chat_title), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        ChatStealthOption(stringResource(R.string.stealth_chat_inherit), selected = mode == ChatStealthMode.Inherit) { choose(ChatStealthMode.Inherit) }
+        ChatStealthOption(stringResource(R.string.stealth_chat_allow), selected = mode == ChatStealthMode.Allow) { choose(ChatStealthMode.Allow) }
+        ChatStealthOption(stringResource(R.string.stealth_chat_block), selected = mode == ChatStealthMode.Block) { choose(ChatStealthMode.Block) }
+        Text(stringResource(R.string.stealth_chat_footnote), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+@Composable
+private fun ChatStealthOption(label: String, selected: Boolean, onSelect: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 44.dp).selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // The row is the radio button for TalkBack, so the radio itself takes no clicks.
+        RadioButton(selected = selected, onClick = null)
+        Text(label, color = palette.textPrimary, modifier = Modifier.padding(start = 4.dp))
     }
 }

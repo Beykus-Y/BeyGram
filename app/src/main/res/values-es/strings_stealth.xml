@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_title">Modo invisible</string>
+    <string name="stealth_status_on">Activado</string>
+    <string name="stealth_status_off">Desactivado</string>
+    <string name="stealth_unavailable">No disponible para esta cuenta por ahora</string>
+    <string name="stealth_fail_closed">No se pudieron leer los ajustes guardados. Hasta que vuelvas a guardarlos, todas las señales están bloqueadas. Cualquier cambio los guarda.</string>
+    <string name="stealth_save_failed">No se pudo guardar el ajuste</string>
+
+    <string name="stealth_group_presets">Nivel de protección</string>
+    <string name="stealth_preset_normal">Normal</string>
+    <string name="stealth_preset_hidden_reading">Lectura oculta</string>
+    <string name="stealth_preset_maximum">Protección máxima</string>
+    <string name="stealth_preset_custom">Ajustes personalizados</string>
+
+    <string name="stealth_group_switches">Qué ocultar</string>
+    <string name="stealth_hide_typing_title">No mostrar que estoy escribiendo</string>
+    <string name="stealth_hide_typing_detail">También oculta la grabación de mensajes de voz y vídeo y la subida de archivos.</string>
+    <string name="stealth_no_read_receipts_title">No marcar los mensajes como leídos</string>
+    <string name="stealth_no_read_receipts_detail">Los chats siguen sin leer para la otra persona. Abrir un chat o desplazarse por él no envía la marca de lectura. El botón “%1$s” pide confirmación antes.</string>
+    <string name="stealth_no_content_open_title">No informar de la apertura de multimedia</string>
+    <string name="stealth_no_content_open_detail">Los mensajes de voz y vídeo no se marcan como escuchados ni vistos. Los archivos de un solo uso piden confirmación antes de abrirse.</string>
+    <string name="stealth_no_story_views_title">Ver las historias sin que se note</string>
+    <string name="stealth_no_story_views_detail">Las historias se abren sin añadirte a la lista de quienes las han visto, y siguen sin ver.</string>
+    <string name="stealth_hide_online_title">Ocultar el estado «en línea»</string>
+    <string name="stealth_hide_online_detail">La aplicación no informa de que estás en línea. Telegram te sigue mostrando en línea durante unos 30 segundos cuando envías un mensaje, lees un mensaje privado o escribes.</string>
+    <string name="stealth_warn_risky_title">Avisar antes de las acciones que pueden mostrar actividad</string>
+    <string name="stealth_warn_risky_detail">Se aplica al envío de mensajes y a las reacciones.</string>
+
+    <string name="stealth_limits_title">Limitaciones</string>
+    <string name="stealth_limits_scope">Funciona solo en esta aplicación y solo para esta cuenta. Los demás dispositivos y aplicaciones en los que has iniciado sesión no se ven afectados.</string>
+    <string name="stealth_limits_actions">Enviar un mensaje, reaccionar, votar, responder a una historia o usar un bot es visible para los demás.</string>
+    <string name="stealth_limits_online">Aunque la hora de última conexión esté oculta, Telegram puede mostrarte en línea unos 30 segundos después de estas acciones.</string>
+
+    <string name="stealth_server_last_seen_title">Quién puede ver la hora de última conexión</string>
+    <string name="stealth_server_last_seen_detail">Es una regla de Telegram para todos tus dispositivos.</string>
+
+    <string name="stealth_exceptions_count">Excepciones para chats: %1$d</string>
+    <string name="stealth_exceptions_detail">Se configuran en los ajustes de cada chat</string>
+
+    <string name="stealth_chat_title">Modo invisible en este chat</string>
+    <string name="stealth_chat_inherit">Como en los ajustes generales</string>
+    <string name="stealth_chat_allow">Permitir en este chat</string>
+    <string name="stealth_chat_block">Ocultar siempre en este chat</string>
+    <string name="stealth_chat_footnote">El estado «en línea» es el mismo en todos los chats y no se cambia aquí.</string>
+
+    <string name="stealth_mark_read_title">¿Marcar como leído?</string>
+    <string name="stealth_mark_read_text">La otra persona verá que los mensajes se han leído. El modo invisible no se aplica a esta acción.</string>
+    <string name="stealth_mark_read_confirm">Marcar</string>
+    <plurals name="stealth_mark_all_read_text">
+        <item quantity="one">Tus interlocutores en %1$d chat verán que los mensajes se han leído.</item>
+        <item quantity="other">Tus interlocutores en %1$d chats verán que los mensajes se han leído.</item>
+    </plurals>
+</resources>
