@@ -100,6 +100,7 @@ internal fun bubbleMetricsFor(style: BubbleStyle, density: ListDensity, cornerRa
 internal fun BubbleLayout(
     modifier: Modifier,
     overlayMeta: Boolean,
+    inlineMeta: Boolean = false,
     body: @Composable () -> Unit,
     meta: @Composable () -> Unit,
     footer: @Composable () -> Unit = {},
@@ -113,11 +114,22 @@ internal fun BubbleLayout(
         val footerPlaceable = measurables[2].measure(loose)
         // Полоса сама не растягивает пузырь до максимума, но и не даёт ему стать уже своей подписи.
         val barWidth = measurables[3].maxIntrinsicWidth(loose.maxHeight)
-        val width = maxOf(bodyPlaceable.width, metaPlaceable.width, footerPlaceable.width, barWidth).coerceIn(constraints.minWidth, constraints.maxWidth)
+        val placeInline = inlineMeta && !overlayMeta && bodyPlaceable.width > 0 && metaPlaceable.width > 0 &&
+            bodyPlaceable.width <= loose.maxWidth && metaPlaceable.width <= loose.maxWidth - bodyPlaceable.width
+        val contentWidth = if (placeInline) bodyPlaceable.width + metaPlaceable.width else maxOf(bodyPlaceable.width, metaPlaceable.width)
+        val width = maxOf(contentWidth, footerPlaceable.width, barWidth).coerceIn(constraints.minWidth, constraints.maxWidth)
         val barPlaceable = measurables[3].measure(Constraints(minWidth = 0, maxWidth = width, minHeight = 0, maxHeight = loose.maxHeight))
         val inset = OverlayInset.roundToPx()
-        val metaTop = if (overlayMeta) bodyPlaceable.height - metaPlaceable.height - inset else bodyPlaceable.height
-        val barTop = bodyPlaceable.height + (if (overlayMeta) 0 else metaPlaceable.height)
+        val metaTop = when {
+            overlayMeta -> bodyPlaceable.height - metaPlaceable.height - inset
+            placeInline -> (bodyPlaceable.height - metaPlaceable.height).coerceAtLeast(0)
+            else -> bodyPlaceable.height
+        }
+        val barTop = when {
+            overlayMeta -> bodyPlaceable.height
+            placeInline -> maxOf(bodyPlaceable.height, metaPlaceable.height)
+            else -> bodyPlaceable.height + metaPlaceable.height
+        }
         val footerTop = barTop + barPlaceable.height
         val height = footerTop + footerPlaceable.height
         val metaLeft = width - metaPlaceable.width - (if (overlayMeta) inset else 0)
