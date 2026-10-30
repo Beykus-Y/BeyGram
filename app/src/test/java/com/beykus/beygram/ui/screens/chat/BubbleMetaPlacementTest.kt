@@ -29,6 +29,21 @@ class BubbleMetaPlacementTest {
     }
 
     @Test
+    fun inlineTimeUsesTextBaselineWhenPresent() {
+        assertTrue(inlineMetadataTop(bodyHeight = 34, metaHeight = 19, baselineDelta = 12) == 12)
+    }
+
+    @Test
+    fun inlineTimeFallsBackToBottomEdgeWithoutBaseline() {
+        assertTrue(inlineMetadataTop(bodyHeight = 34, metaHeight = 19, baselineDelta = null) == 15)
+    }
+
+    @Test
+    fun inlineTimeNeverGetsNegativeOffset() {
+        assertTrue(inlineMetadataTop(bodyHeight = 20, metaHeight = 27, baselineDelta = -7) == 0)
+    }
+
+    @Test
     fun shortTextAndTimeCanShareOneRow() {
         assertTrue(bubbleMetaFitsBesideBody(bodyWidth = 45, metaWidth = 70, maxWidth = 292))
     }
