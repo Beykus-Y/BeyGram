@@ -330,7 +330,7 @@ class BgBeatManager(
                 if (currentCancelToken == cancelToken) {
                     currentCancelToken = 0L
                 }
-                if (activeIdentity == identity) {
+                if (sequenceId.get() == reqSeq && activeIdentity == identity) {
                     activeIdentity = null
                 }
             }
