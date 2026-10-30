@@ -3,8 +3,8 @@ package com.beykus.beygram.ui.screens.chat
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Schedule
@@ -165,6 +164,7 @@ internal fun ScheduledMessagesDialog(
     val scope = rememberCoroutineScope()
     var messages by remember(chatId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var loading by remember(chatId) { mutableStateOf(true) }
+    var hasLoaded by remember(chatId) { mutableStateOf(false) }
     var busy by remember(chatId) { mutableStateOf(false) }
     var error by remember(chatId) { mutableStateOf<String?>(null) }
     var reload by remember(chatId) { mutableIntStateOf(0) }
@@ -173,7 +173,8 @@ internal fun ScheduledMessagesDialog(
     // TDLib is the source of truth: delivery, another client's edit/cancel and upload failures all change the queue.
     // Keep the open dialog in sync without flickering the initial spinner.
     LaunchedEffect(chatId, reload, conversation) {
-        loading = true
+        // Keep the previous list visible during explicit refreshes; only the first request owns the spinner.
+        loading = !hasLoaded
         error = null
         while (true) {
             val result = conversation.scheduledMessages(chatId)
@@ -184,6 +185,7 @@ internal fun ScheduledMessagesDialog(
                 if (messages.isEmpty()) messages = emptyList()
                 error = it.userMessage(context, R.string.chat_scheduled_load_failed)
             }
+            hasLoaded = true
             loading = false
             delay(SCHEDULED_REFRESH_MS)
         }
@@ -343,7 +345,8 @@ private fun ScheduledMessageRow(
         Text(message.summary(), color = palette.textPrimary, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(scheduledTimeLabel(message), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
         if (failed) Text(stringResource(R.string.chat_scheduled_failed), color = palette.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+        // Wrapping makes every action discoverable without a hidden horizontal swipe.
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (failed) TextButton(onClick = onRetry, enabled = !busy) { Text(stringResource(R.string.common_retry)) }
             TextButton(onClick = onReschedule, enabled = !busy) { Text(stringResource(R.string.chat_scheduled_reschedule)) }
             TextButton(onClick = onSendNow, enabled = !busy) { Text(stringResource(R.string.chat_send_now)) }
