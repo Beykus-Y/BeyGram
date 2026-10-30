@@ -759,24 +759,27 @@ private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, on
         append("${archivedChats.size} ${pluralForm(language, archivedChats.size, context.getString(R.string.chats_archive_count_one), context.getString(R.string.chats_archive_count_few), context.getString(R.string.chats_archive_count_many))}")
         if (unread > 0) append(" · $unread ${pluralForm(language, unread, context.getString(R.string.chats_archive_unread_one), context.getString(R.string.chats_archive_unread_few), context.getString(R.string.chats_archive_unread_few))}")
     }
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
+    // Archive is a navigation row, not a featured content card. Keep its touch target >= 56dp
+    // while reducing the visual prominence that previously pushed conversations down.
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 3.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp)).background(palette.surface)
+                .heightIn(min = 56.dp)
+                .clip(RoundedCornerShape(14.dp)).background(palette.surface)
                 .combinedClickable(onClick = onClick, onLongClick = { actionsOpen = true }, role = Role.Button)
                 .semantics(mergeDescendants = true) { contentDescription = accessibleDescription(title, summary) }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.Archive, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
+            Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Archive, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(20.dp))
             }
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Text(summary, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(summary, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
         }
         if (actionsOpen) {
             // Действия открываются прямо под строкой, без всплывающего окна.
