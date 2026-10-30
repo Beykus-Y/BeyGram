@@ -183,6 +183,8 @@
     <string name="chat_scheduled_cancel_failed">Die geplante Nachricht konnte nicht abgebrochen werden</string>
     <string name="chat_scheduled_edit_failed">Die geplante Nachricht konnte nicht bearbeitet werden</string>
     <string name="chat_scheduled_empty">Keine geplanten Nachrichten</string>
+    <string name="chat_scheduled_compose_action">Nachricht schreiben</string>
+    <string name="chat_scheduled_compose_hint">Schreibe eine Nachricht und halte dann Senden gedrückt, um den Zeitpunkt zu wählen.</string>
     <string name="chat_scheduled_failed">Die geplante Nachricht konnte nicht gesendet werden</string>
     <string name="chat_scheduled_load_failed">Geplante Nachrichten konnten nicht geladen werden</string>
     <string name="chat_scheduled_retry_failed">Der Sendeversuch konnte nicht wiederholt werden</string>
