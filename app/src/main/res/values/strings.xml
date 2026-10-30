@@ -2218,9 +2218,12 @@
     <string name="music_search_hint">Название или исполнитель</string>
     <string name="music_search_intro">Ищем музыкальные аудиосообщения в ваших чатах и каналах. Нажмите трек, чтобы слушать его в плеере BeyGram.</string>
     <string name="music_search_empty">Ничего не найдено</string>
+    <string name="music_local_title">В ваших чатах</string>
+    <string name="music_local_empty">В ваших чатах ничего не найдено</string>
+    <string name="music_public_empty">В публичных результатах ничего не найдено</string>
     <string name="music_search_failed">Не удалось выполнить поиск музыки</string>
     <string name="music_load_more">Показать ещё</string>
     <string name="music_public_title">Публичные результаты</string>
     <string name="music_public_note">Нажмите трек, чтобы на время сохранить его в «Избранное» и открыть в плеере. Сообщение удаляется после загрузки.</string>
-    <string name="music_public_unavailable">Публичный источник сейчас недоступен. Результаты вашего поиска показаны выше.</string>
+    <string name="music_public_unavailable">Публичный источник сейчас недоступен. Попробуйте повторить поиск позже.</string>
 </resources>
