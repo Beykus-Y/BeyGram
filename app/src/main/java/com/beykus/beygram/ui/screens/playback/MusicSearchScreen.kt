@@ -77,6 +77,14 @@ import java.util.concurrent.atomic.AtomicLong
  * С [onPick] это выбор трека для «Прикрепить → Музыка» в чате [pickChatId]: у строки появляется кнопка выбора,
  * а сам трек уходит только после обычной кнопки «Отправить» в поле ввода.
  */
+/** A cancelled or superseded request must never repopulate another search's UI. */
+internal fun isCurrentMusicSearchResult(
+    requestGeneration: Long,
+    latestGeneration: Long,
+    requestedQuery: String,
+    activeQuery: String
+): Boolean = requestGeneration == latestGeneration && requestedQuery == activeQuery.trim()
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MusicSearchScreen(
@@ -128,7 +136,7 @@ internal fun MusicSearchScreen(
         publicSearchedQuery = null
         publicJob.value = scope.launch {
             val result = conversation.musicBotSearch(needle, contextChatId = pickChatId)
-            if (!isActive || requestGeneration != publicRequestGeneration.get() || query.trim() != needle) return@launch
+            if (!isActive || !isCurrentMusicSearchResult(requestGeneration, publicRequestGeneration.get(), needle, query)) return@launch
             result.onSuccess { page ->
                 publicAvailable = page != null
                 publicResults = page?.results.orEmpty()
@@ -151,7 +159,7 @@ internal fun MusicSearchScreen(
         error = null
         searchJob.value = scope.launch {
             val result = conversation.searchGlobalMessages(needle, offset, GlobalSearchFilter(kind = SharedMediaKind.Music))
-            if (!isActive || requestGeneration != localRequestGeneration.get() || query.trim() != needle) return@launch
+            if (!isActive || !isCurrentMusicSearchResult(requestGeneration, localRequestGeneration.get(), needle, query)) return@launch
             loading = false
             result.onSuccess { page ->
                 val audio = page.messages.filter { it.media?.kind == MediaKind.Audio }
