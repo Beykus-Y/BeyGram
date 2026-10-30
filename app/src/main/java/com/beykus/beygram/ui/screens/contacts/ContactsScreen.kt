@@ -103,9 +103,7 @@ fun ContactsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     val visible = remember(contacts, query) {
-        val needle = query.trim()
-        if (needle.isEmpty()) contacts
-        else contacts.filter { it.title.contains(needle, ignoreCase = true) || it.subtitle.contains(needle, ignoreCase = true) }
+        contacts.filter { contactMatchesQuery(it, query) }
     }
     val contactGroups = remember(visible) {
         visible.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
@@ -252,6 +250,24 @@ fun ContactsScreen(
             onSent = { Toast.makeText(context, R.string.contacts_share_sent, Toast.LENGTH_SHORT).show() }
         )
     }
+}
+
+/**
+ * Search by the displayed name/username and by the saved TDLib number, even when
+ * @username occupies the subtitle. Number matching is local and does not reveal
+ * the number in the row or query the network.
+ */
+internal fun contactMatchesQuery(contact: ContactPreview, query: String): Boolean {
+    val needle = query.trim()
+    if (needle.isEmpty()) return true
+    if (contact.title.contains(needle, ignoreCase = true) ||
+        contact.subtitle.contains(needle, ignoreCase = true)
+    ) return true
+    // Ignore separators only for phone-like input; a one-digit query would match nearly everyone.
+    if (needle.any { !it.isDigit() && it !in "+-() .\t" }) return false
+    val digits = needle.filter { it.isDigit() }
+    return digits.length >= 3 &&
+        contact.phone.filter { it.isDigit() }.contains(digits)
 }
 
 /** Stable alphabet heading for local and non-Latin contact names; symbols go into #. */
