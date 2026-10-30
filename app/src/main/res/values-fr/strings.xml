@@ -691,6 +691,7 @@
     <string name="player_sleep_cancel">Annuler le minuteur (%1$d min restantes)</string>
     <string name="settings_music_title">Musique</string>
     <string name="music_search_hint">Titre ou artiste</string>
+    <string name="music_search_action">Rechercher de la musique</string>
     <string name="music_search_intro">Recherche les messages audio musicaux de vos discussions et canaux. Touchez une piste pour la lire dans le lecteur BeyGram.</string>
     <string name="music_search_empty">Aucun résultat</string>
     <string name="music_local_title">Dans vos discussions</string>

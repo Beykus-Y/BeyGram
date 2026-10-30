@@ -54,6 +54,7 @@ import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
@@ -147,7 +148,8 @@ private enum class PlayerPanel { Player, Queue }
 @Composable
 internal fun MusicPlayerSheet(
     onDismiss: () -> Unit,
-    onOpenEqualizer: (() -> Unit)? = null
+    onOpenEqualizer: (() -> Unit)? = null,
+    onOpenMusicSearch: (() -> Unit)? = null
 ) {
     val player = rememberMusicPlayerUi()
     LaunchedEffect(player == null) { if (player == null) onDismiss() }
@@ -177,7 +179,8 @@ internal fun MusicPlayerSheet(
                         player = current,
                         source = source,
                         onCollapse = onDismiss,
-                        onOpenSource = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } }
+                        onOpenSource = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } },
+                        onOpenMusicSearch = onOpenMusicSearch?.let { open -> { onDismiss(); open() } }
                     )
                     PlayerBody(
                         modifier = Modifier.weight(1f),
@@ -210,7 +213,8 @@ private fun PlayerHeader(
     player: MusicPlayerUi,
     source: PlaybackSourceLabel,
     onCollapse: () -> Unit,
-    onOpenSource: (() -> Unit)?
+    onOpenSource: (() -> Unit)?,
+    onOpenMusicSearch: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
     var speedMenu by remember { mutableStateOf(false) }
@@ -263,6 +267,9 @@ private fun PlayerHeader(
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center
             )
+        }
+        if (onOpenMusicSearch != null) IconButton(onClick = onOpenMusicSearch) {
+            Icon(Icons.Rounded.Search, stringResource(R.string.music_search_action), tint = palette.textSecondary)
         }
         Box {
             IconButton(onClick = { speedMenu = true }) {
