@@ -57,6 +57,8 @@
     <string name="profile_title_chat">Informations de la discussion</string>
     <string name="profile_title_own">Mon profil</string>
     <string name="profile_action_edit">Modifier le profil</string>
+    <string name="profile_action_edit_short">Modifier</string>
+    <string name="profile_action_change_photo_short">Changer de photo</string>
     <string name="profile_action_change_photo">Modifier la photo</string>
     <string name="profile_type_channel">Canal</string>
     <string name="profile_type_group">Groupe</string>

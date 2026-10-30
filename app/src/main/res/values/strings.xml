@@ -967,6 +967,8 @@
     <string name="profile_about_me">О себе</string>
     <string name="profile_action_change_photo">Изменить фотографию</string>
     <string name="profile_action_edit">Редактировать профиль</string>
+    <string name="profile_action_edit_short">Изменить</string>
+    <string name="profile_action_change_photo_short">Сменить фото</string>
     <string name="profile_admin_owner">Владелец</string>
     <string name="profile_admin_role">Администратор</string>
     <string name="profile_admins_header">АДМИНИСТРАТОРЫ</string>
