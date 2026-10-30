@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -60,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -128,6 +130,10 @@ fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? =
     val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
     val openMusicSearch = LocalOpenMusicSearch.current
     val mini = rememberMiniPlayerUi()
+    // A detached bar would sit behind the IME on screens without a composer.
+    // Hide only that bar while typing; playback and the full-player sheet stay alive.
+    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val hiddenForIme = bottomInset && keyboardVisible
     var lastMini by remember { mutableStateOf(mini) }
     SideEffect { if (mini != null) lastMini = mini }
     var fullPlayerOpen by rememberSaveable { mutableStateOf(false) }
@@ -144,11 +150,11 @@ fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? =
     }
 
     AnimatedVisibility(
-        visible = mini != null,
+        visible = shouldShowMiniPlayer(mini != null, bottomInset, keyboardVisible),
         // The bar only slides and fades. Instant specs (Off, reduced motion) skip both, so it appears on its first frame.
         enter = if (enterSpec.isInstant) EnterTransition.None else
             enterSpec.fadeEnter() + slideInVertically(enterSpec.animationSpec()) { (it / 2 * enterSpec.intensity).roundToInt() },
-        exit = if (exitSpec.isInstant) ExitTransition.None else
+        exit = if (hiddenForIme || exitSpec.isInstant) ExitTransition.None else
             exitSpec.fadeExit() + slideOutVertically(exitSpec.animationSpec()) { (it / 2 * exitSpec.intensity).roundToInt() },
         modifier = Modifier.fillMaxWidth()
     ) {
