@@ -15,7 +15,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -58,6 +57,7 @@ import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackQueueSource
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.Job
@@ -104,6 +104,8 @@ internal fun MusicSearchScreen(
     val latestSelection = remember(accountId) { AtomicLong() }
     var publicResults by remember(accountId) { mutableStateOf<List<InlineBotResult>>(emptyList()) }
     var publicAvailable by remember(accountId) { mutableStateOf(true) }
+    var publicLoading by remember(accountId) { mutableStateOf(false) }
+    var publicSearchedQuery by remember(accountId) { mutableStateOf<String?>(null) }
     val publicJob = remember(accountId) { mutableStateOf<Job?>(null) }
     DisposableEffect(accountId) { onDispose { searchJob.value?.cancel(); publicJob.value?.cancel() } }
 
@@ -111,6 +113,8 @@ internal fun MusicSearchScreen(
         publicJob.value?.cancel()
         publicResults = emptyList()
         publicAvailable = true
+        publicLoading = true
+        publicSearchedQuery = null
         publicJob.value = scope.launch {
             conversation.musicBotSearch(needle, contextChatId = pickChatId).onSuccess { page ->
                 publicAvailable = page != null
@@ -119,6 +123,8 @@ internal fun MusicSearchScreen(
                 publicAvailable = false
                 publicResults = emptyList()
             }
+            publicLoading = false
+            publicSearchedQuery = needle
         }
     }
 
@@ -152,6 +158,8 @@ internal fun MusicSearchScreen(
         publicJob.value?.cancel()
         publicResults = emptyList()
         publicAvailable = true
+        publicLoading = false
+        publicSearchedQuery = null
         results = emptyList()
         chats = emptyMap()
         nextOffset = ""
@@ -249,19 +257,27 @@ internal fun MusicSearchScreen(
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                singleLine = true,
-                placeholder = { Text(stringResource(R.string.music_search_hint)) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                SearchField(
+                    query = query,
+                    onChange = { query = it },
+                    placeholder = stringResource(R.string.music_search_hint)
+                )
+            }
             if (query.isBlank()) Text(
                 stringResource(if (onPick != null) R.string.music_attach_intro else R.string.music_search_intro),
                 color = palette.textSecondary,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
+            if (query.isNotBlank() && (loading || searchedQuery == query.trim() || error != null)) {
+                Text(
+                    stringResource(R.string.music_local_title),
+                    color = palette.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
             error?.let {
                 Text(it, color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
@@ -270,8 +286,8 @@ internal fun MusicSearchScreen(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) { CircularProgressIndicator() }
-            if (!loading && searchedQuery != null && results.isEmpty() && error == null) Text(
-                stringResource(R.string.music_search_empty),
+            if (!loading && searchedQuery == query.trim() && results.isEmpty() && error == null) Text(
+                stringResource(R.string.music_local_empty),
                 color = palette.textSecondary,
                 modifier = Modifier.fillMaxWidth().padding(16.dp)
             )
@@ -285,19 +301,34 @@ internal fun MusicSearchScreen(
                         onSend = onPick?.let { pick -> musicFileDraft(message, chats, item.title)?.let { draft -> { pick(draft) } } }
                     )
                 }
-                // Keyed by the typed query, not by the account search, so a failed account search never hides this section.
-                if (query.isNotBlank()) {
+                // Public results have an independent state: a local miss must never imply no public matches.
+                if (query.isNotBlank() && (publicLoading || publicSearchedQuery == query.trim())) {
                     item(key = "public_header") {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Text(stringResource(R.string.music_public_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
                             Text(stringResource(R.string.music_public_note), color = palette.textSecondary, fontSize = 13.sp)
                         }
                     }
-                    if (!publicAvailable) item(key = "public_unavailable") {
+                    if (publicLoading) item(key = "public_loading") {
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            horizontalArrangement = Arrangement.Center
+                        ) { CircularProgressIndicator() }
+                    }
+                    if (!publicLoading && publicSearchedQuery == query.trim() && !publicAvailable) item(key = "public_unavailable") {
                         Text(
                             stringResource(R.string.music_public_unavailable),
                             color = palette.textSecondary,
                             fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                    if (!publicLoading && publicSearchedQuery == query.trim() &&
+                        publicAvailable && publicResults.isEmpty()
+                    ) item(key = "public_empty") {
+                        Text(
+                            stringResource(R.string.music_public_empty),
+                            color = palette.textSecondary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
                     }
