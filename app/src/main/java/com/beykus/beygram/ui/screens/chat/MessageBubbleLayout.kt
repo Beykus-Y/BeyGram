@@ -114,8 +114,8 @@ internal fun BubbleLayout(
         val footerPlaceable = measurables[2].measure(loose)
         // Полоса сама не растягивает пузырь до максимума, но и не даёт ему стать уже своей подписи.
         val barWidth = measurables[3].maxIntrinsicWidth(loose.maxHeight)
-        val placeInline = inlineMeta && !overlayMeta && bodyPlaceable.width > 0 && metaPlaceable.width > 0 &&
-            bodyPlaceable.width <= loose.maxWidth && metaPlaceable.width <= loose.maxWidth - bodyPlaceable.width
+        val placeInline = inlineMeta && !overlayMeta &&
+            bubbleMetaFitsBesideBody(bodyPlaceable.width, metaPlaceable.width, loose.maxWidth)
         val contentWidth = if (placeInline) bodyPlaceable.width + metaPlaceable.width else maxOf(bodyPlaceable.width, metaPlaceable.width)
         val width = maxOf(contentWidth, footerPlaceable.width, barWidth).coerceIn(constraints.minWidth, constraints.maxWidth)
         val barPlaceable = measurables[3].measure(Constraints(minWidth = 0, maxWidth = width, minHeight = 0, maxHeight = loose.maxHeight))
@@ -141,6 +141,10 @@ internal fun BubbleLayout(
         }
     }
 }
+
+/** Safe width check for compact text timestamps. A wide or empty child keeps the separate metadata row. */
+internal fun bubbleMetaFitsBesideBody(bodyWidth: Int, metaWidth: Int, maxWidth: Int): Boolean =
+    bodyWidth > 0 && metaWidth > 0 && bodyWidth <= maxWidth && metaWidth <= maxWidth - bodyWidth
 
 /** Время, статус отправки и кнопка повтора. При [overlay] — белым на тёмной плашке поверх фото. */
 @Composable
