@@ -18,7 +18,7 @@ class BubbleMetaPlacementTest {
 
     @Test
     fun multilineAndLongTextKeepSeparateMetadataRow() {
-        assertFalse(useInlineTextMetadata(message("Привет\\nКак дела?"), false, false))
+        assertFalse(useInlineTextMetadata(message("Привет\nКак дела?"), false, false))
         assertFalse(useInlineTextMetadata(message("This is a longer sentence with many words"), false, false))
     }
 
