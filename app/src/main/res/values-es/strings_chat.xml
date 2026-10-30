@@ -110,6 +110,8 @@
     <string name="chat_scheduled_cancel_failed">No se pudo cancelar el mensaje programado</string>
     <string name="chat_scheduled_edit_failed">No se pudo editar el mensaje programado</string>
     <string name="chat_scheduled_empty">No hay mensajes programados</string>
+    <string name="chat_scheduled_compose_action">Escribir un mensaje</string>
+    <string name="chat_scheduled_compose_hint">Escribe un mensaje y mantén pulsado Enviar para elegir cuándo enviarlo.</string>
     <string name="chat_scheduled_failed">No se pudo enviar el mensaje programado</string>
     <string name="chat_scheduled_load_failed">No se pudieron cargar los mensajes programados</string>
     <string name="chat_scheduled_retry_failed">No se pudo reintentar el envío</string>
