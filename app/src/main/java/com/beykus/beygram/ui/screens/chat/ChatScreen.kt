@@ -6,7 +6,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.slideInVertically
@@ -1793,7 +1792,8 @@ fun ChatScreen(
         if (!searching) FloatingMessageDate(listState, messageListItems, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
         val jumpMotion = rememberMotionSpec(MotionToken.BannerChange)
-        AnimatedVisibility(
+        // Qualify the top-level animation: the outer chat ColumnScope overload is not valid in this BoxScope.
+        androidx.compose.animation.AnimatedVisibility(
             visible = away || history.hasNewerMessages,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
             enter = if (jumpMotion.isInstant) EnterTransition.None else
