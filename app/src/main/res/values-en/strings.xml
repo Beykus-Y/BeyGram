@@ -629,6 +629,7 @@
     <string name="player_seek_after_download">Seeking will be available after the download</string>
     <string name="player_speed_title">Playback speed</string>
     <string name="queue_title">Queue</string>
+    <string name="queue_back_to_player">To player</string>
     <string name="queue_count">Tracks: %1$d</string>
     <string name="queue_loading_count">Loading: %1$d</string>
     <string name="queue_shuffled">Shuffle is on: source order is shown</string>
