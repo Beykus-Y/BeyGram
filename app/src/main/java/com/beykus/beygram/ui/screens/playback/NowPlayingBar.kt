@@ -125,15 +125,19 @@ val LocalOpenMusicSearch = compositionLocalOf<(() -> Unit)?> { null }
  * выше системной навигации и клавиатуры. В чате composer уже применяет IME inset, поэтому полоса не дублирует его.
  */
 @Composable
-fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? = null) {
+fun NowPlayingBar(
+    bottomInset: Boolean = false,
+    hideWhenImeVisible: Boolean = bottomInset,
+    onOpenEqualizer: (() -> Unit)? = null
+) {
     val providedOpenEqualizer = LocalOpenEqualizer.current
     val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
     val openMusicSearch = LocalOpenMusicSearch.current
     val mini = rememberMiniPlayerUi()
-    // A detached bar would sit behind the IME on screens without a composer.
-    // Hide only that bar while typing; playback and the full-player sheet stay alive.
+    // Root and tab bars yield their space to the keyboard; the chat-integrated bar
+    // keeps its own composer layout. Playback and the full-player sheet stay alive.
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    val hiddenForIme = bottomInset && keyboardVisible
+    val hiddenForIme = hideWhenImeVisible && keyboardVisible
     var lastMini by remember { mutableStateOf(mini) }
     SideEffect { if (mini != null) lastMini = mini }
     var fullPlayerOpen by rememberSaveable { mutableStateOf(false) }
@@ -150,7 +154,7 @@ fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? =
     }
 
     AnimatedVisibility(
-        visible = shouldShowMiniPlayer(mini != null, bottomInset, keyboardVisible),
+        visible = shouldShowMiniPlayer(mini != null, hideWhenImeVisible, keyboardVisible),
         // The bar only slides and fades. Instant specs (Off, reduced motion) skip both, so it appears on its first frame.
         enter = if (enterSpec.isInstant) EnterTransition.None else
             enterSpec.fadeEnter() + slideInVertically(enterSpec.animationSpec()) { (it / 2 * enterSpec.intensity).roundToInt() },
