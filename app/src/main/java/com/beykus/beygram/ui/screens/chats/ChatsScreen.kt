@@ -1,6 +1,12 @@
 package com.beykus.beygram.ui.screens.chats
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -137,7 +143,13 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.screens.stories.StoryBarSection
+
+/** Ignore tiny scroll offsets; collapse after passing the story/archive area. */
+internal fun shouldCompactChatListHeader(firstVisibleItemIndex: Int, scrollOffsetPx: Int, thresholdPx: Int): Boolean =
+    firstVisibleItemIndex > 0 || scrollOffsetPx > thresholdPx
 
 private enum class ChatFilter(val title: Int) {
     All(R.string.chats_filter_all), People(R.string.chats_filter_people), Groups(R.string.chats_filter_groups), Unread(R.string.chats_filter_unread)
@@ -233,8 +245,6 @@ fun ChatsScreen(
     // The split list pane is narrower than a phone: the title and side paddings give room to the
     // header actions (saved messages, account switcher, avatar) without pushing them off-screen.
     val headerPadding = if (compactHeader) 14.dp else 20.dp
-    val titleSize = if (compactHeader) 24.sp else 30.sp
-    val titleLineHeight = if (compactHeader) 27.sp else 33.sp
     // Статус сессии Telegram общий для телефона и двухпанельного списка: он не зависит от раскладки.
     val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
@@ -274,6 +284,24 @@ fun ChatsScreen(
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
     val listState = state.listState
+    val headerCollapseThresholdPx = with(density) { 96.dp.roundToPx() }
+    val headerCollapsed by remember(listState, headerCollapseThresholdPx) {
+        derivedStateOf {
+            shouldCompactChatListHeader(
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+                headerCollapseThresholdPx
+            )
+        }
+    }
+    val headerMotion = rememberMotionSpec(MotionToken.BannerChange)
+    val headerTitleSize by animateFloatAsState(
+        targetValue = if (compactHeader || headerCollapsed) 24f else 30f,
+        animationSpec = headerMotion.animationSpec<Float>(),
+        label = "chatsHeaderTitleSize"
+    )
+    val titleSize = headerTitleSize.sp
+    val titleLineHeight = (headerTitleSize + 3f).sp
     val archivePullThresholdPx = with(density) { archivePullThreshold.toPx() }
     // Сколько протянуто вниз, пока архив скрыт. Подсказка растёт до порога, а за порогом архив возвращается при отпускании.
     var pullPx by remember { mutableFloatStateOf(0f) }
@@ -364,7 +392,20 @@ fun ChatsScreen(
         Column(modifier = Modifier.fillMaxWidth().padding(start = headerPadding, end = headerPadding, top = 8.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.app_name).uppercase(), color = palette.accent, style = MaterialTheme.typography.labelMedium, letterSpacing = 0.8.sp)
+                    AnimatedVisibility(
+                        visible = !headerCollapsed,
+                        enter = if (headerMotion.isInstant) EnterTransition.None else
+                            headerMotion.fadeEnter() + expandVertically(animationSpec = headerMotion.animationSpec()),
+                        exit = if (headerMotion.isInstant) ExitTransition.None else
+                            headerMotion.fadeExit() + shrinkVertically(animationSpec = headerMotion.animationSpec())
+                    ) {
+                        Text(
+                            stringResource(R.string.app_name).uppercase(),
+                            color = palette.accent,
+                            style = MaterialTheme.typography.labelMedium,
+                            letterSpacing = 0.8.sp
+                        )
+                    }
                     Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() })
