@@ -1645,6 +1645,7 @@
     <string name="feature_action_failed">Не удалось выполнить действие</string>
     <string name="feature_confirm">Подтвердить</string>
     <string name="feature_more_actions">Дополнительные действия</string>
+    <string name="contacts_actions_hint">Удерживайте контакт, чтобы открыть дополнительные действия</string>
     <string name="feature_linked_channel">Личный канал</string>
 
     <!-- Server-synced Telegram folder tabs -->
