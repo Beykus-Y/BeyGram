@@ -70,7 +70,8 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * «Настройки → Звук и воспроизведение → Музыка». Ищет музыкальные аудиосообщения во всех доступных аккаунту чатах
- * через TDLib-фильтр аудио; публичный поиск треков здесь не подключён. Нажатие на трек ставит в очередь общего
+ * через TDLib-фильтр аудио, а публичный поиск обрабатывает отдельным запросом к музыкальному боту.
+ * Нажатие на трек ставит в очередь общего
  * плеера все найденные треки, начиная с выбранного, без пересылки и без отправки в чат.
  *
  * С [onPick] это выбор трека для «Прикрепить → Музыка» в чате [pickChatId]: у строки появляется кнопка выбора,
@@ -99,6 +100,7 @@ internal fun MusicSearchScreen(
     var loading by remember(accountId) { mutableStateOf(false) }
     var error by remember(accountId) { mutableStateOf<String?>(null) }
     val searchJob = remember(accountId) { mutableStateOf<Job?>(null) }
+    val localRequestGeneration = remember(accountId) { AtomicLong() }
     // Public results come from the optional music bot. They have their own job and state, so a bot failure
     // never touches the account's own results.
     val latestSelection = remember(accountId) { AtomicLong() }
@@ -107,16 +109,27 @@ internal fun MusicSearchScreen(
     var publicLoading by remember(accountId) { mutableStateOf(false) }
     var publicSearchedQuery by remember(accountId) { mutableStateOf<String?>(null) }
     val publicJob = remember(accountId) { mutableStateOf<Job?>(null) }
-    DisposableEffect(accountId) { onDispose { searchJob.value?.cancel(); publicJob.value?.cancel() } }
+    val publicRequestGeneration = remember(accountId) { AtomicLong() }
+    DisposableEffect(accountId, conversation) {
+        onDispose {
+            localRequestGeneration.incrementAndGet()
+            publicRequestGeneration.incrementAndGet()
+            searchJob.value?.cancel()
+            publicJob.value?.cancel()
+        }
+    }
 
     fun runPublicSearch(needle: String) {
+        val requestGeneration = publicRequestGeneration.incrementAndGet()
         publicJob.value?.cancel()
         publicResults = emptyList()
         publicAvailable = true
         publicLoading = true
         publicSearchedQuery = null
         publicJob.value = scope.launch {
-            conversation.musicBotSearch(needle, contextChatId = pickChatId).onSuccess { page ->
+            val result = conversation.musicBotSearch(needle, contextChatId = pickChatId)
+            if (!isActive || requestGeneration != publicRequestGeneration.get() || query.trim() != needle) return@launch
+            result.onSuccess { page ->
                 publicAvailable = page != null
                 publicResults = page?.results.orEmpty()
             }.onFailure {
@@ -131,12 +144,14 @@ internal fun MusicSearchScreen(
     fun runSearch(text: String, offset: String) {
         val needle = text.trim()
         if (needle.isEmpty()) return
+        val requestGeneration = localRequestGeneration.incrementAndGet()
         searchJob.value?.cancel()
         if (offset.isEmpty()) runPublicSearch(needle)
         loading = true
         error = null
         searchJob.value = scope.launch {
             val result = conversation.searchGlobalMessages(needle, offset, GlobalSearchFilter(kind = SharedMediaKind.Music))
+            if (!isActive || requestGeneration != localRequestGeneration.get() || query.trim() != needle) return@launch
             loading = false
             result.onSuccess { page ->
                 val audio = page.messages.filter { it.media?.kind == MediaKind.Audio }
@@ -151,7 +166,10 @@ internal fun MusicSearchScreen(
     }
 
     // Debounce: each keystroke restarts this effect, so only a pause in typing reaches the server.
-    LaunchedEffect(query) {
+    LaunchedEffect(query, accountId, conversation) {
+        // Invalidate late TDLib/bot callbacks even if their underlying operation ignores cancellation.
+        localRequestGeneration.incrementAndGet()
+        publicRequestGeneration.incrementAndGet()
         // A changed query drops the old request, results and offset at once, so nothing from it can publish
         // or paginate during the debounce.
         searchJob.value?.cancel()
