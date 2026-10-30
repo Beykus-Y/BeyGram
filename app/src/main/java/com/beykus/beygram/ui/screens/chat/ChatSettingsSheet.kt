@@ -24,11 +24,9 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -219,36 +217,49 @@ internal fun ChatSettingsSheet(
                             Text(stringResource(R.string.chat_settings_sound), color = palette.textPrimary)
                             Text(soundLabel, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = { soundMenu = true }, enabled = !busy) {
-                            Icon(Icons.Rounded.MoreVert, stringResource(R.string.chat_settings_choose_sound), tint = palette.textSecondary)
+                        IconButton(onClick = { soundMenu = !soundMenu }, enabled = !busy) {
+                            Icon(
+                                Icons.Rounded.KeyboardArrowDown,
+                                stringResource(R.string.chat_settings_choose_sound),
+                                tint = palette.textSecondary
+                            )
                         }
                     }
-                    DropdownMenu(expanded = soundMenu, onDismissRequest = { soundMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.chat_settings_sound_default)) },
-                            onClick = {
+                    // No dropdown layered over the already-open settings dialog. Keep many saved sounds scrollable.
+                    if (soundMenu) {
+                        Column(
+                            Modifier.fillMaxWidth().heightIn(max = 220.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(palette.surface2)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 4.dp)
+                        ) {
+                            ChatSoundChoice(
+                                label = stringResource(R.string.chat_settings_sound_default),
+                                selected = current.useDefaultSound,
+                                enabled = !busy
+                            ) {
                                 soundMenu = false
                                 saveNotifications(current.copy(useDefaultSound = true, soundId = 0L))
                             }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.chat_settings_sound_silent)) },
-                            onClick = {
+                            ChatSoundChoice(
+                                label = stringResource(R.string.chat_settings_sound_silent),
+                                selected = !current.useDefaultSound && current.soundId == NO_SOUND_ID,
+                                enabled = !busy
+                            ) {
                                 soundMenu = false
                                 saveNotifications(current.copy(useDefaultSound = false, soundId = NO_SOUND_ID))
                             }
-                        )
-                        sounds.forEach { sound ->
-                            DropdownMenuItem(
-                                text = { Text(sound.title) },
-                                leadingIcon = if (current.soundId == sound.id && !current.useDefaultSound) {
-                                    { Icon(Icons.Rounded.Check, null, tint = palette.accent) }
-                                } else null,
-                                onClick = {
+                            sounds.forEach { sound ->
+                                ChatSoundChoice(
+                                    label = sound.title,
+                                    selected = !current.useDefaultSound && current.soundId == sound.id,
+                                    enabled = !busy
+                                ) {
                                     soundMenu = false
                                     saveNotifications(current.copy(useDefaultSound = false, soundId = sound.id))
                                 }
-                            )
+                            }
                         }
                     }
                     SettingSwitch(
@@ -292,6 +303,27 @@ internal fun ChatSettingsSheet(
             TextButton(onClick = onClose, enabled = !busy) { Text(stringResource(R.string.common_close)) }
         }
     )
+}
+
+/** A radio choice in the chat settings surface, without opening another modal layer. */
+@Composable
+private fun ChatSoundChoice(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
+        Text(
+            label,
+            color = palette.textPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 6.dp)
+        )
+    }
 }
 
 @Composable
