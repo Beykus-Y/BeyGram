@@ -665,6 +665,9 @@
     <string name="music_search_hint">Canción o artista</string>
     <string name="music_search_intro">Busca mensajes de audio musicales en tus chats y canales. Toca una pista para reproducirla en el reproductor de BeyGram.</string>
     <string name="music_search_empty">No se encontró nada</string>
+    <string name="music_local_title">En tus chats</string>
+    <string name="music_local_empty">No hay resultados en tus chats</string>
+    <string name="music_public_empty">No hay resultados públicos</string>
     <string name="music_search_failed">No se pudo buscar música</string>
     <string name="music_load_more">Mostrar más</string>
     <string name="forward_search_hint">Buscar chats</string>
