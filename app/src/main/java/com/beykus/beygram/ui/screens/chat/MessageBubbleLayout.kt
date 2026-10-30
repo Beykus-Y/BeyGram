@@ -21,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.LastBaseline
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -120,14 +122,22 @@ internal fun BubbleLayout(
         val width = maxOf(contentWidth, footerPlaceable.width, barWidth).coerceIn(constraints.minWidth, constraints.maxWidth)
         val barPlaceable = measurables[3].measure(Constraints(minWidth = 0, maxWidth = width, minHeight = 0, maxHeight = loose.maxHeight))
         val inset = OverlayInset.roundToPx()
+        // Bottom-edge alignment made the small time label appear vertically detached from
+        // the message text on some fonts and font scales. Align propagated LAST text baselines
+        // where available, and reserve the actual combined height for any status icons.
+        val lastBodyBaseline = bodyPlaceable[LastBaseline]
+        val lastMetaBaseline = metaPlaceable[LastBaseline]
+        val baselineDelta = if (lastBodyBaseline != AlignmentLine.Unspecified &&
+            lastMetaBaseline != AlignmentLine.Unspecified
+        ) lastBodyBaseline - lastMetaBaseline else null
         val metaTop = when {
             overlayMeta -> bodyPlaceable.height - metaPlaceable.height - inset
-            placeInline -> (bodyPlaceable.height - metaPlaceable.height).coerceAtLeast(0)
+            placeInline -> inlineMetadataTop(bodyPlaceable.height, metaPlaceable.height, baselineDelta)
             else -> bodyPlaceable.height
         }
         val barTop = when {
             overlayMeta -> bodyPlaceable.height
-            placeInline -> maxOf(bodyPlaceable.height, metaPlaceable.height)
+            placeInline -> maxOf(bodyPlaceable.height, metaTop + metaPlaceable.height)
             else -> bodyPlaceable.height + metaPlaceable.height
         }
         val footerTop = barTop + barPlaceable.height
@@ -145,6 +155,10 @@ internal fun BubbleLayout(
 /** Safe width check for compact text timestamps. A wide or empty child keeps the separate metadata row. */
 internal fun bubbleMetaFitsBesideBody(bodyWidth: Int, metaWidth: Int, maxWidth: Int): Boolean =
     bodyWidth > 0 && metaWidth > 0 && bodyWidth <= maxWidth && metaWidth <= maxWidth - bodyWidth
+
+/** Keep the time's text baseline aligned with the message, with a safe bottom-edge fallback. */
+internal fun inlineMetadataTop(bodyHeight: Int, metaHeight: Int, baselineDelta: Int?): Int =
+    (baselineDelta ?: (bodyHeight - metaHeight)).coerceAtLeast(0)
 
 /** Inline metadata is deliberately limited to short, simple, single-line text.
  * Multi-line content and sender headers need their own metadata row; width alone
