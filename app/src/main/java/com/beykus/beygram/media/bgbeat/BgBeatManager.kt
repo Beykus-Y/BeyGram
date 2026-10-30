@@ -5,6 +5,7 @@ import android.util.Log
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
+import com.beykus.beygram.playback.PlaybackState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,6 +14,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -31,7 +34,24 @@ sealed interface BgBeatUiState {
 }
 
 /**
+ * Unique identity of an audio analysis task to prevent duplicate parallel executions
+ * and properly re-trigger analysis once a pending download completes.
+ */
+data class BgBeatAnalysisIdentity(
+    val accountId: String,
+    val itemKey: String,
+    val filePath: String,
+    val fileLength: Long,
+    val fileLastModified: Long,
+    val minBpm: Double = 55.0,
+    val maxBpm: Double = 200.0
+)
+
+/**
  * Coordinates BG Beat music analysis with PlaybackEngine and account isolation.
+ * - Single source of observation via Flow combine to prevent duplicate parallel triggers.
+ * - Deduplicates analysis tasks by BgBeatAnalysisIdentity.
+ * - Automatically triggers analysis when an in-progress file download completes, without initiating downloads itself.
  * - Strictly background execution on Dispatchers.Default.
  * - Cooperative cancellation during both PCM decoding and beat tracking.
  * - Per-account cache segregation (no cross-account data leakage).
@@ -65,51 +85,123 @@ class BgBeatManager(
     private val sequenceId = AtomicLong(0L)
     private var currentJob: Job? = null
     private var currentCancelToken: Long = 0L
-    private var activeItemKey: String? = null
-    private var activeAccountId: String? = null
+
+    @Volatile
+    private var activeIdentity: BgBeatAnalysisIdentity? = null
+
+    @Volatile
+    private var completedIdentity: BgBeatAnalysisIdentity? = null
 
     init {
-        // Observe playback item and account changes
+        // Observe both playback and settings in a single unified flow to prevent duplicate runs
         scope.launch {
-            PlaybackEngine.state.collect { state ->
-                val item = state.item
-                val itemKey = item?.key
-                val itemAccount = item?.accountId ?: PlaybackEngine.currentAccountId ?: "legacy"
-
-                if (itemKey != activeItemKey || itemAccount != activeAccountId) {
-                    activeItemKey = itemKey
-                    activeAccountId = itemAccount
-                    cancelCurrentAnalysis()
-                    evaluateAndAnalyze(item, itemAccount, force = false)
-                }
-            }
-        }
-
-        // Observe settings toggle
-        scope.launch {
-            settingsStore.enabled.collect { isEnabled ->
-                val currentItem = PlaybackEngine.state.value.item
-                val currentAccount = currentItem?.accountId ?: PlaybackEngine.currentAccountId ?: "legacy"
-                if (!isEnabled) {
-                    cancelCurrentAnalysis()
-                    sequenceId.incrementAndGet()
-                    _uiState.value = BgBeatUiState.Disabled
-                } else {
-                    evaluateAndAnalyze(currentItem, currentAccount, force = false)
-                }
+            combine(
+                PlaybackEngine.state,
+                settingsStore.enabled
+            ) { state, isEnabled ->
+                state to isEnabled
+            }.collectLatest { (state, isEnabled) ->
+                handleStateOrSettingsChange(state, isEnabled)
             }
         }
     }
 
-    fun onAccountChanged(newAccountId: String) {
-        if (newAccountId.isBlank()) return
-        if (activeAccountId != newAccountId) {
-            activeAccountId = newAccountId
+    private fun handleStateOrSettingsChange(state: PlaybackState, isEnabled: Boolean) {
+        if (!isEnabled) {
             cancelCurrentAnalysis()
             sequenceId.incrementAndGet()
-            val currentItem = PlaybackEngine.state.value.item
-            evaluateAndAnalyze(currentItem, newAccountId, force = false)
+            activeIdentity = null
+            completedIdentity = null
+            _uiState.value = BgBeatUiState.Disabled
+            return
         }
+
+        val item = state.item
+        if (item == null) {
+            cancelCurrentAnalysis()
+            activeIdentity = null
+            completedIdentity = null
+            _uiState.value = BgBeatUiState.Idle(null, PlaybackEngine.currentAccountId)
+            return
+        }
+
+        val accountId = item.accountId.ifBlank { PlaybackEngine.currentAccountId ?: "legacy" }
+
+        // Filter 1: Only regular music files
+        if (item.kind != MediaKind.Audio) {
+            cancelCurrentAnalysis()
+            activeIdentity = null
+            completedIdentity = null
+            _uiState.value = BgBeatUiState.Ineligible("BG Beat: только для музыки", item.key, accountId)
+            return
+        }
+
+        // Filter 2: Exclude secret media and system-private items
+        if (item.secret || item.systemPrivate) {
+            cancelCurrentAnalysis()
+            activeIdentity = null
+            completedIdentity = null
+            _uiState.value = BgBeatUiState.Ineligible("BG Beat: приватное медиа исключено", item.key, accountId)
+            return
+        }
+
+        // Filter 3: Must not be actively streaming/growing
+        if (item.growing != null) {
+            cancelCurrentAnalysis()
+            activeIdentity = null
+            completedIdentity = null
+            _uiState.value = BgBeatUiState.Ineligible("BG Beat: файл ещё загружается", item.key, accountId)
+            return
+        }
+
+        // Filter 4: Must be a completed, valid file on local storage
+        val file = File(item.path)
+        if (!file.exists() || !file.isFile || file.length() <= 0L || file.name.endsWith(".temp")) {
+            cancelCurrentAnalysis()
+            activeIdentity = null
+            completedIdentity = null
+            _uiState.value = BgBeatUiState.Ineligible("BG Beat: файл ещё не загружен", item.key, accountId)
+            return
+        }
+
+        if (!BgBeatNative.isLoaded) {
+            cancelCurrentAnalysis()
+            activeIdentity = null
+            completedIdentity = null
+            _uiState.value = BgBeatUiState.Error("Нативная библиотека BG Beat не загружена", item.key, accountId)
+            return
+        }
+
+        val identity = BgBeatAnalysisIdentity(
+            accountId = accountId,
+            itemKey = item.key,
+            filePath = file.absolutePath,
+            fileLength = file.length(),
+            fileLastModified = file.lastModified()
+        )
+
+        // Deduplicate: If an analysis for this exact file identity is already in flight, do nothing
+        if (activeIdentity == identity) {
+            return
+        }
+
+        // Deduplicate: If this exact file identity is already completed and shown, do nothing
+        if (completedIdentity == identity && _uiState.value is BgBeatUiState.Ready) {
+            return
+        }
+
+        // File is fully ready or download finished: start analysis automatically
+        startAnalysis(item, file, accountId, identity, force = false)
+    }
+
+    fun onAccountChanged(newAccountId: String) {
+        if (newAccountId.isBlank()) return
+        cancelCurrentAnalysis()
+        sequenceId.incrementAndGet()
+        activeIdentity = null
+        completedIdentity = null
+        val currentItem = PlaybackEngine.state.value.item
+        handleStateOrSettingsChange(PlaybackEngine.state.value, settingsStore.enabled.value)
     }
 
     fun cancelCurrentAnalysis() {
@@ -118,61 +210,39 @@ class BgBeatManager(
         }
         currentJob?.cancel()
         currentJob = null
+        activeIdentity = null
     }
 
     fun reanalyze() {
         val currentItem = PlaybackEngine.state.value.item ?: return
         val currentAccount = currentItem.accountId.ifBlank { PlaybackEngine.currentAccountId ?: "legacy" }
+        val file = File(currentItem.path)
+        if (!file.exists() || !file.isFile || file.length() <= 0L) return
+
+        val identity = BgBeatAnalysisIdentity(
+            accountId = currentAccount,
+            itemKey = currentItem.key,
+            filePath = file.absolutePath,
+            fileLength = file.length(),
+            fileLastModified = file.lastModified()
+        )
+
         cancelCurrentAnalysis()
-        evaluateAndAnalyze(currentItem, currentAccount, force = true)
+        completedIdentity = null
+        startAnalysis(currentItem, file, currentAccount, identity, force = true)
     }
 
-    private fun evaluateAndAnalyze(item: PlaybackItem?, accountId: String, force: Boolean) {
-        if (!settingsStore.enabled.value) {
-            _uiState.value = BgBeatUiState.Disabled
-            return
-        }
-
-        if (item == null) {
-            _uiState.value = BgBeatUiState.Idle(null, accountId)
-            return
-        }
-
-        // Rule 1: Only regular music
-        if (item.kind != MediaKind.Audio) {
-            _uiState.value = BgBeatUiState.Ineligible("BG Beat: только для музыки", item.key, accountId)
-            return
-        }
-
-        // Rule 2: Exclude secret media and system-private items
-        if (item.secret || item.systemPrivate) {
-            _uiState.value = BgBeatUiState.Ineligible("BG Beat: приватное медиа исключено", item.key, accountId)
-            return
-        }
-
-        // Rule 3: Must be a fully downloaded local file (exclude streaming/growing)
-        if (item.growing != null) {
-            _uiState.value = BgBeatUiState.Ineligible("BG Beat: файл ещё загружается", item.key, accountId)
-            return
-        }
-
-        val file = File(item.path)
-        if (!file.exists() || !file.isFile || file.length() <= 0L || file.name.endsWith(".temp")) {
-            _uiState.value = BgBeatUiState.Ineligible("BG Beat: файл ещё не загружен", item.key, accountId)
-            return
-        }
-
-        if (!BgBeatNative.isLoaded) {
-            _uiState.value = BgBeatUiState.Error("Нативная библиотека BG Beat не загружена", item.key, accountId)
-            return
-        }
-
-        startAnalysis(item, file, accountId, force)
-    }
-
-    private fun startAnalysis(item: PlaybackItem, file: File, accountId: String, force: Boolean) {
+    private fun startAnalysis(
+        item: PlaybackItem,
+        file: File,
+        accountId: String,
+        identity: BgBeatAnalysisIdentity,
+        force: Boolean
+    ) {
+        cancelCurrentAnalysis()
         val reqSeq = sequenceId.incrementAndGet()
         val itemKey = item.key
+        activeIdentity = identity
 
         currentJob = scope.launch {
             _uiState.value = BgBeatUiState.Analyzing(0f, "Запуск анализа", itemKey, accountId)
@@ -184,7 +254,7 @@ class BgBeatManager(
 
             try {
                 val result = withContext(Dispatchers.Default) {
-                    if (sequenceId.get() != reqSeq || activeItemKey != itemKey || activeAccountId != accountId) {
+                    if (sequenceId.get() != reqSeq || activeIdentity != identity) {
                         return@withContext null
                     }
 
@@ -192,13 +262,13 @@ class BgBeatManager(
                     val jsonStr = BgBeatNative.nativeAnalyzeFile(
                         filePath = file.absolutePath,
                         cacheDir = effectiveCacheDir,
-                        minBpm = 55.0,
-                        maxBpm = 200.0,
+                        minBpm = identity.minBpm,
+                        maxBpm = identity.maxBpm,
                         cancelTokenHandle = cancelToken,
                         progressListener = { fraction, stage ->
-                            if (sequenceId.get() == reqSeq && activeItemKey == itemKey && activeAccountId == accountId) {
+                            if (sequenceId.get() == reqSeq && activeIdentity == identity) {
                                 scope.launch(Dispatchers.Main) {
-                                    if (sequenceId.get() == reqSeq && activeItemKey == itemKey && activeAccountId == accountId) {
+                                    if (sequenceId.get() == reqSeq && activeIdentity == identity) {
                                         _uiState.value = BgBeatUiState.Analyzing(fraction, stage, itemKey, accountId)
                                     }
                                 }
@@ -206,7 +276,7 @@ class BgBeatManager(
                         }
                     )
 
-                    if (sequenceId.get() != reqSeq || activeItemKey != itemKey || activeAccountId != accountId) {
+                    if (sequenceId.get() != reqSeq || activeIdentity != identity) {
                         return@withContext null
                     }
 
@@ -217,12 +287,13 @@ class BgBeatManager(
                     }
                 }
 
-                if (sequenceId.get() != reqSeq || activeItemKey != itemKey || activeAccountId != accountId || result == null) {
+                if (sequenceId.get() != reqSeq || activeIdentity != identity || result == null) {
                     return@launch
                 }
 
                 when (result.status) {
                     BgBeatStatus.OK -> {
+                        completedIdentity = identity
                         _uiState.value = BgBeatUiState.Ready(result, itemKey, accountId)
                         withContext(Dispatchers.IO) {
                             BgBeatSettingsStore.enforceCacheQuota(context)
@@ -250,7 +321,7 @@ class BgBeatManager(
                 // Cooperative cancellation must NOT be captured as an analysis failure
                 throw ce
             } catch (e: Exception) {
-                if (sequenceId.get() == reqSeq && activeItemKey == itemKey && activeAccountId == accountId) {
+                if (sequenceId.get() == reqSeq && activeIdentity == identity) {
                     Log.e(TAG, "Analysis exception for item $itemKey", e)
                     _uiState.value = BgBeatUiState.Error("Исключение: ${e.localizedMessage}", itemKey, accountId)
                 }
@@ -258,6 +329,9 @@ class BgBeatManager(
                 BgBeatNative.nativeDestroyCancelToken(cancelToken)
                 if (currentCancelToken == cancelToken) {
                     currentCancelToken = 0L
+                }
+                if (activeIdentity == identity) {
+                    activeIdentity = null
                 }
             }
         }

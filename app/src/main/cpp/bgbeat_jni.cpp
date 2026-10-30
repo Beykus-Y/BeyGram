@@ -1,14 +1,6 @@
 #include <jni.h>
 #include <android/log.h>
 
-#include "bgmedia/analysis/Analyzer.hpp"
-#include "bgmedia/analysis/AnalysisConfig.hpp"
-#include "bgmedia/analysis/AnalysisResult.hpp"
-#include "bgmedia/cache/AnalysisCache.hpp"
-#include "bgmedia/audio/AudioData.hpp"
-#include "bgmedia/version.hpp"
-#include "miniaudio.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -70,6 +62,79 @@ std::string escapeJson(std::string_view s) {
     }
     return o.str();
 }
+
+std::string makeErrorJson(std::string_view message, std::string_view status = "error") {
+    std::ostringstream ss;
+    ss << "{\n";
+    ss << "  \"status\": \"" << escapeJson(status) << "\",\n";
+    ss << "  \"message\": \"" << escapeJson(message) << "\"\n";
+    ss << "}\n";
+    return ss.str();
+}
+
+// Thread-safe registry for cancellation tokens.
+// Eliminates Use-After-Free and race conditions across concurrent analyze/cancel/destroy calls.
+class CancelRegistry {
+public:
+    static CancelRegistry& instance() {
+        static CancelRegistry reg;
+        return reg;
+    }
+
+    int64_t create() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        int64_t id = ++nextId_;
+        tokens_[id] = std::make_shared<std::atomic<bool>>(false);
+        return id;
+    }
+
+    std::shared_ptr<std::atomic<bool>> get(int64_t id) {
+        if (id <= 0) return nullptr;
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = tokens_.find(id);
+        return (it != tokens_.end()) ? it->second : nullptr;
+    }
+
+    void cancel(int64_t id) {
+        if (id <= 0) return;
+        std::shared_ptr<std::atomic<bool>> token;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto it = tokens_.find(id);
+            if (it != tokens_.end()) {
+                token = it->second;
+            }
+        }
+        if (token) {
+            token->store(true, std::memory_order_relaxed);
+        }
+    }
+
+    void destroy(int64_t id) {
+        if (id <= 0) return;
+        std::lock_guard<std::mutex> lock(mutex_);
+        tokens_.erase(id);
+    }
+
+private:
+    std::mutex mutex_;
+    int64_t nextId_ = 0;
+    std::unordered_map<int64_t, std::shared_ptr<std::atomic<bool>>> tokens_;
+};
+
+} // namespace
+
+#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
+
+#include "bgmedia/analysis/Analyzer.hpp"
+#include "bgmedia/analysis/AnalysisConfig.hpp"
+#include "bgmedia/analysis/AnalysisResult.hpp"
+#include "bgmedia/cache/AnalysisCache.hpp"
+#include "bgmedia/audio/AudioData.hpp"
+#include "bgmedia/version.hpp"
+#include "miniaudio.h"
+
+namespace {
 
 std::string formatHex64(std::uint64_t val) {
     std::ostringstream ss;
@@ -155,65 +220,6 @@ std::string serializeResultToJson(
     return json.str();
 }
 
-std::string makeErrorJson(std::string_view message, std::string_view status = "error") {
-    std::ostringstream ss;
-    ss << "{\n";
-    ss << "  \"status\": \"" << escapeJson(status) << "\",\n";
-    ss << "  \"message\": \"" << escapeJson(message) << "\"\n";
-    ss << "}\n";
-    return ss.str();
-}
-
-// Thread-safe registry for cancellation tokens.
-// Eliminates Use-After-Free and race conditions across concurrent analyze/cancel/destroy calls.
-class CancelRegistry {
-public:
-    static CancelRegistry& instance() {
-        static CancelRegistry reg;
-        return reg;
-    }
-
-    int64_t create() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        int64_t id = ++nextId_;
-        tokens_[id] = std::make_shared<std::atomic<bool>>(false);
-        return id;
-    }
-
-    std::shared_ptr<std::atomic<bool>> get(int64_t id) {
-        if (id <= 0) return nullptr;
-        std::lock_guard<std::mutex> lock(mutex_);
-        auto it = tokens_.find(id);
-        return (it != tokens_.end()) ? it->second : nullptr;
-    }
-
-    void cancel(int64_t id) {
-        if (id <= 0) return;
-        std::shared_ptr<std::atomic<bool>> token;
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            auto it = tokens_.find(id);
-            if (it != tokens_.end()) {
-                token = it->second;
-            }
-        }
-        if (token) {
-            token->store(true, std::memory_order_relaxed);
-        }
-    }
-
-    void destroy(int64_t id) {
-        if (id <= 0) return;
-        std::lock_guard<std::mutex> lock(mutex_);
-        tokens_.erase(id);
-    }
-
-private:
-    std::mutex mutex_;
-    int64_t nextId_ = 0;
-    std::unordered_map<int64_t, std::shared_ptr<std::atomic<bool>>> tokens_;
-};
-
 struct DecodeChunkResult {
     bool ok = false;
     bool cancelled = false;
@@ -222,7 +228,8 @@ struct DecodeChunkResult {
 };
 
 // Cooperative chunk-based PCM decoding using miniaudio.
-// Checks cancellation token every 8192 frames (< 200ms audio chunks).
+// Distinguishes regular EOF from decoder read errors.
+// Never treats truncated/corrupted streams as successful decoding.
 DecodeChunkResult decodeAudioWithCancellation(
     const std::filesystem::path& path,
     const std::function<bool()>& isCancelled,
@@ -240,7 +247,11 @@ DecodeChunkResult decodeAudioWithCancellation(
     const std::string utf8Path = path.string();
     const ma_result initResult = ma_decoder_init_file(utf8Path.c_str(), &config, &decoder);
     if (initResult != MA_SUCCESS) {
-        return {.ok = false, .cancelled = false, .error = std::string("miniaudio failed to open file: ") + ma_result_description(initResult)};
+        return {
+            .ok = false,
+            .cancelled = false,
+            .error = std::string("miniaudio failed to open file: ") + ma_result_description(initResult)
+        };
     }
 
     const ma_uint32 channels = decoder.outputChannels;
@@ -276,11 +287,12 @@ DecodeChunkResult decodeAudioWithCancellation(
 
         ma_uint64 framesRead = 0;
         const ma_result readRes = ma_decoder_read_pcm_frames(&decoder, block.data(), kBlockFrames, &framesRead);
+
         if (framesRead > 0) {
             const std::size_t oldSize = samples.size();
             if (oldSize + framesRead * channels > kMaxDecodedBytes / sizeof(float)) {
                 ma_decoder_uninit(&decoder);
-                return {.ok = false, .cancelled = false, .error = "decoded audio exceeds 1 GiB limit"};
+                return {.ok = false, .cancelled = false, .error = "decoded audio exceeds 1 GiB memory limit"};
             }
             samples.resize(oldSize + static_cast<std::size_t>(framesRead) * channels);
             std::copy_n(block.data(), static_cast<std::size_t>(framesRead) * channels, samples.data() + oldSize);
@@ -292,15 +304,35 @@ DecodeChunkResult decodeAudioWithCancellation(
             }
         }
 
-        if (readRes != MA_SUCCESS || framesRead == 0) {
+        // Distinct handling of EOF vs actual decoder errors
+        if (readRes != MA_SUCCESS && readRes != MA_AT_END) {
+            ma_decoder_uninit(&decoder);
+            return {
+                .ok = false,
+                .cancelled = false,
+                .error = std::string("miniaudio decode error: ") + ma_result_description(readRes)
+            };
+        }
+
+        if (readRes == MA_AT_END || framesRead == 0) {
+            // Normal end-of-file reached
             break;
         }
     }
 
     ma_decoder_uninit(&decoder);
 
-    if (samples.empty()) {
-        return {.ok = false, .cancelled = false, .error = "decoded audio is empty"};
+    if (samples.empty() || framesReadTotal == 0) {
+        return {.ok = false, .cancelled = false, .error = "decoded audio stream contains 0 frames"};
+    }
+
+    // Guard against prematurely truncated audio streams
+    if (haveLength && lengthFrames > 1000 && framesReadTotal < (lengthFrames / 2)) {
+        return {
+            .ok = false,
+            .cancelled = false,
+            .error = "audio file is corrupted or prematurely truncated"
+        };
     }
 
     bgmedia::AudioData audioData{
@@ -314,17 +346,23 @@ DecodeChunkResult decodeAudioWithCancellation(
 
 } // namespace
 
+#endif // HAVE_BGMEDIA
+
 extern "C" {
 
 JNIEXPORT jstring JNICALL
 Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeGetVersion(
     JNIEnv* env,
     jclass /* clazz */) {
+#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
     std::ostringstream ss;
     ss << "BG Beat " << BGMEDIA_VERSION_STRING
        << " (schema " << bgmedia::kAnalysisSchemaVersion
        << ", analyzer " << bgmedia::kAnalyzerVersion << ")";
     return env->NewStringUTF(ss.str().c_str());
+#else
+    return env->NewStringUTF("BG Beat 0.1 (stub - private core omitted)");
+#endif
 }
 
 JNIEXPORT jlong JNICALL
@@ -361,6 +399,13 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAnalyzeFile(
     jlong cancelTokenHandle,
     jobject jprogressCallback) {
 
+#if !defined(HAVE_BGMEDIA) || !HAVE_BGMEDIA
+    (void)jfilePath; (void)jcacheDir; (void)minBpm; (void)maxBpm;
+    (void)cancelTokenHandle; (void)jprogressCallback;
+    std::string err = makeErrorJson("BG Media C++ core is omitted in this build (requires submodule/token)", "unsupported");
+    return env->NewStringUTF(err.c_str());
+#else
+
     JniStringGuard filePathGuard(env, jfilePath);
     JniStringGuard cacheDirGuard(env, jcacheDir);
 
@@ -369,7 +414,6 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAnalyzeFile(
         return env->NewStringUTF(err.c_str());
     }
 
-    // Retain token shared_ptr on the stack for safe, UAF-free lifetime
     std::shared_ptr<std::atomic<bool>> cancelToken =
         CancelRegistry::instance().get(static_cast<int64_t>(cancelTokenHandle));
 
@@ -419,7 +463,7 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAnalyzeFile(
 
         reportProgress(0.0f, "Decoding audio");
 
-        // Cooperative decoding: checks cancellation every chunk
+        // Cooperative decoding: checks cancellation every chunk and verifies EOF
         DecodeChunkResult decodeRes = decodeAudioWithCancellation(filePath, isCancelled, reportProgress);
 
         if (decodeRes.cancelled || isCancelled()) {
@@ -510,6 +554,7 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAnalyzeFile(
         std::string err = makeErrorJson("Unknown native exception in BG Beat");
         return env->NewStringUTF(err.c_str());
     }
+#endif
 }
 
 } // extern "C"
