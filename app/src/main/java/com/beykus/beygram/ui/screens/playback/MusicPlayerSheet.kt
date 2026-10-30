@@ -991,11 +991,18 @@ private fun QueuePanel(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack, modifier = Modifier.focusRequester(backFocus)) {
+            TextButton(onClick = onBack, modifier = Modifier.focusRequester(backFocus)) {
                 Icon(
                     Icons.AutoMirrored.Rounded.ArrowBack,
-                    stringResource(R.string.common_back),
-                    tint = palette.textSecondary
+                    contentDescription = null,
+                    tint = palette.textSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    stringResource(R.string.queue_back_to_player),
+                    color = palette.textSecondary,
+                    maxLines = 1
                 )
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {

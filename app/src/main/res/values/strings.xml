@@ -2130,6 +2130,7 @@
     <string name="player_seek_after_download">Перемотка станет доступна после загрузки</string>
     <string name="player_speed_title">Скорость воспроизведения</string>
     <string name="queue_title">Очередь</string>
+    <string name="queue_back_to_player">К плееру</string>
     <string name="queue_count">Треков: %1$d</string>
     <string name="queue_loading_count">Загружается: %1$d</string>
     <string name="queue_shuffled">Перемешивание включено: показан исходный порядок</string>

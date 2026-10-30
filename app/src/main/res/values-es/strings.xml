@@ -629,6 +629,7 @@
     <string name="player_seek_after_download">La búsqueda estará disponible tras la descarga</string>
     <string name="player_speed_title">Velocidad de reproducción</string>
     <string name="queue_title">Cola</string>
+    <string name="queue_back_to_player">Al reproductor</string>
     <string name="queue_count">Pistas: %1$d</string>
     <string name="queue_loading_count">Cargando: %1$d</string>
     <string name="queue_shuffled">Aleatorio activado: se muestra el orden original</string>

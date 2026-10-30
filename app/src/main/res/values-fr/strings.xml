@@ -655,6 +655,7 @@
     <string name="player_seek_after_download">Le déplacement sera disponible après le téléchargement</string>
     <string name="player_speed_title">Vitesse de lecture</string>
     <string name="queue_title">File d’attente</string>
+    <string name="queue_back_to_player">Au lecteur</string>
     <string name="queue_count">Pistes : %1$d</string>
     <string name="queue_loading_count">Chargement : %1$d</string>
     <string name="queue_shuffled">Lecture aléatoire activée : l’ordre d’origine est affiché</string>
