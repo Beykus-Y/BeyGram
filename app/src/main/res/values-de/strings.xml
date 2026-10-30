@@ -665,6 +665,9 @@
     <string name="music_search_hint">Titel oder Interpret</string>
     <string name="music_search_intro">Durchsucht Musik-Audionachrichten in deinen Chats und Kanälen. Tippe auf einen Titel, um ihn im BeyGram-Player abzuspielen.</string>
     <string name="music_search_empty">Nichts gefunden</string>
+    <string name="music_local_title">In deinen Chats</string>
+    <string name="music_local_empty">Keine Treffer in deinen Chats</string>
+    <string name="music_public_empty">Keine öffentlichen Treffer</string>
     <string name="music_search_failed">Musiksuche fehlgeschlagen</string>
     <string name="music_load_more">Mehr anzeigen</string>
     <string name="forward_search_hint">Chats suchen</string>
