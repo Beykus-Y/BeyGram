@@ -2615,6 +2615,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             onLongClick = if (selectionMode) onToggleSelection else onActions
                         ),
                     overlayMeta = overlayMeta,
+                    // Only plain text may share its final line with time/status; complex content keeps the footer row.
+                    inlineMeta = showText && message.media == null && renderedSpecial == null &&
+                        message.reply == null && message.linkPreview == null && translation == null &&
+                        message.expiredMediaKind == null && message.sendState != MessageSendState.Failed,
                     body = {
                     Column {
                         if (showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -2662,7 +2666,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (showText || renderedSpecial != null || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
-                                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(metrics.replyRadius))
+                                Column(Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(metrics.replyRadius))
                                     .border(1.dp, palette.accent, RoundedCornerShape(metrics.replyRadius))
                                     .clickable { if (selectionMode) onToggleSelection() else onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                     Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
