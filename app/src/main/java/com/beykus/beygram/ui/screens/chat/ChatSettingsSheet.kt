@@ -328,7 +328,7 @@ private fun ChatSoundChoice(label: String, selected: Boolean, enabled: Boolean, 
 }
 
 @Composable
-private fun SettingSwitch(title: String, checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+internal fun SettingSwitch(title: String, checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp)
