@@ -213,6 +213,8 @@
     <string name="chat_scheduled_cancel_failed">Не удалось отменить отложенное сообщение</string>
     <string name="chat_scheduled_edit_failed">Не удалось изменить отложенное сообщение</string>
     <string name="chat_scheduled_empty">Отложенных сообщений нет</string>
+    <string name="chat_scheduled_compose_action">Написать сообщение</string>
+    <string name="chat_scheduled_compose_hint">Напишите сообщение, затем удерживайте кнопку отправки, чтобы выбрать время.</string>
     <string name="chat_scheduled_failed">Не удалось отправить отложенное сообщение</string>
     <string name="chat_scheduled_load_failed">Не удалось загрузить отложенные сообщения</string>
     <string name="chat_scheduled_retry_failed">Не удалось повторить отправку</string>
