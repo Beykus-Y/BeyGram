@@ -7,19 +7,19 @@ import org.junit.Test
 class MiniPlayerVisibilityPolicyTest {
     @Test
     fun noTrackNeverDisplaysBar() {
-        assertFalse(shouldShowMiniPlayer(hasItem = false, bottomInset = false, keyboardVisible = false))
-        assertFalse(shouldShowMiniPlayer(hasItem = false, bottomInset = true, keyboardVisible = true))
+        assertFalse(shouldShowMiniPlayer(hasItem = false, hideWhenImeVisible = false, keyboardVisible = false))
+        assertFalse(shouldShowMiniPlayer(hasItem = false, hideWhenImeVisible = true, keyboardVisible = true))
     }
 
     @Test
-    fun detachedBarDoesNotCompeteWithKeyboard() {
-        assertTrue(shouldShowMiniPlayer(hasItem = true, bottomInset = true, keyboardVisible = false))
-        assertFalse(shouldShowMiniPlayer(hasItem = true, bottomInset = true, keyboardVisible = true))
+    fun rootAndTabBarsDoNotCompeteWithKeyboard() {
+        assertTrue(shouldShowMiniPlayer(hasItem = true, hideWhenImeVisible = true, keyboardVisible = false))
+        assertFalse(shouldShowMiniPlayer(hasItem = true, hideWhenImeVisible = true, keyboardVisible = true))
     }
 
     @Test
-    fun embeddedBarKeepsItsOwnKeyboardLayout() {
-        assertTrue(shouldShowMiniPlayer(hasItem = true, bottomInset = false, keyboardVisible = false))
-        assertTrue(shouldShowMiniPlayer(hasItem = true, bottomInset = false, keyboardVisible = true))
+    fun chatIntegratedBarKeepsItsOwnKeyboardLayout() {
+        assertTrue(shouldShowMiniPlayer(hasItem = true, hideWhenImeVisible = false, keyboardVisible = false))
+        assertTrue(shouldShowMiniPlayer(hasItem = true, hideWhenImeVisible = false, keyboardVisible = true))
     }
 }
