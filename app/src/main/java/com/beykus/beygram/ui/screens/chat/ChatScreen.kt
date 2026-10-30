@@ -2263,7 +2263,11 @@ fun ChatScreen(
     if (scheduledMessagesOpen) ScheduledMessagesDialog(
         chatId = chat.id,
         conversation = conversation,
-        onClose = { scheduledMessagesOpen = false }
+        onClose = { scheduledMessagesOpen = false },
+        onCompose = {
+            scheduledMessagesOpen = false
+            replyFocusRequest++
+        }
     )
     if (chatSettingsOpen) ChatSettingsSheet(
         chatId = chat.id,
