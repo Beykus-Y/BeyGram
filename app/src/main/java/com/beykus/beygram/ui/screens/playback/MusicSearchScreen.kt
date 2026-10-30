@@ -68,6 +68,14 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
+/** A cancelled or superseded request must never repopulate another search's UI. */
+internal fun isCurrentMusicSearchResult(
+    requestGeneration: Long,
+    latestGeneration: Long,
+    requestedQuery: String,
+    activeQuery: String
+): Boolean = requestGeneration == latestGeneration && requestedQuery == activeQuery.trim()
+
 /**
  * «Настройки → Звук и воспроизведение → Музыка». Ищет музыкальные аудиосообщения во всех доступных аккаунту чатах
  * через TDLib-фильтр аудио, а публичный поиск обрабатывает отдельным запросом к музыкальному боту.
@@ -77,14 +85,6 @@ import java.util.concurrent.atomic.AtomicLong
  * С [onPick] это выбор трека для «Прикрепить → Музыка» в чате [pickChatId]: у строки появляется кнопка выбора,
  * а сам трек уходит только после обычной кнопки «Отправить» в поле ввода.
  */
-/** A cancelled or superseded request must never repopulate another search's UI. */
-internal fun isCurrentMusicSearchResult(
-    requestGeneration: Long,
-    latestGeneration: Long,
-    requestedQuery: String,
-    activeQuery: String
-): Boolean = requestGeneration == latestGeneration && requestedQuery == activeQuery.trim()
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MusicSearchScreen(
