@@ -38,6 +38,7 @@ jobs:
         with:
           # Full history: the prerelease notes list the commits since the previous DEV build.
           fetch-depth: 0
+          submodules: recursive
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5

@@ -2232,4 +2232,7 @@
     <string name="music_public_title">Публичные результаты</string>
     <string name="music_public_note">Нажмите трек, чтобы на время сохранить его в «Избранное» и открыть в плеере. Сообщение удаляется после загрузки.</string>
     <string name="music_public_unavailable">Публичный источник сейчас недоступен. Попробуйте повторить поиск позже.</string>
+    <string name="settings_group_experiments">Эксперименты</string>
+    <string name="settings_bgbeat_title">BG Beat (анализ музыки)</string>
+    <string name="settings_bgbeat_desc">Анализ ритма, BPM и структуры на C++20 ядре BG Media</string>
 </resources>

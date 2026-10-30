@@ -685,4 +685,7 @@
     <string name="music_public_title">Public results</string>
     <string name="music_public_note">Tap a track to save it briefly to Saved Messages and open it in the player. The message is removed once the download finishes.</string>
     <string name="music_public_unavailable">The public source is unavailable right now. Try searching again later.</string>
+    <string name="settings_group_experiments">Experiments</string>
+    <string name="settings_bgbeat_title">BG Beat (music analysis)</string>
+    <string name="settings_bgbeat_desc">Rhythm, BPM and structure analysis powered by BG Media C++20 core</string>
 </resources>
