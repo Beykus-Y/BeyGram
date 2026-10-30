@@ -665,6 +665,9 @@
     <string name="music_search_hint">Song or artist</string>
     <string name="music_search_intro">Searches music audio messages in your chats and channels. Tap a track to play it in the BeyGram player.</string>
     <string name="music_search_empty">Nothing found</string>
+    <string name="music_local_title">In your chats</string>
+    <string name="music_local_empty">No matches in your chats</string>
+    <string name="music_public_empty">No public matches found</string>
     <string name="music_search_failed">Music search failed</string>
     <string name="music_load_more">Show more</string>
     <string name="forward_search_hint">Search chats</string>
@@ -677,5 +680,5 @@
     <string name="forward_sent_to_chats">Forwarded to %1$d chats</string>
     <string name="music_public_title">Public results</string>
     <string name="music_public_note">Tap a track to save it briefly to Saved Messages and open it in the player. The message is removed once the download finishes.</string>
-    <string name="music_public_unavailable">The public source is unavailable right now. Your results are shown above.</string>
+    <string name="music_public_unavailable">The public source is unavailable right now. Try searching again later.</string>
 </resources>
