@@ -125,6 +125,7 @@
     <string name="feature_action_failed">La acción falló</string>
     <string name="feature_confirm">Confirmar</string>
     <string name="feature_more_actions">Más acciones</string>
+    <string name="contacts_actions_hint">Mantén pulsado un contacto para ver más acciones</string>
     <string name="feature_linked_channel">Canal personal</string>
 
     <!-- Pestañas de carpetas de Telegram sincronizadas con el servidor -->
