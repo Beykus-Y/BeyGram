@@ -711,4 +711,7 @@
     <string name="music_public_title">Résultats publics</string>
     <string name="music_public_note">Appuyez sur une piste pour l’enregistrer brièvement dans Messages enregistrés et l’ouvrir dans le lecteur. Le message est supprimé une fois le téléchargement terminé.</string>
     <string name="music_public_unavailable">La source publique est indisponible pour le moment. Vos résultats s’affichent ci-dessus.</string>
+    <string name="settings_group_experiments">Expériences</string>
+    <string name="settings_bgbeat_title">BG Beat (analyse musicale)</string>
+    <string name="settings_bgbeat_desc">Analyse du rythme, BPM et structure propulsée par le moteur C++20 BG Media</string>
 </resources>

@@ -685,4 +685,7 @@
     <string name="music_public_title">Resultados públicos</string>
     <string name="music_public_note">Toca una pista para guardarla brevemente en Mensajes guardados y abrirla en el reproductor. El mensaje se elimina al terminar la descarga.</string>
     <string name="music_public_unavailable">La fuente pública no está disponible ahora. Tus resultados aparecen arriba.</string>
+    <string name="settings_group_experiments">Experimentos</string>
+    <string name="settings_bgbeat_title">BG Beat (análisis de música)</string>
+    <string name="settings_bgbeat_desc">Análisis de ritmo, BPM y estructura impulsado por el motor C++20 BG Media</string>
 </resources>
