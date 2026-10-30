@@ -112,6 +112,48 @@ internal fun senderHeaderVisibility(chat: ChatPreview, items: List<ChatMessageLi
     return headers
 }
 
+/** A subtle visual block for nearby plain text messages from the same author.
+ * The list is newest-first; the next row is chronologically older. Separators,
+ * albums and pending media deliberately interrupt the block.
+ */
+internal fun groupedTextBubblesWithOlder(items: List<ChatMessageListItem>): Set<String> =
+    buildSet {
+        for (index in 0 until items.lastIndex) {
+            val newer = items[index].messages.singleOrNull() ?: continue
+            val older = items[index + 1].messages.singleOrNull() ?: continue
+            if (canGroupTextBubbles(newer, older)) add(items[index].key)
+        }
+    }
+
+internal fun canGroupTextBubbles(newer: ChatMessage, older: ChatMessage): Boolean {
+    if (newer.chatId != older.chatId || newer.forumTopicId != older.forumTopicId) return false
+    if (newer.isOutgoing != older.isOutgoing) return false
+    if (newer.dateSeconds <= 0L || older.dateSeconds <= 0L ||
+        newer.dateSeconds - older.dateSeconds !in 0L..300L
+    ) return false
+
+    fun isPlainText(message: ChatMessage): Boolean =
+        message.text.isNotBlank() &&
+            message.media == null &&
+            message.special == null &&
+            message.serviceText == null &&
+            message.expiredMediaKind == null &&
+            message.linkPreview == null &&
+            message.mediaAlbumId == 0L &&
+            !message.isCallEvent &&
+            !message.isChannelPost &&
+            message.inlineKeyboard.isEmpty()
+
+    if (!isPlainText(newer) || !isPlainText(older)) return false
+    if (newer.isOutgoing) return true
+    return if (newer.senderId != 0L && older.senderId != 0L) {
+        newer.senderId == older.senderId
+    } else {
+        newer.senderId == older.senderId && newer.senderName.isNotBlank() &&
+            newer.senderName == older.senderName
+    }
+}
+
 /** Renders only messages carrying Telegram's nonzero mediaAlbumId as one album. */
 @Composable
 internal fun MessageAlbumBubble(
