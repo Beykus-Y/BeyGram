@@ -24,6 +24,26 @@ class NavigationHistoryTest {
     }
 
     @Test
+    fun returningToAnyEarlierNestedRouteIsPop() {
+        val history = history()
+        history.visit("Chat")
+        history.visit("MessageThread")
+        history.visit("ThreadInfo")
+        assertEquals(NavigationMove.Pop, history.visit("Chat"))
+        // The popped intermediate routes no longer exist in history.
+        assertEquals(NavigationMove.Push, history.visit("MessageThread"))
+        assertEquals(NavigationMove.Pop, history.visit("Chat"))
+    }
+
+    @Test
+    fun openingACompletelyNewNestedRouteIsStillPush() {
+        val history = history()
+        history.visit("Chat")
+        history.visit("ChatInfo")
+        assertEquals(NavigationMove.Push, history.visit("Gallery"))
+    }
+
+    @Test
     fun switchingBetweenTabRootsIsTab() {
         val history = history()
         assertEquals(NavigationMove.Tab, history.visit("Settings"))
