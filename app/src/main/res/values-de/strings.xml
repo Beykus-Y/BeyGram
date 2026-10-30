@@ -127,6 +127,7 @@
     <string name="feature_action_failed">Aktion fehlgeschlagen</string>
     <string name="feature_confirm">Bestätigen</string>
     <string name="feature_more_actions">Weitere Aktionen</string>
+    <string name="contacts_actions_hint">Kontakt gedrückt halten, um weitere Aktionen anzuzeigen</string>
     <string name="feature_linked_channel">Persönlicher Kanal</string>
 
     <!-- Server-synced Telegram folder tabs -->

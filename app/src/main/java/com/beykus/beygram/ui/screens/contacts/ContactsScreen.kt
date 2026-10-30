@@ -26,7 +26,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -51,6 +50,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -179,6 +181,14 @@ fun ContactsScreen(
             contacts.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_none), Modifier.weight(1f))
             visible.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_no_results), Modifier.weight(1f))
             else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
+                item(key = "contacts_actions_hint") {
+                    Text(
+                        stringResource(R.string.contacts_actions_hint),
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 2.dp)
+                    )
+                }
                 contactGroups.forEach { (initial, group) ->
                     item(key = "contacts_group_$initial") {
                         Text(
@@ -262,11 +272,27 @@ private fun ContactRow(
     onCopyUsername: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val contextLabel = stringResource(R.string.feature_more_actions)
     var menuOpen by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth()
-            .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = { menuOpen = true })
-            .padding(start = 20.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+            .combinedClickable(
+                enabled = enabled,
+                onClick = onClick,
+                onLongClickLabel = stringResource(R.string.feature_more_actions),
+                onLongClick = { menuOpen = true }
+            )
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction(contextLabel) {
+                        if (enabled) {
+                            menuOpen = true
+                            true
+                        } else false
+                    }
+                )
+            }
+            .padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         TelegramAvatar(contact.initials, Color(contact.avatarColorArgb), 48.dp, contact.photo, observeFile, downloadFile)
@@ -275,10 +301,8 @@ private fun ContactRow(
             Text(contact.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(contact.subtitle, color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Box {
-            IconButton(onClick = { menuOpen = true }, enabled = enabled) {
-                Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary)
-            }
+        // The row itself owns the long-press and TalkBack actions; no repeated overflow icon on every contact.
+        Box(Modifier.width(1.dp)) {
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.contacts_action_edit)) },
