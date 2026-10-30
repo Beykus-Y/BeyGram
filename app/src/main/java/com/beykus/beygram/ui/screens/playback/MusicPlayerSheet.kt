@@ -201,7 +201,13 @@ internal fun MusicPlayerSheet(
                 PlayerPanel.Queue -> QueuePanel(
                     source = source,
                     onBack = { panel = PlayerPanel.Player },
-                    onDismiss = onDismiss
+                    onDismiss = onDismiss,
+                    onSearch = onOpenMusicSearch?.let { open ->
+                        {
+                            onDismiss()
+                            open()
+                        }
+                    }
                 )
             }
         }
@@ -947,7 +953,8 @@ private fun PlayerAction(action: PlayerActionUi, modifier: Modifier = Modifier) 
 private fun QueuePanel(
     source: PlaybackSourceLabel,
     onBack: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSearch: (() -> Unit)? = null
 ) {
     val queue = rememberMusicQueueUi()
     LaunchedEffect(queue == null) { if (queue == null) onDismiss() }
@@ -1051,12 +1058,22 @@ private fun QueuePanel(
             }
             if (current.upcoming.isEmpty() && !loadingOlder) {
                 item(key = "queue-empty") {
-                    Text(
-                        stringResource(R.string.queue_empty),
-                        color = palette.textSecondary,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp)
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            stringResource(R.string.queue_empty),
+                            color = palette.textSecondary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        if (onSearch != null) {
+                            TextButton(onClick = onSearch, modifier = Modifier.padding(top = 4.dp)) {
+                                Text(stringResource(R.string.music_search_action))
+                            }
+                        }
+                    }
                 }
             }
             items(current.upcoming, key = { "${it.item.occurrenceId}:${it.index}" }) { row ->
