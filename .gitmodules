@@ -1,0 +1,4 @@
+[submodule "third_party/bg-media"]
+	path = third_party/bg-media
+	url = https://github.com/Beykus-Y/BG-Media.git
+	branch = dev

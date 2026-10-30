@@ -91,12 +91,25 @@ android {
             minorApiLevel = 1
         }
     }
+    ndkVersion = "30.0.15729638"
 
     defaultConfig {
         applicationId = "com.beykus.beygram"
         minSdk = 29
         targetSdk = 36
         ndk { abiFilters += nativeAbis }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DBGMEDIA_BUILD_DESKTOP=OFF",
+                    "-DBGMEDIA_BUILD_TESTS=OFF",
+                    "-DBGMEDIA_BUILD_TOOLS=OFF",
+                    "-DBGMEDIA_BUILD_MINIAUDIO=ON",
+                    "-DBGMEDIA_WARNINGS_AS_ERRORS=OFF"
+                )
+            }
+        }
         versionCode = stableVersionCode
         versionName = stableVersion
 
@@ -165,6 +178,12 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "4.1.2"
+        }
     }
 }
 

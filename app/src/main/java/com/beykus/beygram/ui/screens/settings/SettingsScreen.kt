@@ -41,8 +41,14 @@ import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -117,6 +123,19 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
         SettingsGroup(stringResource(R.string.settings_group_updates)) {
             SettingsLink(Icons.Rounded.SystemUpdate, stringResource(R.string.updates_title), onUpdates)
         }
+        val context = LocalContext.current
+        val bgBeatSettings = remember { BgBeatSettingsStore.getInstance(context) }
+        val bgBeatEnabled by bgBeatSettings.enabled.collectAsStateWithLifecycle()
+
+        SettingsGroup(stringResource(R.string.settings_group_experiments)) {
+            SettingsToggle(
+                icon = Icons.Rounded.GraphicEq,
+                title = stringResource(R.string.settings_bgbeat_title),
+                subtitle = stringResource(R.string.settings_bgbeat_desc),
+                checked = bgBeatEnabled,
+                onCheckedChange = { bgBeatSettings.setEnabled(it) }
+            )
+        }
         Spacer(Modifier.height(12.dp))
     }
 }
@@ -155,5 +174,34 @@ private fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) 
         Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
         Text(title, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
         Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun SettingsToggle(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .clickable(role = Role.Switch) { onCheckedChange(!checked) }
+            .padding(horizontal = 20.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f).padding(start = 14.dp, end = 8.dp)) {
+            Text(title, color = palette.textPrimary, fontSize = 16.sp)
+            if (subtitle != null) {
+                Text(subtitle, color = palette.textSecondary, fontSize = 12.sp)
+            }
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
     }
 }

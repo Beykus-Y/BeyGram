@@ -188,6 +188,7 @@ object PlaybackEngine {
     /** Changing this token invalidates an asynchronously delivered ENDED from the previous source. */
     private var transitionToken = 0L
     private var activeAccountId: String? = null
+    val currentAccountId: String? get() = activeAccountId
     private val prefetchedKeys = mutableSetOf<String>()
     private var prefetchPolicyJob: Job? = null
     private var prefetchPolicyAccount: String? = null

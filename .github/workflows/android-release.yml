@@ -56,6 +56,22 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOCKEN || secrets.GH_TOKEN || secrets.BG_MEDIA_TOKEN || github.token }}
+          submodules: false
+
+      - name: Checkout BG Media submodule
+        env:
+          BG_MEDIA_PAT: ${{ secrets.GH_TOCKEN || secrets.GH_TOKEN || secrets.BG_MEDIA_TOKEN }}
+        run: |
+          if [ -n "$BG_MEDIA_PAT" ]; then
+            echo "Configuring submodule authentication for BG Media..."
+            git config --global url."https://${BG_MEDIA_PAT}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init --depth 1 third_party/bg-media
+            git config --global --unset-all url."https://${BG_MEDIA_PAT}@github.com/".insteadOf || true
+          else
+            echo "::warning::No BG_MEDIA token configured. Submodule third_party/bg-media skipped."
+          fi
 
       - name: Test release notes validator
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
