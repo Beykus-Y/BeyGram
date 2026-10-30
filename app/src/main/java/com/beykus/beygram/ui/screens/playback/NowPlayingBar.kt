@@ -110,6 +110,9 @@ internal val ViewerNowPlayingColors = NowPlayingColors(
  */
 val LocalOpenEqualizer = compositionLocalOf<(() -> Unit)?> { null }
 
+/** Optional music search destination provided by the root navigation host. */
+val LocalOpenMusicSearch = compositionLocalOf<(() -> Unit)?> { null }
+
 /**
  * Мини-плеер 2.0: одна компактная полоса над нижним меню или composer. Слева artwork, отдельные Title/Artist,
  * затем Next (только если он реально доступен), Play/Pause и Close/Stop. Тап по основной части открывает полный
@@ -122,6 +125,7 @@ val LocalOpenEqualizer = compositionLocalOf<(() -> Unit)?> { null }
 fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? = null) {
     val providedOpenEqualizer = LocalOpenEqualizer.current
     val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
+    val openMusicSearch = LocalOpenMusicSearch.current
     val mini = rememberMiniPlayerUi()
     var lastMini by remember { mutableStateOf(mini) }
     SideEffect { if (mini != null) lastMini = mini }
@@ -159,7 +163,11 @@ fun NowPlayingBar(bottomInset: Boolean = false, onOpenEqualizer: (() -> Unit)? =
 
     if (fullPlayerOpen) {
         if (mini?.isMusic == true) {
-            MusicPlayerSheet(onDismiss = { fullPlayerOpen = false }, onOpenEqualizer = openEqualizer)
+            MusicPlayerSheet(
+                onDismiss = { fullPlayerOpen = false },
+                onOpenEqualizer = openEqualizer,
+                onOpenMusicSearch = openMusicSearch
+            )
         } else {
             VoiceNowPlayingSheet(onDismiss = { fullPlayerOpen = false })
         }
