@@ -105,6 +105,10 @@ fun ContactsScreen(
         if (needle.isEmpty()) contacts
         else contacts.filter { it.title.contains(needle, ignoreCase = true) || it.subtitle.contains(needle, ignoreCase = true) }
     }
+    val contactGroups = remember(visible) {
+        visible.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+            .groupBy { contactAlphabetGroup(it.title) }
+    }
     val shareChats = remember(chats) {
         chats.filter { it.canPost }.distinctBy { it.id }.sortedBy { it.title.lowercase() }
     }
@@ -175,8 +179,18 @@ fun ContactsScreen(
             contacts.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_none), Modifier.weight(1f))
             visible.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_no_results), Modifier.weight(1f))
             else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
-                items(visible, key = { it.userId }) { contact ->
-                    ContactRow(
+                contactGroups.forEach { (initial, group) ->
+                    item(key = "contacts_group_$initial") {
+                        Text(
+                            initial,
+                            color = palette.accent,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
+                        )
+                    }
+                    items(group, key = { it.userId }) { contact ->
+                        ContactRow(
                         contact = contact,
                         observeFile = observeFile,
                         downloadFile = downloadFile,
@@ -187,7 +201,8 @@ fun ContactsScreen(
                         onShare = { sharingContact = contact },
                         onCopy = { copyNumber(contact) },
                         onCopyUsername = { copyUsername(contact) }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -228,6 +243,10 @@ fun ContactsScreen(
         )
     }
 }
+
+/** Stable alphabet heading for local and non-Latin contact names; symbols go into #. */
+internal fun contactAlphabetGroup(title: String): String =
+    title.trim().firstOrNull()?.takeIf { it.isLetter() }?.uppercaseChar()?.toString() ?: "#"
 
 @Composable
 private fun ContactRow(
