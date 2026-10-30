@@ -65,10 +65,18 @@ internal data class BubbleMetrics(
 internal val LocalBubbleMetrics = compositionLocalOf { BubbleMetrics() }
 
 /** Форма пузыря. Хвост внизу со стороны отправителя: справа у исходящих, слева у входящих. */
-internal fun bubbleShape(outgoing: Boolean, metrics: BubbleMetrics): RoundedCornerShape {
+internal fun bubbleShape(
+    outgoing: Boolean,
+    metrics: BubbleMetrics,
+    groupedWithOlder: Boolean = false
+): RoundedCornerShape {
     val corner = metrics.cornerRadius
     val tail = metrics.tailRadius
-    return if (outgoing) RoundedCornerShape(corner, corner, tail, corner) else RoundedCornerShape(corner, corner, corner, tail)
+    // Keep the original bottom tail; soften only the author's top-side corner when a
+    // chronologically older message continues immediately above this one.
+    val groupedTop = if (groupedWithOlder) tail else corner
+    return if (outgoing) RoundedCornerShape(corner, groupedTop, tail, corner)
+    else RoundedCornerShape(groupedTop, corner, corner, tail)
 }
 
 /**
