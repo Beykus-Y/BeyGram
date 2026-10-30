@@ -2468,7 +2468,8 @@ private fun ChatTopBar(
                     )
                 }
             }
-            if (!chat.isSecret) IconButton(onClick = onScheduled) { Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_scheduled_title), tint = palette.textSecondary) }
+            // Scheduled messages stay accessible from overflow, without permanently consuming
+            // an entire title-width action slot in every ordinary chat.
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
             Box {
                 IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary) }
@@ -2477,6 +2478,11 @@ private fun ChatTopBar(
                         text = { Text(stringResource(R.string.chat_jump_to_unread)) },
                         enabled = hasUnread,
                         onClick = { menuOpen = false; onJumpUnread() }
+                    )
+                    if (!chat.isSecret) DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_scheduled_title)) },
+                        leadingIcon = { Icon(Icons.Rounded.Schedule, contentDescription = null, tint = palette.textSecondary) },
+                        onClick = { menuOpen = false; onScheduled() }
                     )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_mark_unread)) },
