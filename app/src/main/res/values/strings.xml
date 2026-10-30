@@ -960,6 +960,7 @@
     <string name="presence_online">в сети</string>
     <string name="presence_online_count">%1$d в сети</string>
     <string name="presence_private_chat">Личный чат</string>
+    <string name="presence_saved_messages">Ваши сообщения и файлы</string>
     <string name="presence_recently">был(а) недавно</string>
     <string name="presence_someone">Кто-то</string>
     <string name="presence_typing_more">%1$s, %2$s и ещё %3$d печатают…</string>
