@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,7 +26,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -73,6 +78,7 @@ private const val NO_SOUND_ID = 0L
  * Local wallpaper plus TDLib-backed notification overrides for one chat. Nothing is written to the global
  * appearance config, so other chats keep the app-wide choice.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ChatSettingsSheet(
     chatId: Long,
@@ -139,11 +145,42 @@ internal fun ChatSettingsSheet(
             ?: stringResource(R.string.chat_settings_sound_custom)
     }
 
-    AlertDialog(
+    // Settings contain wallpapers, notifications, privacy and secret-chat actions:
+    // use one scrollable bottom sheet instead of compressing them into an AlertDialog.
+    ModalBottomSheet(
         onDismissRequest = { if (!busy) onClose() },
-        title = { Text(stringResource(R.string.chat_settings_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold) },
-        text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
+        sheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+            // A swipe must not hide the sheet during an in-flight TDLib/store operation:
+            // onDismissRequest alone is too late to veto the state transition.
+            confirmValueChange = { next -> next != SheetValue.Hidden || !busy }
+        ),
+        containerColor = palette.surface,
+        contentColor = palette.textPrimary,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = palette.textSecondary) }
+    ) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp)) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    stringResource(R.string.chat_settings_title),
+                    color = palette.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onClose, enabled = !busy) {
+                    Text(stringResource(R.string.common_close))
+                }
+            }
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(bottom = 12.dp))
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 20.dp)
+            ) {
                 error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
                 if (loading) {
                     CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent, strokeWidth = 2.dp)
@@ -298,11 +335,8 @@ internal fun ChatSettingsSheet(
                     )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onClose, enabled = !busy) { Text(stringResource(R.string.common_close)) }
         }
-    )
+    }
 }
 
 /** A radio choice in the chat settings surface, without opening another modal layer. */
