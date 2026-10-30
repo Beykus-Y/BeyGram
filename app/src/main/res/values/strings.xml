@@ -2218,6 +2218,7 @@
     <string name="player_sleep_cancel">Отключить таймер (%1$d мин осталось)</string>
     <string name="settings_music_title">Музыка</string>
     <string name="music_search_hint">Название или исполнитель</string>
+    <string name="music_search_action">Поиск музыки</string>
     <string name="music_search_intro">Ищем музыкальные аудиосообщения в ваших чатах и каналах. Нажмите трек, чтобы слушать его в плеере BeyGram.</string>
     <string name="music_search_empty">Ничего не найдено</string>
     <string name="music_local_title">В ваших чатах</string>
