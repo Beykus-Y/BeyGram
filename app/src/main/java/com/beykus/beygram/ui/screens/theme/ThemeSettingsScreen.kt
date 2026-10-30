@@ -312,7 +312,9 @@ fun ThemeSettingsScreen(
                 }
             }
         }
-        if (page != AppearancePage.Preview) {
+        // Keep the draft/Apply workflow, but do not reserve a disabled footer when everything is saved.
+        // The full preview stays free of editing controls.
+        if (page != AppearancePage.Preview && applyState.hasChanges) {
             AppearanceApplyBar(
                 hasChanges = applyState.hasChanges,
                 canApply = applyState.canApply,
