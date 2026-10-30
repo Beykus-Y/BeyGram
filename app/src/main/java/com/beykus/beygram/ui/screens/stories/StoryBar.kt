@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +35,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
@@ -109,8 +111,11 @@ private fun AddStoryCell(onClick: () -> Unit) {
             stringResource(R.string.stories_add),
             color = palette.textPrimary,
             fontSize = 12.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            lineHeight = 14.sp,
+            maxLines = 2,
+            textAlign = TextAlign.Center,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.heightIn(min = 30.dp)
         )
     }
 }
@@ -156,7 +161,9 @@ private fun StoryCell(
             color = palette.textPrimary,
             fontSize = 12.sp,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            textAlign = TextAlign.Center,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.heightIn(min = 30.dp)
         )
     }
 }
