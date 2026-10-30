@@ -2,6 +2,7 @@ package com.beykus.beygram.media.bgbeat
 
 import android.util.Log
 import androidx.annotation.Keep
+import com.beykus.beygram.media.bgmedia.BgMediaSdk
 
 @Keep
 fun interface BgBeatProgressListener {
@@ -9,24 +10,26 @@ fun interface BgBeatProgressListener {
 }
 
 /**
- * Direct JNI bridge to the C++20 BG Beat analysis engine.
+ * Direct JNI bridge to the C++20 BG Beat analysis engine, built upon BgMediaSdk.
  */
 @Keep
 object BgBeatNative {
     private const val TAG = "BgBeatNative"
 
-    @Volatile
-    var isLoaded: Boolean = false
-        private set
+    val isLoaded: Boolean
+        get() = try {
+            BgMediaSdk.ensureLoaded()
+            true
+        } catch (_: Throwable) {
+            false
+        }
 
     init {
         try {
-            System.loadLibrary("bgbeat_jni")
-            isLoaded = true
-            Log.i(TAG, "libbgbeat_jni loaded successfully: ${nativeGetVersion()}")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "Failed to load libbgbeat_jni", e)
-            isLoaded = false
+            BgMediaSdk.ensureLoaded()
+            Log.i(TAG, "libbgbeat_jni ready: ${nativeGetVersion()}")
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to load BG Beat native library", e)
         }
     }
 

@@ -48,6 +48,7 @@ import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
+import com.beykus.beygram.media.bgbeat.BgBeatSection
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -441,11 +442,22 @@ private fun PlayerDetails(
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?
 ) {
+    val position = rememberPlaybackPositionUi()
+    val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
+    val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
+    val played = if (duration > 0L) (position.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+
     TrackMetadata(player, reduced)
     PlayerSeekSection(player)
     Spacer(Modifier.height(6.dp))
     TransportControls(player, reduced)
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(14.dp))
+    BgBeatSection(
+        item = player.item,
+        playbackFraction = played,
+        modifier = Modifier.padding(horizontal = 4.dp)
+    )
+    Spacer(Modifier.height(14.dp))
     PlayerActions(onOpenQueue, onOpenEqualizer, onShowInChat)
 }
 

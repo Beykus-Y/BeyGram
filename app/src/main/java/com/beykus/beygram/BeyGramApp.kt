@@ -706,7 +706,10 @@ private fun BeyGramAppContent(
     // Выход из аккаунта останавливает общий плеер: его файл и «Показать в чате» относятся к прошлой сессии.
     LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
     // Смена выбранного аккаунта не должна оставлять музыку/очередь прошлого аккаунта в общем плеере.
-    LaunchedEffect(selectedAccountId) { PlaybackEngine.setActiveAccount(selectedAccountId) }
+    LaunchedEffect(selectedAccountId) {
+        PlaybackEngine.setActiveAccount(selectedAccountId)
+        com.beykus.beygram.media.bgbeat.BgBeatManager.getInstance(context).onAccountChanged(selectedAccountId)
+    }
     // Restore only after the selected account's real repository is authorized. Paused restoration never
     // prepares a stream or starts a service. Identity is validated against TDLib before creating a queue.
     LaunchedEffect(authState, selectedAccountId, repositorySelection, connectionState) {

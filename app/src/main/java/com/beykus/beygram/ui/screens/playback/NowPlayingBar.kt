@@ -12,7 +12,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import com.beykus.beygram.media.bgbeat.BgBeatSection
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -436,10 +435,6 @@ internal fun NowPlayingControls(
                     }
                 )
             }
-        }
-        if (item.kind == MediaKind.Audio) {
-            Spacer(Modifier.height(16.dp))
-            BgBeatSection(state = state, item = item, colors = colors)
         }
     }
 }

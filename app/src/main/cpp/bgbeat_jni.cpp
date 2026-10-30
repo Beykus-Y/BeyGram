@@ -6,19 +6,22 @@
 #include "bgmedia/analysis/AnalysisResult.hpp"
 #include "bgmedia/cache/AnalysisCache.hpp"
 #include "bgmedia/audio/AudioData.hpp"
-#include "bgmedia/audio/MiniaudioDecoder.hpp"
 #include "bgmedia/version.hpp"
+#include "miniaudio.h"
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <iomanip>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #define LOG_TAG "BgBeatJNI"
@@ -161,6 +164,154 @@ std::string makeErrorJson(std::string_view message, std::string_view status = "e
     return ss.str();
 }
 
+// Thread-safe registry for cancellation tokens.
+// Eliminates Use-After-Free and race conditions across concurrent analyze/cancel/destroy calls.
+class CancelRegistry {
+public:
+    static CancelRegistry& instance() {
+        static CancelRegistry reg;
+        return reg;
+    }
+
+    int64_t create() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        int64_t id = ++nextId_;
+        tokens_[id] = std::make_shared<std::atomic<bool>>(false);
+        return id;
+    }
+
+    std::shared_ptr<std::atomic<bool>> get(int64_t id) {
+        if (id <= 0) return nullptr;
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = tokens_.find(id);
+        return (it != tokens_.end()) ? it->second : nullptr;
+    }
+
+    void cancel(int64_t id) {
+        if (id <= 0) return;
+        std::shared_ptr<std::atomic<bool>> token;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto it = tokens_.find(id);
+            if (it != tokens_.end()) {
+                token = it->second;
+            }
+        }
+        if (token) {
+            token->store(true, std::memory_order_relaxed);
+        }
+    }
+
+    void destroy(int64_t id) {
+        if (id <= 0) return;
+        std::lock_guard<std::mutex> lock(mutex_);
+        tokens_.erase(id);
+    }
+
+private:
+    std::mutex mutex_;
+    int64_t nextId_ = 0;
+    std::unordered_map<int64_t, std::shared_ptr<std::atomic<bool>>> tokens_;
+};
+
+struct DecodeChunkResult {
+    bool ok = false;
+    bool cancelled = false;
+    std::string error = "";
+    bgmedia::AudioData audio = {};
+};
+
+// Cooperative chunk-based PCM decoding using miniaudio.
+// Checks cancellation token every 8192 frames (< 200ms audio chunks).
+DecodeChunkResult decodeAudioWithCancellation(
+    const std::filesystem::path& path,
+    const std::function<bool()>& isCancelled,
+    const std::function<void(float, const std::string&)>& reportProgress
+) {
+    constexpr std::size_t kMaxDecodedBytes = 1024ull * 1024ull * 1024ull; // 1 GiB limit
+    constexpr ma_uint64 kBlockFrames = 8192;
+
+    if (isCancelled && isCancelled()) {
+        return {.ok = false, .cancelled = true};
+    }
+
+    ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0);
+    ma_decoder decoder{};
+    const std::string utf8Path = path.string();
+    const ma_result initResult = ma_decoder_init_file(utf8Path.c_str(), &config, &decoder);
+    if (initResult != MA_SUCCESS) {
+        return {.ok = false, .cancelled = false, .error = std::string("miniaudio failed to open file: ") + ma_result_description(initResult)};
+    }
+
+    const ma_uint32 channels = decoder.outputChannels;
+    const ma_uint32 sampleRate = decoder.outputSampleRate;
+    if (channels == 0 || sampleRate == 0) {
+        ma_decoder_uninit(&decoder);
+        return {.ok = false, .cancelled = false, .error = "invalid channels or sample rate in audio file"};
+    }
+
+    ma_uint64 lengthFrames = 0;
+    const bool haveLength =
+        (ma_decoder_get_length_in_pcm_frames(&decoder, &lengthFrames) == MA_SUCCESS) && (lengthFrames > 0);
+
+    std::vector<float> samples;
+    if (haveLength) {
+        const std::uint64_t estimated = static_cast<std::uint64_t>(lengthFrames) * channels;
+        const std::uint64_t maxFloats = kMaxDecodedBytes / sizeof(float);
+        if (estimated > maxFloats) {
+            ma_decoder_uninit(&decoder);
+            return {.ok = false, .cancelled = false, .error = "audio file too large for in-memory decoding"};
+        }
+        samples.reserve(static_cast<std::size_t>(estimated));
+    }
+
+    std::vector<float> block(static_cast<std::size_t>(kBlockFrames) * channels);
+    ma_uint64 framesReadTotal = 0;
+
+    while (true) {
+        if (isCancelled && isCancelled()) {
+            ma_decoder_uninit(&decoder);
+            return {.ok = false, .cancelled = true};
+        }
+
+        ma_uint64 framesRead = 0;
+        const ma_result readRes = ma_decoder_read_pcm_frames(&decoder, block.data(), kBlockFrames, &framesRead);
+        if (framesRead > 0) {
+            const std::size_t oldSize = samples.size();
+            if (oldSize + framesRead * channels > kMaxDecodedBytes / sizeof(float)) {
+                ma_decoder_uninit(&decoder);
+                return {.ok = false, .cancelled = false, .error = "decoded audio exceeds 1 GiB limit"};
+            }
+            samples.resize(oldSize + static_cast<std::size_t>(framesRead) * channels);
+            std::copy_n(block.data(), static_cast<std::size_t>(framesRead) * channels, samples.data() + oldSize);
+
+            framesReadTotal += framesRead;
+            if (haveLength && lengthFrames > 0 && reportProgress) {
+                float frac = std::clamp(static_cast<float>(framesReadTotal) / static_cast<float>(lengthFrames), 0.0f, 1.0f);
+                reportProgress(0.0f + 0.15f * frac, "Decoding audio");
+            }
+        }
+
+        if (readRes != MA_SUCCESS || framesRead == 0) {
+            break;
+        }
+    }
+
+    ma_decoder_uninit(&decoder);
+
+    if (samples.empty()) {
+        return {.ok = false, .cancelled = false, .error = "decoded audio is empty"};
+    }
+
+    bgmedia::AudioData audioData{
+        .samples = std::move(samples),
+        .channels = channels,
+        .sampleRate = sampleRate
+    };
+
+    return {.ok = true, .cancelled = false, .error = "", .audio = std::move(audioData)};
+}
+
 } // namespace
 
 extern "C" {
@@ -180,8 +331,7 @@ JNIEXPORT jlong JNICALL
 Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeCreateCancelToken(
     JNIEnv* /* env */,
     jclass /* clazz */) {
-    auto* token = new std::atomic<bool>(false);
-    return reinterpret_cast<jlong>(token);
+    return static_cast<jlong>(CancelRegistry::instance().create());
 }
 
 JNIEXPORT void JNICALL
@@ -189,10 +339,7 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeCancel(
     JNIEnv* /* env */,
     jclass /* clazz */,
     jlong tokenHandle) {
-    if (tokenHandle != 0) {
-        auto* token = reinterpret_cast<std::atomic<bool>*>(tokenHandle);
-        token->store(true, std::memory_order_relaxed);
-    }
+    CancelRegistry::instance().cancel(static_cast<int64_t>(tokenHandle));
 }
 
 JNIEXPORT void JNICALL
@@ -200,10 +347,7 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeDestroyCancelToken(
     JNIEnv* /* env */,
     jclass /* clazz */,
     jlong tokenHandle) {
-    if (tokenHandle != 0) {
-        auto* token = reinterpret_cast<std::atomic<bool>*>(tokenHandle);
-        delete token;
-    }
+    CancelRegistry::instance().destroy(static_cast<int64_t>(tokenHandle));
 }
 
 JNIEXPORT jstring JNICALL
@@ -225,7 +369,10 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAnalyzeFile(
         return env->NewStringUTF(err.c_str());
     }
 
-    auto* cancelToken = reinterpret_cast<std::atomic<bool>*>(cancelTokenHandle);
+    // Retain token shared_ptr on the stack for safe, UAF-free lifetime
+    std::shared_ptr<std::atomic<bool>> cancelToken =
+        CancelRegistry::instance().get(static_cast<int64_t>(cancelTokenHandle));
+
     auto isCancelled = [cancelToken]() -> bool {
         return cancelToken != nullptr && cancelToken->load(std::memory_order_relaxed);
     };
@@ -270,32 +417,25 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAnalyzeFile(
             return env->NewStringUTF(err.c_str());
         }
 
-        bgmedia::MiniaudioDecoder decoder;
-        if (!decoder.supports(filePath)) {
-            std::string err = makeErrorJson("Unsupported audio format for: " + filePath.string(), "unsupported");
-            return env->NewStringUTF(err.c_str());
-        }
-
         reportProgress(0.0f, "Decoding audio");
 
-        auto decodeResult = decoder.decode(filePath, [&](float frac, std::string_view stage) {
-            reportProgress(0.0f + 0.15f * frac, std::string(stage));
-        });
+        // Cooperative decoding: checks cancellation every chunk
+        DecodeChunkResult decodeRes = decodeAudioWithCancellation(filePath, isCancelled, reportProgress);
 
-        if (!decodeResult.ok) {
-            std::string err = makeErrorJson("Decoder failed: " + decodeResult.error);
-            return env->NewStringUTF(err.c_str());
-        }
-
-        if (isCancelled()) {
+        if (decodeRes.cancelled || isCancelled()) {
             std::string cancelled = makeErrorJson("Analysis cancelled", "cancelled");
             return env->NewStringUTF(cancelled.c_str());
+        }
+
+        if (!decodeRes.ok) {
+            std::string err = makeErrorJson("Audio decoder failed: " + decodeRes.error);
+            return env->NewStringUTF(err.c_str());
         }
 
         reportProgress(0.15f, "Preparing PCM");
 
         std::string pcmError;
-        bgmedia::PcmBuffer pcm = bgmedia::PcmBuffer::fromAudio(decodeResult.audio, &pcmError);
+        bgmedia::PcmBuffer pcm = bgmedia::PcmBuffer::fromAudio(decodeRes.audio, &pcmError);
         if (!pcm.valid()) {
             std::string err = makeErrorJson("Invalid PCM audio: " + pcmError);
             return env->NewStringUTF(err.c_str());
@@ -335,7 +475,7 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAnalyzeFile(
                 isCancelled
             );
 
-            if (report.status == bgmedia::AnalysisStatus::Cancelled) {
+            if (report.status == bgmedia::AnalysisStatus::Cancelled || isCancelled()) {
                 std::string cancelled = makeErrorJson("Analysis cancelled", "cancelled");
                 return env->NewStringUTF(cancelled.c_str());
             }

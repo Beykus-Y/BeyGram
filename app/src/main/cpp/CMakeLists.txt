@@ -12,15 +12,13 @@ set(BGMEDIA_BUILD_MINIAUDIO ON CACHE BOOL "" FORCE)
 set(BGMEDIA_BUILD_DESKTOP OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
-# Locate BG Media sources
+# Pinned commit of BG Media dev branch
 set(BGMEDIA_PINNED_COMMIT "a4d3821c11063684fae754581ba96128528747f1")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media/CMakeLists.txt")
     set(BGMEDIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media")
 elseif(DEFINED BGMEDIA_ROOT AND EXISTS "${BGMEDIA_ROOT}/CMakeLists.txt")
     set(BGMEDIA_DIR "${BGMEDIA_ROOT}")
-elseif(EXISTS "F:/BG Media/CMakeLists.txt")
-    set(BGMEDIA_DIR "F:/BG Media")
 else()
     include(FetchContent)
     FetchContent_Declare(
@@ -47,6 +45,7 @@ add_library(bgbeat_jni SHARED
 target_include_directories(bgbeat_jni PRIVATE
     "${BGMEDIA_DIR}/include"
     "${BGMEDIA_DIR}/adapters/miniaudio/include"
+    "${BGMEDIA_DIR}/third_party/miniaudio"
 )
 
 target_link_libraries(bgbeat_jni PRIVATE

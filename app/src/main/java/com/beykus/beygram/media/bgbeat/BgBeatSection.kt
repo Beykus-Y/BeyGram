@@ -12,13 +12,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -32,12 +29,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.beykus.beygram.R
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -48,20 +43,32 @@ import kotlin.math.max
 
 /**
  * Experimental BG Beat music analysis card shown in the music player.
+ * Matches analysis strictly to the displayed audio item to avoid cross-track or viewer mismatches.
  */
 @Composable
 internal fun BgBeatSection(
-    state: PlaybackState,
     item: PlaybackItem,
-    colors: NowPlayingColors,
-    modifier: Modifier = Modifier
+    playbackFraction: Float,
+    modifier: Modifier = Modifier,
+    colors: NowPlayingColors? = null
 ) {
     val context = LocalContext.current
     val manager = BgBeatManager.getInstance(context)
     val uiState by manager.uiState.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
 
+    val primaryColor = colors?.primary ?: palette.textPrimary
+    val secondaryColor = colors?.secondary ?: palette.textSecondary
+    val accentColor = colors?.accent ?: palette.accent
+    val accentSoftColor = colors?.accentSoft ?: palette.accentSoft
+
     if (uiState is BgBeatUiState.Disabled) {
+        return
+    }
+
+    // Match the analysis card strictly to the displayed audio item
+    val stateItemKey = uiState.itemKey
+    if (stateItemKey != null && stateItemKey != item.key) {
         return
     }
 
@@ -69,7 +76,7 @@ internal fun BgBeatSection(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(colors.accentSoft.copy(alpha = 0.25f))
+            .background(accentSoftColor.copy(alpha = 0.25f))
             .padding(14.dp)
     ) {
         // Header
@@ -82,13 +89,13 @@ internal fun BgBeatSection(
                 Icon(
                     imageVector = Icons.Rounded.GraphicEq,
                     contentDescription = null,
-                    tint = colors.accent,
+                    tint = accentColor,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = "BG Beat",
-                    color = colors.primary,
+                    color = primaryColor,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -96,12 +103,12 @@ internal fun BgBeatSection(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
-                        .background(colors.accent.copy(alpha = 0.2f))
+                        .background(accentColor.copy(alpha = 0.2f))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = "C++20",
-                        color = colors.accent,
+                        color = accentColor,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -111,12 +118,15 @@ internal fun BgBeatSection(
             IconButton(
                 onClick = { manager.reanalyze() },
                 modifier = Modifier.size(32.dp),
-                enabled = uiState is BgBeatUiState.Ready || uiState is BgBeatUiState.Error
+                enabled = (uiState is BgBeatUiState.Ready || uiState is BgBeatUiState.Error) &&
+                    (stateItemKey == null || stateItemKey == item.key)
             ) {
+                val canRefresh = (uiState is BgBeatUiState.Ready || uiState is BgBeatUiState.Error) &&
+                    (stateItemKey == null || stateItemKey == item.key)
                 Icon(
                     imageVector = Icons.Rounded.Refresh,
                     contentDescription = "Повторить анализ",
-                    tint = if (uiState is BgBeatUiState.Ready || uiState is BgBeatUiState.Error) colors.secondary else colors.secondary.copy(alpha = 0.3f),
+                    tint = if (canRefresh) secondaryColor else secondaryColor.copy(alpha = 0.3f),
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -129,14 +139,14 @@ internal fun BgBeatSection(
             is BgBeatUiState.Idle -> {
                 Text(
                     text = "Готов к анализу",
-                    color = colors.secondary,
+                    color = secondaryColor,
                     fontSize = 13.sp
                 )
             }
             is BgBeatUiState.Ineligible -> {
                 Text(
                     text = s.reason,
-                    color = colors.secondary,
+                    color = secondaryColor,
                     fontSize = 12.sp
                 )
             }
@@ -149,12 +159,12 @@ internal fun BgBeatSection(
                     ) {
                         Text(
                             text = s.stage,
-                            color = colors.secondary,
+                            color = secondaryColor,
                             fontSize = 12.sp
                         )
                         Text(
                             text = "${(s.fraction * 100).toInt()}%",
-                            color = colors.accent,
+                            color = accentColor,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -166,8 +176,8 @@ internal fun BgBeatSection(
                             .fillMaxWidth()
                             .height(4.dp)
                             .clip(RoundedCornerShape(2.dp)),
-                        color = colors.accent,
-                        trackColor = colors.accentSoft
+                        color = accentColor,
+                        trackColor = accentSoftColor
                     )
                 }
             }
@@ -190,13 +200,13 @@ internal fun BgBeatSection(
                         Column {
                             Text(
                                 text = "BPM",
-                                color = colors.secondary,
+                                color = secondaryColor,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
                                 text = String.format(Locale.US, "%.1f", analysis.bpm),
-                                color = colors.primary,
+                                color = primaryColor,
                                 fontSize = 24.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -205,14 +215,14 @@ internal fun BgBeatSection(
                         Column(horizontalAlignment = Alignment.End) {
                             Text(
                                 text = "Уверенность",
-                                color = colors.secondary,
+                                color = secondaryColor,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "${(analysis.bpmConfidence * 100).toInt()}%",
-                                    color = colors.primary,
+                                    color = primaryColor,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -221,12 +231,12 @@ internal fun BgBeatSection(
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(4.dp))
-                                            .background(colors.accent.copy(alpha = 0.15f))
+                                            .background(accentColor.copy(alpha = 0.15f))
                                             .padding(horizontal = 4.dp, vertical = 1.dp)
                                     ) {
                                         Text(
                                             text = "Кеш",
-                                            color = colors.accent,
+                                            color = accentColor,
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -243,15 +253,15 @@ internal fun BgBeatSection(
                         waveform = analysis.waveform,
                         beats = analysis.beats,
                         durationSeconds = analysis.duration,
-                        playbackFraction = state.fraction,
-                        accentColor = colors.accent,
-                        barColor = colors.secondary.copy(alpha = 0.45f),
-                        cursorColor = colors.primary,
+                        playbackFraction = playbackFraction,
+                        accentColor = accentColor,
+                        barColor = secondaryColor.copy(alpha = 0.45f),
+                        cursorColor = primaryColor,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(54.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(colors.accentSoft.copy(alpha = 0.2f))
+                            .background(accentSoftColor.copy(alpha = 0.2f))
                     )
                 }
             }
@@ -259,9 +269,21 @@ internal fun BgBeatSection(
     }
 }
 
-/**
- * Draws the decoded waveform overview and rhythmic beat grid with an active playback cursor.
- */
+@Composable
+internal fun BgBeatSection(
+    state: PlaybackState,
+    item: PlaybackItem,
+    colors: NowPlayingColors,
+    modifier: Modifier = Modifier
+) {
+    BgBeatSection(
+        item = item,
+        playbackFraction = state.fraction,
+        modifier = modifier,
+        colors = colors
+    )
+}
+
 @Composable
 private fun BgBeatWaveformCanvas(
     waveform: List<BgBeatWaveformPeak>,

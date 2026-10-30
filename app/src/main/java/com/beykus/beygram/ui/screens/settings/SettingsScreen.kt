@@ -124,7 +124,7 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsLink(Icons.Rounded.SystemUpdate, stringResource(R.string.updates_title), onUpdates)
         }
         val context = LocalContext.current
-        val bgBeatSettings = remember { BgBeatSettingsStore(context) }
+        val bgBeatSettings = remember { BgBeatSettingsStore.getInstance(context) }
         val bgBeatEnabled by bgBeatSettings.enabled.collectAsStateWithLifecycle()
 
         SettingsGroup(stringResource(R.string.settings_group_experiments)) {
