@@ -189,6 +189,7 @@ import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.screens.playback.EqualizerScreen
 import com.beykus.beygram.ui.screens.playback.MusicSearchScreen
 import com.beykus.beygram.ui.screens.playback.LocalOpenEqualizer
+import com.beykus.beygram.ui.screens.playback.LocalOpenMusicSearch
 import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
 import com.beykus.beygram.ui.screens.playback.PlaybackRepositorySource
 import com.beykus.beygram.ui.text.resolve
@@ -393,6 +394,8 @@ private fun BeyGramAppContent(
     // Equalizer always exits to Settings in its own back handler; remember where it was opened, so both that handler
     // and the toolbar return to the chat/profile/settings that actually opened it.
     var equalizerReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
+    // Search can open from Settings or a global player on any screen; Back returns to that origin.
+    var musicSearchReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var previousRouteName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     // One shared account switcher is rendered above every route.
     var accountSwitcherVisible by rememberSaveable { mutableStateOf(false) }
@@ -1549,7 +1552,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
-    BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = musicSearchReturnRouteName }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
@@ -2098,7 +2101,11 @@ private fun BeyGramAppContent(
         LocalMainTabIndicator provides tabIndicator,
         LocalAutoDownloadFile provides repository::autoDownloadFile,
         LocalBackgroundMediaDownload provides repository::downloadFileInBackground,
-        LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name }
+        LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name },
+        LocalOpenMusicSearch provides {
+            musicSearchReturnRouteName = routeName
+            routeName = AppRoute.MusicSearch.name
+        }
     ) {
     Column(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
@@ -2396,7 +2403,7 @@ private fun BeyGramAppContent(
                     conversation = repository,
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
-                    onBack = { routeName = AppRoute.Settings.name }
+                    onBack = { routeName = musicSearchReturnRouteName }
                 )
                 AppRoute.Equalizer -> EqualizerScreen(
                     settings = equalizerSettings,
@@ -2469,7 +2476,10 @@ private fun BeyGramAppContent(
                         onSecondaryAccounts = { accountSwitcherVisible = true },
                         onAppLock = { routeName = AppRoute.AppLock.name },
                         onEqualizer = { routeName = AppRoute.Equalizer.name },
-                        onMusicSearch = { routeName = AppRoute.MusicSearch.name }
+                        onMusicSearch = {
+                            musicSearchReturnRouteName = AppRoute.Settings.name
+                            routeName = AppRoute.MusicSearch.name
+                        }
                     )
                 }
                 AppRoute.AppLock -> AppLockSettingsScreen(onBack = { routeName = AppRoute.Settings.name })
