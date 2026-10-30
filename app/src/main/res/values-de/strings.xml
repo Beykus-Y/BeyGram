@@ -629,6 +629,7 @@
     <string name="player_seek_after_download">Spulen ist nach dem Download verfügbar</string>
     <string name="player_speed_title">Wiedergabegeschwindigkeit</string>
     <string name="queue_title">Warteschlange</string>
+    <string name="queue_back_to_player">Zum Player</string>
     <string name="queue_count">Titel: %1$d</string>
     <string name="queue_loading_count">Wird geladen: %1$d</string>
     <string name="queue_shuffled">Zufällige Wiedergabe aktiv: Quellreihenfolge wird angezeigt</string>
