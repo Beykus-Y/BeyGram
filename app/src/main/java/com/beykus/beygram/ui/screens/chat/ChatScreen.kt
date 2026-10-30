@@ -6,6 +6,11 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -95,6 +100,9 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.motionEntrance
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
@@ -1784,15 +1792,32 @@ fun ChatScreen(
         }
         if (!searching) FloatingMessageDate(listState, messageListItems, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
-        if (away || history.hasNewerMessages) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).clip(RoundedCornerShape(50)).background(palette.surface)
-            .border(1.dp, palette.divider, RoundedCornerShape(50)).heightIn(min = 48.dp).clickable(role = Role.Button) {
-                if (history.hasNewerMessages) { if (forumTopicId > 0L) conversation.loadForumTopicHistory(chat.id, forumTopicId) else conversation.loadLatestMessages(chat.id); scope.launch { listState.scrollToItem(0) } }
-                else scope.launch { listState.animateScrollToItem(0) }
+        val jumpMotion = rememberMotionSpec(MotionToken.BannerChange)
+        AnimatedVisibility(
+            visible = away || history.hasNewerMessages,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+            enter = if (jumpMotion.isInstant) EnterTransition.None else
+                jumpMotion.fadeEnter() + slideInVertically(jumpMotion.animationSpec()) { it / 2 },
+            exit = if (jumpMotion.isInstant) ExitTransition.None else
+                jumpMotion.fadeExit() + slideOutVertically(jumpMotion.animationSpec()) { it / 2 }
+        ) {
+            Row(
+                Modifier.clip(RoundedCornerShape(50)).background(palette.surface)
+                    .border(1.dp, palette.divider, RoundedCornerShape(50)).heightIn(min = 48.dp)
+                    .clickable(role = Role.Button) {
+                        if (history.hasNewerMessages) {
+                            if (forumTopicId > 0L) conversation.loadForumTopicHistory(chat.id, forumTopicId)
+                            else conversation.loadLatestMessages(chat.id)
+                            scope.launch { listState.scrollToItem(0) }
+                        } else scope.launch { listState.animateScrollToItem(0) }
+                    }
+                    .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.ArrowDownward, null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.chat_jump_to_latest), color = palette.accentInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
-            .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.ArrowDownward, null, tint = palette.accent, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(stringResource(R.string.chat_jump_to_latest), color = palette.accentInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
         if (searching) ChatSearchResults(
             query = searchQuery,
