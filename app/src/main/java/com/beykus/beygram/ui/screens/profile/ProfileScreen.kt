@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -155,12 +156,56 @@ fun ProfileScreen(
                     ProfileSubtitle(info, lastSeenStyle)
                     ProfileBadges(info)
                     if (isOwnProfile) {
-                        // Edit and photo change share one row, so the header takes one action line instead of two.
                         Spacer(Modifier.height(14.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            FilledTonalButton(onClick = onEdit, enabled = !state.isLoading && state.error == null && !saving && !preparing, shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.weight(1f, fill = false).heightIn(min = 48.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.profile_action_edit), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                            TextButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !saving && !preparing, modifier = Modifier.weight(1f, fill = false).heightIn(min = 48.dp)) { Text(if (preparing) stringResource(R.string.profile_photo_preparing) else stringResource(R.string.profile_action_change_photo), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                        // Equal-width actions at normal font sizes; stack with full labels if the screen or text is large.
+                        // Keep the complete action names in accessibility semantics even when compact labels are shown.
+                        val editDescription = stringResource(R.string.profile_action_edit)
+                        val photoDescription = stringResource(R.string.profile_action_change_photo)
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val horizontal = maxWidth >= 320.dp && LocalDensity.current.fontScale < 1.3f
+                            val editButton: @Composable (Modifier) -> Unit = { actionModifier ->
+                                FilledTonalButton(
+                                    onClick = onEdit,
+                                    enabled = !state.isLoading && state.error == null && !saving && !preparing,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = actionModifier.heightIn(min = 48.dp).semantics { contentDescription = editDescription },
+                                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)
+                                ) {
+                                    Text(
+                                        if (horizontal) stringResource(R.string.profile_action_edit_short) else editDescription,
+                                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                            val changePhotoButton: @Composable (Modifier) -> Unit = { actionModifier ->
+                                TextButton(
+                                    onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                    enabled = !saving && !preparing,
+                                    modifier = actionModifier.heightIn(min = 48.dp).semantics { contentDescription = photoDescription }
+                                ) {
+                                    Text(
+                                        if (preparing) stringResource(R.string.profile_photo_preparing)
+                                        else if (horizontal) stringResource(R.string.profile_action_change_photo_short)
+                                        else photoDescription,
+                                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                            if (horizontal) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    editButton(Modifier.weight(1f))
+                                    changePhotoButton(Modifier.weight(1f))
+                                }
+                            } else {
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    editButton(Modifier.fillMaxWidth())
+                                    changePhotoButton(Modifier.fillMaxWidth())
+                                }
+                            }
                         }
                     } else if (info.kind == ProfileKind.Person || info.kind == ProfileKind.Secret) {
                         Spacer(Modifier.height(14.dp))
