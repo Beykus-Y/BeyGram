@@ -162,13 +162,13 @@ internal fun ScheduledMessagesDialog(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var messages by remember(chatId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var loading by remember(chatId) { mutableStateOf(true) }
-    var hasLoaded by remember(chatId) { mutableStateOf(false) }
-    var busy by remember(chatId) { mutableStateOf(false) }
-    var error by remember(chatId) { mutableStateOf<String?>(null) }
-    var reload by remember(chatId) { mutableIntStateOf(0) }
-    var editing by remember(chatId) { mutableStateOf<ChatMessage?>(null) }
+    var messages by remember(chatId, conversation) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    var loading by remember(chatId, conversation) { mutableStateOf(true) }
+    var hasLoaded by remember(chatId, conversation) { mutableStateOf(false) }
+    var busy by remember(chatId, conversation) { mutableStateOf(false) }
+    var error by remember(chatId, conversation) { mutableStateOf<String?>(null) }
+    var reload by remember(chatId, conversation) { mutableIntStateOf(0) }
+    var editing by remember(chatId, conversation) { mutableStateOf<ChatMessage?>(null) }
 
     // TDLib is the source of truth: delivery, another client's edit/cancel and upload failures all change the queue.
     // Keep the open dialog in sync without flickering the initial spinner.
