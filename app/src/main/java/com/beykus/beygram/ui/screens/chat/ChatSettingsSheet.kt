@@ -30,6 +30,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -148,7 +149,12 @@ internal fun ChatSettingsSheet(
     // use one scrollable bottom sheet instead of compressing them into an AlertDialog.
     ModalBottomSheet(
         onDismissRequest = { if (!busy) onClose() },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+            // A swipe must not hide the sheet during an in-flight TDLib/store operation:
+            // onDismissRequest alone is too late to veto the state transition.
+            confirmValueChange = { next -> next != SheetValue.Hidden || !busy }
+        ),
         containerColor = palette.surface,
         contentColor = palette.textPrimary,
         dragHandle = { BottomSheetDefaults.DragHandle(color = palette.textSecondary) }
