@@ -665,6 +665,7 @@
     <string name="player_sleep_cancel">Timer ausschalten (noch %1$d Min.)</string>
     <string name="settings_music_title">Musik</string>
     <string name="music_search_hint">Titel oder Interpret</string>
+    <string name="music_search_action">Musik suchen</string>
     <string name="music_search_intro">Durchsucht Musik-Audionachrichten in deinen Chats und Kanälen. Tippe auf einen Titel, um ihn im BeyGram-Player abzuspielen.</string>
     <string name="music_search_empty">Nichts gefunden</string>
     <string name="music_local_title">In deinen Chats</string>
