@@ -403,7 +403,9 @@ private fun PlayerBody(
             Box(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
                 Column(
                     Modifier
-                        .align(Alignment.TopCenter)
+                        // Center the artwork and controls when they fit; the scroll container still fills
+                        // the viewport and scrolls on short screens or at larger system font scales.
+                        .align(Alignment.Center)
                         .widthIn(max = 560.dp)
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
