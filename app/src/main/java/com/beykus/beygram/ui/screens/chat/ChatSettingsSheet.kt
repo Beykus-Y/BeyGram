@@ -1,10 +1,20 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -148,18 +158,52 @@ internal fun ChatSettingsSheet(
                     TextButton(onClick = { chooseWallpaper(null) }) { Text(stringResource(R.string.chat_settings_wallpaper_global)) }
                     TextButton(onClick = { chooseWallpaper(ChatWallpaper.None) }) { Text(stringResource(R.string.chat_settings_wallpaper_none)) }
                 }
-                var wallpaperMenu by remember { mutableStateOf(false) }
-                Column {
-                    TextButton(onClick = { wallpaperMenu = true }) { Text(stringResource(R.string.chat_settings_choose_wallpaper)) }
-                    DropdownMenu(expanded = wallpaperMenu, onDismissRequest = { wallpaperMenu = false }) {
-                        WallpaperPresets.forEach { preset ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(wallpaperPresetNameRes(preset.id))) },
-                                onClick = {
-                                    wallpaperMenu = false
-                                    chooseWallpaper(ChatWallpaper.Preset(preset.id))
+                // Keep the selection within the current surface: a text-only DropdownMenu above the
+                // chat settings dialog hid the appearance of every preset and blocked most of the screen.
+                var showWallpaperChoices by remember(chatId) { mutableStateOf(false) }
+                TextButton(onClick = { showWallpaperChoices = !showWallpaperChoices }) {
+                    Text(stringResource(R.string.chat_settings_choose_wallpaper))
+                }
+                if (showWallpaperChoices) {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(WallpaperPresets, key = { it.id }) { preset ->
+                            val selected = (effectiveWallpaper as? ChatWallpaper.Preset)?.id == preset.id
+                            val option = ChatWallpaper.Preset(preset.id)
+                            val outline = RoundedCornerShape(12.dp)
+                            Column(
+                                modifier = Modifier.width(112.dp).selectable(
+                                    selected = selected,
+                                    role = Role.RadioButton,
+                                    onClick = { chooseWallpaper(option) }
+                                ),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    Modifier.fillMaxWidth().height(96.dp).clip(outline)
+                                        .border(if (selected) 2.dp else 1.dp, if (selected) palette.accent else palette.divider, outline)
+                                ) {
+                                    ChatWallpaperLayer(option, Modifier.fillMaxSize())
+                                    if (selected) {
+                                        Icon(
+                                            Icons.Rounded.Check,
+                                            contentDescription = null,
+                                            tint = palette.accentInk,
+                                            modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                                        )
+                                    }
                                 }
-                            )
+                                Text(
+                                    stringResource(wallpaperPresetNameRes(preset.id)),
+                                    color = palette.textPrimary,
+                                    fontSize = 12.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 5.dp)
+                                )
+                            }
                         }
                     }
                 }
