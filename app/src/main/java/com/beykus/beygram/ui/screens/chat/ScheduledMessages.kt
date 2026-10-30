@@ -148,7 +148,8 @@ private const val SCHEDULED_REFRESH_MS = 5_000L
 internal fun ScheduledMessagesDialog(
     chatId: Long,
     conversation: ConversationRepository,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onCompose: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -213,7 +214,15 @@ internal fun ScheduledMessagesDialog(
                 error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp).errorAnnouncement()) }
                 when {
                     loading -> CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent, strokeWidth = 2.dp)
-                    messages.isEmpty() -> if (error == null) Text(stringResource(R.string.chat_scheduled_empty), color = palette.textSecondary, fontSize = 14.sp)
+                    messages.isEmpty() -> if (error == null) {
+                        Text(stringResource(R.string.chat_scheduled_empty), color = palette.textSecondary, fontSize = 14.sp)
+                        if (onCompose != null) Text(
+                            stringResource(R.string.chat_scheduled_compose_hint),
+                            color = palette.textSecondary,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
                     else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
                         items(messages, key = { it.id }) { message ->
                             ScheduledMessageRow(
@@ -236,7 +245,13 @@ internal fun ScheduledMessagesDialog(
                 }
             }
         },
-        confirmButton = {},
+        confirmButton = {
+            if (!loading && !busy && error == null && messages.isEmpty() && onCompose != null) {
+                TextButton(onClick = onCompose) {
+                    Text(stringResource(R.string.chat_scheduled_compose_action))
+                }
+            }
+        },
         dismissButton = { TextButton(onClick = onClose, enabled = !busy) { Text(stringResource(R.string.common_close)) } }
     )
 }

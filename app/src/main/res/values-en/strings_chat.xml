@@ -223,6 +223,8 @@
     <string name="chat_scheduled_cancel_failed">Could not cancel the scheduled message</string>
     <string name="chat_scheduled_edit_failed">Could not edit the scheduled message</string>
     <string name="chat_scheduled_empty">No scheduled messages</string>
+    <string name="chat_scheduled_compose_action">Write a message</string>
+    <string name="chat_scheduled_compose_hint">Type a message, then hold Send to choose a scheduled time.</string>
     <string name="chat_scheduled_failed">The scheduled message could not be sent</string>
     <string name="chat_scheduled_load_failed">Could not load scheduled messages</string>
     <string name="chat_scheduled_retry_failed">Could not retry sending</string>

@@ -2264,7 +2264,11 @@ fun ChatScreen(
     if (scheduledMessagesOpen) ScheduledMessagesDialog(
         chatId = chat.id,
         conversation = conversation,
-        onClose = { scheduledMessagesOpen = false }
+        onClose = { scheduledMessagesOpen = false },
+        onCompose = if (canPostHere) ({
+            scheduledMessagesOpen = false
+            replyFocusRequest++
+        }) else null
     )
     if (chatSettingsOpen) ChatSettingsSheet(
         chatId = chat.id,
