@@ -23,10 +23,11 @@ class NavigationHistory<T>(initial: T, private val isRoot: (T) -> Boolean) {
     fun visit(target: T): NavigationMove {
         val current = stack.last()
         if (current == target) return move
+        val previousIndex = stack.indexOfLast { it == target }
         move = when {
             isRoot(target) && isRoot(current) -> NavigationMove.Tab
             isRoot(target) -> NavigationMove.Pop
-            stack.size >= 2 && stack[stack.size - 2] == target -> NavigationMove.Pop
+            previousIndex >= 0 -> NavigationMove.Pop
             else -> NavigationMove.Push
         }
         when {
@@ -34,7 +35,11 @@ class NavigationHistory<T>(initial: T, private val isRoot: (T) -> Boolean) {
                 stack.clear()
                 stack.add(target)
             }
-            move == NavigationMove.Pop -> stack.removeAt(stack.lastIndex)
+            move == NavigationMove.Pop -> {
+                // A direct jump back over multiple nested screens is still a pop.
+                // Remove all screens above the existing target to avoid duplicate routes in the stack.
+                stack.subList(previousIndex + 1, stack.size).clear()
+            }
             else -> stack.add(target)
         }
         return move

@@ -1492,7 +1492,9 @@ private fun BeyGramAppContent(
         )
     )
     // Направление перехода берётся из порядка открытия экранов: назад — pop, новый экран — push, вкладки — fade.
-    val routeHistory = remember { NavigationHistory(initial = route, isRoot = { it in tabRootRoutes }) }
+    // Keep back-stack direction local to the active account. A route visited in another account
+    // must not turn a new screen into a backwards transition after switching accounts.
+    val routeHistory = remember(selectedAccountId) { NavigationHistory(initial = route, isRoot = { it in tabRootRoutes }) }
     val routeMove = routeHistory.visit(route)
     LaunchedEffect(route, previousRouteName) {
         // Every Equalizer entry (player, Settings, profile) records its caller here. The Settings shortcut used to
