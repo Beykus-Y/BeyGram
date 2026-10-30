@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
@@ -25,17 +27,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 
 /** Поле поиска в виде пилюли. [placeholder] показывается, пока поле пустое. */
 @Composable
-internal fun SearchField(query: String, onChange: (String) -> Unit, placeholder: String) {
+internal fun SearchField(
+    query: String,
+    onChange: (String) -> Unit,
+    placeholder: String,
+    onSearch: (() -> Unit)? = null
+) {
     val palette = beyGramPalette()
+    val keyboard = LocalSoftwareKeyboardController.current
     BasicTextField(
         value = query,
         onValueChange = onChange,
         singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = {
+            if (onSearch != null) onSearch() else keyboard?.hide()
+        }),
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.textPrimary),
         cursorBrush = SolidColor(palette.accent),
         modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(24.dp)).background(palette.surface2).padding(horizontal = 16.dp),
