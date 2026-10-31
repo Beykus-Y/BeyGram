@@ -61,6 +61,17 @@ internal data class ChatSwipeAction(
 internal enum class SwipeTarget { Closed, Revealed, Dismissed }
 
 /**
+ * A dismissed row must not be auto-restored while its archive action is in flight.
+ * Otherwise clearing the global open-swipe ID re-opens the just-dismissed row before TDLib finishes.
+ */
+internal fun shouldAutoCloseSwipe(
+    openChatId: Long?,
+    chatId: Long,
+    offset: Float,
+    dismissalInProgress: Boolean
+): Boolean = openChatId != chatId && offset != 0f && !dismissalInProgress
+
+/**
  * The animation that finishes the latest gesture. Cancelling it or starting a new one bumps [gesture], so a rollback
  * scheduled earlier can tell that the row has moved on.
  */
@@ -113,6 +124,7 @@ internal fun SwipeChatRow(
     // The drag writes the offset directly, so a touch move starts no coroutine. Animations only finish a gesture.
     var swipeOffset by remember { mutableFloatStateOf(0f) }
     var rowWidth by remember { mutableStateOf(0f) }
+    var dismissalInProgress by remember { mutableStateOf(false) }
     val latestOpenChatId by rememberUpdatedState(openChatId)
     val settle = remember { Settle() }
     // A release that snaps back or reveals is touch feedback; a dismissal removes the row from the list.
@@ -139,7 +151,9 @@ internal fun SwipeChatRow(
     }
 
     LaunchedEffect(openChatId) {
-        if (openChatId != chat.id && swipeOffset != 0f) startSettle { animateOffset(0f) }
+        if (shouldAutoCloseSwipe(openChatId, chat.id, swipeOffset, dismissalInProgress)) {
+            startSettle { animateOffset(0f) }
+        }
     }
 
     fun close() = startSettle {
@@ -155,13 +169,20 @@ internal fun SwipeChatRow(
             }
             SwipeTarget.Revealed -> animateOffset(-revealPx)
             SwipeTarget.Dismissed -> {
+                // Mark the row before clearing the shared swipe ID. That state change must not
+                // race with a LaunchedEffect that would immediately animate this row back.
+                dismissalInProgress = true
                 val gesture = settle.gesture
                 animateOffset(-rowWidth, removalSpec)
                 if (latestOpenChatId == chat.id) onOpenChange(null)
                 // Outside the settle job, so a new gesture does not cancel the action in flight.
                 scope.launch {
-                    // A failed action restores the row only if nothing has moved it since the dismissal.
-                    if (!primary.perform(chat) && settle.gesture == gesture) startSettle { animateOffset(0f) }
+                    val success = runCatching { primary.perform(chat) }.getOrDefault(false)
+                    // A failed archive restores the row unless the user has started another gesture.
+                    if (!success && settle.gesture == gesture) {
+                        dismissalInProgress = false
+                        startSettle { animateOffset(0f) }
+                    }
                 }
             }
         }
@@ -191,6 +212,7 @@ internal fun SwipeChatRow(
                     orientation = Orientation.Horizontal,
                     onDragStarted = {
                         cancelSettle()
+                        dismissalInProgress = false
                         onOpenChange(chat.id)
                     },
                     onDragStopped = { velocity ->
