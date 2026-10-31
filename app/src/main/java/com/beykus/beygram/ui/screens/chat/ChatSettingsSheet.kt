@@ -193,6 +193,12 @@ internal fun ChatSettingsSheet(
                 }
 
                 Text(stringResource(R.string.chat_settings_wallpaper), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    stringResource(R.string.chat_settings_scope_note),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
                 Text(wallpaperLabel(effectiveWallpaper), color = palette.textPrimary, fontSize = 14.sp, modifier = Modifier.padding(vertical = 6.dp))
                 Row(Modifier.fillMaxWidth()) {
                     TextButton(onClick = { chooseWallpaper(null) }) { Text(stringResource(R.string.chat_settings_wallpaper_global)) }
