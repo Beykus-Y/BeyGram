@@ -780,6 +780,9 @@ fun ChatScreen(
     // Multi-select remains a deliberate action within MessageActionsBar.
     fun openActionsOnLongPress(messageId: Long) {
         if (selectionMode) return
+        // Remember the same anchor used by SelectionActionBar's single-message More action.
+        // Entering Select from the action menu must not lose the original message context.
+        selectionAnchorId = messageId
         actionsId = messageId
     }
     val singleActionTarget = selectionAnchorId?.takeIf { selectionIds == selectionGroupIds(messages, it) }
