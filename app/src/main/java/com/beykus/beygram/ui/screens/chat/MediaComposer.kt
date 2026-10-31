@@ -1257,7 +1257,7 @@ private fun PreparedAttachmentsPanel(
     if (isCompactVisualAlbum(state.pending, state.extra)) {
         // A fixed-height media rail keeps 2–10 images from taking over the conversation.
         // Non-visual and mixed selections retain the existing full controls until #605.
-        CompactVisualAttachmentTray(state, observeFile, onDownloadFile, enabled)
+        CompactVisualAttachmentTray(state, observeFile, onDownloadFile, enabled, maxListHeight)
     } else Column(
         Modifier.fillMaxWidth().heightIn(max = maxListHeight).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)
     ) {
@@ -1372,7 +1372,8 @@ private fun CompactVisualAttachmentTray(
     state: AttachmentState,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
-    enabled: Boolean
+    enabled: Boolean,
+    maxListHeight: androidx.compose.ui.unit.Dp
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -1462,14 +1463,23 @@ private fun CompactVisualAttachmentTray(
         if (activeVideo != null) {
             val preparation = state.preparationFor(activeVideo)
             if (preparation != null) {
-                MediaQualityPanel(
-                    item = activeVideo, preparation = preparation, enabled = enabled,
-                    onModeSelected = { state.selectQuality(activeVideo, it) },
-                    onDeliverySelected = { state.selectVideoDelivery(activeVideo, it) },
-                    onCancel = { state.cancelQualityPreparation(activeVideo) },
-                    onRetry = { state.retryQualityPreparation(activeVideo) },
-                    modifier = Modifier.padding(horizontal = 14.dp)
-                )
+                // Quality options are intentionally collapsed by default. On small screens,
+                // bound their expanded height independently of the fixed media rail.
+                // The user must be able to reach File/Media, retry and the last preset.
+                Column(
+                    Modifier.fillMaxWidth()
+                        .heightIn(max = (maxListHeight - 110.dp).coerceAtLeast(80.dp))
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    MediaQualityPanel(
+                        item = activeVideo, preparation = preparation, enabled = enabled,
+                        onModeSelected = { state.selectQuality(activeVideo, it) },
+                        onDeliverySelected = { state.selectVideoDelivery(activeVideo, it) },
+                        onCancel = { state.cancelQualityPreparation(activeVideo) },
+                        onRetry = { state.retryQualityPreparation(activeVideo) },
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    )
+                }
             }
         }
     }
