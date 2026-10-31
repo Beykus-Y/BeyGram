@@ -459,7 +459,11 @@ fun ChatsScreen(
                     )
                 }
                 androidx.compose.material3.IconButton(
-                    onClick = onMusicSearch,
+                    onClick = {
+                        // Leaving a focused search field should dismiss its IME before the route changes.
+                        focusManager.clearFocus()
+                        onMusicSearch()
+                    },
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
