@@ -276,7 +276,7 @@ internal fun MainTabsScaffold(
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         stateHolder.SaveableStateProvider(key) { content() }
                     }
-                    NowPlayingBar()
+                    NowPlayingBar(hideWhenImeVisible = true)
                 }
             }
         } else {
@@ -284,7 +284,7 @@ internal fun MainTabsScaffold(
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     stateHolder.SaveableStateProvider(key) { content() }
                 }
-                NowPlayingBar()
+                NowPlayingBar(hideWhenImeVisible = true)
                 MainTabBar(tabs = tabs, selected = selected, onSelect = onSelect)
             }
         }
