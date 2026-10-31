@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,9 +28,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
+
+/**
+ * Allow taller text at increased Android font scales without bloating the standard 48dp search pill.
+ * The cap keeps searches usable on short phones while remaining tall enough for 2x body text.
+ */
+internal fun searchFieldMinHeightDp(fontScale: Float): Float =
+    (48f * fontScale.coerceAtLeast(1f)).coerceAtMost(72f)
 
 /** Поле поиска в виде пилюли. [placeholder] показывается, пока поле пустое. */
 @Composable
@@ -42,6 +50,7 @@ internal fun SearchField(
 ) {
     val palette = beyGramPalette()
     val keyboard = LocalSoftwareKeyboardController.current
+    val minHeight = searchFieldMinHeightDp(LocalDensity.current.fontScale).dp
     BasicTextField(
         value = query,
         onValueChange = onChange,
@@ -52,7 +61,7 @@ internal fun SearchField(
         }),
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.textPrimary),
         cursorBrush = SolidColor(palette.accent),
-        modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(24.dp)).background(palette.surface2).padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = minHeight).clip(RoundedCornerShape(24.dp)).background(palette.surface2).padding(horizontal = 16.dp),
         decorationBox = { inner ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
