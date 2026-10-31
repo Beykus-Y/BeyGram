@@ -40,6 +40,26 @@ class CompactMixedAttachmentsTest {
         ))
     }
 
+    @Test fun repeatedRemoteGifAttachmentsKeepIndependentIdentity() {
+        val first = item("", MediaKind.Animation, "video/mp4")
+            .copy(remoteFileId = 900, stagingKey = "occurrence-1")
+        val second = item("", MediaKind.Animation, "video/mp4")
+            .copy(remoteFileId = 900, stagingKey = "occurrence-2")
+        assertFalse(first.samePendingAttachment(second))
+        assertEquals("staged:occurrence-1", stagedMediaKey(first, 0))
+        assertEquals("staged:occurrence-2", stagedMediaKey(second, 1))
+        assertEquals(listOf(second, first), reorderPendingAttachment(listOf(first, second), second, -1))
+        assertEquals(listOf(second), listOf(first, second).filterNot {
+            it.samePendingAttachment(first)
+        })
+    }
+
+    @Test fun legacyDuplicateGifKeysAreUniqueEvenBeforeRestaging() {
+        val first = item("", MediaKind.Animation, "video/mp4").copy(remoteFileId = 900)
+        val second = first.copy()
+        assertFalse(stagedMediaKey(first, 0) == stagedMediaKey(second, 1))
+    }
+
     @Test fun emptyListHasNoTray() {
         assertFalse(isCompactAttachmentSet(emptyList(), null))
     }
