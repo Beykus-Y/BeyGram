@@ -1790,7 +1790,7 @@ fun ChatScreen(
             }
         }
         if (!searching) FloatingMessageDate(listState, messageListItems, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
-        val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
+        val away by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
         val jumpMotion = rememberMotionSpec(MotionToken.BannerChange)
         // Qualify the top-level animation: the outer chat ColumnScope overload is not valid in this BoxScope.
         androidx.compose.animation.AnimatedVisibility(
@@ -1805,11 +1805,20 @@ fun ChatScreen(
                 Modifier.clip(RoundedCornerShape(50)).background(palette.surface)
                     .border(1.dp, palette.divider, RoundedCornerShape(50)).heightIn(min = 48.dp)
                     .clickable(role = Role.Button) {
-                        if (history.hasNewerMessages) {
+                        val hasNewerMessages = history.hasNewerMessages
+                        if (hasNewerMessages) {
                             if (forumTopicId > 0L) conversation.loadForumTopicHistory(chat.id, forumTopicId)
                             else conversation.loadLatestMessages(chat.id)
-                            scope.launch { listState.scrollToItem(0) }
-                        } else scope.launch { listState.animateScrollToItem(0) }
+                        }
+                        scope.launch {
+                            // Honor Motion Off / system reduced motion for the scroll itself,
+                            // not only for the button's entrance and exit.
+                            if (shouldAnimateJumpToLatest(jumpMotion.isInstant, hasNewerMessages)) {
+                                listState.animateScrollToItem(0)
+                            } else {
+                                listState.scrollToItem(0)
+                            }
+                        }
                     }
                     .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
