@@ -43,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,6 +74,10 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
+/** Do not navigate from a delayed result belonging to a different Telegram account. */
+internal fun canUseContactResult(requestAccountId: String, activeAccountId: String): Boolean =
+    requestAccountId == activeAccountId
+
 /** Контакты из адресной книги Telegram: список, поиск, добавление, изменение, удаление и отправка. */
 @Composable
 fun ContactsScreen(
@@ -93,15 +98,18 @@ fun ContactsScreen(
     val scope = rememberCoroutineScope()
     val state: ContactsScreenState = viewModel(key = "contacts:$accountId")
     val contacts = state.contacts
-    var loading by remember { mutableStateOf(true) }
-    var loadError by remember { mutableStateOf<String?>(null) }
-    var openError by remember { mutableStateOf<String?>(null) }
-    var openingUserId by remember { mutableStateOf<Long?>(null) }
-    var editingContact by remember { mutableStateOf<ContactPreview?>(null) }
-    var deletingContact by remember { mutableStateOf<ContactPreview?>(null) }
-    var sharingContact by remember { mutableStateOf<ContactPreview?>(null) }
-    var query by rememberSaveable { mutableStateOf("") }
-    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    // The composable can stay mounted while the selected Telegram account changes.
+    // Never carry searches, dialogs or pending controls into the next account.
+    var loading by remember(accountId) { mutableStateOf(true) }
+    var loadError by remember(accountId) { mutableStateOf<String?>(null) }
+    var openError by remember(accountId) { mutableStateOf<String?>(null) }
+    var openingUserId by remember(accountId) { mutableStateOf<Long?>(null) }
+    var editingContact by remember(accountId) { mutableStateOf<ContactPreview?>(null) }
+    var deletingContact by remember(accountId) { mutableStateOf<ContactPreview?>(null) }
+    var sharingContact by remember(accountId) { mutableStateOf<ContactPreview?>(null) }
+    var query by rememberSaveable(accountId) { mutableStateOf("") }
+    var showAddDialog by rememberSaveable(accountId) { mutableStateOf(false) }
+    val activeAccountId by rememberUpdatedState(accountId)
     val visible = remember(contacts, query) {
         contacts.filter { contactMatchesQuery(it, query) }
     }
@@ -125,12 +133,20 @@ fun ContactsScreen(
     }
     fun openChat(contact: ContactPreview) {
         if (openingUserId != null) return
+        val requestAccountId = accountId
         scope.launch {
             openingUserId = contact.userId
             openError = null
             openPrivateChat(contact.userId)
-                .onSuccess { chatId -> onChatOpened(chatId) }
-                .onFailure { openError = it.userMessage(context, R.string.contacts_open_chat_failed) }
+                .onSuccess { chatId ->
+                    // An old account's async result must not navigate inside the new account.
+                    if (canUseContactResult(requestAccountId, activeAccountId)) onChatOpened(chatId)
+                }
+                .onFailure {
+                    if (canUseContactResult(requestAccountId, activeAccountId)) {
+                        openError = it.userMessage(context, R.string.contacts_open_chat_failed)
+                    }
+                }
             openingUserId = null
         }
     }
@@ -148,7 +164,7 @@ fun ContactsScreen(
         clipboard?.setPrimaryClip(ClipData.newPlainText(contact.title, contact.subtitle))
         Toast.makeText(context, R.string.contacts_username_copied, Toast.LENGTH_SHORT).show()
     }
-    LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(accountId) { reload() }
 
     Column(
         Modifier.fillMaxSize().background(palette.screen)
