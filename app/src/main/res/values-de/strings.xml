@@ -689,4 +689,5 @@
     <string name="settings_group_experiments">Experimente</string>
     <string name="settings_bgbeat_title">BG Beat (Musikanalyse)</string>
     <string name="settings_bgbeat_desc">Rhythmus-, BPM- und Strukturanalyse mit dem BG Media C++20-Kern</string>
+    <string name="chat_settings_scope_note">Ändert das Hintergrundbild nur für diesen Chat</string>
 </resources>
