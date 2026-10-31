@@ -689,4 +689,5 @@
     <string name="settings_group_experiments">Experimentos</string>
     <string name="settings_bgbeat_title">BG Beat (análisis de música)</string>
     <string name="settings_bgbeat_desc">Análisis de ritmo, BPM y estructura impulsado por el motor C++20 BG Media</string>
+    <string name="chat_settings_scope_note">Cambia el fondo solo de este chat</string>
 </resources>
