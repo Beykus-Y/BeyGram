@@ -93,14 +93,16 @@ internal fun ChatSettingsSheet(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val currentOverride = overrides.state.value[chatId]?.wallpaper
-    var wallpaper by remember(chatId) { mutableStateOf(currentOverride) }
-    var preferences by remember(chatId) { mutableStateOf<ChatNotificationPreferences?>(null) }
-    var sounds by remember(chatId) { mutableStateOf<List<NotificationSoundOption>>(emptyList()) }
-    var loading by remember(chatId) { mutableStateOf(true) }
-    var busy by remember(chatId) { mutableStateOf(false) }
-    var error by remember(chatId) { mutableStateOf<String?>(null) }
-    var soundMenu by remember { mutableStateOf(false) }
+    // The store is already the source of truth. Reading .value into a remembered copy
+    // leaked the previous chat/account's wallpaper when the sheet was reused.
+    val allOverrides by overrides.state.collectAsStateWithLifecycle()
+    val wallpaper = allOverrides[chatId]?.wallpaper
+    var preferences by remember(chatId, conversation) { mutableStateOf<ChatNotificationPreferences?>(null) }
+    var sounds by remember(chatId, conversation) { mutableStateOf<List<NotificationSoundOption>>(emptyList()) }
+    var loading by remember(chatId, conversation) { mutableStateOf(true) }
+    var busy by remember(chatId, conversation) { mutableStateOf(false) }
+    var error by remember(chatId, conversation) { mutableStateOf<String?>(null) }
+    var soundMenu by remember(chatId, conversation) { mutableStateOf(false) }
     val secretChats by conversation.secretChats.collectAsStateWithLifecycle()
     // Null for an account without a TDLib repository: the stealth section is then left out.
     val stealthStore = (conversation as? TdLibTelegramRepository)?.stealthSettings
@@ -109,6 +111,9 @@ internal fun ChatSettingsSheet(
     LaunchedEffect(chatId, conversation, isSecretChat) {
         loading = true
         error = null
+        preferences = null
+        sounds = emptyList()
+        soundMenu = false
         conversation.chatNotificationPreferences(chatId)
             .onSuccess { preferences = it }
             .onFailure { error = it.userMessage(context, R.string.chat_settings_load_failed) }
@@ -134,7 +139,6 @@ internal fun ChatSettingsSheet(
     }
 
     fun chooseWallpaper(next: ChatWallpaper?) {
-        wallpaper = next
         overrides.setWallpaper(chatId, next)
     }
 
@@ -189,6 +193,12 @@ internal fun ChatSettingsSheet(
                 }
 
                 Text(stringResource(R.string.chat_settings_wallpaper), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    stringResource(R.string.chat_settings_scope_note),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
                 Text(wallpaperLabel(effectiveWallpaper), color = palette.textPrimary, fontSize = 14.sp, modifier = Modifier.padding(vertical = 6.dp))
                 Row(Modifier.fillMaxWidth()) {
                     TextButton(onClick = { chooseWallpaper(null) }) { Text(stringResource(R.string.chat_settings_wallpaper_global)) }
@@ -196,7 +206,7 @@ internal fun ChatSettingsSheet(
                 }
                 // Keep the selection within the current surface: a text-only DropdownMenu above the
                 // chat settings dialog hid the appearance of every preset and blocked most of the screen.
-                var showWallpaperChoices by remember(chatId) { mutableStateOf(false) }
+                var showWallpaperChoices by remember(chatId, overrides) { mutableStateOf(false) }
                 TextButton(onClick = { showWallpaperChoices = !showWallpaperChoices }) {
                     Text(stringResource(R.string.chat_settings_choose_wallpaper))
                 }
