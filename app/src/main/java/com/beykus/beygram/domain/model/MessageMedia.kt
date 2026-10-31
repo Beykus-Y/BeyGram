@@ -105,5 +105,7 @@ data class OutgoingMedia(
     val emoji: String = "",
     /** Track tags of a [MediaKind.Audio] file sent by [remoteFileId]; empty for every other kind. */
     val title: String = "",
-    val performer: String = ""
+    val performer: String = "",
+    /** Per-occurrence identity for duplicate server-side media staged in the composer. */
+    val stagingKey: String = ""
 ) : Serializable
