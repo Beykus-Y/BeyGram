@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -2640,7 +2641,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
             // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
             Box(swipe) {
                 BubbleLayout(
-                    Modifier.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
+                    Modifier.testTag("message-bubble:${message.id}")
+                        .widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
                         .then(if (message.media != null && !circle && !sticker)
                              Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
