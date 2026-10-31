@@ -1889,6 +1889,9 @@ fun ChatScreen(
                 }
             }
         )
+        // Keep presence above the entire composer, including any staged attachment tray.
+        // Never place it between attachment previews and the caption/keyboard.
+        if (!deleting && !searching && !selectionMode && typingNames.isNotEmpty()) TypingRow(typingNames)
         val replyTarget = messages.firstOrNull { it.id == replyId }
         if (deleting && actionMessage != null) {
             val caps = capabilities
@@ -1959,7 +1962,6 @@ fun ChatScreen(
         val recordingLocked = if (recordingMode == ComposerRecordingMode.Voice) audioNote.locked else videoNote.locked
         val recordingCanceling = if (recordingMode == ComposerRecordingMode.Voice) audioNote.canceling else videoNote.canceling
         val showRecord = recordingActive || (!editing && !attachments.active && fieldText.isBlank())
-        if (!deleting && !searching && !selectionMode && typingNames.isNotEmpty()) TypingRow(typingNames)
         // Chats the user cannot write to get no composer, only a plain notice, as in Telegram.
         if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar(
             if (secretChatClosed) stringResource(R.string.secret_chat_closed_composer) else stringResource(R.string.chat_read_only)
