@@ -2767,14 +2767,17 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta)
                 },
                 footer = {
-                    // Reactions share the bubble surface and geometry, rather than floating in a
-                    // separate row with an invisible 48dp gap. Keep 48dp hit targets in the shelf.
-                    inlineContent()
-                    if (!selectionMode) MessageReactionChips(
-                        message.reactions, observeCustomEmoji, observeFile, onDownloadFile,
-                        onToggle = { onReaction(message.id, it) },
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp)
-                    )
+                    // Inline keyboards and reactions must stack, never paint over one another.
+                    Column {
+                        inlineContent()
+                        // Reactions share the bubble surface and geometry rather than floating
+                        // underneath it; each pill still has a 48dp accessible hit target.
+                        if (!selectionMode) MessageReactionChips(
+                            message.reactions, observeCustomEmoji, observeFile, onDownloadFile,
+                            onToggle = { onReaction(message.id, it) },
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp)
+                        )
+                    }
                 },
                 bottomBar = { if (!circle && !sticker) commentsBar?.invoke() }
             )
