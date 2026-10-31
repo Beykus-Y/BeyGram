@@ -718,4 +718,7 @@
     <string name="chat_settings_scope_note">Modifie le fond d’écran de cette conversation uniquement</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Touchez pour révéler</string>
+    <string name="composer_move_attachment_left">Déplacer vers la gauche</string>
+    <string name="composer_move_attachment_right">Déplacer vers la droite</string>
+    <string name="composer_attachment_actions">Actions de la pièce jointe</string>
 </resources>

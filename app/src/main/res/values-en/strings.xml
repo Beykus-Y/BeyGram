@@ -692,4 +692,7 @@
     <string name="chat_settings_scope_note">Changes wallpaper for this chat only</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Tap to reveal</string>
+    <string name="composer_move_attachment_left">Move left</string>
+    <string name="composer_move_attachment_right">Move right</string>
+    <string name="composer_attachment_actions">Attachment actions</string>
 </resources>

@@ -7,6 +7,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,6 +45,8 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -70,6 +73,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -656,6 +661,12 @@ internal class AttachmentState(
 
     fun dismissNotice() {
         notice = null
+    }
+
+    /** Update the actual send order, not merely the thumbnail positions. */
+    fun movePending(item: OutgoingMedia, offset: Int) {
+        if (sending || importing || locating) return
+        pendingState.value = ArrayList(reorderPendingAttachment(pending, item, offset))
     }
 
     fun remove(item: OutgoingMedia) {
@@ -1359,6 +1370,18 @@ internal fun isCompactVisualAlbum(items: List<OutgoingMedia>, extra: MessageExtr
         it.kind == MediaKind.Photo || it.kind == MediaKind.Video
     }
 
+/** The same list used by AttachmentState.send defines the album order. */
+internal fun reorderPendingAttachment(
+    pending: List<OutgoingMedia>,
+    item: OutgoingMedia,
+    offset: Int
+): List<OutgoingMedia> {
+    if (offset !in -1..1 || offset == 0) return pending
+    val index = pending.indexOfFirst { it.samePendingAttachment(item) }
+    if (index < 0 || index + offset !in pending.indices) return pending
+    return ArrayList(pending).apply { add(index + offset, removeAt(index)) }
+}
+
 /** Identity independent of filename, as different photos are commonly both named photo.jpg. */
 internal fun stagedMediaKey(item: OutgoingMedia, index: Int): String = when {
     item.path.isNotBlank() -> "path:" + item.path
@@ -1378,6 +1401,7 @@ private fun CompactVisualAttachmentTray(
     val palette = beyGramPalette()
     val context = LocalContext.current
     var selectedVideo by remember { mutableStateOf<String?>(null) }
+    var menuItemKey by remember { mutableStateOf<String?>(null) }
     val activeVideo = state.pending.firstOrNull {
         it.kind == MediaKind.Video && it.path == selectedVideo
     }
@@ -1387,8 +1411,12 @@ private fun CompactVisualAttachmentTray(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            itemsIndexed(state.pending, key = { index, item -> stagedMediaKey(item, index) }) { _, item ->
+            itemsIndexed(state.pending, key = { index, item -> stagedMediaKey(item, index) }) { index, item ->
                 val preparation = state.preparationFor(item)
+                val itemKey = stagedMediaKey(item, index)
+                val moveLeft = stringResource(R.string.composer_move_attachment_left)
+                val moveRight = stringResource(R.string.composer_move_attachment_right)
+                val actionsLabel = stringResource(R.string.composer_attachment_actions)
                 Box(
                     modifier = Modifier.size(100.dp).clip(RoundedCornerShape(14.dp))
                         .background(palette.surface2)
@@ -1399,17 +1427,27 @@ private fun CompactVisualAttachmentTray(
                         Modifier.fillMaxSize()
                     )
                     Box(
-                        modifier = Modifier.fillMaxSize().clickable(
-                            enabled = enabled,
-                            role = Role.Button,
+                        modifier = Modifier.fillMaxSize().combinedClickable(
+                            enabled = enabled, role = Role.Button,
                             onClick = {
                                 if (item.kind == MediaKind.Photo) state.editPhoto(item)
                                 else selectedVideo = if (selectedVideo == item.path) null else item.path
-                            }
+                            },
+                            onLongClick = { menuItemKey = itemKey },
+                            onLongClickLabel = actionsLabel
                         ).semantics {
                             contentDescription = if (item.kind == MediaKind.Photo)
                                 context.getString(R.string.composer_edit_photo_named, item.fileName)
                             else context.getString(R.string.composer_quality_title) + ": " + item.fileName
+                            // TalkBack can reorder without simulating a long press or drag.
+                            customActions = buildList {
+                                if (enabled && index > 0) add(CustomAccessibilityAction(moveLeft) {
+                                    state.movePending(item, -1); true
+                                })
+                                if (enabled && index < state.pending.lastIndex) add(CustomAccessibilityAction(moveRight) {
+                                    state.movePending(item, 1); true
+                                })
+                            }
                         }
                     )
                     if (item.kind == MediaKind.Video) {
@@ -1427,8 +1465,23 @@ private fun CompactVisualAttachmentTray(
                             color = Color.White, strokeWidth = 2.dp
                         )
                     }
+                    DropdownMenu(
+                        expanded = enabled && menuItemKey == itemKey,
+                        onDismissRequest = { menuItemKey = null }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(moveLeft) },
+                            enabled = index > 0,
+                            onClick = { menuItemKey = null; state.movePending(item, -1) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(moveRight) },
+                            enabled = index < state.pending.lastIndex,
+                            onClick = { menuItemKey = null; state.movePending(item, 1) }
+                        )
+                    }
                     IconButton(
-                        onClick = { state.remove(item) },
+                        onClick = { menuItemKey = null; state.remove(item) },
                         enabled = enabled,
                         modifier = Modifier.align(Alignment.TopEnd).size(48.dp).semantics {
                             contentDescription = context.getString(R.string.composer_remove_attachment_named, item.fileName)
