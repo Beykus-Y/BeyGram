@@ -692,4 +692,7 @@
     <string name="chat_settings_scope_note">Cambia el fondo solo de este chat</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Toca para revelar</string>
+    <string name="composer_move_attachment_left">Mover a la izquierda</string>
+    <string name="composer_move_attachment_right">Mover a la derecha</string>
+    <string name="composer_attachment_actions">Acciones del adjunto</string>
 </resources>
