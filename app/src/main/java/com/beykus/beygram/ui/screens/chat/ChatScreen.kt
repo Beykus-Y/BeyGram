@@ -1906,8 +1906,6 @@ fun ChatScreen(
             ChatComposerPanel(
                 stickerPanelOpen = stickerPanelOpen,
                 attachments = attachments,
-                draft = draft,
-                captionLimit = limits.caption,
                 conversation = conversation,
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
@@ -2008,12 +2006,13 @@ fun ChatScreen(
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
             else if (videoNote.active) VideoNoteRecordingDock(videoNote, Modifier.weight(1f), onCancel = videoNote::discardLocked)
-            else FormattingTextField(displayedFieldText, displayedFieldEntities,
+            else Column(Modifier.weight(1f)) {
+                FormattingTextField(displayedFieldText, displayedFieldEntities,
                 onChange = { if (!hidingComposerForLaunch) { if (stickerPanelOpen) stickerPanelOpen = false; if (editing) editText = it else typedDraft(it) } },
                 onEntitiesChange = { if (!hidingComposerForLaunch) { if (editing) editEntities = it else updateDraft { state -> state.copy(entities = it) } } },
                 placeholder = if (hidingComposerForLaunch) "" else if (attachments.active && attachments.extra == null) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
                 locked = busy || hidingComposerForLaunch, isError = false,
-                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused && stickerPanelOpen) stickerPanelOpen = false }.onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
+                modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused && stickerPanelOpen) stickerPanelOpen = false }.onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
                 focusRequest = replyFocusRequest, cursor = composerCursor,
                 // One entry to Emoji / Stickers / GIF, inside the input and before Record/Send.
                 trailingAction = if (!editing) {
@@ -2032,6 +2031,17 @@ fun ChatScreen(
                         )
                     }
                 } else null)
+                // Caption belongs to this text field, not to the thumbnail tray above it.
+                if (!editing && attachments.active && attachments.extra == null) {
+                    val count = attachmentCaptionLength(draft)
+                    Text(
+                        "$count / ${limits.caption}",
+                        color = if (count > limits.caption) palette.danger else palette.textSecondary,
+                        fontSize = 11.sp,
+                        modifier = Modifier.align(Alignment.End).padding(end = 12.dp, top = 2.dp)
+                    )
+                }
+            }
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
@@ -2369,8 +2379,6 @@ private fun ChatScreenColumn(modifier: Modifier, content: @Composable ColumnScop
 private fun ChatComposerPanel(
     stickerPanelOpen: Boolean,
     attachments: AttachmentState,
-    draft: String,
-    captionLimit: Int,
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
@@ -2413,8 +2421,6 @@ private fun ChatComposerPanel(
     } else {
         AttachmentPanel(
             state = attachments,
-            caption = draft,
-            captionLimit = captionLimit,
             observeFile = observeFile,
             onDownloadFile = onDownloadFile,
             allowViewOnce = allowViewOnce
