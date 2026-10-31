@@ -315,7 +315,8 @@ internal class AttachmentState(
             return
         }
         errorState.value = null
-        pendingState.value = ArrayList(pending + media)
+        // Repeated server GIFs are separate pending attachments, even with one file ID.
+        pendingState.value = ArrayList(pending + media.copy(stagingKey = UUID.randomUUID().toString()))
         menuOpen = false
     }
 
@@ -1053,10 +1054,17 @@ internal class AttachmentState(
 
 internal const val MAX_PENDING_ATTACHMENTS = 10
 
-/** Pending rows are keyed by their local path or, for a GIF picked from Telegram, by its server file id. */
-internal fun OutgoingMedia.samePendingAttachment(other: OutgoingMedia): Boolean =
-    if (path.isNotBlank() || other.path.isNotBlank()) path == other.path
-    else remoteFileId == other.remoteFileId && remoteFileId != 0
+/**
+ * A repeated GIF attachment has its own staging key. Comparing only remoteFileId would
+ * otherwise remove all identical GIFs after deleting or sending a single occurrence.
+ */
+internal fun OutgoingMedia.samePendingAttachment(other: OutgoingMedia): Boolean = when {
+    stagingKey.isNotBlank() || other.stagingKey.isNotBlank() ->
+        stagingKey.isNotBlank() && stagingKey == other.stagingKey
+    path.isNotBlank() || other.path.isNotBlank() ->
+        path.isNotBlank() && path == other.path
+    else -> remoteFileId != 0 && remoteFileId == other.remoteFileId
+}
 
 @Composable
 internal fun rememberAttachmentState(
@@ -1394,8 +1402,10 @@ internal fun reorderPendingAttachment(
 
 /** Identity independent of filename, as different photos are commonly both named photo.jpg. */
 internal fun stagedMediaKey(item: OutgoingMedia, index: Int): String = when {
+    item.stagingKey.isNotBlank() -> "staged:" + item.stagingKey
     item.path.isNotBlank() -> "path:" + item.path
-    item.remoteFileId != 0 -> "remote:" + item.remoteFileId
+    // Legacy unsuffixed remote entries from saved state still need distinct Compose keys.
+    item.remoteFileId != 0 -> "remote:" + item.remoteFileId + ":" + index
     else -> "index:" + index
 }
 
