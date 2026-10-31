@@ -1647,6 +1647,11 @@ private fun BeyGramAppContent(
                 globalSearchSession.reset(typed)
                 routeName = AppRoute.GlobalSearch.name
             },
+            onMusicSearch = {
+                // Keep the actual origin: a split-screen chat must return to that chat on Back.
+                musicSearchReturnRouteName = routeName
+                routeName = AppRoute.MusicSearch.name
+            },
             onChatClick = { chat ->
                 selectedChatId = chat.id
                 linkReturnChatId = 0L

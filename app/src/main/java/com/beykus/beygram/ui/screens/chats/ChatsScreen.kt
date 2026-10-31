@@ -47,6 +47,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
@@ -200,6 +201,7 @@ fun ChatsScreen(
     onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit,
     onGlobalSearch: (String) -> Unit = {},
+    onMusicSearch: () -> Unit = {},
     /**
      * Чат, открытый в правой панели: его строка подсвечена и помечена для TalkBack.
      * Пока панель показывает заглушку «Выберите чат», сюда приходит null.
@@ -446,7 +448,32 @@ fun ChatsScreen(
             ChatsConnectionLine(connectionStatus)
 
             Spacer(Modifier.height(14.dp))
-            SearchField(query = query, onChange = { state.query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
+            // Music search is reachable directly from the daily chat list; it reuses the same
+            // MusicSearch route, account context and queue as Settings and the full player.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    SearchField(
+                        query = query,
+                        onChange = { state.query = it },
+                        placeholder = stringResource(R.string.chats_search_placeholder)
+                    )
+                }
+                androidx.compose.material3.IconButton(
+                    onClick = {
+                        // Leaving a focused search field should dismiss its IME before the route changes.
+                        focusManager.clearFocus()
+                        onMusicSearch()
+                    },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.MusicNote,
+                        contentDescription = stringResource(R.string.music_search_action),
+                        tint = palette.accentInk,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
             // The network action stays directly under the field, above folders and local rows,
             // so it is discoverable before a long cached chat list scrolls it out of view.
             networkSearchAction(query)?.let { search ->
