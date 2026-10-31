@@ -1361,10 +1361,7 @@ private fun ExtraAttachmentCard(extra: MessageExtraDraft, enabled: Boolean, onRe
     }
 }
 
-/**
- * Strictly visual albums use one compact row. Files and mixed batches still use the
- * existing detailed cards so their filenames, quality controls and actions are preserved.
- */
+/** A subset predicate: visual-only albums have no files or chat-object extras. */
 internal fun isCompactVisualAlbum(items: List<OutgoingMedia>, extra: MessageExtraDraft?): Boolean =
     extra == null && items.isNotEmpty() && items.all {
         it.kind == MediaKind.Photo || it.kind == MediaKind.Video
@@ -1402,7 +1399,7 @@ internal fun stagedMediaKey(item: OutgoingMedia, index: Int): String = when {
     else -> "index:" + index
 }
 
-/** Compact gallery of selected photos/videos; only the selected video's quality controls expand. */
+/** Compact gallery of staged photo, video, animation and file tiles; per-file details expand on demand. */
 @Composable
 private fun CompactVisualAttachmentTray(
     state: AttachmentState,
@@ -1692,8 +1689,8 @@ private fun PendingAttachmentPreview(
         item.thumbnailPath != null -> LocalMediaImage(item.thumbnailPath, modifier, maxDimension = 320)
         item.thumbnailRemoteFileId > 0 ->
             RemoteAttachmentThumbnail(item.thumbnailRemoteFileId, observeFile, downloadFile, modifier)
-        item.path.isNotBlank() && (item.kind == MediaKind.Photo || item.kind == MediaKind.Video) ->
-            LocalMediaImage(item.path, modifier, maxDimension = 320, allowVideoFrame = item.kind == MediaKind.Video)
+        item.path.isNotBlank() && (item.kind == MediaKind.Photo || item.kind == MediaKind.Video || item.kind == MediaKind.Animation) ->
+            LocalMediaImage(item.path, modifier, maxDimension = 320, allowVideoFrame = item.kind != MediaKind.Photo)
         else -> Icon(Icons.Rounded.Description, null, tint = beyGramPalette().accentInk,
             modifier = modifier.background(beyGramPalette().accentSoft).padding(9.dp))
     }
