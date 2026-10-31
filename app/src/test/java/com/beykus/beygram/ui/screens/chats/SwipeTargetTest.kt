@@ -14,6 +14,13 @@ class SwipeTargetTest {
         assertFalse(shouldAutoCloseSwipe(99L, 42L, -300f, dismissalInProgress = true))
     }
 
+    @Test fun successfullyArchivedRowRetainedInServerFolderCanCloseAfterOperation() {
+        // The row must remain dismissed while TDLib is busy, but must be free to
+        // reappear once the operation completes if the server folder still includes it.
+        assertFalse(shouldAutoCloseSwipe(null, 42L, -300f, dismissalInProgress = true))
+        assertTrue(shouldAutoCloseSwipe(null, 42L, -300f, dismissalInProgress = false))
+    }
+
     @Test fun otherOpenRowClosesRegularRevealAndFailedArchiveCanRestore() {
         assertTrue(shouldAutoCloseSwipe(null, 42L, -100f, dismissalInProgress = false))
         assertTrue(shouldAutoCloseSwipe(99L, 42L, -300f, dismissalInProgress = false))
