@@ -177,9 +177,11 @@ internal fun SwipeChatRow(
                 if (latestOpenChatId == chat.id) onOpenChange(null)
                 // Outside the settle job, so a new gesture does not cancel the action in flight.
                 scope.launch {
-                    val success = runCatching { primary.perform(chat) }.getOrDefault(false)
-                    // A failed archive restores the row unless the user has started another gesture.
-                    if (!success && settle.gesture == gesture) {
+                    // A folder may include archived chats, so even a successful archive can
+                    // leave this row in the same list. If it survives the TDLib update, restore
+                    // it after the operation (not while the request is still in flight).
+                    runCatching { primary.perform(chat) }
+                    if (settle.gesture == gesture) {
                         dismissalInProgress = false
                         startSettle { animateOffset(0f) }
                     }
