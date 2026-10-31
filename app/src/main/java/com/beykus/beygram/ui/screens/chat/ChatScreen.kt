@@ -775,11 +775,11 @@ fun ChatScreen(
         selectionDeleteBusy = false
         selectionDeleteError = null
     }
-    // A long press on a bubble starts multi-select with that message already picked. The one-message action sheet stays
-    // reachable from the selection bar while the selection is exactly the pressed message or its album.
-    fun selectOnLongPress(messageId: Long) {
-        selectionAnchorId = messageId
-        messages.firstOrNull { it.id == messageId }?.let { enterSelection(it) }
+    // A long press opens message actions and its reaction picker directly.
+    // Multi-select remains a deliberate action within MessageActionsBar.
+    fun openActionsOnLongPress(messageId: Long) {
+        if (selectionMode) return
+        actionsId = messageId
     }
     val singleActionTarget = selectionAnchorId?.takeIf { selectionIds == selectionGroupIds(messages, it) }
     fun toggleSelection(message: ChatMessage) {
@@ -1614,7 +1614,7 @@ fun ChatScreen(
                                 MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                     highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
-                                    onOpen = { selectedMediaId = it }, onActions = ::selectOnLongPress, onReplyClick = ::jump,
+                                    onOpen = { selectedMediaId = it }, onActions = ::openActionsOnLongPress, onReplyClick = ::jump,
                                     onMediaBounds = { rect -> listItem.messages.forEach { mediaOrigins[it.id] = rect } }, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                     onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
                                     selectionMode = selectionMode,
@@ -1666,7 +1666,7 @@ fun ChatScreen(
                             if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
                             else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                             else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
-                                highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { selectOnLongPress(message.id) }, longPressSelects = true, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { openActionsOnLongPress(message.id) }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                 onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                                 onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, ::requestBotWebApp) },
                                 onBubblePositioned = bubblePosition,
@@ -2766,7 +2766,16 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
                         overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta)
                 },
-                footer = inlineContent,
+                footer = {
+                    // Reactions share the bubble surface and geometry, rather than floating in a
+                    // separate row with an invisible 48dp gap. Keep 48dp hit targets in the shelf.
+                    inlineContent()
+                    if (!selectionMode) MessageReactionChips(
+                        message.reactions, observeCustomEmoji, observeFile, onDownloadFile,
+                        onToggle = { onReaction(message.id, it) },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp)
+                    )
+                },
                 bottomBar = { if (!circle && !sticker) commentsBar?.invoke() }
             )
                 // Media previews own tap gestures (play, open, video note). In selection mode a transparent overlay
@@ -2787,8 +2796,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
             Box(Modifier.padding(top = 2.dp).width(244.dp).clip(RoundedCornerShape(metrics.replyRadius))
                 .background(if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)) { bar() }
         }
-        MessageReactionChips(message.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(message.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
-    }
+     }
 }
 
 
