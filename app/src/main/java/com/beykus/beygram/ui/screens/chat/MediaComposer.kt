@@ -1159,6 +1159,20 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
     }
 }
 
+/**
+ * Keep a read-only thumbnail snapshot only for a direct visible -> hidden transition.
+ * A notice-only/menu-only panel must not revive removed photos when it closes later.
+ */
+internal fun nextAttachmentExitPreview(
+    previous: List<OutgoingMedia>,
+    current: List<OutgoingMedia>,
+    panelVisible: Boolean
+): List<OutgoingMedia> = when {
+    current.isNotEmpty() -> current.toList()
+    panelVisible -> emptyList()
+    else -> previous
+}
+
 /** Inline panel above the input: action grid, then the prepared attachments. */
 @Composable
 internal fun AttachmentPanel(
@@ -1185,7 +1199,9 @@ internal fun AttachmentPanel(
     val panelVisibility = remember(state) { MutableTransitionState(false) }
     panelVisibility.targetState = visible
     SideEffect {
-        if (state.pending.isNotEmpty()) exitPreview = state.pending.toList()
+        // If an error/notice keeps the shell visible after the final removal, there is
+        // no attachment panel left to animate later when that notice is dismissed.
+        exitPreview = nextAttachmentExitPreview(exitPreview, state.pending, visible)
     }
     LaunchedEffect(visible, panelVisibility.currentState, panelVisibility.isIdle) {
         // Do not retain paths to removed private photos after the closing animation.
