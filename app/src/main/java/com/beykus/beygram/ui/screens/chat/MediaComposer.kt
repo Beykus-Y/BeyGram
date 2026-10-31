@@ -1049,6 +1049,9 @@ internal class AttachmentState(
     }
 }
 
+/** Telegram captions are limited in Unicode code points, not UTF-16 code units. */
+internal fun attachmentCaptionLength(caption: String): Int = caption.codePointCount(0, caption.length)
+
 /**
  * Telegram albums contain only 2–10 photo/video media. If a staged item is a document,
  * audio or a video converted to File delivery, preserve the existing sequential semantics.
