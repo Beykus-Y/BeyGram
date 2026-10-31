@@ -2240,4 +2240,7 @@
     <string name="chat_settings_scope_note">Меняет обои только в этом чате</string>
     <string name="media_spoiler_title">Спойлер</string>
     <string name="media_spoiler_reveal">Нажмите, чтобы открыть</string>
+    <string name="composer_move_attachment_left">Переместить влево</string>
+    <string name="composer_move_attachment_right">Переместить вправо</string>
+    <string name="composer_attachment_actions">Действия с вложением</string>
 </resources>
