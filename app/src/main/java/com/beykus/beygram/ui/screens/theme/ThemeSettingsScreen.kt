@@ -2,7 +2,8 @@ package com.beykus.beygram.ui.screens.theme
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -46,11 +47,14 @@ import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.WallpaperFiles
 import com.beykus.beygram.data.settings.ChatAnimationSettings
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.motion.MotionSettings
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.theme.contrastIssues
 import com.beykus.beygram.ui.theme.resolveTokens
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 internal enum class AppearancePage {
     Overview,
@@ -94,6 +98,8 @@ fun ThemeSettingsScreen(
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
     var confirmResetAll by rememberSaveable { mutableStateOf(false) }
     val page = AppearancePage.entries.firstOrNull { it.name == pageName } ?: AppearancePage.Overview
+    val pushMotion = rememberMotionSpec(MotionToken.NavigationPush)
+    val popMotion = rememberMotionSpec(MotionToken.NavigationPop)
     val previewReturn = AppearancePage.entries.firstOrNull { it.name == previewReturnName } ?: AppearancePage.Overview
     val draftTokens = resolveTokens(draft, systemDark)
     val issues = contrastIssues(
@@ -240,9 +246,22 @@ fun ThemeSettingsScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 transitionSpec = {
                     val forward = targetState.depth >= initialState.depth
+                    val motion = if (forward) pushMotion else popMotion
                     val direction = if (forward) 1 else -1
-                    (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { direction * it / 12 }) togetherWith
-                        (fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { -direction * it / 12 })
+                    // Respect Motion Off, disabled Navigation and system reduced-motion.
+                    // Instant transitions do not render a transparent intermediate frame.
+                    if (motion.isInstant) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        (fadeIn(motion.animationSpec()) +
+                            slideInHorizontally(motion.animationSpec()) {
+                                (direction * it * motion.intensity / 12f).roundToInt()
+                            }) togetherWith
+                            (fadeOut(motion.animationSpec()) +
+                                slideOutHorizontally(motion.animationSpec()) {
+                                    (-direction * it * motion.intensity / 12f).roundToInt()
+                                })
+                    }
                 },
                 label = "appearancePage"
             ) { target ->
