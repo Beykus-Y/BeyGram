@@ -315,7 +315,8 @@ internal class AttachmentState(
             return
         }
         errorState.value = null
-        pendingState.value = ArrayList(pending + media)
+        // Repeated server GIFs are separate pending attachments, even with one file ID.
+        pendingState.value = ArrayList(pending + media.copy(stagingKey = UUID.randomUUID().toString()))
         menuOpen = false
     }
 
@@ -1053,10 +1054,17 @@ internal class AttachmentState(
 
 internal const val MAX_PENDING_ATTACHMENTS = 10
 
-/** Pending rows are keyed by their local path or, for a GIF picked from Telegram, by its server file id. */
-internal fun OutgoingMedia.samePendingAttachment(other: OutgoingMedia): Boolean =
-    if (path.isNotBlank() || other.path.isNotBlank()) path == other.path
-    else remoteFileId == other.remoteFileId && remoteFileId != 0
+/**
+ * A repeated GIF attachment has its own staging key. Comparing only remoteFileId would
+ * otherwise remove all identical GIFs after deleting or sending a single occurrence.
+ */
+internal fun OutgoingMedia.samePendingAttachment(other: OutgoingMedia): Boolean = when {
+    stagingKey.isNotBlank() || other.stagingKey.isNotBlank() ->
+        stagingKey.isNotBlank() && stagingKey == other.stagingKey
+    path.isNotBlank() || other.path.isNotBlank() ->
+        path.isNotBlank() && path == other.path
+    else -> remoteFileId != 0 && remoteFileId == other.remoteFileId
+}
 
 @Composable
 internal fun rememberAttachmentState(
@@ -1265,9 +1273,9 @@ private fun PreparedAttachmentsPanel(
             Icon(Icons.Rounded.Close, stringResource(R.string.composer_attachments_clear_action), tint = palette.textSecondary)
         }
     }
-    if (isCompactVisualAlbum(state.pending, state.extra)) {
-        // A fixed-height media rail keeps 2–10 images from taking over the conversation.
-        // Non-visual and mixed selections retain the existing full controls until #605.
+    if (isCompactAttachmentSet(state.pending, state.extra)) {
+        // Mixed batches now share the fixed-height rail. Polls, contacts and other
+        // MessageExtraDraft actions keep their dedicated semantic cards.
         CompactVisualAttachmentTray(state, observeFile, onDownloadFile, enabled, maxListHeight)
     } else Column(
         Modifier.fillMaxWidth().heightIn(max = maxListHeight).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)
@@ -1361,14 +1369,24 @@ private fun ExtraAttachmentCard(extra: MessageExtraDraft, enabled: Boolean, onRe
     }
 }
 
-/**
- * Strictly visual albums use one compact row. Files and mixed batches still use the
- * existing detailed cards so their filenames, quality controls and actions are preserved.
- */
+/** A subset predicate: visual-only albums have no files or chat-object extras. */
 internal fun isCompactVisualAlbum(items: List<OutgoingMedia>, extra: MessageExtraDraft?): Boolean =
     extra == null && items.isNotEmpty() && items.all {
         it.kind == MediaKind.Photo || it.kind == MediaKind.Video
     }
+
+/** A real staged media list, including documents, stays compact; chat-object extras do not. */
+internal fun isCompactAttachmentSet(items: List<OutgoingMedia>, extra: MessageExtraDraft?): Boolean =
+    extra == null && items.isNotEmpty()
+
+/** A video delivered as a document must show its filename, unlike ordinary photo/video. */
+internal fun isDocumentAttachmentTile(item: OutgoingMedia, prep: MediaPreparation?): Boolean =
+    item.kind !in setOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation) ||
+        (item.kind == MediaKind.Video && prep?.delivery == MediaDeliveryMode.File)
+
+/** Duration is omitted when missing, never fabricated. */
+internal fun attachmentDurationLabel(seconds: Int): String? =
+    seconds.takeIf { it > 0 }?.let { "${it / 60}:${(it % 60).toString().padStart(2, '0')}" }
 
 /** The same list used by AttachmentState.send defines the album order. */
 internal fun reorderPendingAttachment(
@@ -1384,12 +1402,14 @@ internal fun reorderPendingAttachment(
 
 /** Identity independent of filename, as different photos are commonly both named photo.jpg. */
 internal fun stagedMediaKey(item: OutgoingMedia, index: Int): String = when {
+    item.stagingKey.isNotBlank() -> "staged:" + item.stagingKey
     item.path.isNotBlank() -> "path:" + item.path
-    item.remoteFileId != 0 -> "remote:" + item.remoteFileId
+    // Legacy unsuffixed remote entries from saved state still need distinct Compose keys.
+    item.remoteFileId != 0 -> "remote:" + item.remoteFileId + ":" + index
     else -> "index:" + index
 }
 
-/** Compact gallery of selected photos/videos; only the selected video's quality controls expand. */
+/** Compact gallery of staged photo, video, animation and file tiles; per-file details expand on demand. */
 @Composable
 private fun CompactVisualAttachmentTray(
     state: AttachmentState,
@@ -1400,11 +1420,11 @@ private fun CompactVisualAttachmentTray(
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
-    var selectedVideo by remember { mutableStateOf<String?>(null) }
+    var selectedItemKey by remember { mutableStateOf<String?>(null) }
     var menuItemKey by remember { mutableStateOf<String?>(null) }
-    val activeVideo = state.pending.firstOrNull {
-        it.kind == MediaKind.Video && it.path == selectedVideo
-    }
+    val activeItem = state.pending.withIndex().firstOrNull { (index, item) ->
+        stagedMediaKey(item, index) == selectedItemKey
+    }?.value
     Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
@@ -1417,28 +1437,55 @@ private fun CompactVisualAttachmentTray(
                 val moveLeft = stringResource(R.string.composer_move_attachment_left)
                 val moveRight = stringResource(R.string.composer_move_attachment_right)
                 val actionsLabel = stringResource(R.string.composer_attachment_actions)
+                val documentTile = isDocumentAttachmentTile(item, preparation)
                 Box(
                     modifier = Modifier.size(100.dp).clip(RoundedCornerShape(14.dp))
                         .background(palette.surface2)
                 ) {
-                    // Never show the filename for ordinary photo/video media: the preview is the identity.
-                    PendingAttachmentPreview(
-                        item, observeFile, onDownloadFile,
-                        Modifier.fillMaxSize()
-                    )
+                    if (documentTile) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 7.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Icon(
+                                if (item.kind == MediaKind.Audio || item.mimeType.startsWith("audio/"))
+                                    Icons.Rounded.MusicNote else Icons.Rounded.Description,
+                                contentDescription = null,
+                                tint = palette.accentInk,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Column {
+                                Text(
+                                    item.fileName.ifBlank { item.kind.label(context) },
+                                    color = palette.textPrimary, fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold, maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (item.size > 0L) {
+                                    Text(formatMediaSize(item.size), color = palette.textSecondary,
+                                        fontSize = 10.sp, maxLines = 1)
+                                }
+                            }
+                        }
+                    } else {
+                        // Real bounded thumbnails for media; filenames are hidden for visual media.
+                        PendingAttachmentPreview(
+                            item, observeFile, onDownloadFile, Modifier.fillMaxSize()
+                        )
+                    }
                     Box(
                         modifier = Modifier.fillMaxSize().combinedClickable(
                             enabled = enabled, role = Role.Button,
                             onClick = {
                                 if (item.kind == MediaKind.Photo) state.editPhoto(item)
-                                else selectedVideo = if (selectedVideo == item.path) null else item.path
+                                else selectedItemKey = if (selectedItemKey == itemKey) null else itemKey
                             },
                             onLongClick = { menuItemKey = itemKey },
                             onLongClickLabel = actionsLabel
                         ).semantics {
                             contentDescription = if (item.kind == MediaKind.Photo)
                                 context.getString(R.string.composer_edit_photo_named, item.fileName)
-                            else context.getString(R.string.composer_quality_title) + ": " + item.fileName
+                            else item.kind.label(context) + ": " + item.fileName
                             // TalkBack can reorder without simulating a long press or drag.
                             customActions = buildList {
                                 if (enabled && index > 0) add(CustomAccessibilityAction(moveLeft) {
@@ -1450,14 +1497,25 @@ private fun CompactVisualAttachmentTray(
                             }
                         }
                     )
-                    if (item.kind == MediaKind.Video) {
-                        Icon(
-                            Icons.Rounded.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
+                    if (item.kind == MediaKind.Video && !documentTile) {
+                        Row(
+                            modifier = Modifier.align(Alignment.BottomStart)
+                                .padding(6.dp)
+                                .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(7.dp))
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = null,
+                                tint = Color.White, modifier = Modifier.size(20.dp))
+                            attachmentDurationLabel(item.durationSeconds)?.let { duration ->
+                                Text(duration, color = Color.White, fontSize = 10.sp)
+                            }
+                        }
+                    } else if (item.kind == MediaKind.Animation && !documentTile) {
+                        Text("GIF", color = Color.White, fontSize = 10.sp,
                             modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
-                                .size(26.dp).background(Color.Black.copy(alpha = 0.60f), CircleShape)
-                        )
+                                .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp))
                     }
                     if (preparation?.processing == true) {
                         CircularProgressIndicator(
@@ -1513,8 +1571,8 @@ private fun CompactVisualAttachmentTray(
                 }
             }
         }
-        if (activeVideo != null) {
-            val preparation = state.preparationFor(activeVideo)
+        if (activeItem != null) {
+            val preparation = state.preparationFor(activeItem)
             if (preparation != null) {
                 // Quality options are intentionally collapsed by default. On small screens,
                 // bound their expanded height independently of the fixed media rail.
@@ -1525,14 +1583,41 @@ private fun CompactVisualAttachmentTray(
                         .verticalScroll(rememberScrollState())
                 ) {
                     MediaQualityPanel(
-                        item = activeVideo, preparation = preparation, enabled = enabled,
-                        onModeSelected = { state.selectQuality(activeVideo, it) },
-                        onDeliverySelected = { state.selectVideoDelivery(activeVideo, it) },
-                        onCancel = { state.cancelQualityPreparation(activeVideo) },
-                        onRetry = { state.retryQualityPreparation(activeVideo) },
+                        item = activeItem, preparation = preparation, enabled = enabled,
+                        onModeSelected = { state.selectQuality(activeItem, it) },
+                        onDeliverySelected = { state.selectVideoDelivery(activeItem, it) },
+                        onCancel = { state.cancelQualityPreparation(activeItem) },
+                        onRetry = { state.retryQualityPreparation(activeItem) },
                         modifier = Modifier.padding(horizontal = 14.dp)
                     )
                 }
+            } else if (isDocumentAttachmentTile(activeItem, null)) {
+                // Full filename can be inspected without permanently expanding every file tile.
+                Column(
+                    Modifier.fillMaxWidth()
+                        .heightIn(max = (maxListHeight - 110.dp).coerceAtLeast(80.dp))
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(activeItem.fileName.ifBlank { activeItem.kind.label(context) },
+                        color = palette.textPrimary, fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold)
+                    if (activeItem.size > 0) {
+                        Text(formatMediaSize(activeItem.size), color = palette.textSecondary,
+                            fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+        if (state.importing) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.composer_preparing),
+                    color = palette.textSecondary, fontSize = 12.sp)
             }
         }
     }
@@ -1614,8 +1699,8 @@ private fun PendingAttachmentPreview(
         item.thumbnailPath != null -> LocalMediaImage(item.thumbnailPath, modifier, maxDimension = 320)
         item.thumbnailRemoteFileId > 0 ->
             RemoteAttachmentThumbnail(item.thumbnailRemoteFileId, observeFile, downloadFile, modifier)
-        item.path.isNotBlank() && (item.kind == MediaKind.Photo || item.kind == MediaKind.Video) ->
-            LocalMediaImage(item.path, modifier, maxDimension = 320, allowVideoFrame = item.kind == MediaKind.Video)
+        item.path.isNotBlank() && (item.kind == MediaKind.Photo || item.kind == MediaKind.Video || item.kind == MediaKind.Animation) ->
+            LocalMediaImage(item.path, modifier, maxDimension = 320, allowVideoFrame = item.kind != MediaKind.Photo)
         else -> Icon(Icons.Rounded.Description, null, tint = beyGramPalette().accentInk,
             modifier = modifier.background(beyGramPalette().accentSoft).padding(9.dp))
     }

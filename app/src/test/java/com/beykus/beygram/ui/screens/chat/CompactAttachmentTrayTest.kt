@@ -33,7 +33,7 @@ class CompactAttachmentTrayTest {
 
     @Test fun remoteMediaAndFallbackIndexRemainStable() {
         val remote = item("", MediaKind.Photo).copy(remoteFileId = 73)
-        assertEquals("remote:73", stagedMediaKey(remote, 2))
+        assertEquals("remote:73:2", stagedMediaKey(remote, 2))
         assertEquals("index:2", stagedMediaKey(item(""), 2))
     }
 }
