@@ -2238,4 +2238,6 @@
     <string name="settings_bgbeat_title">BG Beat (анализ музыки)</string>
     <string name="settings_bgbeat_desc">Анализ ритма, BPM и структуры на C++20 ядре BG Media</string>
     <string name="chat_settings_scope_note">Меняет обои только в этом чате</string>
+    <string name="media_spoiler_title">Спойлер</string>
+    <string name="media_spoiler_reveal">Нажмите, чтобы открыть</string>
 </resources>

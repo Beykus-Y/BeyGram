@@ -597,7 +597,7 @@ internal fun MediaPreview(
                 fallbackMinithumbnail = media.minithumbnail
             )
             if (!viewOnce) {
-                if (!revealed) Text(spoilerLabel, color = palette.textPrimary, modifier = Modifier.padding(16.dp))
+                if (!revealed) SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
                 else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
                 else if (posterFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
                     val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
@@ -1135,8 +1135,15 @@ private fun MediaViewerPage(
         val audioPath = audioSource?.path
         val growingAudio = audioSource?.growing
         when {
-            spoilerHidden -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 16.sp,
-                modifier = Modifier.padding(16.dp).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onReveal))
+            spoilerHidden -> Box(
+                modifier = Modifier.fillMaxSize()
+                    .clickable(role = Role.Button, onClick = onReveal)
+                    .semantics { contentDescription = context.getString(R.string.media_spoiler_hint) },
+                contentAlignment = Alignment.Center
+            ) {
+                // A viewer page must stay opaque until explicitly revealed; never draw its real thumbnail.
+                SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
+            }
             concealed -> Unit
             tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 val preview: @Composable () -> Unit = {

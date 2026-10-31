@@ -716,4 +716,6 @@
     <string name="settings_bgbeat_title">BG Beat (analyse musicale)</string>
     <string name="settings_bgbeat_desc">Analyse du rythme, BPM et structure propulsée par le moteur C++20 BG Media</string>
     <string name="chat_settings_scope_note">Modifie le fond d’écran de cette conversation uniquement</string>
+    <string name="media_spoiler_title">Spoiler</string>
+    <string name="media_spoiler_reveal">Touchez pour révéler</string>
 </resources>
