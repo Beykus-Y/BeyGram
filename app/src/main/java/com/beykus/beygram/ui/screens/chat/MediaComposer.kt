@@ -5,6 +5,14 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -52,6 +60,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
@@ -106,6 +115,8 @@ import com.beykus.beygram.domain.model.ViewOncePolicy
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CancellationException
@@ -1148,6 +1159,20 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
     }
 }
 
+/**
+ * Keep a read-only thumbnail snapshot only for a direct visible -> hidden transition.
+ * A notice-only/menu-only panel must not revive removed photos when it closes later.
+ */
+internal fun nextAttachmentExitPreview(
+    previous: List<OutgoingMedia>,
+    current: List<OutgoingMedia>,
+    panelVisible: Boolean
+): List<OutgoingMedia> = when {
+    current.isNotEmpty() -> current.toList()
+    panelVisible -> emptyList()
+    else -> previous
+}
+
 /** Inline panel above the input: action grid, then the prepared attachments. */
 @Composable
 internal fun AttachmentPanel(
@@ -1168,10 +1193,36 @@ internal fun AttachmentPanel(
         if (!viewOnceAvailable) state.viewOnce = false
     }
     var discardConfirm by rememberSaveable { mutableStateOf(false) }
+    // Retain only the outgoing presentation for a short closing fade. Staging, deletion
+    // and upload state change immediately; this snapshot never restores a removed file.
+    var exitPreview by remember(state) { mutableStateOf<List<OutgoingMedia>>(emptyList()) }
+    val panelVisibility = remember(state) { MutableTransitionState(false) }
+    panelVisibility.targetState = visible
+    SideEffect {
+        // If an error/notice keeps the shell visible after the final removal, there is
+        // no attachment panel left to animate later when that notice is dismissed.
+        exitPreview = nextAttachmentExitPreview(exitPreview, state.pending, visible)
+    }
+    LaunchedEffect(visible, panelVisibility.currentState, panelVisibility.isIdle) {
+        // Do not retain paths to removed private photos after the closing animation.
+        if (!visible && panelVisibility.isIdle && !panelVisibility.currentState) {
+            exitPreview = emptyList()
+        }
+    }
+    val enterSpec = rememberMotionSpec(MotionToken.SheetEnter)
+    val exitSpec = rememberMotionSpec(MotionToken.SheetExit)
     BackHandler(enabled = state.menuOpen) {
         state.dismissTransientPanel()
     }
-    if (!visible) return
+    AnimatedVisibility(
+        visibleState = panelVisibility,
+        enter = if (enterSpec.isInstant) EnterTransition.None else
+            expandVertically(expandFrom = Alignment.Bottom, animationSpec = enterSpec.animationSpec()) +
+                fadeIn(animationSpec = enterSpec.animationSpec()),
+        exit = if (exitSpec.isInstant) ExitTransition.None else
+            shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = exitSpec.animationSpec()) +
+                fadeOut(animationSpec = exitSpec.animationSpec())
+    ) {
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         when {
             state.menuOpen -> AttachmentMenu(
@@ -1189,6 +1240,16 @@ internal fun AttachmentPanel(
                 viewOnceAvailable = viewOnceAvailable,
                 maxListHeight = maxListHeight,
                 onDiscardRequested = { discardConfirm = true }
+            )
+            !visible && exitPreview.isNotEmpty() -> PreparedAttachmentsPanel(
+                state = state,
+                observeFile = observeFile,
+                onDownloadFile = { /* no new downloads after the last item was removed */ },
+                viewOnceAvailable = false,
+                maxListHeight = maxListHeight,
+                onDiscardRequested = {},
+                displayPending = exitPreview,
+                closing = true
             )
         }
         state.error?.let { message ->
@@ -1233,6 +1294,7 @@ internal fun AttachmentPanel(
         }
         Spacer(Modifier.height(4.dp))
     }
+    }
     if (discardConfirm) {
         AlertDialog(
             onDismissRequest = { discardConfirm = false },
@@ -1260,11 +1322,13 @@ private fun PreparedAttachmentsPanel(
     onDownloadFile: (Int) -> Unit,
     viewOnceAvailable: Boolean,
     maxListHeight: androidx.compose.ui.unit.Dp,
-    onDiscardRequested: () -> Unit
+    onDiscardRequested: () -> Unit,
+    displayPending: List<OutgoingMedia> = state.pending,
+    closing: Boolean = false
 ) {
     val palette = beyGramPalette()
-    val enabled = !state.sending && !state.importing
-    val itemCount = state.pending.size + if (state.extra != null) 1 else 0
+    val enabled = !closing && !state.sending && !state.importing
+    val itemCount = displayPending.size + if (state.extra != null && !closing) 1 else 0
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 14.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1276,14 +1340,14 @@ private fun PreparedAttachmentsPanel(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f)
         )
-        IconButton(onClick = onDiscardRequested, enabled = !state.sending, modifier = Modifier.size(48.dp)) {
+        IconButton(onClick = onDiscardRequested, enabled = !closing && !state.sending, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Rounded.Close, stringResource(R.string.composer_attachments_clear_action), tint = palette.textSecondary)
         }
     }
-    if (isCompactAttachmentSet(state.pending, state.extra)) {
+    if (isCompactAttachmentSet(displayPending, if (closing) null else state.extra)) {
         // Mixed batches now share the fixed-height rail. Polls, contacts and other
         // MessageExtraDraft actions keep their dedicated semantic cards.
-        CompactVisualAttachmentTray(state, observeFile, onDownloadFile, enabled, maxListHeight)
+        CompactVisualAttachmentTray(state, observeFile, onDownloadFile, enabled, maxListHeight, displayPending)
     } else Column(
         Modifier.fillMaxWidth().heightIn(max = maxListHeight).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)
     ) {
@@ -1306,7 +1370,7 @@ private fun PreparedAttachmentsPanel(
         state.extra?.let { extra ->
             ExtraAttachmentCard(extra, enabled, onRemove = { state.removeExtra() })
         }
-        state.pending.forEach { item ->
+        displayPending.forEach { item ->
             PendingAttachmentCard(state, item, observeFile, onDownloadFile, enabled)
         }
         if (state.importing) {
@@ -1317,7 +1381,7 @@ private fun PreparedAttachmentsPanel(
             }
         }
     }
-    if (viewOnceAvailable) {
+    if (viewOnceAvailable && !closing) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 .toggleable(value = state.viewOnce, enabled = !state.sending, role = Role.Checkbox) { state.viewOnce = it }
@@ -1414,22 +1478,23 @@ private fun CompactVisualAttachmentTray(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
     enabled: Boolean,
-    maxListHeight: androidx.compose.ui.unit.Dp
+    maxListHeight: androidx.compose.ui.unit.Dp,
+    displayPending: List<OutgoingMedia> = state.pending
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     var selectedItemKey by remember(state) { mutableStateOf<String?>(null) }
     var menuItemKey by remember(state) { mutableStateOf<String?>(null) }
-    val activeItem = state.pending.withIndex().firstOrNull { (index, item) ->
+    val activeItem = if (enabled) displayPending.withIndex().firstOrNull { (index, item) ->
         stagedMediaKey(item, index) == selectedItemKey
-    }?.value
+    }?.value else null
     Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            itemsIndexed(state.pending, key = { index, item -> stagedMediaKey(item, index) }) { index, item ->
+            itemsIndexed(displayPending, key = { index, item -> stagedMediaKey(item, index) }) { index, item ->
                 val preparation = state.preparationFor(item)
                 val itemKey = stagedMediaKey(item, index)
                 val moveLeft = stringResource(R.string.composer_move_attachment_left)
@@ -1554,7 +1619,7 @@ private fun CompactVisualAttachmentTray(
                     }
                 }
             }
-            if (state.pending.size < MAX_PENDING_ATTACHMENTS) {
+            if (enabled && displayPending.size < MAX_PENDING_ATTACHMENTS) {
                 item(key = "add-more-media") {
                     Box(
                         Modifier.size(100.dp).clip(RoundedCornerShape(14.dp))
