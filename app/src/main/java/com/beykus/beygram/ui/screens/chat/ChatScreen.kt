@@ -2033,7 +2033,7 @@ fun ChatScreen(
                 } else null)
                 // Caption belongs to this text field, not to the thumbnail tray above it.
                 if (!editing && attachments.active && attachments.extra == null) {
-                    val count = draft.codePointCount(0, draft.length)
+                    val count = attachmentCaptionLength(draft)
                     Text(
                         "$count / ${limits.caption}",
                         color = if (count > limits.caption) palette.danger else palette.textSecondary,
