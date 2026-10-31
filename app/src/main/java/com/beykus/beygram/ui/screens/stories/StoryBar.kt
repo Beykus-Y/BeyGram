@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -89,12 +90,20 @@ internal fun StoryBarSection(
     }
 }
 
+/**
+ * Only the system add-story label needs guaranteed readability. Keep the avatar at 66 dp,
+ * but give its two-line caption enough space as the user increases the Android font scale.
+ */
+internal fun addStoryCellWidthDp(fontScale: Float): Float =
+    (88f * fontScale.coerceAtLeast(1f)).coerceAtMost(136f)
+
 @Composable
 private fun AddStoryCell(onClick: () -> Unit) {
     val palette = beyGramPalette()
     val description = stringResource(R.string.stories_a11y_add)
+    val width = addStoryCellWidthDp(LocalDensity.current.fontScale).dp
     Column(
-        modifier = Modifier.width(88.dp)
+        modifier = Modifier.width(width)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = description }
             .padding(vertical = 4.dp),
