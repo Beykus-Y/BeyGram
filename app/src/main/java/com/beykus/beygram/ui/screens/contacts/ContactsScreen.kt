@@ -74,6 +74,10 @@ import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
+/** Do not navigate from a delayed result belonging to a different Telegram account. */
+internal fun canUseContactResult(requestAccountId: String, activeAccountId: String): Boolean =
+    requestAccountId == activeAccountId
+
 /** Контакты из адресной книги Telegram: список, поиск, добавление, изменение, удаление и отправка. */
 @Composable
 fun ContactsScreen(
@@ -136,10 +140,10 @@ fun ContactsScreen(
             openPrivateChat(contact.userId)
                 .onSuccess { chatId ->
                     // An old account's async result must not navigate inside the new account.
-                    if (activeAccountId == requestAccountId) onChatOpened(chatId)
+                    if (canUseContactResult(requestAccountId, activeAccountId)) onChatOpened(chatId)
                 }
                 .onFailure {
-                    if (activeAccountId == requestAccountId) {
+                    if (canUseContactResult(requestAccountId, activeAccountId)) {
                         openError = it.userMessage(context, R.string.contacts_open_chat_failed)
                     }
                 }
