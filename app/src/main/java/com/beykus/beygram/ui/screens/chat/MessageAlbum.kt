@@ -228,12 +228,20 @@ internal fun MessageAlbumBubble(
                         BubbleMeta(latest, isRead, retryAvailable = latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed },
                             overlay = false, onRetry = onRetry)
                     },
-                    bottomBar = { commentsBar?.invoke() }
+                    bottomBar = { commentsBar?.invoke() },
+                    footer = {
+                        // One reaction owner for the whole Telegram album, anchored inside its
+                        // shared bubble instead of a detached row underneath the media.
+                        if (!selectionMode) MessageReactionChips(
+                            reactionOwner.reactions, observeCustomEmoji, observeFile, onDownloadFile,
+                            onToggle = { onReaction(reactionOwner.id, it) },
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp)
+                        )
+                    }
                 )
                 if (selectionMode) SelectionCheckBadge(selected, Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
         }
-        MessageReactionChips(reactionOwner.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(reactionOwner.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }
 
