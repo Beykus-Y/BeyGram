@@ -1015,18 +1015,15 @@ internal class AttachmentState(
             return
         }
         if (pending.isEmpty()) return
+        // Claim the slot synchronously, before launching: a second tap must not send twice.
+        sending = true
         scope.launch {
-            sending = true
             errorState.value = null
             var nextCaption = caption
             try {
                 val originals = pending.toList()
                 val prepared = originals.map { item -> item to outgoingMediaFor(item, preparationFor(item)) }
-                val batches = if (prepared.size in 2..10 && prepared.all { (_, media) -> media.kind == MediaKind.Photo || media.kind == MediaKind.Video }) {
-                    listOf(prepared)
-                } else {
-                    prepared.map { listOf(it) }
-                }
+                val batches = attachmentSendBatches(prepared)
                 for (batch in batches) {
                     val result = sendMedia(batch.map { it.second }, nextCaption, options)
                     if (result.isFailure) {
@@ -1051,6 +1048,19 @@ internal class AttachmentState(
         }
     }
 }
+
+/**
+ * Telegram albums contain only 2–10 photo/video media. If a staged item is a document,
+ * audio or a video converted to File delivery, preserve the existing sequential semantics.
+ * Each resulting batch consumes the shared caption only once, after successful delivery.
+ */
+internal fun attachmentSendBatches(
+    prepared: List<Pair<OutgoingMedia, OutgoingMedia>>
+): List<List<Pair<OutgoingMedia, OutgoingMedia>>> =
+    if (prepared.size in 2..10 && prepared.all { (_, item) ->
+            item.kind == MediaKind.Photo || item.kind == MediaKind.Video
+        }) listOf(prepared)
+    else prepared.map { listOf(it) }
 
 internal const val MAX_PENDING_ATTACHMENTS = 10
 
@@ -1139,8 +1149,6 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
 @Composable
 internal fun AttachmentPanel(
     state: AttachmentState,
-    caption: String,
-    captionLimit: Int,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
     allowViewOnce: Boolean = false
@@ -1173,8 +1181,6 @@ internal fun AttachmentPanel(
             )
             state.active -> PreparedAttachmentsPanel(
                 state = state,
-                caption = caption,
-                captionLimit = captionLimit,
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
                 viewOnceAvailable = viewOnceAvailable,
@@ -1247,8 +1253,6 @@ internal fun AttachmentPanel(
 @Composable
 private fun PreparedAttachmentsPanel(
     state: AttachmentState,
-    caption: String,
-    captionLimit: Int,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
     viewOnceAvailable: Boolean,
@@ -1323,15 +1327,6 @@ private fun PreparedAttachmentsPanel(
                 Text(stringResource(R.string.composer_view_once_hint), color = palette.textSecondary, fontSize = 12.sp)
             }
         }
-    }
-    if (state.extra == null && !state.locating) {
-        val count = caption.codePointCount(0, caption.length)
-        Text(
-            "$count / $captionLimit",
-            color = if (count > captionLimit) palette.danger else palette.textSecondary,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(start = 16.dp, bottom = 2.dp)
-        )
     }
 }
 
@@ -1420,8 +1415,8 @@ private fun CompactVisualAttachmentTray(
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
-    var selectedItemKey by remember { mutableStateOf<String?>(null) }
-    var menuItemKey by remember { mutableStateOf<String?>(null) }
+    var selectedItemKey by remember(state) { mutableStateOf<String?>(null) }
+    var menuItemKey by remember(state) { mutableStateOf<String?>(null) }
     val activeItem = state.pending.withIndex().firstOrNull { (index, item) ->
         stagedMediaKey(item, index) == selectedItemKey
     }?.value
@@ -1573,6 +1568,29 @@ private fun CompactVisualAttachmentTray(
         }
         if (activeItem != null) {
             val preparation = state.preparationFor(activeItem)
+            Row(
+                Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp)
+                    .heightIn(min = 48.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (preparation != null) stringResource(R.string.composer_quality_title)
+                    else activeItem.fileName.ifBlank { activeItem.kind.label(context) },
+                    modifier = Modifier.weight(1f),
+                    color = palette.textPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                IconButton(
+                    onClick = { selectedItemKey = null },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_close),
+                        tint = palette.textSecondary)
+                }
+            }
             if (preparation != null) {
                 // Quality options are intentionally collapsed by default. On small screens,
                 // bound their expanded height independently of the fixed media rail.
