@@ -6,7 +6,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,11 +21,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Animation
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.Close
@@ -55,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -1245,7 +1254,11 @@ private fun PreparedAttachmentsPanel(
             Icon(Icons.Rounded.Close, stringResource(R.string.composer_attachments_clear_action), tint = palette.textSecondary)
         }
     }
-    Column(
+    if (isCompactVisualAlbum(state.pending, state.extra)) {
+        // A fixed-height media rail keeps 2–10 images from taking over the conversation.
+        // Non-visual and mixed selections retain the existing full controls until #605.
+        CompactVisualAttachmentTray(state, observeFile, onDownloadFile, enabled)
+    } else Column(
         Modifier.fillMaxWidth().heightIn(max = maxListHeight).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)
     ) {
         if (state.locating) {
@@ -1337,6 +1350,131 @@ private fun ExtraAttachmentCard(extra: MessageExtraDraft, enabled: Boolean, onRe
     }
 }
 
+/**
+ * Strictly visual albums use one compact row. Files and mixed batches still use the
+ * existing detailed cards so their filenames, quality controls and actions are preserved.
+ */
+internal fun isCompactVisualAlbum(items: List<OutgoingMedia>, extra: MessageExtraDraft?): Boolean =
+    extra == null && items.isNotEmpty() && items.all {
+        it.kind == MediaKind.Photo || it.kind == MediaKind.Video
+    }
+
+/** Identity independent of filename, as different photos are commonly both named photo.jpg. */
+internal fun stagedMediaKey(item: OutgoingMedia, index: Int): String = when {
+    item.path.isNotBlank() -> "path:" + item.path
+    item.remoteFileId != 0 -> "remote:" + item.remoteFileId
+    else -> "index:" + index
+}
+
+/** Compact gallery of selected photos/videos; only the selected video's quality controls expand. */
+@Composable
+private fun CompactVisualAttachmentTray(
+    state: AttachmentState,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    onDownloadFile: (Int) -> Unit,
+    enabled: Boolean
+) {
+    val palette = beyGramPalette()
+    val context = LocalContext.current
+    var selectedVideo by remember { mutableStateOf<String?>(null) }
+    val activeVideo = state.pending.firstOrNull {
+        it.kind == MediaKind.Video && it.path == selectedVideo
+    }
+    Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            itemsIndexed(state.pending, key = { index, item -> stagedMediaKey(item, index) }) { _, item ->
+                val preparation = state.preparationFor(item)
+                Box(
+                    modifier = Modifier.size(100.dp).clip(RoundedCornerShape(14.dp))
+                        .background(palette.surface2)
+                ) {
+                    // Never show the filename for ordinary photo/video media: the preview is the identity.
+                    PendingAttachmentPreview(
+                        item, observeFile, onDownloadFile,
+                        Modifier.fillMaxSize()
+                    )
+                    Box(
+                        modifier = Modifier.fillMaxSize().clickable(
+                            enabled = enabled,
+                            role = Role.Button,
+                            onClick = {
+                                if (item.kind == MediaKind.Photo) state.editPhoto(item)
+                                else selectedVideo = if (selectedVideo == item.path) null else item.path
+                            }
+                        ).semantics {
+                            contentDescription = if (item.kind == MediaKind.Photo)
+                                context.getString(R.string.composer_edit_photo_named, item.fileName)
+                            else context.getString(R.string.composer_quality_title) + ": " + item.fileName
+                        }
+                    )
+                    if (item.kind == MediaKind.Video) {
+                        Icon(
+                            Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
+                                .size(26.dp).background(Color.Black.copy(alpha = 0.60f), CircleShape)
+                        )
+                    }
+                    if (preparation?.processing == true) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(7.dp).size(20.dp),
+                            color = Color.White, strokeWidth = 2.dp
+                        )
+                    }
+                    IconButton(
+                        onClick = { state.remove(item) },
+                        enabled = enabled,
+                        modifier = Modifier.align(Alignment.TopEnd).size(48.dp).semantics {
+                            contentDescription = context.getString(R.string.composer_remove_attachment_named, item.fileName)
+                        }
+                    ) {
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                                .background(Color.Black.copy(alpha = 0.70f), CircleShape)
+                                .padding(4.dp)
+                        )
+                    }
+                }
+            }
+            if (state.pending.size < MAX_PENDING_ATTACHMENTS) {
+                item(key = "add-more-media") {
+                    Box(
+                        Modifier.size(100.dp).clip(RoundedCornerShape(14.dp))
+                            .background(palette.surface2)
+                            .clickable(enabled = enabled, role = Role.Button, onClick = state.pickPhotos)
+                            .semantics { contentDescription = context.getString(R.string.composer_attach_description) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = null, tint = palette.accentInk,
+                            modifier = Modifier.size(32.dp))
+                    }
+                }
+            }
+        }
+        if (activeVideo != null) {
+            val preparation = state.preparationFor(activeVideo)
+            if (preparation != null) {
+                MediaQualityPanel(
+                    item = activeVideo, preparation = preparation, enabled = enabled,
+                    onModeSelected = { state.selectQuality(activeVideo, it) },
+                    onDeliverySelected = { state.selectVideoDelivery(activeVideo, it) },
+                    onCancel = { state.cancelQualityPreparation(activeVideo) },
+                    onRetry = { state.retryQualityPreparation(activeVideo) },
+                    modifier = Modifier.padding(horizontal = 14.dp)
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun PendingAttachmentCard(
     state: AttachmentState,
@@ -1403,13 +1541,20 @@ private fun PendingAttachmentCard(
  * deliberately not downloaded: it is sent by file id and only the small preview is needed here.
  */
 @Composable
-private fun PendingAttachmentPreview(item: OutgoingMedia, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
-    val size = Modifier.size(40.dp).clip(RoundedCornerShape(9.dp))
+private fun PendingAttachmentPreview(
+    item: OutgoingMedia,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    modifier: Modifier = Modifier.size(40.dp).clip(RoundedCornerShape(9.dp))
+) {
     when {
-        item.thumbnailPath != null -> LocalMediaImage(item.thumbnailPath, size)
-        item.thumbnailRemoteFileId > 0 -> RemoteAttachmentThumbnail(item.thumbnailRemoteFileId, observeFile, downloadFile, size)
+        item.thumbnailPath != null -> LocalMediaImage(item.thumbnailPath, modifier, maxDimension = 320)
+        item.thumbnailRemoteFileId > 0 ->
+            RemoteAttachmentThumbnail(item.thumbnailRemoteFileId, observeFile, downloadFile, modifier)
+        item.path.isNotBlank() && (item.kind == MediaKind.Photo || item.kind == MediaKind.Video) ->
+            LocalMediaImage(item.path, modifier, maxDimension = 320, allowVideoFrame = item.kind == MediaKind.Video)
         else -> Icon(Icons.Rounded.Description, null, tint = beyGramPalette().accentInk,
-            modifier = Modifier.size(40.dp).background(beyGramPalette().accentSoft, RoundedCornerShape(9.dp)).padding(9.dp))
+            modifier = modifier.background(beyGramPalette().accentSoft).padding(9.dp))
     }
 }
 
