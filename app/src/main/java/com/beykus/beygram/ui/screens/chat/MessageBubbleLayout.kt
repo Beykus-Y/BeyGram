@@ -21,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.LastBaseline
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -120,14 +122,22 @@ internal fun BubbleLayout(
         val width = maxOf(contentWidth, footerPlaceable.width, barWidth).coerceIn(constraints.minWidth, constraints.maxWidth)
         val barPlaceable = measurables[3].measure(Constraints(minWidth = 0, maxWidth = width, minHeight = 0, maxHeight = loose.maxHeight))
         val inset = OverlayInset.roundToPx()
+        // Bottom-edge alignment made the small time label appear vertically detached from
+        // the message text on some fonts and font scales. Align propagated LAST text baselines
+        // where available, and reserve the actual combined height for any status icons.
+        val lastBodyBaseline = bodyPlaceable[LastBaseline]
+        val lastMetaBaseline = metaPlaceable[LastBaseline]
+        val baselineDelta = if (lastBodyBaseline != AlignmentLine.Unspecified &&
+            lastMetaBaseline != AlignmentLine.Unspecified
+        ) lastBodyBaseline - lastMetaBaseline else null
         val metaTop = when {
             overlayMeta -> bodyPlaceable.height - metaPlaceable.height - inset
-            placeInline -> (bodyPlaceable.height - metaPlaceable.height).coerceAtLeast(0)
+            placeInline -> inlineMetadataTop(bodyPlaceable.height, metaPlaceable.height, baselineDelta)
             else -> bodyPlaceable.height
         }
         val barTop = when {
             overlayMeta -> bodyPlaceable.height
-            placeInline -> maxOf(bodyPlaceable.height, metaPlaceable.height)
+            placeInline -> maxOf(bodyPlaceable.height, metaTop + metaPlaceable.height)
             else -> bodyPlaceable.height + metaPlaceable.height
         }
         val footerTop = barTop + barPlaceable.height
@@ -146,9 +156,39 @@ internal fun BubbleLayout(
 internal fun bubbleMetaFitsBesideBody(bodyWidth: Int, metaWidth: Int, maxWidth: Int): Boolean =
     bodyWidth > 0 && metaWidth > 0 && bodyWidth <= maxWidth && metaWidth <= maxWidth - bodyWidth
 
+/** Keep the time's text baseline aligned with the message, with a safe bottom-edge fallback. */
+internal fun inlineMetadataTop(bodyHeight: Int, metaHeight: Int, baselineDelta: Int?): Int =
+    (baselineDelta ?: (bodyHeight - metaHeight)).coerceAtLeast(0)
+
+/** Inline metadata is deliberately limited to short, simple, single-line text.
+ * Multi-line content and sender headers need their own metadata row; width alone
+ * is not a sufficient signal that inline placement would look natural.
+ */
+internal fun useInlineTextMetadata(message: ChatMessage, hasSenderHeader: Boolean, hasTranslation: Boolean): Boolean =
+    message.text.isNotBlank() &&
+        message.text.length <= 28 &&
+        '\n' !in message.text &&
+        message.entities.isEmpty() &&
+        message.media == null &&
+        message.special == null &&
+        message.reply == null &&
+        message.linkPreview == null &&
+        message.expiredMediaKind == null &&
+        message.inlineKeyboard.isEmpty() &&
+        message.sendState != MessageSendState.Failed &&
+        !hasSenderHeader &&
+        !hasTranslation
+
 /** Время, статус отправки и кнопка повтора. При [overlay] — белым на тёмной плашке поверх фото. */
 @Composable
-internal fun BubbleMeta(message: ChatMessage, isRead: Boolean, retryAvailable: Boolean, overlay: Boolean, onRetry: () -> Unit) {
+internal fun BubbleMeta(
+    message: ChatMessage,
+    isRead: Boolean,
+    retryAvailable: Boolean,
+    overlay: Boolean,
+    onRetry: () -> Unit,
+    inline: Boolean = false
+) {
     val palette = beyGramPalette()
     val failed = message.sendState == MessageSendState.Failed
     val status = if (message.isOutgoing && failed) " · " + stringResource(R.string.chat_status_not_sent) else ""
@@ -157,8 +197,12 @@ internal fun BubbleMeta(message: ChatMessage, isRead: Boolean, retryAvailable: B
         failed -> palette.warningText
         else -> palette.messageTime
     }
-    val modifier = if (overlay) Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 6.dp, vertical = 2.dp)
-        else Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+    val modifier = when {
+        overlay -> Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+        inline -> Modifier.padding(start = 4.dp, end = 8.dp, bottom = 4.dp)
+        else -> Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+    }
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Text((if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
             color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)

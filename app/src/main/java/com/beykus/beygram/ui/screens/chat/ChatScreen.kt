@@ -2609,6 +2609,11 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
+    val inlineMeta = useInlineTextMetadata(
+        message,
+        hasSenderHeader = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank(),
+        hasTranslation = translation != null
+    )
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
     val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
     val longPressLabel = stringResource(if (longPressSelects) R.string.message_action_select else R.string.a11y_message_actions)
@@ -2651,10 +2656,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             onLongClick = if (selectionMode) onToggleSelection else onActions
                         ),
                     overlayMeta = overlayMeta,
-                    // Only plain text may share its final line with time/status; complex content keeps the footer row.
-                    inlineMeta = showText && message.media == null && renderedSpecial == null &&
-                        message.reply == null && message.linkPreview == null && translation == null &&
-                        message.expiredMediaKind == null && message.sendState != MessageSendState.Failed,
+                    // Short one-line text only: prevent awkward bubble width on formatted or wrapped text.
+                    inlineMeta = inlineMeta,
                     body = {
                     Column {
                         if (showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -2746,7 +2749,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 },
                 meta = {
                     if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
-                        overlay = overlayMeta, onRetry = onRetry)
+                        overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta)
                 },
                 footer = inlineContent,
                 bottomBar = { if (!circle && !sticker) commentsBar?.invoke() }

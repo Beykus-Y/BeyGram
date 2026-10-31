@@ -1,10 +1,48 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.domain.model.ChatMessage
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BubbleMetaPlacementTest {
+    private fun message(text: String): ChatMessage = ChatMessage(
+        id = 1L, chatId = 1L, text = text, time = "18:35", isOutgoing = true
+    )
+
+    @Test
+    fun shortPlainTextIsEligibleForInlineTime() {
+        assertTrue(useInlineTextMetadata(message("Привет"), false, false))
+        assertTrue(useInlineTextMetadata(message("ok"), false, false))
+    }
+
+    @Test
+    fun multilineAndLongTextKeepSeparateMetadataRow() {
+        assertFalse(useInlineTextMetadata(message("Привет\nКак дела?"), false, false))
+        assertFalse(useInlineTextMetadata(message("This is a longer sentence with many words"), false, false))
+    }
+
+    @Test
+    fun senderHeaderOrTranslationPreventsInlineMetadata() {
+        assertFalse(useInlineTextMetadata(message("ok"), true, false))
+        assertFalse(useInlineTextMetadata(message("ok"), false, true))
+    }
+
+    @Test
+    fun inlineTimeUsesTextBaselineWhenPresent() {
+        assertTrue(inlineMetadataTop(bodyHeight = 34, metaHeight = 19, baselineDelta = 12) == 12)
+    }
+
+    @Test
+    fun inlineTimeFallsBackToBottomEdgeWithoutBaseline() {
+        assertTrue(inlineMetadataTop(bodyHeight = 34, metaHeight = 19, baselineDelta = null) == 15)
+    }
+
+    @Test
+    fun inlineTimeNeverGetsNegativeOffset() {
+        assertTrue(inlineMetadataTop(bodyHeight = 20, metaHeight = 27, baselineDelta = -7) == 0)
+    }
+
     @Test
     fun shortTextAndTimeCanShareOneRow() {
         assertTrue(bubbleMetaFitsBesideBody(bodyWidth = 45, metaWidth = 70, maxWidth = 292))
