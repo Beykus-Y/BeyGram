@@ -692,4 +692,7 @@
     <string name="chat_settings_scope_note">Ändert das Hintergrundbild nur für diesen Chat</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Zum Anzeigen tippen</string>
+    <string name="composer_move_attachment_left">Nach links verschieben</string>
+    <string name="composer_move_attachment_right">Nach rechts verschieben</string>
+    <string name="composer_attachment_actions">Anhangaktionen</string>
 </resources>
