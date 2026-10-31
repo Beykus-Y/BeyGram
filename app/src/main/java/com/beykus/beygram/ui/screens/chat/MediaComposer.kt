@@ -12,6 +12,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -1181,8 +1182,16 @@ internal fun AttachmentPanel(
     // Retain only the outgoing presentation for a short closing fade. Staging, deletion
     // and upload state change immediately; this snapshot never restores a removed file.
     var exitPreview by remember(state) { mutableStateOf<List<OutgoingMedia>>(emptyList()) }
+    val panelVisibility = remember(state) { MutableTransitionState(false) }
+    panelVisibility.targetState = visible
     SideEffect {
         if (state.pending.isNotEmpty()) exitPreview = state.pending.toList()
+    }
+    LaunchedEffect(visible, panelVisibility.currentState, panelVisibility.isIdle) {
+        // Do not retain paths to removed private photos after the closing animation.
+        if (!visible && panelVisibility.isIdle && !panelVisibility.currentState) {
+            exitPreview = emptyList()
+        }
     }
     val enterSpec = rememberMotionSpec(MotionToken.SheetEnter)
     val exitSpec = rememberMotionSpec(MotionToken.SheetExit)
@@ -1190,7 +1199,7 @@ internal fun AttachmentPanel(
         state.dismissTransientPanel()
     }
     AnimatedVisibility(
-        visible = visible,
+        visibleState = panelVisibility,
         enter = if (enterSpec.isInstant) EnterTransition.None else
             expandVertically(expandFrom = Alignment.Bottom, animationSpec = enterSpec.animationSpec()) +
                 fadeIn(animationSpec = enterSpec.animationSpec()),
