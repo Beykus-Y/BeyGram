@@ -21,6 +21,8 @@ data class DesignSystem(
     val surfaces: DesignSurfaces,
     val motion: DesignMotionProfile,
     val components: DesignComponents,
+    /** Shape and depth of the create-chat button, so the primary action belongs to the same style as the lists. */
+    val fab: DesignFab,
     /** Bubble geometry of the style, or null when the style keeps today's bubble metrics untouched (Default). */
     val bubbles: DesignBubbleGeometry?,
     /**
@@ -96,6 +98,18 @@ data class DesignComponents(
 
 /** Material 2 draws the send control as a rounded square; the other styles keep the circular control. */
 val DesignSystem.squareSendButton: Boolean get() = style == DesignStyle.Material2
+
+/**
+ * The create-chat button. It is part of the style, not a fixed Material 3 widget: Material 2 is a circle, Material 3 a
+ * soft squircle, Glass a lens and Signature a calm rounded square with almost no shadow. Size stays at the Material
+ * touch standard for every style, so the target never shrinks.
+ */
+@Immutable
+data class DesignFab(
+    val cornerRadius: Dp,
+    /** Shadow under the button. Signature keeps almost none; the depth there comes from the layers behind it. */
+    val elevation: Dp
+)
 
 /** Elevation, translucency and the optional glass treatment of a style. */
 @Immutable

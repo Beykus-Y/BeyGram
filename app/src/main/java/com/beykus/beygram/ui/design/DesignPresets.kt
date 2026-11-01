@@ -34,6 +34,7 @@ val DefaultDesignSystem = DesignSystem(
         showListDividers = false,
         floatingNavigation = false
     ),
+    fab = DesignFab(cornerRadius = 20.dp, elevation = 6.dp),
     bubbles = null
 )
 
@@ -66,6 +67,8 @@ val Material2DesignSystem = DesignSystem(
         showListDividers = true,
         floatingNavigation = false
     ),
+    // Classic Material Design draws the action button as a circle above a flat list.
+    fab = DesignFab(cornerRadius = 28.dp, elevation = 6.dp),
     bubbles = DesignBubbleGeometry(
         cornerRadius = 6.dp, tailRadius = 2.dp, replyRadius = 4.dp, textInset = 12.dp, textTopInset = 8.dp
     )
@@ -100,6 +103,7 @@ val Material3DesignSystem = DesignSystem(
         showListDividers = false,
         floatingNavigation = false
     ),
+    fab = DesignFab(cornerRadius = 16.dp, elevation = 6.dp),
     bubbles = DesignBubbleGeometry(
         cornerRadius = 18.dp, tailRadius = 4.dp, replyRadius = 12.dp, textInset = 12.dp, textTopInset = 8.dp
     )
@@ -159,6 +163,8 @@ fun liquidGlassDesign(quality: GlassQuality): DesignSystem {
             showListDividers = false,
             floatingNavigation = true
         ),
+        // A lens, not a second pane of glass: the button carries a light shadow and its own round edge.
+        fab = DesignFab(cornerRadius = 26.dp, elevation = 4.dp),
         bubbles = DesignBubbleGeometry(
             cornerRadius = 20.dp, tailRadius = 8.dp, replyRadius = 14.dp, textInset = 12.dp, textTopInset = 8.dp
         )
@@ -195,6 +201,8 @@ val SignatureDesignSystem = DesignSystem(
         showListDividers = false,
         floatingNavigation = true
     ),
+    // Quiet depth: the button sits almost on the surface instead of casting a hard Material shadow.
+    fab = DesignFab(cornerRadius = 18.dp, elevation = 2.dp),
     bubbles = DesignBubbleGeometry(
         cornerRadius = 18.dp, tailRadius = 6.dp, replyRadius = 12.dp, textInset = 12.dp, textTopInset = 8.dp
     )

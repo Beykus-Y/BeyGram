@@ -43,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
@@ -139,18 +140,20 @@ internal data class NavigationSpec(
     /** Shadow of the floating capsule, which has to read as a separate layer above the content. */
     val floatingElevation: Dp,
     val divider: Boolean,
+    /** Side margin of the floating capsule. Glass and Signature do not borrow one value from each other. */
+    val horizontalMargin: Dp,
+    /** Gap the floating capsule keeps from the bottom edge, above the system navigation inset. */
+    val bottomMargin: Dp,
+    /** Outer radius of the floating capsule. A pinned bar ignores it and stays square at the window edges. */
+    val dockRadius: Dp,
+    /** Opacity multiplier of the selection pill: a quieter dock leaves the content as the loudest thing on screen. */
+    val indicatorAlpha: Float,
     /** The resolved placement, read by both the bar and the scaffold; it is not the style's own stance. */
     val floating: Boolean
 ) {
     /** The elevation that applies to the current placement. */
     val elevation: Dp get() = if (floating) floatingElevation else pinnedElevation
 }
-
-/** Side margin of the floating capsule: the dock never touches the window edge. */
-internal val FloatingNavigationHorizontalMargin = 12.dp
-
-/** Gap the floating capsule keeps from the bottom edge, above the system navigation inset. */
-internal val FloatingNavigationBottomMargin = 8.dp
 
 internal fun navigationSpecFor(design: DesignSystem): NavigationSpec = when (design.components.navigation) {
     // Default: the exact bar BeyGram has always drawn.
@@ -159,7 +162,9 @@ internal fun navigationSpecFor(design: DesignSystem): NavigationSpec = when (des
         showSelectionPill = true, showLabels = true, labelSize = 12.sp,
         labelWeight = FontWeight.Normal, iconSize = 24.dp,
         barTopPadding = 10.dp, barBottomPadding = 8.dp, pinnedElevation = 0.dp, floatingElevation = 8.dp,
-        divider = false, floating = design.navigationFloating
+        divider = false,
+        horizontalMargin = 12.dp, bottomMargin = 8.dp, dockRadius = 16.dp, indicatorAlpha = 1f,
+        floating = design.navigationFloating
     )
     // Material 2: flat bar with a divider, coloured icon and label, no pill behind the selection.
     NavigationVariant.ClassicTabs -> NavigationSpec(
@@ -167,7 +172,9 @@ internal fun navigationSpecFor(design: DesignSystem): NavigationSpec = when (des
         showSelectionPill = false, showLabels = true, labelSize = 12.sp,
         labelWeight = FontWeight.Medium, iconSize = 24.dp,
         barTopPadding = 8.dp, barBottomPadding = 8.dp, pinnedElevation = 8.dp, floatingElevation = 8.dp,
-        divider = true, floating = design.navigationFloating
+        divider = true,
+        horizontalMargin = 12.dp, bottomMargin = 8.dp, dockRadius = 2.dp, indicatorAlpha = 1f,
+        floating = design.navigationFloating
     )
     // Material 3: the navigation bar with a tonal container and a wider indicator pill.
     NavigationVariant.NavigationBar -> NavigationSpec(
@@ -175,25 +182,32 @@ internal fun navigationSpecFor(design: DesignSystem): NavigationSpec = when (des
         showSelectionPill = true, showLabels = true, labelSize = 12.sp,
         labelWeight = FontWeight.Medium, iconSize = 24.dp,
         barTopPadding = 12.dp, barBottomPadding = 12.dp, pinnedElevation = 0.dp, floatingElevation = 6.dp,
-        divider = false, floating = design.navigationFloating
+        divider = false,
+        horizontalMargin = 12.dp, bottomMargin = 8.dp, dockRadius = 20.dp, indicatorAlpha = 1f,
+        floating = design.navigationFloating
     )
-    // Liquid Glass: a floating translucent capsule with compact labels.
+    // Liquid Glass: the widest air around the capsule, a soft lens-radius and a lighter selection wash, so the panel
+    // reads as a layer of material rather than a second full-width bar.
     NavigationVariant.FloatingGlass -> NavigationSpec(
-        pillWidth = 60.dp, pillHeight = 30.dp, pillRadius = 20.dp,
+        pillWidth = 58.dp, pillHeight = 30.dp, pillRadius = 20.dp,
         showSelectionPill = true, showLabels = true, labelSize = 11.sp,
         labelWeight = FontWeight.Medium, iconSize = 22.dp,
-        barTopPadding = 10.dp, barBottomPadding = 10.dp,
+        barTopPadding = 9.dp, barBottomPadding = 9.dp,
         pinnedElevation = 0.dp,
         floatingElevation = design.surfaces.glass?.shadowElevation ?: 12.dp,
-        divider = false, floating = design.navigationFloating
+        divider = false,
+        horizontalMargin = 16.dp, bottomMargin = 10.dp, dockRadius = 24.dp, indicatorAlpha = 0.82f,
+        floating = design.navigationFloating
     )
-    // Signature: a floating dock with a confident, single selection capsule.
+    // Signature: a calmer, tighter capsule than Glass — less air, a smaller radius, an even quieter selection wash.
     NavigationVariant.SignatureDock -> NavigationSpec(
-        pillWidth = 58.dp, pillHeight = 30.dp, pillRadius = 12.dp,
+        pillWidth = 56.dp, pillHeight = 28.dp, pillRadius = 12.dp,
         showSelectionPill = true, showLabels = true, labelSize = 11.sp,
-        labelWeight = FontWeight.Bold, iconSize = 23.dp,
-        barTopPadding = 8.dp, barBottomPadding = 10.dp, pinnedElevation = 0.dp, floatingElevation = 6.dp,
-        divider = false, floating = design.navigationFloating
+        labelWeight = FontWeight.Bold, iconSize = 22.dp,
+        barTopPadding = 8.dp, barBottomPadding = 9.dp, pinnedElevation = 0.dp, floatingElevation = 4.dp,
+        divider = false,
+        horizontalMargin = 14.dp, bottomMargin = 9.dp, dockRadius = 18.dp, indicatorAlpha = 0.72f,
+        floating = design.navigationFloating
     )
 }
 
@@ -267,7 +281,13 @@ internal fun MainTabItem(
                 modifier = Modifier
                     .matchParentSize()
                     .clip(indicatorShape)
-                    .background(if (selected && selectionPill && spec.showSelectionPill) palette.accentSoft else Color.Transparent)
+                    .background(
+                        if (selected && selectionPill && spec.showSelectionPill) {
+                            palette.accentSoft.copy(alpha = palette.accentSoft.alpha * spec.indicatorAlpha)
+                        } else {
+                            Color.Transparent
+                        }
+                    )
             )
             if (pressProgress > 0f) {
                 Box(
@@ -312,7 +332,9 @@ internal fun MainTabBar(
     tabs: List<MainTab>,
     selected: MainTab?,
     onSelect: (MainTab) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Reports the measured height of the panel itself, without the floating margins around it. */
+    onPanelHeightChange: ((Dp) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -320,21 +342,29 @@ internal fun MainTabBar(
     val glass = design.surfaces.glass
     val barColor = navigationBarColor(design, palette.surface)
     val floating = spec.floating
+    val density = LocalDensity.current
     // Only the floating capsule is rounded: a pinned bar must keep square window edges even in Glass or Signature,
     // so no floating corner is left at the bottom of the screen.
-    val barShape = RoundedCornerShape(if (floating) design.shapes.extraLarge else 0.dp)
+    val barShape = RoundedCornerShape(if (floating) spec.dockRadius else 0.dp)
     val outer = modifier.fillMaxWidth().then(
         if (floating) {
             Modifier.padding(
-                start = FloatingNavigationHorizontalMargin,
-                end = FloatingNavigationHorizontalMargin,
-                bottom = FloatingNavigationBottomMargin
+                start = spec.horizontalMargin,
+                end = spec.horizontalMargin,
+                bottom = spec.bottomMargin
             )
         } else {
             Modifier
         }
     )
-    val contentModifier = Modifier.fillMaxWidth().navigationBarsPadding()
+    val measurement = if (onPanelHeightChange != null) {
+        // Placed before the insets and the paddings, so the reported size is the whole panel: font scale and a
+        // three-button navigation bar change it, and the content gap must follow the real value, not a token.
+        Modifier.onSizeChanged { onPanelHeightChange(with(density) { it.height.toDp() }) }
+    } else {
+        Modifier
+    }
+    val contentModifier = Modifier.fillMaxWidth().then(measurement).navigationBarsPadding()
         .padding(start = 8.dp, top = spec.barTopPadding, end = 8.dp, bottom = spec.barBottomPadding)
     val content: @Composable () -> Unit = {
         NavigationBarContent(
@@ -415,7 +445,7 @@ private fun NavigationBarContent(
                             .offset(x = indicator.x.value.dp)
                             .size(width = spec.pillWidth, height = spec.pillHeight)
                             .clip(RoundedCornerShape(spec.pillRadius))
-                            .background(palette.accentSoft)
+                            .background(palette.accentSoft.copy(alpha = palette.accentSoft.alpha * spec.indicatorAlpha))
                     )
                 }
                 Row(
@@ -455,16 +485,25 @@ internal fun MainTabsScaffold(
 ) {
     val tabs = MainTab.entries.filter { visibility.isVisible(it) }
     val design = LocalDesignSystem.current
+    val spec = remember(design) { navigationSpecFor(design) }
     val floating = design.navigationFloating
-    val density = LocalDensity.current
     // The floating capsule is laid over the content, so the scaffold reserves its measured height instead of a fixed
     // token: a larger label, a bigger font scale or a taller system inset then moves the last row instead of hiding it.
     // Reset with the design: a bar measured in another placement or style must not reserve space for the old one.
     var measuredBarHeight by remember(design) { mutableStateOf(0.dp) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
+        val isRail = usesMainNavigationRail(maxWidth.value)
+        // One description of the navigation for every screen below, so the create button and the mini-player can line up
+        // with the dock instead of repeating its numbers.
+        val dock = NavigationDockGeometry(
+            floating = floating && !isRail,
+            height = measuredBarHeight,
+            horizontalMargin = if (floating && !isRail) spec.horizontalMargin else 0.dp,
+            bottomMargin = if (floating && !isRail) spec.bottomMargin else 0.dp
+        )
         // The placement applies to the phone bottom bar. A wide window keeps its navigation rail: turning it into a
         // phone dock would move the sections away from the leading edge and lose the space the rail exists for.
-        if (usesMainNavigationRail(maxWidth.value)) {
+        if (isRail) {
             Row(Modifier.fillMaxSize()) {
                 MainTabRail(tabs = tabs, selected = selected, onSelect = onSelect)
                 Column(
@@ -478,7 +517,9 @@ internal fun MainTabsScaffold(
                         .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
                 ) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                        stateHolder.SaveableStateProvider(key) { content() }
+                        CompositionLocalProvider(LocalNavigationDock provides dock) {
+                            stateHolder.SaveableStateProvider(key) { content() }
+                        }
                     }
                     NowPlayingBar(hideWhenImeVisible = true)
                 }
@@ -499,22 +540,28 @@ internal fun MainTabsScaffold(
             }
             Box(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize()) {
+                    // Only the screen content is recorded: the mini-player keeps sampling it, and the bar itself stays
+                    // outside the recorded subtree, so a panel can never sample the layer it is being drawn into.
                     Box(Modifier.weight(1f).fillMaxWidth().then(recordContent)) {
-                        stateHolder.SaveableStateProvider(key) { content() }
+                        CompositionLocalProvider(LocalNavigationDock provides dock) {
+                            stateHolder.SaveableStateProvider(key) { content() }
+                        }
                     }
                     NowPlayingBar(hideWhenImeVisible = true)
                     // Until the bar has measured itself the token is a safe approximation; afterwards the real height
-                    // is used, so a large font or a 3-button navigation inset cannot put a row under the dock.
-                    val reserve = measuredBarHeight.takeIf { it > 0.dp }
-                        ?: (design.spacing.navigationHeight + navigationBarInset + FloatingNavigationBottomMargin)
+                    // is used, so a large font or a 3-button navigation inset cannot put a row under the dock. The gap
+                    // between the mini-player and the capsule is the same one the list gets.
+                    val reserve = measuredBarHeight.takeIf { it > 0.dp }?.let {
+                        it + spec.bottomMargin + DefaultNavigationDockGap
+                    } ?: (design.spacing.navigationHeight + navigationBarInset + spec.bottomMargin + DefaultNavigationDockGap)
                     Spacer(Modifier.height(reserve))
                 }
                 MainTabBar(
                     tabs = tabs,
                     selected = selected,
                     onSelect = onSelect,
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                        .onSizeChanged { measuredBarHeight = with(density) { it.height.toDp() } }
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    onPanelHeightChange = { measuredBarHeight = it }
                 )
             }
         } else {
@@ -530,7 +577,9 @@ internal fun MainTabsScaffold(
             }
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth().then(recordContent)) {
-                    stateHolder.SaveableStateProvider(key) { content() }
+                    CompositionLocalProvider(LocalNavigationDock provides dock) {
+                        stateHolder.SaveableStateProvider(key) { content() }
+                    }
                 }
                 NowPlayingBar(hideWhenImeVisible = true)
                 MainTabBar(tabs = tabs, selected = selected, onSelect = onSelect)
