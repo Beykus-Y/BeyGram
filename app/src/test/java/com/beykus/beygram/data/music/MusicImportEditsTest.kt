@@ -1,9 +1,13 @@
 package com.beykus.beygram.data.music
 
+import com.beykus.beygram.data.music.bgmusic.BgMusicExportIdentity
 import com.beykus.beygram.data.music.bgmusic.BgMusicImportDecision
 import com.beykus.beygram.data.music.bgmusic.BgMusicImportPlanner
+import com.beykus.beygram.data.music.bgmusic.BgMusicLibraryMapping
 import com.beykus.beygram.playback.PlaybackOrigin
 import java.io.File
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -19,6 +23,7 @@ class MusicImportEditsTest {
     private val clock = FakeClock()
     private val persistence = FakeMusicPersistence()
     private val repo = repositoryFor(persistence, clock)
+    private val sourceUuid = "99999999-8888-4777-8666-555555555555"
 
     @get:Rule
     val tempFolder = TemporaryFolder()
@@ -56,6 +61,15 @@ class MusicImportEditsTest {
     /** The planner's answer for a file of playlist "source-1" at [revision], against the library of [repository]. */
     private fun decide(revision: Long, repository: MusicLibraryRepository = repo): BgMusicImportDecision =
         BgMusicImportPlanner.decide("source-1", revision, repository.library.value.playlists)
+
+    /** A repository whose ids are random UUIDs, as the app's are, so the copies it makes export under a UUID of their own. */
+    private fun uuidRepository(): MusicLibraryRepository = MusicLibraryRepository(
+        persistence = FakeMusicPersistence(),
+        coverRoot = null,
+        clock = { clock.now },
+        newId = { UUID.randomUUID().toString() },
+        ioDispatcher = Dispatchers.Unconfined
+    )
 
     @Test
     fun importKeepsOrderRevisionAndSourceAndDropsForeignOrigins() = runTest {
@@ -117,6 +131,7 @@ class MusicImportEditsTest {
         assertEquals("Renamed", replaced.title)
         assertEquals(1L, replaced.revision)
         assertEquals(8L, replaced.sourceRevision)
+        assertEquals(1L, replaced.revisionAtSource)
         assertEquals("source-1", replaced.sourcePlaylistId)
         assertEquals(listOf("t-9"), replaced.tracks.map { it.itemId })
         assertEquals(listOf("Nine"), replaced.tracks.map { it.title })
@@ -199,5 +214,29 @@ class MusicImportEditsTest {
 
         assertEquals(cover.absolutePath, covers.library.value.playlist(copy.id)?.coverPath)
         assertTrue(cover.exists())
+    }
+
+    @Test
+    fun exportFollowsTheCopyThroughImportEditUpdateAndEdit() = runTest {
+        val repository = uuidRepository()
+        repository.setActiveAccount(TEST_ACCOUNT)
+        val copy = repository.importPlaylistCopy(
+            snapshot(entry("t-1", "One", null), revision = 3L, source = sourceUuid),
+        ).doneValue()
+        fun exported() = BgMusicLibraryMapping.exportIdentity(
+            repository.library.value.playlist(copy.id)!!,
+            freshId = { error("a copy keeps its UUID id, so it never needs a fresh one") },
+        )
+
+        assertEquals(BgMusicExportIdentity(sourceUuid, 3L), exported())
+        repository.renamePlaylist(copy.id, "My version").doneValue()
+        assertEquals(BgMusicExportIdentity(copy.id, 1L), exported())
+        repository.replaceImportedPlaylist(
+            copy.id,
+            snapshot(entry("t-2", "Two", null), revision = 4L, source = sourceUuid),
+        ).doneValue()
+        assertEquals(BgMusicExportIdentity(sourceUuid, 4L), exported())
+        repository.addTrack(copy.id, testTrack(message = 9L, title = "Mine")).doneValue()
+        assertEquals(BgMusicExportIdentity(copy.id, 3L), exported())
     }
 }

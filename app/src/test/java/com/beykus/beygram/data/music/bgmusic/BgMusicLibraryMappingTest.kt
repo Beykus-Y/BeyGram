@@ -17,6 +17,7 @@ class BgMusicLibraryMappingTest {
     private val privateChat = 987_654_321L
     private val publicChat = 1_234_567_890L
     private val playlistId = "11111111-2222-4333-8444-555555555555"
+    private val importedId = "99999999-8888-4777-8666-555555555555"
 
     /** The TDLib message id of public post [post]: the post number with the local bits clear. */
     private fun tdlibId(post: Long): Long = post shl 20
@@ -47,6 +48,14 @@ class BgMusicLibraryMappingTest {
         revision = 4L,
         sourcePlaylistId = sourceId,
     )
+
+    /** A copy of [importedId] that came from revision [sourceRevision] of its file, with [localRevision] local changes since. */
+    private fun copyOf(sourceRevision: Long, localRevision: Long, vararg tracks: PlaylistTrack): MusicPlaylist =
+        playlist(*tracks, sourceId = importedId).copy(
+            revision = localRevision,
+            sourceRevision = sourceRevision,
+            revisionAtSource = 0L,
+        )
 
     private fun manifest(
         source: MusicPlaylist,
@@ -125,11 +134,43 @@ class BgMusicLibraryMappingTest {
     }
 
     @Test
-    fun copyKeepsTheIdOfThePlaylistItCameFrom() {
-        val source = "99999999-8888-4777-8666-555555555555"
+    fun uneditedCopyIsExportedAsTheFileItCameFrom() {
+        val copy = copyOf(sourceRevision = 2L, localRevision = 0L, track(entryId(1), "Song", null))
 
-        assertEquals(source, BgMusicLibraryMapping.exportPlaylistId(playlist(sourceId = source)))
-        assertEquals(playlistId, BgMusicLibraryMapping.exportPlaylistId(playlist()))
+        assertEquals(BgMusicExportIdentity(importedId, 2L), BgMusicLibraryMapping.exportIdentity(copy))
+        assertEquals(importedId, manifest(copy).playlistId)
+        assertEquals(2L, manifest(copy).revision)
+    }
+
+    @Test
+    fun editedCopyIsExportedAsItsOwnPlaylistWithItsOwnRevision() {
+        // The file is at revision 5; two local changes since the import make the copy a collection of the user's own.
+        val copy = copyOf(sourceRevision = 5L, localRevision = 2L, track(entryId(1), "Song", null))
+
+        assertEquals(BgMusicExportIdentity(playlistId, 2L), BgMusicLibraryMapping.exportIdentity(copy))
+        assertEquals(playlistId, manifest(copy).playlistId)
+        assertEquals(2L, manifest(copy).revision)
+    }
+
+    @Test
+    fun copyIsExportedAsItsFileAgainAfterAnUpdate() {
+        val updated = copyOf(sourceRevision = 5L, localRevision = 2L, track(entryId(1), "Song", null))
+            .copy(sourceRevision = 6L, revision = 3L, revisionAtSource = 3L)
+
+        assertEquals(BgMusicExportIdentity(importedId, 6L), BgMusicLibraryMapping.exportIdentity(updated))
+    }
+
+    @Test
+    fun copyWithoutRevisionAtSourceCountsAsEdited() {
+        val copy = copyOf(sourceRevision = 2L, localRevision = 0L, track(entryId(1), "Song", null))
+            .copy(revisionAtSource = null)
+
+        assertEquals(BgMusicExportIdentity(playlistId, 0L), BgMusicLibraryMapping.exportIdentity(copy))
+    }
+
+    @Test
+    fun ownPlaylistKeepsItsOwnIdAndRevision() {
+        assertEquals(BgMusicExportIdentity(playlistId, 4L), BgMusicLibraryMapping.exportIdentity(playlist()))
     }
 
     @Test
@@ -148,6 +189,7 @@ class BgMusicLibraryMappingTest {
         assertEquals(read.playlistId, copy.sourcePlaylistId)
         assertEquals(0L, copy.revision)
         assertEquals(4L, copy.sourceRevision)
+        assertEquals(0L, copy.revisionAtSource)
         assertEquals(listOf("Утро — ☕", "Café Ünïcödé 👨‍👩‍👧", "Spaces and tabs", "Ж-Ж"), copy.tracks.map { it.title })
         assertEquals(source.tracks.map { it.itemId }, copy.tracks.map { it.itemId })
         assertEquals(listOf("Исполнитель 0", "Исполнитель 1", "Исполнитель 2", "Исполнитель 3"), copy.tracks.map { it.performer })
@@ -165,15 +207,6 @@ class BgMusicLibraryMappingTest {
 
         assertEquals(resolved, copy.tracks[0].origin)
         assertNull(copy.tracks[1].origin)
-    }
-
-    @Test
-    fun exportOfAnImportedCopyCarriesTheRevisionOfTheFileItCameFrom() {
-        val copy = playlist(track(entryId(1), "Song", null), sourceId = "99999999-8888-4777-8666-555555555555")
-            .copy(revision = 6L, sourceRevision = 2L)
-
-        assertEquals(2L, manifest(copy).revision)
-        assertEquals(4L, manifest(playlist(track(entryId(1), "Song", null))).revision)
     }
 
     @Test

@@ -43,6 +43,7 @@ class MusicLibraryJsonTest {
             revision = 7L,
             sourcePlaylistId = "import-source",
             sourceRevision = 4L,
+            revisionAtSource = 2L,
             sortMode = MusicSortMode.Title
         )
         val stats = MusicListenStats(
@@ -212,6 +213,7 @@ class MusicLibraryJsonTest {
         assertEquals(MusicSortMode.Manual, playlist.sortMode)
         assertEquals(0L, playlist.revision)
         assertNull(playlist.sourceRevision)
+        assertNull(playlist.revisionAtSource)
         assertTrue(playlist.tracks.isEmpty())
         assertFalse(playlist.isFavorites)
     }

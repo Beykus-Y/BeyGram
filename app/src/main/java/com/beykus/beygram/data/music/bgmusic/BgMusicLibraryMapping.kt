@@ -18,6 +18,9 @@ data class BgMusicExportOptions(
     val authorName: String = "",
 )
 
+/** The `playlist_id` and `revision` that a playlist is written with. */
+internal data class BgMusicExportIdentity(val playlistId: String, val revision: Long)
+
 /**
  * Converts between local playlists and `.bgmusic` manifests. Every function is pure: anything that needs Telegram or
  * Android (the public usernames, the clock, the localized favorites title, the resolved origins) is passed in, so the
@@ -31,18 +34,35 @@ object BgMusicLibraryMapping {
     private const val TDLIB_LOCAL_BITS_MASK = (1L shl TDLIB_MESSAGE_ID_SHIFT) - 1
 
     /**
-     * The `playlist_id` written to a file. A copy keeps the id of the playlist it came from, so importing the same file again
-     * is recognised. Favorites has one fixed id on every account, so every export of it gets a new id instead.
+     * The `playlist_id` and `revision` written to a file for [playlist]:
+     * - An imported copy with no local change since its last import or update ([MusicPlaylist.revisionAtSource] equals
+     *   [MusicPlaylist.revision]) is written as the file it came from: its source id and its source revision. Receivers see the
+     *   same collection at the same revision.
+     * - An imported copy with local changes is a collection of the user's own: its local id and its local revision. Receivers
+     *   get a new collection, so they never see changed content as already saved.
+     * - Any other playlist is written with its own id and revision. Favorites has one fixed id on every account, so every export
+     *   of it gets a new id. A local id that is not a UUID is replaced by a fresh one as well.
      */
-    fun exportPlaylistId(playlist: MusicPlaylist, freshId: () -> String = { UUID.randomUUID().toString() }): String {
-        if (playlist.isFavorites) return freshId()
-        val source = playlist.sourcePlaylistId?.let { BgMusicFormat.normalizeUuid(it) }
-        return source ?: BgMusicFormat.normalizeUuid(playlist.id) ?: freshId()
+    internal fun exportIdentity(
+        playlist: MusicPlaylist,
+        freshId: () -> String = { UUID.randomUUID().toString() },
+    ): BgMusicExportIdentity {
+        val sourceId = playlist.sourcePlaylistId?.let { BgMusicFormat.normalizeUuid(it) }
+        val sourceRevision = playlist.sourceRevision
+        if (sourceId != null && sourceRevision != null && playlist.revisionAtSource == playlist.revision) {
+            return BgMusicExportIdentity(playlistId = sourceId, revision = sourceRevision.coerceAtLeast(0L))
+        }
+        val ownId = if (playlist.isFavorites) freshId() else (BgMusicFormat.normalizeUuid(playlist.id) ?: freshId())
+        return BgMusicExportIdentity(playlistId = ownId, revision = playlist.revision.coerceAtLeast(0L))
     }
 
+    /** The `playlist_id` written to a file for [playlist]; see [exportIdentity]. */
+    fun exportPlaylistId(playlist: MusicPlaylist, freshId: () -> String = { UUID.randomUUID().toString() }): String =
+        exportIdentity(playlist, freshId).playlistId
+
     /**
-     * Manifest of [playlist] as seen from [accountId]. An imported copy exports the revision of the file it came from
-     * ([MusicPlaylist.fileRevision]), not its own count of local edits.
+     * Manifest of [playlist] as seen from [accountId]. Its `playlist_id` and `revision` follow [exportIdentity]: an imported copy
+     * without local changes is written as the file it came from.
      *
      * Track ids come from the app's own track ids, never from Telegram data. The audio hash is never written. Sources are
      * written only for an origin of [accountId] whose chat is in [publicChats] (chat id to public username, for channels and
@@ -63,13 +83,14 @@ object BgMusicLibraryMapping {
         untitled: String,
         freshId: () -> String = { UUID.randomUUID().toString() },
     ): BgMusicManifest {
-        val playlistId = exportPlaylistId(playlist, freshId)
+        val identity = exportIdentity(playlist, freshId)
+        val playlistId = identity.playlistId
         val rawTitle = if (playlist.isFavorites) favoritesTitle else playlist.title
         val title = BgMusicFormat.sanitizeText(rawTitle, BgMusicFormat.MAX_PLAYLIST_TITLE)
             .ifEmpty { BgMusicFormat.sanitizeText(untitled, BgMusicFormat.MAX_PLAYLIST_TITLE) }
         return BgMusicManifest(
             playlistId = playlistId,
-            revision = playlist.fileRevision.coerceAtLeast(0L),
+            revision = identity.revision,
             title = title,
             updatedAtMs = nowMs.coerceIn(0L, BgMusicFormat.MAX_UPDATED_AT_MS),
             tracks = playlist.tracks.map { track ->
@@ -84,7 +105,8 @@ object BgMusicLibraryMapping {
      * An unsaved local copy of an imported manifest. The repository assigns the id, so [MusicPlaylist.id] is empty here.
      * [origins] maps a track id to the origin that was found in the recipient account. A track without one stays
      * unavailable (origin null). Added times rise with the position, so sorting by "added" keeps the file's order. The file's
-     * revision goes to [MusicPlaylist.sourceRevision]; the copy's own revision starts at 0.
+     * revision goes to [MusicPlaylist.sourceRevision]. The copy's own revision and [MusicPlaylist.revisionAtSource] start at 0,
+     * so the copy starts out equal to its file.
      */
     fun toPlaylistCopy(manifest: BgMusicManifest, now: Long, origins: Map<String, PlaybackOrigin>): MusicPlaylist =
         MusicPlaylist(
@@ -107,6 +129,7 @@ object BgMusicLibraryMapping {
             revision = 0L,
             sourcePlaylistId = manifest.playlistId,
             sourceRevision = manifest.revision,
+            revisionAtSource = 0L,
             sortMode = MusicSortMode.Manual,
         )
 

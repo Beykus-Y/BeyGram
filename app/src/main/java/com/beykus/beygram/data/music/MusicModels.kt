@@ -64,6 +64,12 @@ data class MusicPlaylist(
      * value, so a file is always compared with the version it carries.
      */
     val sourceRevision: Long? = null,
+    /**
+     * Value of [revision] when this copy was last made equal to its file: at the import and at each update. While [revision]
+     * still equals it, the copy has no local change and is exported as the file it came from. Null for playlists that were not
+     * imported, and for copies stored before this field existed, which count as edited.
+     */
+    val revisionAtSource: Long? = null,
     val sortMode: MusicSortMode = MusicSortMode.Manual
 ) {
     val isFavorites: Boolean get() = id == MUSIC_FAVORITES_PLAYLIST_ID
