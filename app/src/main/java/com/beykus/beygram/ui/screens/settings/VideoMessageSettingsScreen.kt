@@ -301,7 +301,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 }
             }
 
-            // Р”Рѕ API 33 CameraX РЅРµ РѕС‚СЂР°Р¶Р°РµС‚ РїСЂРµРІСЊСЋ РїРѕ setMirrorMode, РїРѕСЌС‚РѕРјСѓ РїРµСЂРµРєР»СЋС‡Р°С‚РµР»СЊ С‚Р°Рј РЅРµ РЅСѓР¶РµРЅ.
+            // До API 33 CameraX не отражает превью по setMirrorMode, поэтому переключатель там не нужен.
             if (videoMirrorToggleSupported()) {
                 Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(palette.surface).padding(16.dp)) {
                     Row(Modifier.fillMaxWidth().toggleable(settings.mirrorFrontCamera, role = Role.Switch) { checked ->
@@ -382,9 +382,9 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                         Column(Modifier.weight(1f)) {
                             Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(Date(report.startedAt)),
                                 color = palette.textPrimary, fontSize = 14.sp)
-                            Text(videoNoteStatusText(context, report.status) + " В· " + stringResource(R.string.settings_video_diagnostics_raw_final,
-                                report.rawFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "вЂ”",
-                                report.outputFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "вЂ”"),
+                            Text(videoNoteStatusText(context, report.status) + " · " + stringResource(R.string.settings_video_diagnostics_raw_final,
+                                report.rawFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
+                                report.outputFps?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—"),
                                 color = palette.textSecondary, fontSize = 12.sp)
                         }
                         Text(stringResource(R.string.settings_video_diagnostics_open), color = palette.accent, fontSize = 13.sp)
@@ -767,7 +767,7 @@ private fun videoNoteSettingsSide(settings: VideoMessageSettings): Int = when (s
 }
 
 private fun fpsOrDash(value: Double?): String =
-    value?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "вЂ”"
+    value?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—"
 
 private fun facingText(context: Context, facing: ProbeFacing): String = context.getString(when (facing) {
     ProbeFacing.FRONT -> R.string.camera_facing_front

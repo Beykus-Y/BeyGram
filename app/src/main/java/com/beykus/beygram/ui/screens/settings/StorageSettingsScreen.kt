@@ -66,7 +66,7 @@ import com.beykus.beygram.ui.theme.AvatarPalette
 
 private enum class ClearScope { Selected, All }
 
-/** РџР°РјСЏС‚СЊ Рё РєСЌС€: СЃРєРѕР»СЊРєРѕ РјРµСЃС‚Р° Р·Р°РЅРёРјР°СЋС‚ С„Р°Р№Р»С‹, РѕС‡РёСЃС‚РєР° РІС‹Р±СЂР°РЅРЅРѕРіРѕ Рё Р»РёРјРёС‚С‹, РєРѕС‚РѕСЂС‹Рµ РїСЂРёР»РѕР¶РµРЅРёРµ РґРµСЂР¶РёС‚ СЃР°РјРѕ. */
+/** Память и кэш: сколько места занимают файлы, очистка выбранного и лимиты, которые приложение держит само. */
 @Composable
 fun StorageSettingsScreen(
     repository: StorageRepository,
@@ -276,7 +276,7 @@ private fun StorageCategory.labelRes(): Int = when (this) {
     StorageCategory.Other -> R.string.storage_category_other
 }
 
-/** Р¦РІРµС‚Р° РєР°С‚РµРіРѕСЂРёР№ Р±РµСЂСѓС‚СЃСЏ РёР· РїР°Р»РёС‚СЂС‹ Р°РІР°С‚Р°СЂРѕРє, РїРѕ РѕРґРЅРѕРјСѓ РЅР° РєР°С‚РµРіРѕСЂРёСЋ. */
+/** Цвета категорий берутся из палитры аватарок, по одному на категорию. */
 private fun StorageCategory.color(): Color = when (this) {
     StorageCategory.Photos -> AvatarPalette[4]
     StorageCategory.Videos -> AvatarPalette[1]
