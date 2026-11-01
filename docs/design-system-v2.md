@@ -88,6 +88,19 @@ picks `Balanced` without API 31 blur support, `Lite` under reduced transparency,
 devices. Message bubbles and body content stay opaque: readability wins over decoration, and translucent surfaces never
 expose content hidden by `FLAG_SECURE` because nothing is drawn outside the app window.
 
+**A backdrop source must never contain a glass panel.** Recording such a subtree would make the panel ask the layer that
+is currently being written to be drawn into itself, which is a native `SIGSEGV` in the render thread, not a recoverable
+exception. The source therefore sits on the content area only (in `MainTabsScaffold` the list/chat, never the bar), and
+`GlassBackdrop.recording` is a second guard: while a frame is being recorded, a panel inside it skips sampling and draws
+its tint only.
+
+### Crash-loop protection
+
+`DesignStartupGuard` writes a marker on every process start and clears it once two frames have been drawn and the
+interface has settled. If the previous start never got that far, the saved non-Default style is replaced with `Default`
+and persisted before the theme is applied. Only `design_style` changes: palette, wallpaper, message geometry, motion,
+accounts and TDLib data are untouched, so a bad style can never lock the user out of the app.
+
 ### BeyGram Signature
 BeyGram's own language, not a mixture: chat-first hierarchy, Source Sans 3 with an editorial scale (heavy display and
 wide-tracked labels), 6–28dp geometry, quiet layered depth (1–8dp) instead of hard shadows, a floating dock and a

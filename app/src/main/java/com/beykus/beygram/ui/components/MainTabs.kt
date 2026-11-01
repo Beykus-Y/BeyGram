@@ -71,6 +71,8 @@ import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.TabVisibility
 import com.beykus.beygram.ui.design.DesignSystem
 import com.beykus.beygram.ui.design.GlassPanel
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.NavigationVariant
 import com.beykus.beygram.ui.motion.MotionToken
@@ -433,9 +435,18 @@ internal fun MainTabsScaffold(
             // float above. The reserved gap covers the bar and the system navigation inset, so the last row stays
             // reachable instead of hiding under the panel.
             val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val backdrop = LocalGlassBackdrop.current
+            val glass = design.surfaces.glass
+            // Only the content is recorded. The bar sits outside this subtree, so the panel never samples a layer
+            // that is being written in the same pass - that self-reference is a native crash in the render thread.
+            val recordContent = if (glass != null && backdrop != null) {
+                Modifier.glassBackdropSource(backdrop)
+            } else {
+                Modifier
+            }
             Box(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize()) {
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                    Box(Modifier.weight(1f).fillMaxWidth().then(recordContent)) {
                         stateHolder.SaveableStateProvider(key) { content() }
                     }
                     NowPlayingBar(hideWhenImeVisible = true)
