@@ -22,20 +22,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.music.MUSIC_REPLACEMENT_LOOKUP_BATCH
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.music.MusicOutcome
+import com.beykus.beygram.data.music.MusicTrackRef
 import com.beykus.beygram.data.music.PlaylistTrack
-import com.beykus.beygram.data.music.replacementCandidates
+import com.beykus.beygram.data.music.replacementCandidatesFor
 import com.beykus.beygram.data.music.resolvePlaylistTracks
 import com.beykus.beygram.data.music.toTrackRef
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.launch
 
+/** The playable candidates found so far, and whether every candidate has been checked. */
+private data class ReplacementLookup(val playable: List<PlaylistTrack>, val done: Boolean)
+
 /**
  * Offers the tracks of the library that can take the place of [missing], an entry of [playlistId] that cannot be played now.
- * Only candidates that Telegram can still play are listed. Picking one replaces the entry in place; nothing is replaced on
- * its own. When no candidate is left, the sheet says so and offers the search instead.
+ * Only candidates that Telegram can still play are listed, and never one that the playlist already lists under another entry.
+ * The candidates are checked a batch at a time, so the playable ones show as they are found. Picking one replaces the entry in
+ * place; nothing is replaced on its own. When no candidate is left, the sheet says so and offers the search instead.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,16 +59,30 @@ internal fun ReplacementSheet(
     val repository = remember(context) { MusicLibraries.get(context) }
     val library = rememberMusicLibrary(accountId)
     val candidates = remember(library, missing.itemId) {
-        library?.let { replacementCandidates(it, missing.toTrackRef()) }.orEmpty()
+        val lib = library
+        val playlist = lib?.playlist(playlistId)
+        if (lib != null && playlist != null) {
+            replacementCandidatesFor(lib, playlist, missing.itemId, missing.toTrackRef())
+        } else {
+            emptyList<MusicTrackRef>()
+        }
     }
-    // Every candidate is looked up before it is offered, so a track that Telegram cannot play never appears in the list.
-    val playable by produceState<List<PlaylistTrack>?>(null, candidates) {
-        value = null
-        val entries = candidates.map { it.toPlaylistEntry() }
-        val resolved = resolvePlaylistTracks(telegram, accountId, entries)
-        value = entries.filterIndexed { index, _ -> resolved.getOrNull(index) != null }
+    // Each batch is checked against Telegram before it is shown, so a track that cannot be played never appears. A batch runs at
+    // most three lookups at once (see resolveMusicOrigins).
+    val lookup by produceState(ReplacementLookup(emptyList(), done = false), candidates) {
+        value = ReplacementLookup(emptyList(), done = false)
+        val found = mutableListOf<PlaylistTrack>()
+        for (batch in candidates.map { it.toPlaylistEntry() }.chunked(MUSIC_REPLACEMENT_LOOKUP_BATCH)) {
+            val resolved = resolvePlaylistTracks(telegram, accountId, batch)
+            batch.forEachIndexed { index, entry ->
+                if (resolved.getOrNull(index) != null) {
+                    found += entry
+                }
+            }
+            value = ReplacementLookup(found.toList(), done = false)
+        }
+        value = ReplacementLookup(found.toList(), done = true)
     }
-    val found = playable
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = palette.surface) {
         // Scrolls, so a long list of candidates stays reachable.
@@ -82,7 +102,8 @@ internal fun ReplacementSheet(
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
             )
-            if (library == null || found == null) {
+            val found = lookup.playable
+            if (library == null || (found.isEmpty() && !lookup.done)) {
                 MusicLoadingRow()
             } else if (found.isEmpty()) {
                 MusicEmptyText(stringResource(R.string.music_replacement_none))
@@ -114,6 +135,8 @@ internal fun ReplacementSheet(
                     )
                 }
             }
+            // Some candidates are still being checked, so more may follow the ones shown.
+            if (library != null && found.isNotEmpty() && !lookup.done) MusicLoadingRow()
         }
     }
 }

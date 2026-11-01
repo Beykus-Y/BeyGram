@@ -146,4 +146,17 @@ class MusicReplacementTest {
         val library = library(playlists = listOf(playlist("p1", *tracks.toTypedArray())))
         assertEquals(MUSIC_REPLACEMENT_MAX_CANDIDATES, replacementCandidates(library, missing).size)
     }
+
+    @Test
+    fun aCandidateAlreadyListedInThePlaylistIsLeftOut() {
+        val missing = ref(1)
+        val listedHere = ref(2)
+        val elsewhere = ref(3)
+        val target = playlist("p1", entry("m", missing, addedAt = 1), entry("e2", listedHere, addedAt = 2))
+        val library = library(playlists = listOf(target, playlist("p2", entry("e3", elsewhere, addedAt = 5))))
+        assertEquals(
+            listOf(elsewhere.trackKey),
+            replacementCandidatesFor(library, target, missingItemId = "m", missing = missing).map { it.trackKey }
+        )
+    }
 }

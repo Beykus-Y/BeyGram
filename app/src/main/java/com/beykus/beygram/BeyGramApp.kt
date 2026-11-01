@@ -194,6 +194,7 @@ import com.beykus.beygram.ui.screens.playback.LocalOpenMusicSearch
 import com.beykus.beygram.ui.screens.playback.LocalOpenMyMusic
 import com.beykus.beygram.ui.screens.music.MyMusicScreen
 import com.beykus.beygram.ui.screens.music.MusicPlaylistScreen
+import com.beykus.beygram.ui.screens.music.ChatLibraryLink
 import com.beykus.beygram.ui.screens.music.chatCollectionId
 import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
 import com.beykus.beygram.ui.screens.playback.PlaybackRepositorySource
@@ -2020,7 +2021,7 @@ private fun BeyGramAppContent(
         val infoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
         LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
-        // The chat's tracks in the library, as a collection of their own. A protected chat gets none: its music stays in the chat.
+        // The chat's tracks in the library, as a collection of their own. No row for a protected chat, nor while the chat is loading.
         val openChatMusic: (Long) -> Unit = { chatId ->
             musicPlaylistId = chatCollectionId(chatId)
             musicPlaylistAccountId = selectedAccountId
@@ -2031,7 +2032,7 @@ private fun BeyGramAppContent(
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onManage = { routeName = AppRoute.ChatManagement.name },
-            onOpenChatMusic = if (chatInfoSecure) null else openChatMusic,
+            chatLibrary = if (selectedChat == null || chatInfoSecure) null else ChatLibraryLink(selectedAccountId, openChatMusic),
             onStatistics = if (canOpenGroupStatistics(info.info)) {
                 {
                     statisticsReturnRouteName = AppRoute.ChatInfo.name

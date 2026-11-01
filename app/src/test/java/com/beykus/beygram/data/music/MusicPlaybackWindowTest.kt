@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.music
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -41,24 +42,6 @@ class MusicPlaybackWindowTest {
     }
 
     @Test
-    fun pagesStartWhereTheWindowEndsAndCoverTheRestInOrder() {
-        val size = 1_000
-        val window = musicPlayWindow(size, 500, shuffled = false)
-        val pager = MusicPlayPager(size, window.endExclusive)
-        val pages = mutableListOf<MusicPlayRange>()
-        while (pager.hasMore()) {
-            val page = pager.peek()
-            pages += page
-            pager.advance(page)
-        }
-        assertEquals(window.endExclusive, pages.first().start)
-        assertEquals(size, pages.last().endExclusive)
-        for ((previous, next) in pages.zipWithNext()) assertEquals(previous.endExclusive, next.start)
-        assertTrue(pages.all { it.size in 1..MUSIC_PLAY_PAGE_SIZE })
-        assertEquals(size - window.endExclusive, pages.sumOf { it.size })
-    }
-
-    @Test
     fun pagesHoldThirtyEntriesAndTheLastOneMayBeShorter() {
         assertEquals(MusicPlayRange(0, 30), musicPlayPage(0, 100))
         assertEquals(MusicPlayRange(30, 60), musicPlayPage(30, 100))
@@ -68,22 +51,102 @@ class MusicPlaybackWindowTest {
     }
 
     @Test
-    fun aPagerTakesAPageOnlyWhenItIsAdvancedTo() {
-        val pager = MusicPlayPager(size = 100, startCursor = 0)
-        val first = pager.peek()
-        assertEquals(first, pager.peek())
-        pager.advance(first)
-        assertEquals(MUSIC_PLAY_PAGE_SIZE, pager.peek().start)
-        assertTrue(pager.hasMore())
-    }
-
-    @Test(expected = IllegalArgumentException::class)
-    fun aPagerRefusesAPageThatDoesNotFollowTheCursor() {
-        MusicPlayPager(size = 100, startCursor = 0).advance(MusicPlayRange(30, 60))
+    fun laterPagesAreTheTailThenTheHeadInPlaylistOrder() {
+        // Window 30..70 of 100 entries: the tail is 71..99 and the head 0..29.
+        val window = musicPlayWindow(100, 50, shuffled = false)
+        assertEquals(MusicPlayRange(30, 71), window)
+        assertEquals(listOf(MusicPlayRange(71, 100), MusicPlayRange(0, 30)), musicPlayLaterPages(100, window))
     }
 
     @Test
-    fun aPagerWithNothingLeftHasNoMore() {
-        assertTrue(!MusicPlayPager(size = 10, startCursor = 10).hasMore())
+    fun longerTailsAndHeadsAreCutIntoPagesOfThirty() {
+        // Window 80..120 of 200 entries: the tail is 121..199 and the head 0..79.
+        val window = musicPlayWindow(200, 100, shuffled = false)
+        assertEquals(
+            listOf(
+                MusicPlayRange(121, 151),
+                MusicPlayRange(151, 181),
+                MusicPlayRange(181, 200),
+                MusicPlayRange(0, 30),
+                MusicPlayRange(30, 60),
+                MusicPlayRange(60, 80)
+            ),
+            musicPlayLaterPages(200, window)
+        )
+    }
+
+    @Test
+    fun aWindowAtTheStartLeavesOnlyATail() {
+        // Window 0..20 of 200 entries: the tail is 21..199 and there is no head.
+        val pages = musicPlayLaterPages(200, musicPlayWindow(200, 0, shuffled = false))
+        assertEquals(MusicPlayRange(21, 51), pages.first())
+        assertEquals(MusicPlayRange(171, 200), pages.last())
+        assertEquals(179, pages.sumOf { it.size })
+    }
+
+    @Test
+    fun aWindowAtTheEndLeavesOnlyAHead() {
+        // Window 179..199 of 200 entries: there is no tail, and the head is 0..178.
+        val pages = musicPlayLaterPages(200, musicPlayWindow(200, 199, shuffled = false))
+        assertEquals(MusicPlayRange(0, 30), pages.first())
+        assertEquals(MusicPlayRange(150, 179), pages.last())
+        assertEquals(179, pages.sumOf { it.size })
+    }
+
+    @Test
+    fun noLaterPagesWhenTheWindowHoldsTheWholePlaylist() {
+        assertTrue(musicPlayLaterPages(50, musicPlayWindow(50, 10, shuffled = false)).isEmpty())
+        assertTrue(musicPlayLaterPages(1_000, musicPlayWindow(1_000, 500, shuffled = true)).isEmpty())
+        assertTrue(musicPlayLaterPages(0, musicPlayWindow(0, 0, shuffled = false)).isEmpty())
+    }
+
+    @Test
+    fun theTailRunsToTheEndBeforeTheHeadStartsAtTheFirstEntry() {
+        val window = musicPlayWindow(200, 100, shuffled = false)
+        val pages = musicPlayLaterPages(200, window)
+        val tail = pages.takeWhile { it.start >= window.endExclusive }
+        val head = pages.drop(tail.size)
+        assertEquals(window.endExclusive, tail.first().start)
+        assertEquals(200, tail.last().endExclusive)
+        assertEquals(0, head.first().start)
+        assertEquals(window.start, head.last().endExclusive)
+    }
+
+    @Test
+    fun everyPositionOutsideTheWindowIsPlannedExactlyOnce() {
+        for (size in listOf(61, 100, 200, 1_001)) {
+            for (start in listOf(0, 1, 20, 21, 40, size / 2, size - 22, size - 21, size - 1)) {
+                val window = musicPlayWindow(size, start, shuffled = false)
+                val planned = IntArray(size)
+                for (position in window.start until window.endExclusive) planned[position]++
+                for (page in musicPlayLaterPages(size, window)) {
+                    assertTrue("page $page of $size entries", page.size in 1..MUSIC_PLAY_PAGE_SIZE)
+                    for (position in page.start until page.endExclusive) planned[position]++
+                }
+                assertTrue("start $start of $size entries", planned.all { it == 1 })
+            }
+        }
+    }
+
+    @Test
+    fun aPagerHandsOutItsPagesInOrderAndTakesEachOnlyWhenAdvancedTo() {
+        val pager = MusicPlayPager(musicPlayLaterPages(100, musicPlayWindow(100, 50, shuffled = false)))
+        val first = pager.peek()
+        assertEquals(MusicPlayRange(71, 100), first)
+        assertEquals(first, pager.peek())
+        pager.advance(first)
+        assertEquals(MusicPlayRange(0, 30), pager.peek())
+        pager.advance(pager.peek())
+        assertFalse(pager.hasMore())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun aPagerRefusesAPageThatIsNotNext() {
+        MusicPlayPager(listOf(MusicPlayRange(71, 100), MusicPlayRange(0, 30))).advance(MusicPlayRange(0, 30))
+    }
+
+    @Test
+    fun aPagerWithNoPagesHasNoMore() {
+        assertFalse(MusicPlayPager(emptyList()).hasMore())
     }
 }

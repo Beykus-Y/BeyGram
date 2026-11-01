@@ -15,17 +15,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.fromChat
-import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /**
- * The entry of a chat's profile that opens the library tracks which came from [chatId]. Nothing is shown when the library
- * holds no such track, so a chat without music in the library gets no row.
+ * What a chat's profile needs to show the library tracks of that chat: the account whose library is counted, which is also the
+ * account the opened collection plays from, and the action that opens the collection for a chat id.
+ */
+internal class ChatLibraryLink(val accountId: String, val onOpen: (chatId: Long) -> Unit)
+
+/**
+ * The entry of a chat's profile that opens the library tracks which came from [chatId], in the library of [accountId]. Nothing
+ * is shown when that library holds no such track, so a chat without music in the library gets no row.
  */
 @Composable
-internal fun ChatLibraryMusicRow(chatId: Long, onOpen: () -> Unit) {
+internal fun ChatLibraryMusicRow(chatId: Long, accountId: String, onOpen: () -> Unit) {
     val palette = beyGramPalette()
-    val library = rememberMusicLibrary(LocalPlaybackAccountId.current)
+    val library = rememberMusicLibrary(accountId)
     val count = remember(library, chatId) { library?.let { fromChat(it, chatId).size } ?: 0 }
     if (count == 0) return
     TextButton(
