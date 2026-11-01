@@ -2,7 +2,9 @@ package com.beykus.beygram.ui.design
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
@@ -23,6 +25,8 @@ data class DesignSystem(
     val components: DesignComponents,
     /** Shape and depth of the create-chat button, so the primary action belongs to the same style as the lists. */
     val fab: DesignFab,
+    /** Geometry and hierarchy of the chat list, so a style changes the screen and not only the bar below it. */
+    val mainScreen: DesignMainScreen,
     /** Bubble geometry of the style, or null when the style keeps today's bubble metrics untouched (Default). */
     val bubbles: DesignBubbleGeometry?,
     /**
@@ -109,6 +113,45 @@ data class DesignFab(
     val cornerRadius: Dp,
     /** Shadow under the button. Signature keeps almost none; the depth there comes from the layers behind it. */
     val elevation: Dp
+)
+
+/** How the archive row meets the list: a raised card, a flat tonal row or a plain navigation line. */
+enum class ArchiveTreatment { Card, Tonal, Flat }
+
+/** How the selected folder chip is marked. */
+enum class ChipSelectionTone {
+    /** Filled with the accent, the BeyGram default. */
+    Filled,
+    /** Muted container with accent label, the Material 3 tonal filter chip. */
+    Tonal,
+    /** No container change, an accent label over a bottom rule, the classic Material 2 tab. */
+    Underlined
+}
+
+/**
+ * The chat list hierarchy of a style: header type, folder chips, archive row, list rows and badges. These are the
+ * pieces the user sees before opening a chat, so a style that only changed the bottom bar would not be recognised here.
+ * Every value has a Default counterpart equal to what BeyGram has always drawn.
+ */
+@Immutable
+data class DesignMainScreen(
+    val titleSize: TextUnit,
+    val titleWeight: FontWeight,
+    val titleTracking: TextUnit,
+    /** Section labels such as the pinned header: capitals are a Material 2 habit, quiet tracking suits the others. */
+    val sectionLabelUppercase: Boolean,
+    val sectionLabelTracking: TextUnit,
+    val chipRadius: Dp,
+    val chipSelection: ChipSelectionTone,
+    val archive: ArchiveTreatment,
+    val archiveRadius: Dp,
+    val archiveElevation: Dp,
+    val avatarSize: Dp,
+    val rowTitleWeight: FontWeight,
+    /** Corner radius of the unread counter; Material 2 keeps it square, the others are pills. */
+    val badgeRadius: Dp,
+    /** Space between the header block and the search field. */
+    val headerGap: Dp
 )
 
 /** Elevation, translucency and the optional glass treatment of a style. */

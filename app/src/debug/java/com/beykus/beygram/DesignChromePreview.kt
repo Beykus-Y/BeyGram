@@ -54,6 +54,8 @@ import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.rememberDesign
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
+import com.beykus.beygram.ui.screens.chats.ArchiveRow
+import com.beykus.beygram.ui.screens.chats.ServerFolderChip
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.resolveTokens
@@ -96,6 +98,17 @@ internal fun DesignChromePreview(config: AppearanceConfig, systemDark: Boolean) 
                 ) {
                     ProfileToolbar("Chats", onBack = {})
                     SearchField(query = "", onChange = {}, placeholder = "Search")
+                    // The real folder chips and archive row, so the shape language of the screen can be compared
+                    // between styles in one screenshot instead of only the bar below it.
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ServerFolderChip(title = "All", selected = true, unreadCount = null, onClick = {})
+                        ServerFolderChip(title = "Work", selected = false, unreadCount = 3, onClick = {})
+                        ServerFolderChip(title = "Family", selected = false, unreadCount = null, onClick = {})
+                    }
+                    ArchiveRow(archivedChats = emptyList(), onClick = {}, onHide = {})
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         Column(Modifier.fillMaxSize()) {
                             repeat(10) { index -> ChatRow(index) }

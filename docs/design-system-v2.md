@@ -51,6 +51,14 @@ The measurement is published as `LocalNavigationDock` (`floating`, `height`, `ho
 * the list keeps `button + gap + 32dp` of bottom padding, computed from the same placement, so the last conversation
   always scrolls clear of the button.
 
+### Chat list hierarchy
+
+`DesignSystem.mainScreen` carries the pieces the user sees before opening a chat: title size/weight/tracking, section
+label casing, folder chip radius and selection tone, archive treatment, avatar size, row title weight, unread badge
+radius and the header gap. `ChatsScreen` and `SwipeChatRow` read them, so switching the style changes the screen and not
+only the bar below it. Default keeps its 30sp title, 16dp accent chips, tonal archive card, 54dp avatars and 11dp badge,
+which `DesignSystemTest` pins.
+
 The two floating styles are designed separately instead of sharing one "bath": Glass keeps more air (16/10), a larger
 radius (24dp), a softer selection wash (82%) and a real shadow; Signature is tighter (14/9), smaller (18dp), quieter
 (72%) and almost shadowless.
@@ -156,6 +164,10 @@ composer that belongs to the conversation. It is never applied automatically.
 | Dock radius / selection wash | 16dp · 100% | 2dp · 100% | 20dp · 100% | 24dp · 82% | 18dp · 72% |
 | Create button | 20dp, 6dp | circle, 6dp | 16dp, 6dp | 26dp, 4dp | 18dp, 2dp |
 | Search | filled 24dp | outlined 2dp | filled, container-high | translucent | filled 18dp |
+| Folder chips | 16dp, accent fill | 2dp, accent rule | 8dp, tonal | 18dp, tonal | 14dp, accent fill |
+| Archive row | tonal card 14dp | elevated card 4dp | tonal 12dp | card 20dp | plain line |
+| List row | 54dp avatar, semibold | 48dp, medium | 52dp, medium | 54dp, semibold | 56dp, bold |
+| Unread badge | 11dp pill | 2dp square | 8dp pill | 11dp pill | 10dp pill |
 | Top bar | flat | elevated 4dp | flat | translucent | layered |
 | Composer | 20dp | 4dp, square send | 20dp | 24dp translucent | 16dp |
 | Bubbles | existing metrics | 6/2dp | 18/4dp | 20/8dp | 18/6dp |
