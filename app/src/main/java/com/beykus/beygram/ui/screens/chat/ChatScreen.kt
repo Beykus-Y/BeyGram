@@ -2787,7 +2787,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         if (!selectionMode) MessageReactionChips(
                             message.reactions, observeCustomEmoji, observeFile, onDownloadFile,
                             onToggle = { onReaction(message.id, it) },
-                            modifier = Modifier.padding(horizontal = 6.dp, bottom = 2.dp)
+                            modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 2.dp)
                         )
                     }
                 },
