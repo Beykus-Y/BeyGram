@@ -119,22 +119,26 @@ fun GlassPanel(
     val backdrop = LocalGlassBackdrop.current
     var originInWindow by remember { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current
-    // A panel is allowed to sample only a finished recording of another subtree. Sampling the layer that is being
-    // recorded right now makes it draw into itself, which kills the render thread.
-    val canSampleBackdrop = glass != null && glass.samplesBackdrop && backdrop != null &&
-        !backdrop.recording && backdrop.hasContent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    // The panel is always composed with its sampling layer when the style asks for it; whether the backdrop is ready
+    // (or is being written right now) is decided at draw time, because both flags change during the frame and a plain
+    // Boolean does not invalidate composition.
+    val samplesBackdrop = glass != null && glass.samplesBackdrop &&
+        backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     Box(
         modifier
             .onGloballyPositioned { originInWindow = it.positionInWindow() }
             .clip(shape)
     ) {
-        if (canSampleBackdrop) {
+        if (samplesBackdrop) {
             val blurPx = with(density) { glass!!.blurRadiusDp.toPx() }
             Box(
                 Modifier.matchParentSize()
                     .graphicsLayerWithBlur(blurPx, shape)
                     .drawBehind {
                         val source = backdrop?.layer ?: return@drawBehind
+                        // Sampling the layer that is being recorded right now would draw it into itself, which kills
+                        // the render thread; an unfinished first frame simply shows the tint instead.
+                        if (backdrop == null || !backdrop.hasContent || backdrop.recording) return@drawBehind
                         val delta = backdrop.originInWindow - originInWindow
                         withTransform({ translate(delta.x, delta.y) }) { drawLayer(source) }
                     }

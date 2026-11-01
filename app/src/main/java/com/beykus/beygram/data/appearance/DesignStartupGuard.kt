@@ -27,7 +27,7 @@ class DesignStartupGuard(context: Context) {
      * unfinished one, so only the first call in a process records the marker.
      */
     fun beginStart(): Boolean {
-        if (beganThisProcess) return false
+        if (beganThisProcess) return recoveryRequired
         beganThisProcess = true
         val previousRendered = preferences.getBoolean(KEY_RENDERED, true)
         val previousUnfinished = if (previousRendered) 0 else preferences.getInt(KEY_UNFINISHED, 0)
@@ -35,7 +35,13 @@ class DesignStartupGuard(context: Context) {
             .putBoolean(KEY_RENDERED, false)
             .putInt(KEY_UNFINISHED, previousUnfinished + 1)
             .apply()
-        return previousUnfinished >= MAX_UNFINISHED_STARTS
+        recoveryRequired = previousUnfinished >= MAX_UNFINISHED_STARTS
+        return recoveryRequired
+    }
+
+    /** Call after the recovered value has been stored, so a later recreation does not repeat the recovery. */
+    fun markRecovered() {
+        recoveryRequired = false
     }
 
     /** Call after the first frames have been drawn: the style in use is proven to work. */
@@ -44,8 +50,9 @@ class DesignStartupGuard(context: Context) {
     }
 
     private companion object {
-        /** Reset by the process: an Activity recreation keeps it true, a new process starts from false. */
+        /** Reset by the process: an Activity recreation keeps them, a new process starts from them fresh. */
         var beganThisProcess = false
+        var recoveryRequired = false
     }
 }
 

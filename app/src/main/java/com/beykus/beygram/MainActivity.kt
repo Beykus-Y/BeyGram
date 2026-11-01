@@ -186,6 +186,7 @@ class MainActivity : FragmentActivity() {
                 val target = forcedStyle ?: return@LaunchedEffect
                 if (storedConfig.designStyle == target) {
                     // The recovery has been persisted; from here the saved choice wins again.
+                    designStartupGuard.markRecovered()
                     forcedStyle = null
                 } else {
                     appearance.save(storedConfig.copy(designStyle = target))
