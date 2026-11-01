@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AddReaction
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
@@ -76,6 +77,7 @@ internal fun MessageActionsBar(
     onTogglePin: () -> Unit,
     onCopyLink: () -> Unit = {},
     onCopyEntity: (() -> Unit)? = null,
+    onReactions: (() -> Unit)? = null,
     onForward: () -> Unit = {},
     onForwardCopy: () -> Unit = {},
     onSelect: () -> Unit = {},
@@ -85,12 +87,14 @@ internal fun MessageActionsBar(
     val palette = beyGramPalette()
     var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
     val translate = onTranslate
+    val react = onReactions
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textPrimary) }
             Text(stringResource(R.string.message_title), color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             when {
                 capabilities != null -> {
+                    if (react != null) ActionIcon(Icons.Rounded.AddReaction, stringResource(R.string.message_action_react), palette.accent, react)
                     if (capabilities.canReply) ActionIcon(Icons.AutoMirrored.Rounded.Reply, stringResource(R.string.message_action_reply), palette.accent, onReply)
                     if (capabilities.canCopy && hasText) ActionIcon(Icons.Rounded.ContentCopy, stringResource(R.string.message_action_copy_text), palette.accent, onCopy)
                     if (capabilities.canEdit) ActionIcon(Icons.Rounded.Edit, if (isMedia) stringResource(R.string.message_action_edit_caption) else stringResource(R.string.message_action_edit), palette.accent, onEdit)
@@ -100,6 +104,13 @@ internal fun MessageActionsBar(
                             Icon(Icons.Rounded.MoreVert, stringResource(R.string.message_action_more), tint = palette.accent)
                         }
                         DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                            react?.let { pick ->
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.message_action_react)) },
+                                    leadingIcon = { Icon(Icons.Rounded.AddReaction, null, tint = palette.accent) },
+                                    onClick = { moreOpen = false; pick() }
+                                )
+                            }
                             onCopyEntity?.let { copy ->
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_action_copy_entity)) },
