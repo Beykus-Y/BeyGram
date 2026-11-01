@@ -296,13 +296,13 @@ internal fun MainTabBar(
     if (floating && glass != null) {
         GlassPanel(
             design = design,
-            tint = barColor.copy(alpha = design.surfaces.surfaceAlpha.coerceIn(0.55f, 1f)),
+            tint = barColor,
             rim = palette.textSecondary,
             shape = barShape,
             modifier = outer.shadow(glass.shadowElevation, barShape)
         ) {
             NavigationBarContent(
-                modifier = Modifier.fillMaxSize().navigationBarsPadding()
+                modifier = Modifier.fillMaxWidth().navigationBarsPadding()
                     .padding(start = 8.dp, top = spec.barTopPadding, end = 8.dp, bottom = spec.barBottomPadding),
                 spec = spec,
                 tabs = tabs,

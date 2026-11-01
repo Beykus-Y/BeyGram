@@ -60,6 +60,11 @@ class AppearancePreviewHarnessActivity : ComponentActivity() {
             var saved by remember { mutableStateOf(appearanceConfig) }
             var draft by remember { mutableStateOf(appearanceConfig) }
             val systemDark = isSystemInDarkTheme()
+            val chrome = remember { intent.getStringExtra("screen") == "chrome" }
+            if (chrome) {
+                DesignChromePreview(saved, systemDark)
+                return@setContent
+            }
             val design = rememberDesign(saved)
             BeyGramTheme(
                 darkTheme = saved.mode.isDark(systemDark),

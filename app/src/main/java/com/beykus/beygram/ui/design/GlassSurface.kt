@@ -123,13 +123,15 @@ fun GlassPanel(
                     }
             )
         }
-        // The tint is what makes glass readable: it is always drawn, blurred or not.
-        Box(
-            Modifier.matchParentSize()
-                .background(tint.copy(alpha = (glass?.tintAlpha ?: 0f).coerceIn(0f, 1f).let { alpha ->
-                    if (backdrop == null || glass == null || !glass.samplesBackdrop) maxOf(alpha, 0.55f) else alpha
-                }))
-        )
+        // The tint is what makes glass readable: it is always drawn, blurred or not. The base alpha keeps the content
+        // behind the panel muted even on hardware that cannot blur, so the labels never fight the list underneath.
+        val tintAlpha = glass?.tintAlpha?.coerceIn(0f, 1f) ?: 0f
+        val baseAlpha = if (backdrop != null && glass != null && glass.samplesBackdrop) {
+            maxOf(tintAlpha, 0.62f)
+        } else {
+            maxOf(tintAlpha, 0.78f)
+        }
+        Box(Modifier.matchParentSize().background(tint.copy(alpha = baseAlpha)))
         if (glass != null) {
             Box(
                 Modifier.matchParentSize()
@@ -150,7 +152,8 @@ fun GlassPanel(
                 )
             }
         }
-        Box(Modifier.matchParentSize().padding(contentPadding)) { content() }
+        // Content sizes the panel; the decorative layers above match whatever height it ends up with.
+        Box(Modifier.padding(contentPadding)) { content() }
     }
 }
 
