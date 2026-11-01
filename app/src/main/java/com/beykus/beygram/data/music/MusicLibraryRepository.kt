@@ -220,6 +220,27 @@ class MusicLibraryRepository(
     suspend fun recordPlay(track: MusicTrackRef, playedAt: Long = clock()): MusicOutcome<Unit> =
         commit { current -> recordPlayEdit(current, track, playedAt) }
 
+    // ---- Imports -----------------------------------------------------------------------------------
+
+    /**
+     * Stores [imported] as a new local playlist with a fresh id. The file's revision and source id are kept, so the copy can be
+     * matched with the same file later. The id of [imported] is ignored. Callers build it with `BgMusicLibraryMapping`.
+     */
+    suspend fun importPlaylistCopy(imported: MusicPlaylist): MusicOutcome<MusicPlaylist> {
+        val playlistId = newId()
+        val now = clock()
+        return commit { current -> importCopyEdit(current, imported, playlistId, now, newId) }
+    }
+
+    /**
+     * Replaces the content of the local playlist [localId] with [snapshot], keeping its id, cover and creation time. Only call
+     * this after the user confirmed the replacement; nothing is replaced silently.
+     */
+    suspend fun replaceImportedPlaylist(localId: String, snapshot: MusicPlaylist): MusicOutcome<Unit> {
+        val now = clock()
+        return commit { current -> replaceImportedEdit(current, localId, snapshot, now, newId) }
+    }
+
     // ---- Internals ---------------------------------------------------------------------------------
 
     private suspend fun <T> commit(edit: (MusicLibrary) -> MusicEditOutcome<T>): MusicOutcome<T> =
