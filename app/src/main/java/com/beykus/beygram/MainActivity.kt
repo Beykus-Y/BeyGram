@@ -202,6 +202,13 @@ class MainActivity : FragmentActivity() {
                     forcedStyle = null
                 }
             }
+            // Nothing to replace when the saved style is already Default: the pending recovery is finished as soon as
+            // a stored Default has been read, otherwise it would linger and overwrite a style the user picks later.
+            LaunchedEffect(storedConfig) {
+                if (previousStartFailed && storedConfig.designStyle == DesignStyle.Default) {
+                    designStartupGuard.markRecovered()
+                }
+            }
             // Two drawn frames and a short settle period prove the interface works; only then is the guard cleared.
             LaunchedEffect(Unit) {
                 withFrameNanos { }
