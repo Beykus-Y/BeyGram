@@ -726,7 +726,7 @@
     <string name="bgmix_stop">Arrêter</string>
     <string name="bgmix_empty_queue">La file est vide. Ajoutez des morceaux WAV, MP3 ou FLAC.</string>
     <string name="bgmix_unsupported_files">Certains fichiers ne sont pas pris en charge : WAV, MP3 ou FLAC requis.</string>
-    <string name="bgmix_unavailable">BG Mix n'est pas disponible sur cet appareil.</string>
+    <string name="bgmix_unavailable">BG Mix n\'est pas disponible sur cet appareil.</string>
     <string name="chat_settings_scope_note">Modifie le fond d’écran de cette conversation uniquement</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Touchez pour révéler</string>
