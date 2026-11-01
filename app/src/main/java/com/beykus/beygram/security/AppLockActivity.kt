@@ -24,6 +24,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.ui.theme.AppearanceViewModel
+import com.beykus.beygram.ui.design.rememberDesign
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.resolveTokens
 
@@ -66,6 +67,7 @@ class AppLockActivity : FragmentActivity() {
             BeyGramTheme(
                 darkTheme = isDarkTheme,
                 tokens = resolveTokens(config, systemDark),
+                design = rememberDesign(config),
                 messageTextSizeSp = config.messageTextSizeSp,
                 messageLineSpacing = config.messageLineSpacing,
             ) {

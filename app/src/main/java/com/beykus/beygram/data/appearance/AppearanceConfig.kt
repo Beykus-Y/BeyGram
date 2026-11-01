@@ -21,7 +21,14 @@ data class AppearanceConfig(
     /** Colour of the message time and the sending clock in bubbles, or null for the theme's muted colour. */
     val messageTimeColor: Int? = null,
     /** Entrance animation of new sent and received messages. */
-    val messageAnimations: MessageAnimationConfig = MessageAnimationConfig()
+    val messageAnimations: MessageAnimationConfig = MessageAnimationConfig(),
+    /**
+     * The visual language of the whole interface. It is an independent axis: switching it keeps the palette,
+     * brightness, wallpaper, message geometry, custom colours and motion settings exactly as they are.
+     */
+    val designStyle: DesignStyle = DesignStyle.Default,
+    /** How much glass rendering Liquid Glass may use. The other styles ignore it and keep it for a later switch back. */
+    val glassQuality: GlassQuality = GlassQuality.Auto
 )
 
 const val DEFAULT_MESSAGE_TEXT_SIZE_SP = 16

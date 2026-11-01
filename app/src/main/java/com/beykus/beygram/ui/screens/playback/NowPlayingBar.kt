@@ -58,6 +58,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -82,6 +83,8 @@ import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.playback.playbackSpeedFor
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.TopBarVariant
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
@@ -188,6 +191,7 @@ fun NowPlayingBar(
 @Composable
 private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val openLabel = stringResource(R.string.player_mini_open)
     val textSpec = rememberMotionSpec(MotionToken.BannerChange)
     val playSpec = rememberMotionSpec(MotionToken.MicroFeedback)
@@ -195,7 +199,14 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> 
     Column(
         Modifier
             .fillMaxWidth()
-            .background(palette.surface)
+            .then(
+                when (design.components.topBar) {
+                    TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
+                    TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.86f)))
+                    TopBarVariant.Signature -> Modifier.background(palette.surface)
+                    TopBarVariant.Flat -> Modifier.background(palette.surface)
+                }
+            )
             .then(
                 if (bottomInset) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
                 else Modifier

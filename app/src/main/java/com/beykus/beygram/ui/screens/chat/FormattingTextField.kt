@@ -21,6 +21,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
+import com.beykus.beygram.ui.design.LocalDesignSystem
 
 @Composable
 internal fun FormattingTextField(value: String, entities: List<MessageTextEntity>, onChange: (String) -> Unit,
@@ -35,6 +36,7 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
     var link by remember { mutableStateOf("") }
     var range by remember { mutableStateOf(TextRange.Zero) }
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val formatLabel = stringResource(R.string.chat_format)
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -67,7 +69,7 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
             }, isError = isError, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             placeholder = { Text(placeholder, color = palette.textSecondary) },
             trailingIcon = trailingAction, maxLines = 5,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), colors = beyGramFilledTextFieldColors(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(design.shapes.composer), colors = beyGramFilledTextFieldColors(),
             visualTransformation = VisualTransformation { text ->
                 TransformedText(buildAnnotatedString {
                     append(text)

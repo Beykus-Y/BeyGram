@@ -6,6 +6,8 @@ import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.BubbleStyle
 import com.beykus.beygram.data.appearance.ChatWallpaper
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.data.appearance.MessageAnimationEasing
 import com.beykus.beygram.data.appearance.MessageAnimationMotionDirection
@@ -59,6 +61,40 @@ internal fun ListDensity.labelRes(): Int = when (this) {
     ListDensity.Compact -> R.string.theme_editor_density_compact
     ListDensity.Comfortable -> R.string.theme_editor_density_comfortable
     ListDensity.Spacious -> R.string.theme_editor_density_spacious
+}
+
+@StringRes
+internal fun DesignStyle.labelRes(): Int = when (this) {
+    DesignStyle.Default -> R.string.design_style_default
+    DesignStyle.Material2 -> R.string.design_style_material2
+    DesignStyle.Material3 -> R.string.design_style_material3
+    DesignStyle.LiquidGlass -> R.string.design_style_liquid_glass
+    DesignStyle.Signature -> R.string.design_style_signature
+}
+
+@StringRes
+internal fun DesignStyle.descriptionRes(): Int = when (this) {
+    DesignStyle.Default -> R.string.design_style_default_detail
+    DesignStyle.Material2 -> R.string.design_style_material2_detail
+    DesignStyle.Material3 -> R.string.design_style_material3_detail
+    DesignStyle.LiquidGlass -> R.string.design_style_liquid_glass_detail
+    DesignStyle.Signature -> R.string.design_style_signature_detail
+}
+
+@StringRes
+internal fun GlassQuality.labelRes(): Int = when (this) {
+    GlassQuality.Auto -> R.string.appearance_style_quality_auto
+    GlassQuality.High -> R.string.appearance_style_quality_high
+    GlassQuality.Balanced -> R.string.appearance_style_quality_balanced
+    GlassQuality.Lite -> R.string.appearance_style_quality_lite
+}
+
+@StringRes
+internal fun GlassQuality.detailRes(): Int = when (this) {
+    GlassQuality.Auto -> R.string.appearance_style_quality_auto_detail
+    GlassQuality.High -> R.string.appearance_style_quality_high_detail
+    GlassQuality.Balanced -> R.string.appearance_style_quality_balanced_detail
+    GlassQuality.Lite -> R.string.appearance_style_quality_lite_detail
 }
 
 @StringRes

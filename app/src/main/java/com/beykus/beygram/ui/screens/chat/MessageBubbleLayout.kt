@@ -35,6 +35,7 @@ import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.DesignBubbleGeometry
 
 /** Отступ плашки времени от края фото, когда время стоит поверх него. */
 private val OverlayInset = 6.dp
@@ -76,12 +77,42 @@ internal fun bubbleShape(outgoing: Boolean, metrics: BubbleMetrics): RoundedCorn
 /**
  * Размеры для выбранной формы пузырей, плотности и радиуса. Скруглённые пузыри при комфортной плотности дают прежний вид.
  * [cornerRadiusDp] — радиус, выбранный в редакторе; null оставляет радиус формы.
+ * [geometry] — форма, которую задаёт выбранный стиль интерфейса; null сохраняет прежние размеры BeyGram.
+ * Форма пузыря, плотность и явный радиус пользователя по-прежнему применяются поверх неё.
  */
-internal fun bubbleMetricsFor(style: BubbleStyle, density: ListDensity, cornerRadiusDp: Int? = null): BubbleMetrics {
-    val shaped = when (style) {
-        BubbleStyle.Rounded -> BubbleMetrics()
-        BubbleStyle.Soft -> BubbleMetrics(cornerRadius = 14.dp, tailRadius = 4.dp, replyRadius = 9.dp)
-        BubbleStyle.Square -> BubbleMetrics(cornerRadius = 8.dp, tailRadius = 2.dp, replyRadius = 4.dp)
+internal fun bubbleMetricsFor(
+    style: BubbleStyle,
+    density: ListDensity,
+    cornerRadiusDp: Int? = null,
+    geometry: DesignBubbleGeometry? = null
+): BubbleMetrics {
+    val shaped = if (geometry == null) {
+        when (style) {
+            BubbleStyle.Rounded -> BubbleMetrics()
+            BubbleStyle.Soft -> BubbleMetrics(cornerRadius = 14.dp, tailRadius = 4.dp, replyRadius = 9.dp)
+            BubbleStyle.Square -> BubbleMetrics(cornerRadius = 8.dp, tailRadius = 2.dp, replyRadius = 4.dp)
+        }
+    } else {
+        val base = BubbleMetrics(
+            cornerRadius = geometry.cornerRadius,
+            tailRadius = geometry.tailRadius,
+            replyRadius = geometry.replyRadius,
+            textInset = geometry.textInset,
+            textTopInset = geometry.textTopInset
+        )
+        when (style) {
+            BubbleStyle.Rounded -> base
+            BubbleStyle.Soft -> base.copy(
+                cornerRadius = (base.cornerRadius - 6.dp).coerceAtLeast(4.dp),
+                tailRadius = (base.tailRadius - 2.dp).coerceAtLeast(2.dp),
+                replyRadius = (base.replyRadius - 3.dp).coerceAtLeast(4.dp)
+            )
+            BubbleStyle.Square -> base.copy(
+                cornerRadius = minOf(base.cornerRadius, 8.dp),
+                tailRadius = 2.dp,
+                replyRadius = minOf(base.replyRadius, 4.dp)
+            )
+        }
     }
     val cornered = if (cornerRadiusDp != null) shaped.copy(cornerRadius = cornerRadiusDp.dp) else shaped
     return when (density) {

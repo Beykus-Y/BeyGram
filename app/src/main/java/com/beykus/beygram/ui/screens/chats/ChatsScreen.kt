@@ -143,6 +143,7 @@ import com.beykus.beygram.ui.accessibility.accessibleChatRowDescription
 import com.beykus.beygram.ui.accessibility.accessibleDescription
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.motion.fadeEnter
@@ -612,23 +613,31 @@ fun ChatsScreen(
                     }
                 }
                 items(regularChats, key = { it.id }) { chat ->
-                    SwipeChatRow(
-                        modifier = Modifier.animateItem(
+                    val showDividers = LocalDesignSystem.current.components.showListDividers
+                    Column(
+                        Modifier.animateItem(
                             fadeInSpec = listFadeSpec,
                             placementSpec = listPlacementSpec,
                             fadeOutSpec = listFadeSpec
-                        ),
-                        chat = chat,
-                        observeFile = observeFile,
-                        downloadFile = downloadFile,
-                        openChatId = openSwipeChatId,
-                        onOpenChange = { openSwipeChatId = it },
-                        onClick = { openChat(chat) },
-                        onLongClick = { selectedActions = chat },
-                        read = readAction.copy(enabled = showsUnreadIndicator(chat)),
-                        primary = archiveAction,
-                        highlighted = chat.id == highlightedChatId
-                    )
+                        )
+                    ) {
+                        SwipeChatRow(
+                            chat = chat,
+                            observeFile = observeFile,
+                            downloadFile = downloadFile,
+                            openChatId = openSwipeChatId,
+                            onOpenChange = { openSwipeChatId = it },
+                            onClick = { openChat(chat) },
+                            onLongClick = { selectedActions = chat },
+                            read = readAction.copy(enabled = showsUnreadIndicator(chat)),
+                            primary = archiveAction,
+                            highlighted = chat.id == highlightedChatId
+                        )
+                        // Material 2 separates rows with a real divider; the other styles rely on spacing.
+                        if (showDividers) {
+                            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 76.dp))
+                        }
+                    }
                 }
             }
             if (activeFolderId != null) {

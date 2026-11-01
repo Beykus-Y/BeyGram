@@ -51,6 +51,10 @@ import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.rememberDesign
+import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
 import com.beykus.beygram.ui.screens.chat.LocalChatWallpaper
 import com.beykus.beygram.ui.screens.chat.SecureWindowFlags
@@ -153,6 +157,8 @@ class MainActivity : FragmentActivity() {
             val config = appearance.config.collectAsState().value ?: return@setContent
             val systemDark = isSystemInDarkTheme()
             val isDarkTheme = config.mode.isDark(systemDark)
+            val design = rememberDesign(config)
+            val glassBackdrop = rememberGlassBackdrop()
             // The status and navigation bar icons follow the theme in use. The bars stay transparent, so the app's own colours show through.
             SideEffect {
                 // While the gate is up, the Activity window stays hidden behind the secure
@@ -168,17 +174,22 @@ class MainActivity : FragmentActivity() {
             BeyGramTheme(
                 darkTheme = isDarkTheme,
                 tokens = resolveTokens(config, systemDark),
+                design = design,
                 messageTextSizeSp = config.messageTextSizeSp,
                 messageLineSpacing = config.messageLineSpacing
             ) {
                 // Bubble shape and list density come from the same saved choice as the colours.
                 CompositionLocalProvider(
-                    LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp),
+                    LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp, design.bubbles),
                     LocalChatListDensity provides chatListDensityFor(config.density),
-                    LocalChatWallpaper provides config.wallpaper
+                    LocalChatWallpaper provides config.wallpaper,
+                    LocalGlassBackdrop provides glassBackdrop
                 ) {
                     Surface(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize()
+                            // Recording the backdrop costs an offscreen pass per frame, so it is only wired up for a
+                            // style that actually draws glass. Default and the other styles pay nothing.
+                            .then(if (design.surfaces.glass != null) Modifier.glassBackdropSource(glassBackdrop) else Modifier),
                         color = MaterialTheme.colorScheme.background
                     ) {
                         Box(Modifier.fillMaxSize()) {
