@@ -14,6 +14,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
+import com.beykus.beygram.data.appearance.AppearanceSettingsStore
+import kotlinx.coroutines.launch
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.DesignStyle
@@ -44,6 +47,21 @@ class AppearancePreviewHarnessActivity : ComponentActivity() {
         val style = DesignStyle.entries.firstOrNull { it.name == intent.getStringExtra("style") } ?: DesignStyle.Default
         val quality = GlassQuality.entries.firstOrNull { it.name == intent.getStringExtra("quality") } ?: GlassQuality.Auto
         val initialPage = AppearancePage.entries.firstOrNull { it.name == intent.getStringExtra("page") } ?: AppearancePage.Overview
+        // Debug-only: write the same appearance store the app reads, so a cold start can be tested with a saved style.
+        if (intent.getBooleanExtra("persist", false)) {
+            val persisted = AppearanceConfig(
+                preset = preset,
+                mode = mode,
+                wallpaper = ChatWallpaper.Preset("lavender-flow", ChatWallpaper.DEFAULT_PATTERN_INTENSITY),
+                messageAnimations = MessageAnimationConfig(
+                    linkedDirections = true,
+                    shared = MessageAnimationDirection(MessageAnimationPreset.Flow)
+                ),
+                designStyle = style,
+                glassQuality = quality
+            )
+            lifecycleScope.launch { AppearanceSettingsStore(applicationContext).save(persisted) }
+        }
         setContent {
             val initial = remember {
                 AppearanceConfig(

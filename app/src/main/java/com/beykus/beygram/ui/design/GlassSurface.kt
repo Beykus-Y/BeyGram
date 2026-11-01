@@ -48,6 +48,13 @@ class GlassBackdrop {
     internal var layer: GraphicsLayer? = null
     internal var originInWindow: Offset = Offset.Zero
     internal var hasContent: Boolean = false
+
+    /**
+     * True while [glassBackdropSource] is recording this frame. A panel inside the recorded subtree would ask the very
+     * layer that is being written to be drawn into itself, which is a native crash in the render thread, so the panel
+     * falls back to its tint while this is set. It is also the guard that keeps a nested panel from ever doing that.
+     */
+    internal var recording: Boolean = false
 }
 
 /** The backdrop of the current screen, provided next to the content that should be visible through glass. */
@@ -78,8 +85,15 @@ fun Modifier.glassBackdropSource(backdrop: GlassBackdrop): Modifier = this
         }
         // Record this frame's content once and composite the recorded layer: the glass panels above read it, and the
         // on-screen result stays exactly the same content that was recorded.
-        layer.record(size.toIntSize()) {
-            this@drawWithContent.drawContent()
+        // `recording` makes a panel inside this subtree skip sampling: drawing a layer into itself crashes the
+        // render thread natively, so the guard is what makes the whole material safe.
+        backdrop.recording = true
+        try {
+            layer.record(size.toIntSize()) {
+                this@drawWithContent.drawContent()
+            }
+        } finally {
+            backdrop.recording = false
         }
         drawLayer(layer)
         backdrop.hasContent = true
@@ -105,19 +119,22 @@ fun GlassPanel(
     val backdrop = LocalGlassBackdrop.current
     var originInWindow by remember { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current
+    // A panel is allowed to sample only a finished recording of another subtree. Sampling the layer that is being
+    // recorded right now makes it draw into itself, which kills the render thread.
+    val canSampleBackdrop = glass != null && glass.samplesBackdrop && backdrop != null &&
+        !backdrop.recording && backdrop.hasContent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     Box(
         modifier
             .onGloballyPositioned { originInWindow = it.positionInWindow() }
             .clip(shape)
     ) {
-        if (glass != null && glass.samplesBackdrop && backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val blurPx = with(density) { glass.blurRadiusDp.toPx() }
+        if (canSampleBackdrop) {
+            val blurPx = with(density) { glass!!.blurRadiusDp.toPx() }
             Box(
                 Modifier.matchParentSize()
                     .graphicsLayerWithBlur(blurPx, shape)
                     .drawBehind {
-                        val source = backdrop.layer ?: return@drawBehind
-                        if (!backdrop.hasContent) return@drawBehind
+                        val source = backdrop?.layer ?: return@drawBehind
                         val delta = backdrop.originInWindow - originInWindow
                         withTransform({ translate(delta.x, delta.y) }) { drawLayer(source) }
                     }

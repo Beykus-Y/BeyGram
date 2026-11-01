@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -32,8 +33,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.security.AppLockActivity
 import com.beykus.beygram.security.AppLockManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.deeplink.PendingDeepLinkInbox
@@ -53,6 +57,10 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.data.appearance.DesignStartupGuard
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.appearance.MAX_UNFINISHED_STARTS
+import com.beykus.beygram.data.appearance.shouldFallBackToDefault
 import com.beykus.beygram.ui.design.rememberDesign
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
@@ -120,6 +128,12 @@ class MainActivity : FragmentActivity() {
         pendingDeepLink = deepLinkInbox.restore()
         enableEdgeToEdge()
 
+        // A style that crashes the app on every start must not lock the user out. The guard records the start here and
+        // is cleared once the interface has actually been drawn; a start that follows a failed one falls back to the
+        // Default style instead of repeating the crash.
+        val designStartupGuard = DesignStartupGuard(this)
+        val previousStartFailed = designStartupGuard.beginStart()
+
         setContent {
             val lockManager = appLock
             val locked by lockManager.locked.collectAsStateWithLifecycle()
@@ -154,7 +168,21 @@ class MainActivity : FragmentActivity() {
                 if (!gateLocked) window.decorView.visibility = View.VISIBLE
             }
             // The saved choice is read asynchronously. Nothing is drawn until it is known, so the theme never flips.
-            val config = appearance.config.collectAsState().value ?: return@setContent
+            val storedConfig = appearance.config.collectAsState().value ?: return@setContent
+            // Only the design style may be dropped: colours, wallpapers, message geometry and motion stay untouched.
+            val fallBackToDefault = previousStartFailed &&
+                shouldFallBackToDefault(MAX_UNFINISHED_STARTS, storedConfig.designStyle)
+            val config = if (fallBackToDefault) storedConfig.copy(designStyle = DesignStyle.Default) else storedConfig
+            if (fallBackToDefault) {
+                LaunchedEffect(storedConfig) { appearance.save(config) }
+            }
+            // Two drawn frames and a short settle period prove the interface works; only then is the guard cleared.
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                withFrameNanos { }
+                delay(1200)
+                designStartupGuard.markRendered()
+            }
             val systemDark = isSystemInDarkTheme()
             val isDarkTheme = config.mode.isDark(systemDark)
             val design = rememberDesign(config)
@@ -186,10 +214,7 @@ class MainActivity : FragmentActivity() {
                     LocalGlassBackdrop provides glassBackdrop
                 ) {
                     Surface(
-                        modifier = Modifier.fillMaxSize()
-                            // Recording the backdrop costs an offscreen pass per frame, so it is only wired up for a
-                            // style that actually draws glass. Default and the other styles pay nothing.
-                            .then(if (design.surfaces.glass != null) Modifier.glassBackdropSource(glassBackdrop) else Modifier),
+                        modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
                         Box(Modifier.fillMaxSize()) {
