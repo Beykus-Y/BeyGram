@@ -20,36 +20,7 @@ suspend fun restoreMusicSession(
     saved: SavedMusicSession
 ): Boolean {
     if (PlaybackEngine.state.value.item != null) return false
-    val semaphore = Semaphore(3)
-    val verified = coroutineScope {
-        saved.origins.map { origin ->
-            async {
-                semaphore.withPermit {
-                    val chat = repository.observeChat(origin.chatId).value
-                        ?: run {
-                            repository.loadChat(origin.chatId)
-                            repository.observeChat(origin.chatId).value
-                        }
-                    if (chat == null || chat.isSecret || chat.hasProtectedContent) return@withPermit null
-                    val message = repository.messageContext(origin.chatId, origin.messageId)
-                        .getOrNull()?.messages?.firstOrNull { it.chatId == origin.chatId && it.id == origin.messageId }
-                        ?: return@withPermit null
-                    val media = message.media ?: return@withPermit null
-                    if (media.kind != MediaKind.Audio || media.isSecret || media.isSecretChat ||
-                        message.isViewOnce || message.sendState != MessageSendState.Sent
-                    ) return@withPermit null
-                    val file = repository.observeFile(media.fileId).value
-                    media.playbackItem(
-                        file.localPath.orEmpty(),
-                        media.fileName.ifBlank { "Audio" },
-                        origin,
-                        accountId = saved.accountId,
-                        sizeBytes = file.size
-                    )
-                }
-            }
-        }.awaitAll()
-    }
+    val verified = resolveMusicOrigins(repository, saved.accountId, saved.origins)
     val selected = verified.getOrNull(saved.currentIndex) ?: return false
     val queue = verified.filterNotNull()
     val index = queue.indexOfFirst { it.key == selected.key }
@@ -67,4 +38,54 @@ suspend fun restoreMusicSession(
     )
     return PlaybackEngine.state.value.item?.key == selected.key &&
         PlaybackEngine.state.value.playing == false && PlaybackEngine.state.value.intentPlaying == false
+}
+
+/**
+ * Resolves Telegram origins against the account's *current* TDLib state, with at most three lookups in flight.
+ * The result keeps the input positions: a null slot means the message is gone, protected, secret, not audio, or not sent.
+ * Callers decide what a gap means; nothing is dropped silently here. An origin that belongs to another account is never
+ * looked up in this repository.
+ */
+suspend fun resolveMusicOrigins(
+    repository: TelegramRepository,
+    accountId: String,
+    origins: List<PlaybackOrigin?>
+): List<PlaybackItem?> {
+    val semaphore = Semaphore(3)
+    return coroutineScope {
+        origins.map { origin ->
+            async {
+                semaphore.withPermit { resolveMusicOrigin(repository, accountId, origin) }
+            }
+        }.awaitAll()
+    }
+}
+
+private suspend fun resolveMusicOrigin(
+    repository: TelegramRepository,
+    accountId: String,
+    origin: PlaybackOrigin?
+): PlaybackItem? {
+    if (origin == null || origin.accountId != accountId) return null
+    val chat = repository.observeChat(origin.chatId).value
+        ?: run {
+            repository.loadChat(origin.chatId)
+            repository.observeChat(origin.chatId).value
+        }
+    if (chat == null || chat.isSecret || chat.hasProtectedContent) return null
+    val message = repository.messageContext(origin.chatId, origin.messageId)
+        .getOrNull()?.messages?.firstOrNull { it.chatId == origin.chatId && it.id == origin.messageId }
+        ?: return null
+    val media = message.media ?: return null
+    if (media.kind != MediaKind.Audio || media.isSecret || media.isSecretChat ||
+        message.isViewOnce || message.sendState != MessageSendState.Sent
+    ) return null
+    val file = repository.observeFile(media.fileId).value
+    return media.playbackItem(
+        file.localPath.orEmpty(),
+        media.fileName.ifBlank { "Audio" },
+        origin,
+        accountId = accountId,
+        sizeBytes = file.size
+    )
 }
