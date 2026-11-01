@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.data.music.PlaylistTrack
+import com.beykus.beygram.data.music.toPlaylistTrack
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
@@ -40,3 +42,17 @@ internal fun orderedChatMusic(
         chatMusicItem(message, accountId, file(fileId), fallbackTitle)
     }
     .distinctBy { it.key }
+
+/**
+ * The playlist entry of an audio message, or null when the message cannot be saved to a playlist. Only sent, non-secret
+ * music with a Telegram origin qualifies, because such a track can be found again.
+ */
+internal fun playlistTrackOf(
+    message: ChatMessage,
+    accountId: String,
+    file: (Int) -> MediaFileState,
+    fallbackTitle: String
+): PlaylistTrack? {
+    val fileId = message.media?.takeIf { it.kind == MediaKind.Audio }?.fileId ?: return null
+    return chatMusicItem(message, accountId, file(fileId), fallbackTitle)?.toPlaylistTrack()
+}

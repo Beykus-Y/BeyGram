@@ -119,6 +119,9 @@ val LocalOpenEqualizer = compositionLocalOf<(() -> Unit)?> { null }
 /** Optional music search destination provided by the root navigation host. */
 val LocalOpenMusicSearch = compositionLocalOf<(() -> Unit)?> { null }
 
+/** Optional music library destination provided by the root navigation host. */
+val LocalOpenMyMusic = compositionLocalOf<(() -> Unit)?> { null }
+
 /**
  * Мини-плеер 2.0: одна компактная полоса над нижним меню или composer. Слева artwork, отдельные Title/Artist,
  * затем Next (только если он реально доступен), Play/Pause и Close/Stop. Тап по основной части открывает полный
@@ -136,6 +139,7 @@ fun NowPlayingBar(
     val providedOpenEqualizer = LocalOpenEqualizer.current
     val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
     val openMusicSearch = LocalOpenMusicSearch.current
+    val openMyMusic = LocalOpenMyMusic.current
     val mini = rememberMiniPlayerUi()
     // Root and tab bars yield their space to the keyboard; the chat-integrated bar
     // keeps its own composer layout. Playback and the full-player sheet stay alive.
@@ -180,7 +184,8 @@ fun NowPlayingBar(
             MusicPlayerSheet(
                 onDismiss = { fullPlayerOpen = false },
                 onOpenEqualizer = openEqualizer,
-                onOpenMusicSearch = openMusicSearch
+                onOpenMusicSearch = openMusicSearch,
+                onOpenMyMusic = openMyMusic
             )
         } else {
             VoiceNowPlayingSheet(onDismiss = { fullPlayerOpen = false })

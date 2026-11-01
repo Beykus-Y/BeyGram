@@ -53,7 +53,9 @@ enum class AppRoute {
     CreateGroup,
     CreateChannel,
     Stories,
-    StoryPublisher
+    StoryPublisher,
+    MyMusic,
+    MusicPlaylist
 }
 
 /**

@@ -98,6 +98,8 @@ import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackQueueSource
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.data.music.PlaylistTrack
+import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
 import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.ui.accessibility.accessibleTouchTarget
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
@@ -320,6 +322,8 @@ fun ChatScreen(
     }
     var error by remember { mutableStateOf<String?>(null) }
     var copyLinks by remember(chat.id) { mutableStateOf<List<String>>(emptyList()) }
+    // The audio message whose More menu asked to save it to a playlist. Clearing it closes the sheet.
+    var playlistTrack by remember(accountId) { mutableStateOf<PlaylistTrack?>(null) }
     var botCommandMenu by remember(chat.id) { mutableStateOf<BotCommandMenu?>(null) }
     var botCommandMenuOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
     var inlineSending by remember(chat.id) { mutableStateOf(false) }
@@ -1518,7 +1522,8 @@ fun ChatScreen(
             } else null,
             onReport = if (!actionMessage.isOutgoing && !chat.isSecret) {
                 { reportMessageId = actionMessage.id; closeActions() }
-            } else null
+            } else null,
+            onAddToPlaylist = if (chat.hasProtectedContent) null else playlistTrackOf(actionMessage, accountId, { id -> observeFile(id).value }, context.getString(R.string.media_kind_audio))?.let { track -> { playlistTrack = track; closeActions() } }
         ) else if (searching) ChatSearchBar(
             query = searchQuery,
             onQueryChange = { searchQuery = it },
@@ -2292,6 +2297,7 @@ fun ChatScreen(
         onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
     )
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }
+    playlistTrack?.let { track -> AddToPlaylistSheet(accountId = accountId, track = track, onDismiss = { playlistTrack = null }) }
     if (copyLinks.isNotEmpty()) MessageLinkCopyDialog(
         links = copyLinks,
         onCopy = { value ->

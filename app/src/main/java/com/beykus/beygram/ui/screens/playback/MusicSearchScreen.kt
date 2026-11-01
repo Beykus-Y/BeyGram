@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +40,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.music.PlaylistTrack
+import com.beykus.beygram.data.music.toPlaylistTrack
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
@@ -59,6 +62,7 @@ import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
+import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -101,6 +105,8 @@ internal fun MusicSearchScreen(
     val scope = rememberCoroutineScope()
     val automaticDownload = LocalAutoDownloadFile.current
     var query by rememberSaveable(accountId) { mutableStateOf("") }
+    // The track a row asked to add to a playlist. Only results that are sent music with an origin qualify.
+    var addTrack by remember(accountId) { mutableStateOf<PlaylistTrack?>(null) }
     var results by remember(accountId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var chats by remember(accountId) { mutableStateOf<Map<Long, ChatPreview>>(emptyMap()) }
     var nextOffset by remember(accountId) { mutableStateOf("") }
@@ -324,7 +330,12 @@ internal fun MusicSearchScreen(
                         title = item.title,
                         subtitle = chats[message.chatId]?.title.orEmpty(),
                         onClick = { play(message) },
-                        onSend = onPick?.let { pick -> musicFileDraft(message, chats, item.title)?.let { draft -> { pick(draft) } } }
+                        onSend = onPick?.let { pick -> musicFileDraft(message, chats, item.title)?.let { draft -> { pick(draft) } } },
+                        onAddToPlaylist = if (onPick == null && chats[message.chatId]?.hasProtectedContent != true) {
+                            item.toPlaylistTrack()?.let { track -> { addTrack = track } }
+                        } else {
+                            null
+                        }
                     )
                 }
                 // Public results have an independent state: a local miss must never imply no public matches.
@@ -376,10 +387,19 @@ internal fun MusicSearchScreen(
             }
         }
     }
+    addTrack?.let { track ->
+        AddToPlaylistSheet(accountId = accountId, track = track, onDismiss = { addTrack = null })
+    }
 }
 
 @Composable
-private fun MusicRow(title: String, subtitle: String, onClick: (() -> Unit)?, onSend: (() -> Unit)? = null) {
+private fun MusicRow(
+    title: String,
+    subtitle: String,
+    onClick: (() -> Unit)?,
+    onSend: (() -> Unit)? = null,
+    onAddToPlaylist: (() -> Unit)? = null
+) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 64.dp)
@@ -397,6 +417,9 @@ private fun MusicRow(title: String, subtitle: String, onClick: (() -> Unit)?, on
         Column(Modifier.weight(1f)) {
             Text(title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle.isNotBlank()) Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (onAddToPlaylist != null) IconButton(onClick = onAddToPlaylist, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Rounded.Add, stringResource(R.string.music_add_track_action, title), tint = palette.accent)
         }
         if (onSend != null) IconButton(onClick = onSend, modifier = Modifier.size(48.dp)) {
             Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.music_attach_pick, title), tint = palette.accent)
