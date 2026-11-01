@@ -195,6 +195,8 @@ import com.beykus.beygram.ui.screens.playback.LocalOpenMyMusic
 import com.beykus.beygram.ui.screens.bgmusic.LocalOpenMusicPlaylist
 import com.beykus.beygram.ui.screens.music.MyMusicScreen
 import com.beykus.beygram.ui.screens.music.MusicPlaylistScreen
+import com.beykus.beygram.ui.screens.music.ChatLibraryLink
+import com.beykus.beygram.ui.screens.music.chatCollectionId
 import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
 import com.beykus.beygram.ui.screens.playback.PlaybackRepositorySource
 import com.beykus.beygram.ui.text.resolve
@@ -403,7 +405,8 @@ private fun BeyGramAppContent(
     var musicSearchReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var myMusicReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var musicPlaylistId by rememberSaveable { mutableStateOf("") }
-    // Where Back from the playlist goes: My Music, or the chat whose `.bgmusic` preview opened it.
+    // Where Back from the playlist goes: My Music, the chat whose `.bgmusic` preview opened it, or the chat info
+    // when the playlist is a chat's collection.
     var musicPlaylistReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
     // The account that opened the playlist. Playlists belong to an account, so a switch leaves the playlist behind.
     var musicPlaylistAccountId by rememberSaveable { mutableStateOf("") }
@@ -2020,10 +2023,18 @@ private fun BeyGramAppContent(
         val infoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
         LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
+        // The chat's tracks in the library, as a collection of their own. No row for a protected chat, nor while the chat is loading.
+        val openChatMusic: (Long) -> Unit = { chatId ->
+            musicPlaylistId = chatCollectionId(chatId)
+            musicPlaylistAccountId = selectedAccountId
+            musicPlaylistReturnRouteName = AppRoute.ChatInfo.name
+            routeName = AppRoute.MusicPlaylist.name
+        }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onManage = { routeName = AppRoute.ChatManagement.name },
+            chatLibrary = if (selectedChat == null || chatInfoSecure) null else ChatLibraryLink(selectedAccountId, openChatMusic),
             onStatistics = if (canOpenGroupStatistics(info.info)) {
                 {
                     statisticsReturnRouteName = AppRoute.ChatInfo.name
@@ -2472,7 +2483,8 @@ private fun BeyGramAppContent(
                     accountId = selectedAccountId,
                     telegram = repository,
                     playlistId = musicPlaylistId,
-                    onBack = { routeName = musicPlaylistReturnRouteName }
+                    onBack = { routeName = musicPlaylistReturnRouteName },
+                    onSearch = { musicSearchReturnRouteName = AppRoute.MusicPlaylist.name; routeName = AppRoute.MusicSearch.name }
                 )
                 AppRoute.Equalizer -> EqualizerScreen(
                     settings = equalizerSettings,

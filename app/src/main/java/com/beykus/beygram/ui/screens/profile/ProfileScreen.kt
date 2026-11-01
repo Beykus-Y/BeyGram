@@ -63,6 +63,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import com.beykus.beygram.R
+import com.beykus.beygram.ui.screens.music.ChatLibraryLink
+import com.beykus.beygram.ui.screens.music.ChatLibraryMusicRow
 import java.time.LocalDate
 import java.time.MonthDay
 import java.time.format.DateTimeFormatter
@@ -98,7 +100,9 @@ fun ProfileScreen(
     startSecretChat: (suspend (Long) -> Result<Long>)? = null,
     /** Chat-level no-forwards restriction: music stays out of public playlists and MediaSession. */
     protectedContent: Boolean = false,
-    onSecretChatOpened: (Long) -> Unit = {}
+    onSecretChatOpened: (Long) -> Unit = {},
+    /** The chat's library tracks, shown as a row when there are some. Null hides the row. */
+    chatLibrary: ChatLibraryLink? = null
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -130,7 +134,8 @@ fun ProfileScreen(
         onMembers = onMembers, onOpenUser = onOpenUser, onStatistics = onStatistics,
         sharedMessages = sharedMessages, confirmExport = confirmExport,
         messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
-        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage, autoDownloadFile = autoDownloadFile
+        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage, autoDownloadFile = autoDownloadFile,
+        chatLibrary = chatLibrary
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
             if (!isOwnProfile) ChatInfoMenu(
@@ -265,6 +270,7 @@ fun ProfileScreen(
                 }
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
+                chatLibrary?.let { link -> ChatLibraryMusicRow(info.id, link.accountId) { link.onOpen(info.id) } }
                 if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile, protectedContent = protectedContent)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }

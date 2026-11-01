@@ -227,6 +227,38 @@ internal fun removeTrackEdit(
     return MusicOutcome.Done(MusicEdit(library.replacing(updated), Unit))
 }
 
+/**
+ * Puts [track] in the place of the entry [itemId]. The entry keeps its id, its position in the playlist and the time it was
+ * added; everything else comes from [track]. A track without a Telegram origin, a track from another account, and a track
+ * that is already listed in this playlist under another entry are refused.
+ */
+internal fun replaceTrackEdit(
+    library: MusicLibrary,
+    playlistId: String,
+    itemId: String,
+    track: PlaylistTrack,
+    now: Long
+): MusicEditOutcome<Unit> {
+    val target = library.playlist(playlistId) ?: return MusicOutcome.Failed(MusicFailure.NotFound)
+    val index = target.tracks.indexOfFirst { it.itemId == itemId }
+    if (index < 0) return MusicOutcome.Failed(MusicFailure.NotFound)
+    val origin = track.origin ?: return MusicOutcome.Failed(MusicFailure.InvalidTrack)
+    if (origin.accountId != library.accountId) return MusicOutcome.Failed(MusicFailure.ForeignAccount)
+    val current = target.tracks[index]
+    val replacement = track.copy(itemId = itemId, addedAt = current.addedAt)
+    if (replacement == current) return MusicOutcome.Done(MusicEdit(library, Unit))
+    if (target.tracks.any { it.itemId != itemId && it.trackKey == replacement.trackKey }) {
+        return MusicOutcome.Failed(MusicFailure.DuplicateTrack)
+    }
+    val tracks = target.tracks.toMutableList()
+    tracks[index] = replacement
+    val updated = target.copy(tracks = tracks).touched(now)
+    // The new track counts as added to a playlist, like any other track that enters one.
+    val withStats = library.copy(stats = statsAfterAdding(library.stats, listOf(replacement)))
+    val next = withStats.replacing(updated)
+    return MusicOutcome.Done(MusicEdit(next.copy(stats = boundedStats(next.stats, next.playlists)), Unit))
+}
+
 /** Moving a track by hand makes the order manual again. */
 internal fun moveTrackEdit(
     library: MusicLibrary,

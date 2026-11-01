@@ -39,6 +39,7 @@ class MusicLibraryRepository(
     private val mutex = Mutex()
     private val _library = MutableStateFlow(MusicLibrary(accountId = "", playlists = emptyList()))
     private val _isLoaded = MutableStateFlow(false)
+    private val _storageError = MutableStateFlow(false)
 
     /**
      * The active account's library. While [isLoaded] is false it is an empty placeholder with no playlists, which must not be
@@ -48,6 +49,12 @@ class MusicLibraryRepository(
 
     /** True once the stored library of the active account has been read. False before any selection and while a load runs. */
     val isLoaded: StateFlow<Boolean> = _isLoaded.asStateFlow()
+
+    /**
+     * True while the stored library of the active account could be found but not read, so every change is refused and the
+     * stored data is left alone. Set by a load that returned [MusicLibraryLoad.Unavailable]; cleared by the next readable load.
+     */
+    val storageError: StateFlow<Boolean> = _storageError.asStateFlow()
 
     /** Account whose library is shown, or null before one is selected. */
     val activeAccountId: String?
@@ -66,6 +73,7 @@ class MusicLibraryRepository(
         if (_library.value.accountId == accountId && writable) return
         writable = false
         _isLoaded.value = false
+        _storageError.value = false
         _library.value = MusicLibrary(accountId = accountId, playlists = emptyList())
         try {
             // Not cancellable: once the read has started, its result is published as a whole even if the caller is cancelled.
@@ -81,12 +89,17 @@ class MusicLibraryRepository(
             is MusicLibraryLoad.Loaded -> {
                 _library.value = loaded.library.withFavorites(clock())
                 writable = true
+                _storageError.value = false
             }
             MusicLibraryLoad.Empty -> {
                 _library.value = MusicLibrary.empty(accountId, clock())
                 writable = true
+                _storageError.value = false
             }
-            is MusicLibraryLoad.Unavailable -> writable = false
+            is MusicLibraryLoad.Unavailable -> {
+                writable = false
+                _storageError.value = true
+            }
         }
     }
 
@@ -110,6 +123,7 @@ class MusicLibraryRepository(
             if (_library.value.accountId == accountId) {
                 _library.value = MusicLibrary.empty(accountId, clock())
                 writable = true
+                _storageError.value = false
             }
             MusicOutcome.Done(Unit)
         }
@@ -192,6 +206,15 @@ class MusicLibraryRepository(
     suspend fun removeTrack(playlistId: String, itemId: String): MusicOutcome<Unit> {
         val now = clock()
         return commit { current -> removeTrackEdit(current, playlistId, itemId, now) }
+    }
+
+    /**
+     * Puts [track] in the place of entry [itemId]; the entry keeps its position and its id. The caller picks the track, so
+     * nothing is replaced on its own. See [replaceTrackEdit] for the refusals.
+     */
+    suspend fun replaceTrack(playlistId: String, itemId: String, track: PlaylistTrack): MusicOutcome<Unit> {
+        val now = clock()
+        return commit { current -> replaceTrackEdit(current, playlistId, itemId, track, now) }
     }
 
     suspend fun moveTrack(playlistId: String, from: Int, to: Int): MusicOutcome<Unit> {

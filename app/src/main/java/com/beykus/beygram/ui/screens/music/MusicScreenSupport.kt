@@ -142,6 +142,8 @@ internal fun musicFailureMessageRes(failure: MusicFailure): Int = when (failure)
     MusicFailure.ProtectedPlaylist -> R.string.music_error_protected
     MusicFailure.ForeignAccount -> R.string.music_error_account
     MusicFailure.InvalidCover -> R.string.music_cover_failed
+    MusicFailure.InvalidTrack -> R.string.music_error_invalid_track
+    MusicFailure.DuplicateTrack -> R.string.music_already_in_playlist
     MusicFailure.InvalidPosition, MusicFailure.NoActiveAccount, MusicFailure.StorageUnavailable -> R.string.music_error_storage
 }
 

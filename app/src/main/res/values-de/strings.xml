@@ -701,6 +701,7 @@
     <string name="music_added_to">Zu „%1$s“ hinzugefügt</string>
     <string name="music_already_in_playlist">Ist bereits in dieser Playlist</string>
     <string name="music_change_cover">Cover ändern</string>
+    <string name="music_chat_collection_title">Aus diesem Chat</string>
     <string name="music_collection_added">Kürzlich hinzugefügt</string>
     <string name="music_collection_empty">Hier ist noch nichts</string>
     <string name="music_collection_frequent">Oft gehört</string>
@@ -722,6 +723,7 @@
     <string name="music_empty_recent">Hier erscheinen Titel, die du zuletzt gehört hast</string>
     <string name="music_error_account">Diese Playlist gehört zu einem anderen Konto</string>
     <string name="music_error_invalid_title">Dieser Name ist nicht zulässig. Probiere einen anderen.</string>
+    <string name="music_error_invalid_track">Dieser Titel kann nicht hinzugefügt werden, weil er sich nicht erneut abspielen ließe.</string>
     <string name="music_error_limit">Das Limit für Playlists oder Titel ist erreicht</string>
     <string name="music_error_protected">Diese Playlist kann nicht geändert werden</string>
     <string name="music_error_storage">Änderungen konnten nicht gespeichert werden</string>
@@ -729,7 +731,9 @@
     <string name="music_favorite_state_off">Nicht in Favoriten</string>
     <string name="music_favorite_state_on">In Favoriten</string>
     <string name="music_favorites_title">Favoriten</string>
+    <string name="music_find_replacement">Ersatz finden</string>
     <string name="music_library_title">Meine Musik</string>
+    <string name="music_local_only_note">Die Bibliothek wird nur auf diesem Gerät gespeichert</string>
     <string name="music_move_down">Nach unten verschieben</string>
     <string name="music_move_up">Nach oben verschieben</string>
     <string name="music_play">Abspielen</string>
@@ -744,6 +748,10 @@
     <string name="music_remove_cover">Cover entfernen</string>
     <string name="music_remove_from_playlist">Aus Playlist entfernen</string>
     <string name="music_rename">Umbenennen</string>
+    <string name="music_replacement_done">Titel ersetzt</string>
+    <string name="music_replacement_hint">Sucht in deinen Playlists und zuletzt gehörten Titeln nach demselben Titel und Interpreten. Ohne deine Auswahl wird nichts ersetzt.</string>
+    <string name="music_replacement_none">Kein Ersatz gefunden</string>
+    <string name="music_replacement_search">Suche öffnen</string>
     <string name="music_section_collections">Sammlungen</string>
     <string name="music_section_downloaded">Heruntergeladen</string>
     <string name="music_section_playlists">Meine Playlists</string>
@@ -755,6 +763,7 @@
     <string name="music_sort_duration">Nach Dauer</string>
     <string name="music_sort_manual">Manuell</string>
     <string name="music_sort_title">Nach Titel</string>
+    <string name="music_storage_error">Die Bibliothek konnte nicht gelesen werden. Änderungen werden nicht gespeichert.</string>
     <plurals name="music_track_count">
         <item quantity="one">%d Titel</item>
         <item quantity="other">%d Titel</item>
@@ -766,4 +775,5 @@
         <item quantity="other">%d Titel sind nicht verfügbar</item>
     </plurals>
     <string name="music_untitled">Ohne Titel</string>
+    <string name="profile_chat_music_row">Musik aus diesem Chat in deiner Bibliothek · %1$s</string>
 </resources>
