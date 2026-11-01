@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.LocalDesignSystem
 
 /** Settings grouped by purpose. Routes remain owned by the caller. */
@@ -163,7 +164,8 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
         Column(
             modifier = Modifier.padding(horizontal = 16.dp)
                 .clip(groupShape)
-                .background(palette.surface)
+                // Material 3 groups its settings on the tonal container instead of the plain surface.
+                .background(groupSurfaceColor())
                 .padding(vertical = 4.dp),
             content = content
         )
