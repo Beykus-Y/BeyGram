@@ -11,6 +11,8 @@ import com.beykus.beygram.notifications.NotificationPreferencesStore
 import com.beykus.beygram.notifications.notificationPreferencesName
 import com.beykus.beygram.data.archive.archivePreferencesName
 import com.beykus.beygram.data.delayed.DelayedSendQueue
+import com.beykus.beygram.data.music.MusicLibraries
+import com.beykus.beygram.data.music.MusicOutcome
 import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.settings.chatOverridePreferencesName
@@ -554,7 +556,7 @@ internal class TdSecondaryAccountController private constructor(
         }
     }
 
-    private fun cleanupUnregisteredAccount(accountId: String) {
+    private suspend fun cleanupUnregisteredAccount(accountId: String) {
         check(accountId !in registry.loadOrCreate().accountIds) {
             "Never erase a registered TDLib account's files"
         }
@@ -593,6 +595,10 @@ internal class TdSecondaryAccountController private constructor(
         DelayedSendSettingsStore.releaseAccount(accountId)
         com.beykus.beygram.data.archive.ArchiveSettingsStore.releaseAccount(accountId)
         StealthSettingsStore.releaseAccount(accountId)
+        // The music library, its backups and its cover files. This runs before the tombstone is released: if it fails, the
+        // tombstone stays and the cleanup is retried on the next start.
+        val music = MusicLibraries.get(app).clearAccount(accountId)
+        check(music is MusicOutcome.Done) { "The music library of a removed account could not be deleted" }
         restoreStore.forget(accountId)
         restoreStore.clearDeletionPending(accountId)
     }
