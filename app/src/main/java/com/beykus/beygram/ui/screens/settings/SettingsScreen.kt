@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Language
@@ -45,10 +46,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
+import com.beykus.beygram.media.bgmix.BgMixSettingsStore
+import com.beykus.beygram.media.bgmix.BgMixSheet
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -128,6 +133,9 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
         val context = LocalContext.current
         val bgBeatSettings = remember { BgBeatSettingsStore.getInstance(context) }
         val bgBeatEnabled by bgBeatSettings.enabled.collectAsStateWithLifecycle()
+        remember(context) { BgMixSettingsStore.load(context) }
+        val bgMixEnabled by BgMixSettingsStore.enabled.collectAsStateWithLifecycle()
+        var showBgMix by remember { mutableStateOf(false) }
 
         SettingsGroup(stringResource(R.string.settings_group_experiments)) {
             SettingsToggle(
@@ -137,7 +145,20 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
                 checked = bgBeatEnabled,
                 onCheckedChange = { bgBeatSettings.setEnabled(it) }
             )
+            SettingsRowDivider()
+            SettingsToggle(
+                icon = Icons.Rounded.SwapHoriz,
+                title = stringResource(R.string.settings_bgmix_title),
+                subtitle = stringResource(R.string.settings_bgmix_desc),
+                checked = bgMixEnabled,
+                onCheckedChange = { BgMixSettingsStore.setEnabled(context, it) }
+            )
+            if (bgMixEnabled) {
+                SettingsRowDivider()
+                SettingsLink(Icons.Rounded.SwapHoriz, stringResource(R.string.bgmix_open)) { showBgMix = true }
+            }
         }
+        if (showBgMix) BgMixSheet { showBgMix = false }
         Spacer(Modifier.height(12.dp))
     }
 }
