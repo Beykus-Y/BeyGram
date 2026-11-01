@@ -1237,7 +1237,7 @@ internal fun AttachmentPanel(
                 allowsPolls = state.allowsPolls,
                 allowsMusic = state.allowsMusic,
                 enabled = state.menuOpen && !state.sending && !state.importing && !state.locating,
-                chatObjectsEnabled = state.menuOpen && state.pending.isEmpty(),
+                chatObjectsEnabled = state.pending.isEmpty(),
                 onAction = { if (state.menuOpen) state.performAction(it) },
                 onClose = { if (state.menuOpen) state.closeMenu() }
             )
