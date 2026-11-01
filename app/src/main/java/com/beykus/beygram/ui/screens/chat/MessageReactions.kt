@@ -66,7 +66,7 @@ internal fun MessageReactionChips(
     downloadFile: (Int) -> Unit, onToggle: (ReactionOption) -> Unit, modifier: Modifier = Modifier
 ) {
     if (reactions.isEmpty()) return
-    FlowRow(modifier.widthIn(max = 292.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    FlowRow(modifier.widthIn(max = 292.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         reactions.forEach { reaction -> key(reaction.option) { ReactionChip(reaction, observeCustomEmoji, observeFile, downloadFile, onToggle) } }
     }
 }
@@ -83,9 +83,9 @@ private fun ReactionChip(
         reaction.customEmojiId == 0L -> stringResource(R.string.chat_reaction_description, reaction.emoji, reaction.count)
         else -> stringResource(R.string.chat_reaction_custom_description, reaction.count)
     }
-    // The pill keeps its compact look, while the invisible touch area meets the 48 dp minimum.
+    // Compact vertical geometry; Compose expands small click targets for touch input.
     Box(
-        Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+        Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 40.dp)
             .semantics { contentDescription = description; selected = reaction.isChosen }
             .clickable { onToggle(reaction.option) },
         contentAlignment = Alignment.Center
