@@ -28,7 +28,12 @@ data class AppearanceConfig(
      */
     val designStyle: DesignStyle = DesignStyle.Default,
     /** How much glass rendering Liquid Glass may use. The other styles ignore it and keep it for a later switch back. */
-    val glassQuality: GlassQuality = GlassQuality.Auto
+    val glassQuality: GlassQuality = GlassQuality.Auto,
+    /**
+     * Where the bottom navigation sits. It is its own axis, so the style keeps deciding how the bar looks while the user
+     * decides whether it is pinned to the bottom edge or floats above the content.
+     */
+    val navigationPlacement: NavigationPlacement = NavigationPlacement.Auto
 )
 
 const val DEFAULT_MESSAGE_TEXT_SIZE_SP = 16

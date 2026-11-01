@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
+import com.beykus.beygram.data.appearance.NavigationPlacement
 
 /** Backdrop blur needs Android 12 (API 31) render effects. Older versions get the tinted glass without the blur pass. */
 private val SystemBackdropBlurAvailable: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -86,16 +87,28 @@ private fun rememberGlassCapabilities(): GlassCapabilities {
 @Composable
 fun rememberDesign(config: AppearanceConfig): DesignSystem {
     val capabilities = rememberGlassCapabilities()
-    return remember(config.designStyle, config.glassQuality, capabilities) {
-        designFor(config.designStyle, resolveGlassQuality(config.glassQuality, autoGlassQuality(capabilities)))
+    return remember(config.designStyle, config.glassQuality, config.navigationPlacement, capabilities) {
+        designFor(
+            config.designStyle,
+            resolveGlassQuality(config.glassQuality, autoGlassQuality(capabilities)),
+            config.navigationPlacement
+        )
     }
 }
 
 /** The design for a style alone, with the quality choice only used by Liquid Glass. */
 @Composable
-fun rememberDesign(style: DesignStyle, glassQuality: GlassQuality = GlassQuality.Auto): DesignSystem {
+fun rememberDesign(
+    style: DesignStyle,
+    glassQuality: GlassQuality = GlassQuality.Auto,
+    navigationPlacement: NavigationPlacement = NavigationPlacement.Auto
+): DesignSystem {
     val capabilities = rememberGlassCapabilities()
-    return remember(style, glassQuality, capabilities) {
-        designFor(style, resolveGlassQuality(glassQuality, autoGlassQuality(capabilities)))
+    return remember(style, glassQuality, navigationPlacement, capabilities) {
+        designFor(
+            style,
+            resolveGlassQuality(glassQuality, autoGlassQuality(capabilities)),
+            navigationPlacement
+        )
     }
 }

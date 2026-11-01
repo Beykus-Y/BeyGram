@@ -15,6 +15,14 @@
     <string name="appearance_style_quality_balanced_detail">Tint and light rims without the blur pass</string>
     <string name="appearance_style_quality_lite">Economy</string>
     <string name="appearance_style_quality_lite_detail">Dense matte surface, maximum readability</string>
+    <string name="appearance_navigation_placement_section">Bottom bar position</string>
+    <string name="appearance_navigation_placement_detail">The position changes separately from the style: tab shapes, colours and finish stay as they are.</string>
+    <string name="appearance_navigation_placement_auto">Follow the style</string>
+    <string name="appearance_navigation_placement_auto_detail">Whatever the selected style decides</string>
+    <string name="appearance_navigation_placement_pinned">Pinned to the bottom</string>
+    <string name="appearance_navigation_placement_pinned_detail">Full width, without the floating margin</string>
+    <string name="appearance_navigation_placement_floating">Floating</string>
+    <string name="appearance_navigation_placement_floating_detail">A separate capsule with margins above the chats</string>
     <string name="design_style_default">Standard BeyGram</string>
     <string name="design_style_default_detail">The app’s familiar look, unchanged</string>
     <string name="design_style_material2">Material 2</string>

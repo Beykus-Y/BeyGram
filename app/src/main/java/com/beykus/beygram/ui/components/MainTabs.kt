@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +56,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -114,6 +118,10 @@ internal val MainTab.icon: ImageVector
 /**
  * The measurements and the structure the selected design style gives the main navigation. Default reproduces the
  * original BeyGram bar exactly: a 56x32 pill, 12sp labels, a flat surface and no shadow.
+ *
+ * The spec joins the two axes: the style decides the contents of the bar ([pillWidth] and the rest) while the
+ * placement decides where that bar is drawn ([floating]). Nothing here is style-specific layout logic, so a style
+ * cannot grow its own second navigation.
  */
 internal data class NavigationSpec(
     val pillWidth: Dp,
@@ -126,10 +134,23 @@ internal data class NavigationSpec(
     val iconSize: Dp,
     val barTopPadding: Dp,
     val barBottomPadding: Dp,
-    val barElevation: Dp,
+    /** Shadow of the bar in the ordinary bottom slot. 0 keeps the flat Default bar exactly as it was. */
+    val pinnedElevation: Dp,
+    /** Shadow of the floating capsule, which has to read as a separate layer above the content. */
+    val floatingElevation: Dp,
     val divider: Boolean,
+    /** The resolved placement, read by both the bar and the scaffold; it is not the style's own stance. */
     val floating: Boolean
-)
+) {
+    /** The elevation that applies to the current placement. */
+    val elevation: Dp get() = if (floating) floatingElevation else pinnedElevation
+}
+
+/** Side margin of the floating capsule: the dock never touches the window edge. */
+internal val FloatingNavigationHorizontalMargin = 12.dp
+
+/** Gap the floating capsule keeps from the bottom edge, above the system navigation inset. */
+internal val FloatingNavigationBottomMargin = 8.dp
 
 internal fun navigationSpecFor(design: DesignSystem): NavigationSpec = when (design.components.navigation) {
     // Default: the exact bar BeyGram has always drawn.
@@ -137,40 +158,42 @@ internal fun navigationSpecFor(design: DesignSystem): NavigationSpec = when (des
         pillWidth = TabPillWidth, pillHeight = TabPillHeight, pillRadius = 16.dp,
         showSelectionPill = true, showLabels = true, labelSize = 12.sp,
         labelWeight = FontWeight.Normal, iconSize = 24.dp,
-        barTopPadding = 10.dp, barBottomPadding = 8.dp, barElevation = 0.dp,
-        divider = false, floating = false
+        barTopPadding = 10.dp, barBottomPadding = 8.dp, pinnedElevation = 0.dp, floatingElevation = 8.dp,
+        divider = false, floating = design.navigationFloating
     )
     // Material 2: flat bar with a divider, coloured icon and label, no pill behind the selection.
     NavigationVariant.ClassicTabs -> NavigationSpec(
         pillWidth = TabPillWidth, pillHeight = TabPillHeight, pillRadius = 2.dp,
         showSelectionPill = false, showLabels = true, labelSize = 12.sp,
         labelWeight = FontWeight.Medium, iconSize = 24.dp,
-        barTopPadding = 8.dp, barBottomPadding = 8.dp, barElevation = 8.dp,
-        divider = true, floating = false
+        barTopPadding = 8.dp, barBottomPadding = 8.dp, pinnedElevation = 8.dp, floatingElevation = 8.dp,
+        divider = true, floating = design.navigationFloating
     )
     // Material 3: the navigation bar with a tonal container and a wider indicator pill.
     NavigationVariant.NavigationBar -> NavigationSpec(
         pillWidth = 64.dp, pillHeight = 32.dp, pillRadius = 16.dp,
         showSelectionPill = true, showLabels = true, labelSize = 12.sp,
         labelWeight = FontWeight.Medium, iconSize = 24.dp,
-        barTopPadding = 12.dp, barBottomPadding = 12.dp, barElevation = 0.dp,
-        divider = false, floating = false
+        barTopPadding = 12.dp, barBottomPadding = 12.dp, pinnedElevation = 0.dp, floatingElevation = 6.dp,
+        divider = false, floating = design.navigationFloating
     )
     // Liquid Glass: a floating translucent capsule with compact labels.
     NavigationVariant.FloatingGlass -> NavigationSpec(
         pillWidth = 60.dp, pillHeight = 30.dp, pillRadius = 20.dp,
         showSelectionPill = true, showLabels = true, labelSize = 11.sp,
         labelWeight = FontWeight.Medium, iconSize = 22.dp,
-        barTopPadding = 10.dp, barBottomPadding = 10.dp, barElevation = 12.dp,
-        divider = false, floating = true
+        barTopPadding = 10.dp, barBottomPadding = 10.dp,
+        pinnedElevation = 0.dp,
+        floatingElevation = design.surfaces.glass?.shadowElevation ?: 12.dp,
+        divider = false, floating = design.navigationFloating
     )
     // Signature: a floating dock with a confident, single selection capsule.
     NavigationVariant.SignatureDock -> NavigationSpec(
         pillWidth = 58.dp, pillHeight = 30.dp, pillRadius = 12.dp,
         showSelectionPill = true, showLabels = true, labelSize = 11.sp,
         labelWeight = FontWeight.Bold, iconSize = 23.dp,
-        barTopPadding = 8.dp, barBottomPadding = 10.dp, barElevation = 6.dp,
-        divider = false, floating = true
+        barTopPadding = 8.dp, barBottomPadding = 10.dp, pinnedElevation = 0.dp, floatingElevation = 6.dp,
+        divider = false, floating = design.navigationFloating
     )
 }
 
@@ -278,7 +301,12 @@ private fun navigationBarColor(design: DesignSystem, fallback: Color): Color = w
     else -> fallback
 }
 
-/** Нижнее меню телефона: только видимые разделы, выше навигационной панели системы. */
+/**
+ * Нижнее меню телефона: только видимые разделы, выше навигационной панели системы.
+ *
+ * Здесь живут оба размещения одного и того же бара: закреплённое на всю ширину в обычном нижнем слоте и плавающая
+ * капсула поверх содержимого. Вкладки, обработчики и состояние выбора общие — меняется только адаптер поверхности.
+ */
 @Composable
 internal fun MainTabBar(
     tabs: List<MainTab>,
@@ -292,42 +320,60 @@ internal fun MainTabBar(
     val glass = design.surfaces.glass
     val barColor = navigationBarColor(design, palette.surface)
     val floating = spec.floating
-    val barShape = RoundedCornerShape(if (floating) design.shapes.extraLarge else design.shapes.extraSmall)
+    // Only the floating capsule is rounded: a pinned bar must keep square window edges even in Glass or Signature,
+    // so no floating corner is left at the bottom of the screen.
+    val barShape = RoundedCornerShape(if (floating) design.shapes.extraLarge else 0.dp)
     val outer = modifier.fillMaxWidth().then(
-        if (floating) Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp) else Modifier
+        if (floating) {
+            Modifier.padding(
+                start = FloatingNavigationHorizontalMargin,
+                end = FloatingNavigationHorizontalMargin,
+                bottom = FloatingNavigationBottomMargin
+            )
+        } else {
+            Modifier
+        }
     )
-    if (floating && glass != null) {
-        GlassPanel(
+    val contentModifier = Modifier.fillMaxWidth().navigationBarsPadding()
+        .padding(start = 8.dp, top = spec.barTopPadding, end = 8.dp, bottom = spec.barBottomPadding)
+    val content: @Composable () -> Unit = {
+        NavigationBarContent(
+            modifier = contentModifier,
+            spec = spec,
+            tabs = tabs,
+            selected = selected,
+            onSelect = onSelect
+        )
+    }
+    when {
+        floating && glass != null -> GlassPanel(
             design = design,
             tint = barColor,
             rim = palette.textSecondary,
             shape = barShape,
             modifier = outer.shadow(glass.shadowElevation, barShape)
         ) {
-            NavigationBarContent(
-                modifier = Modifier.fillMaxWidth().navigationBarsPadding()
-                    .padding(start = 8.dp, top = spec.barTopPadding, end = 8.dp, bottom = spec.barBottomPadding),
-                spec = spec,
-                tabs = tabs,
-                selected = selected,
-                onSelect = onSelect
-            )
+            content()
         }
-    } else {
-        Box(
-            outer.then(
-                if (floating) Modifier.shadow(spec.barElevation, barShape).clip(barShape).background(barColor)
-                else Modifier.background(barColor)
-            )
+        floating -> Box(
+            outer.shadow(spec.elevation, barShape).clip(barShape).background(barColor)
         ) {
-            NavigationBarContent(
-                modifier = Modifier.fillMaxWidth().navigationBarsPadding()
-                    .padding(start = 8.dp, top = spec.barTopPadding, end = 8.dp, bottom = spec.barBottomPadding),
-                spec = spec,
-                tabs = tabs,
-                selected = selected,
-                onSelect = onSelect
-            )
+            content()
+        }
+        else -> Box(
+            outer.then(
+                if (spec.elevation > 0.dp) Modifier.shadow(spec.elevation, barShape) else Modifier
+            ).background(barColor)
+        ) {
+            content()
+            // A pinned glass bar keeps the material's light edge as one hairline on top instead of the full rim of the
+            // floating dock. Nothing is faked as blur: the surface under a pinned bar is the window, not the content.
+            if (glass != null) {
+                Box(
+                    Modifier.fillMaxWidth().height(1.dp)
+                        .background(palette.textSecondary.copy(alpha = glass.rimAlpha * 0.6f))
+                )
+            }
         }
     }
 }
@@ -409,8 +455,15 @@ internal fun MainTabsScaffold(
 ) {
     val tabs = MainTab.entries.filter { visibility.isVisible(it) }
     val design = LocalDesignSystem.current
-    val spec = remember(design) { navigationSpecFor(design) }
+    val floating = design.navigationFloating
+    val density = LocalDensity.current
+    // The floating capsule is laid over the content, so the scaffold reserves its measured height instead of a fixed
+    // token: a larger label, a bigger font scale or a taller system inset then moves the last row instead of hiding it.
+    // Reset with the design: a bar measured in another placement or style must not reserve space for the old one.
+    var measuredBarHeight by remember(design) { mutableStateOf(0.dp) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
+        // The placement applies to the phone bottom bar. A wide window keeps its navigation rail: turning it into a
+        // phone dock would move the sections away from the leading edge and lose the space the rail exists for.
         if (usesMainNavigationRail(maxWidth.value)) {
             Row(Modifier.fillMaxSize()) {
                 MainTabRail(tabs = tabs, selected = selected, onSelect = onSelect)
@@ -430,10 +483,10 @@ internal fun MainTabsScaffold(
                     NowPlayingBar(hideWhenImeVisible = true)
                 }
             }
-        } else if (spec.floating) {
-            // The floating styles put the bar on top of the content, so the translucent material has something to
-            // float above. The reserved gap covers the bar and the system navigation inset, so the last row stays
-            // reachable instead of hiding under the panel.
+        } else if (floating) {
+            // The floating placement puts the bar on top of the content, so the translucent material has something to
+            // float above. The reserved gap covers the measured bar and the system navigation inset, so the last row
+            // stays reachable instead of hiding under the panel.
             val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             val backdrop = LocalGlassBackdrop.current
             val glass = design.surfaces.glass
@@ -450,18 +503,33 @@ internal fun MainTabsScaffold(
                         stateHolder.SaveableStateProvider(key) { content() }
                     }
                     NowPlayingBar(hideWhenImeVisible = true)
-                    Spacer(Modifier.height(design.spacing.navigationHeight + navigationBarInset))
+                    // Until the bar has measured itself the token is a safe approximation; afterwards the real height
+                    // is used, so a large font or a 3-button navigation inset cannot put a row under the dock.
+                    val reserve = measuredBarHeight.takeIf { it > 0.dp }
+                        ?: (design.spacing.navigationHeight + navigationBarInset + FloatingNavigationBottomMargin)
+                    Spacer(Modifier.height(reserve))
                 }
                 MainTabBar(
                     tabs = tabs,
                     selected = selected,
                     onSelect = onSelect,
                     modifier = Modifier.align(Alignment.BottomCenter)
+                        .onSizeChanged { measuredBarHeight = with(density) { it.height.toDp() } }
                 )
             }
         } else {
+            // A pinned glass bar needs no backdrop (nothing but the window is behind it), but the rest of the glass
+            // chrome still samples the content: pinning the bar must not turn the top bar and the search into flat
+            // surfaces. Only the content is recorded and the bar stays outside it, so there is no self-reference.
+            val backdrop = LocalGlassBackdrop.current
+            val glass = design.surfaces.glass
+            val recordContent = if (glass != null && backdrop != null) {
+                Modifier.glassBackdropSource(backdrop)
+            } else {
+                Modifier
+            }
             Column(Modifier.fillMaxSize()) {
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                Box(Modifier.weight(1f).fillMaxWidth().then(recordContent)) {
                     stateHolder.SaveableStateProvider(key) { content() }
                 }
                 NowPlayingBar(hideWhenImeVisible = true)

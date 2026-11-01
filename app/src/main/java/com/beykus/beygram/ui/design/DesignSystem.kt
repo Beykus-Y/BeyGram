@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
+import com.beykus.beygram.data.appearance.NavigationPlacement
 
 /**
  * The resolved design system of the interface in effect: one immutable set of semantic tokens produced from the
@@ -21,7 +22,12 @@ data class DesignSystem(
     val motion: DesignMotionProfile,
     val components: DesignComponents,
     /** Bubble geometry of the style, or null when the style keeps today's bubble metrics untouched (Default). */
-    val bubbles: DesignBubbleGeometry?
+    val bubbles: DesignBubbleGeometry?,
+    /**
+     * Where the main navigation is actually drawn. It defaults to the style's own stance, so a style keeps its look;
+     * an explicit choice in Appearance overrides it without changing [components] or anything else of the style.
+     */
+    val navigationFloating: Boolean = components.floatingNavigation
 )
 
 /**
@@ -160,11 +166,30 @@ val LocalDesignSystem = staticCompositionLocalOf { DefaultDesignSystem }
 /** True when the resolved style draws backdrop glass and the device may actually blur. */
 val DesignSystem.usesGlass: Boolean get() = surfaces.glass?.samplesBackdrop == true
 
+/**
+ * Where the bar is drawn for the user's [placement] choice and the stance of the style. [NavigationPlacement.Auto]
+ * keeps whatever the style has always done, which is what makes an old installation look unchanged after an update.
+ */
+fun resolveNavigationFloating(placement: NavigationPlacement, naturalFloating: Boolean): Boolean = when (placement) {
+    NavigationPlacement.Auto -> naturalFloating
+    NavigationPlacement.Pinned -> false
+    NavigationPlacement.Floating -> true
+}
+
 /** The resolved design for the saved choices and the device capabilities. */
-fun designFor(style: DesignStyle, glassQuality: GlassQuality = GlassQuality.Auto): DesignSystem = when (style) {
-    DesignStyle.Default -> DefaultDesignSystem
-    DesignStyle.Material2 -> Material2DesignSystem
-    DesignStyle.Material3 -> Material3DesignSystem
-    DesignStyle.LiquidGlass -> liquidGlassDesign(resolveGlassQuality(glassQuality))
-    DesignStyle.Signature -> SignatureDesignSystem
+fun designFor(
+    style: DesignStyle,
+    glassQuality: GlassQuality = GlassQuality.Auto,
+    navigationPlacement: NavigationPlacement = NavigationPlacement.Auto
+): DesignSystem {
+    val base = when (style) {
+        DesignStyle.Default -> DefaultDesignSystem
+        DesignStyle.Material2 -> Material2DesignSystem
+        DesignStyle.Material3 -> Material3DesignSystem
+        DesignStyle.LiquidGlass -> liquidGlassDesign(resolveGlassQuality(glassQuality))
+        DesignStyle.Signature -> SignatureDesignSystem
+    }
+    val floating = resolveNavigationFloating(navigationPlacement, base.components.floatingNavigation)
+    // Keep the shared, immutable preset when the choice agrees with the style instead of allocating a copy per screen.
+    return if (floating == base.navigationFloating) base else base.copy(navigationFloating = floating)
 }

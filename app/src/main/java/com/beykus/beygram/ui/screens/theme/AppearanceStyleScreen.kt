@@ -41,6 +41,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
+import com.beykus.beygram.data.appearance.NavigationPlacement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.DesignSystem
 import com.beykus.beygram.ui.design.LocalDesignSystem
@@ -94,6 +95,23 @@ internal fun AppearanceStylePage(
                     systemDark = systemDark,
                     selected = draft.designStyle == style,
                     onSelect = { onDraftChange(draft.copy(designStyle = style)) }
+                )
+            }
+        }
+
+        AppearanceSectionLabel(stringResource(R.string.appearance_navigation_placement_section))
+        AppearanceCard {
+            Text(
+                stringResource(R.string.appearance_navigation_placement_detail),
+                color = palette.textSecondary,
+                fontSize = 12.sp,
+                lineHeight = 17.sp
+            )
+            NavigationPlacement.entries.forEach { placement ->
+                NavigationPlacementRow(
+                    placement = placement,
+                    selected = draft.navigationPlacement == placement,
+                    onSelect = { onDraftChange(draft.copy(navigationPlacement = placement)) }
                 )
             }
         }
@@ -205,10 +223,88 @@ private fun QualityOptionRow(quality: GlassQuality, selected: Boolean, onSelect:
     }
 }
 
+/**
+ * One placement of the bottom bar. It is a separate axis from the style, so the row explains the position rather than
+ * pretending to be another look; Auto stays the compatibility choice for installations that never touched it.
+ */
+@Composable
+private fun NavigationPlacementRow(
+    placement: NavigationPlacement,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(AppearanceDimens.innerShape)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
+            .semantics(mergeDescendants = true) {}
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            Modifier.size(18.dp).clip(CircleShape)
+                .border(2.dp, if (selected) palette.accent else palette.divider, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) Box(Modifier.size(9.dp).clip(CircleShape).background(palette.accent))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                stringResource(placement.labelRes()),
+                color = if (selected) palette.accentInk else palette.textPrimary,
+                fontSize = 14.sp,
+                lineHeight = 19.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+            )
+            Text(
+                stringResource(placement.detailRes()),
+                color = palette.textSecondary,
+                fontSize = 11.sp,
+                lineHeight = 15.sp
+            )
+        }
+        NavigationPlacementGlyph(placement = placement, selected = selected)
+    }
+}
+
+/** A two-line sketch of the placement: the bar either sits on the bottom edge or floats above it with margins. */
+@Composable
+private fun NavigationPlacementGlyph(placement: NavigationPlacement, selected: Boolean) {
+    val palette = beyGramPalette()
+    val accent = if (selected) palette.accent else palette.textSecondary
+    val floating = when (placement) {
+        // Auto is not a placement of its own: the sketch shows both, so it never looks like a forced dock.
+        NavigationPlacement.Auto -> true
+        NavigationPlacement.Pinned -> false
+        NavigationPlacement.Floating -> true
+    }
+    Box(Modifier.width(30.dp).height(22.dp).clip(AppearanceDimens.innerShape)) {
+        Box(Modifier.fillMaxSize().background(palette.surface2.copy(alpha = 0.55f)))
+        if (placement == NavigationPlacement.Auto) {
+            // The pinned variant stays visible as a hairline next to the capsule.
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp)
+                    .background(accent.copy(alpha = 0.45f))
+            )
+        }
+        Box(
+            Modifier.align(Alignment.BottomCenter)
+                .padding(start = if (floating) 5.dp else 0.dp, end = if (floating) 5.dp else 0.dp)
+                .padding(bottom = if (floating) 3.dp else 0.dp)
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(if (floating) 3.dp else 0.dp))
+                .background(accent)
+        )
+    }
+}
+
 /** The thumbnail of one style, drawn by that style's own tokens with the palette the user already has. */
 @Composable
 private fun StyleThumbnail(style: DesignStyle, config: AppearanceConfig, systemDark: Boolean) {
-    val design = rememberDesign(style, config.glassQuality)
+    val design = rememberDesign(style, config.glassQuality, config.navigationPlacement)
     val tokens = resolveTokens(config.copy(designStyle = style), systemDark)
     BeyGramTheme(
         darkTheme = config.mode.isDark(systemDark),
@@ -228,7 +324,7 @@ private fun StyleThumbnail(style: DesignStyle, config: AppearanceConfig, systemD
 /** A larger rendition of the selected style: header, two bubbles and the navigation it implies. */
 @Composable
 private fun StylePreviewSurface(config: AppearanceConfig, systemDark: Boolean) {
-    val design = rememberDesign(config.designStyle, config.glassQuality)
+    val design = rememberDesign(config.designStyle, config.glassQuality, config.navigationPlacement)
     val tokens = resolveTokens(config, systemDark)
     BeyGramTheme(darkTheme = config.mode.isDark(systemDark), tokens = tokens, design = design) {
         Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
@@ -278,17 +374,21 @@ private fun StyleMiniature(design: DesignSystem, compact: Boolean) {
     }
 }
 
-/** The navigation shape of the style, so the miniature shows the structural difference and not only the corners. */
+/**
+ * The navigation shape of the style and of the chosen placement, so the miniature shows the structural difference and
+ * not only the corners. A pinned bar is always full width with square edges; a floating one is a capsule with margins.
+ */
 @Composable
 private fun StyleNavigationStrip(design: DesignSystem, compact: Boolean) {
     val palette = beyGramPalette()
     val height = if (compact) 12.dp else 22.dp
     val indicator = RoundedCornerShape(design.shapes.navigationIndicator)
     val dotCount = 4
-    val dock = design.components.navigation == NavigationVariant.FloatingGlass ||
-        design.components.navigation == NavigationVariant.SignatureDock
+    val dock = design.navigationFloating
     Row(
-        Modifier.fillMaxWidth().height(height)
+        Modifier.fillMaxWidth()
+            .then(if (dock) Modifier.padding(horizontal = if (compact) 6.dp else 10.dp) else Modifier)
+            .height(height)
             .clip(if (dock) RoundedCornerShape(design.shapes.extraSmall) else RoundedCornerShape(0.dp))
             .background(if (dock) palette.surface2 else palette.surface)
             .then(

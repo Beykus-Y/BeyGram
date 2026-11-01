@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.components
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.appearance.NavigationPlacement
 import com.beykus.beygram.ui.design.designFor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -28,7 +29,8 @@ class NavigationSpecTest {
         assertTrue(default.showLabels)
         assertFalse(default.divider)
         assertFalse(default.floating)
-        assertEquals(0.dp, default.barElevation)
+        assertEquals(0.dp, default.pinnedElevation)
+        assertEquals(0.dp, default.elevation)
     }
 
     @Test fun everyStyleGetsItsOwnBarStructure() {
@@ -49,12 +51,54 @@ class NavigationSpecTest {
         )
     }
 
+    @Test fun followTheStyleKeepsThePlacementEveryStyleHasAlwaysHad() {
+        DesignStyle.entries.forEach { style ->
+            val auto = designFor(style, navigationPlacement = NavigationPlacement.Auto)
+            val natural = designFor(style)
+            assertEquals(style, auto.style)
+            assertEquals(natural.components.floatingNavigation, auto.navigationFloating)
+            assertEquals(navigationSpecFor(natural), navigationSpecFor(auto))
+        }
+    }
+
+    @Test fun pinnedPutsTheBarOfEveryStyleInTheOrdinaryBottomSlot() {
+        DesignStyle.entries.forEach { style ->
+            val design = designFor(style, navigationPlacement = NavigationPlacement.Pinned)
+            val spec = navigationSpecFor(design)
+
+            assertFalse("$style must be pinned", spec.floating)
+            assertFalse(design.navigationFloating)
+            // A pinned bar has no dock shadow hanging over the last row. Material 2 keeps its own app-bar elevation.
+            assertEquals(
+                if (style == DesignStyle.Material2) spec.pinnedElevation else 0.dp,
+                spec.elevation
+            )
+            // The style still decides the contents: pinning must not flatten a style into another one.
+            assertEquals(navigationSpecFor(designFor(style)).pillWidth, spec.pillWidth)
+            assertEquals(navigationSpecFor(designFor(style)).showSelectionPill, spec.showSelectionPill)
+        }
+    }
+
+    @Test fun floatingTurnsEveryStyleIntoTheSameKindOfDockWithoutChangingItsContents() {
+        DesignStyle.entries.forEach { style ->
+            val natural = navigationSpecFor(designFor(style))
+            val forced = navigationSpecFor(designFor(style, navigationPlacement = NavigationPlacement.Floating))
+
+            assertTrue("$style must float", forced.floating)
+            assertTrue("a floating bar needs a shadow", forced.elevation > 0.dp)
+            // Only the placement changed: the style's own bar is reused rather than replaced by a default dock.
+            assertEquals(natural.copy(floating = true, floatingElevation = forced.floatingElevation), forced)
+        }
+    }
+
     @Test fun floatingBarsAreNeverFlatAndFlatBarsAreNeverFloating() {
         DesignStyle.entries.forEach { style ->
-            val spec = navigationSpecFor(designFor(style))
-            val design = designFor(style)
-            assertEquals(design.components.floatingNavigation, spec.floating)
-            if (spec.floating) assertTrue("a floating bar needs a shadow", spec.barElevation > 0.dp)
+            NavigationPlacement.entries.forEach { placement ->
+                val design = designFor(style, navigationPlacement = placement)
+                val spec = navigationSpecFor(design)
+                assertEquals(design.navigationFloating, spec.floating)
+                if (spec.floating) assertTrue("a floating bar needs a shadow", spec.elevation > 0.dp)
+            }
         }
     }
 }

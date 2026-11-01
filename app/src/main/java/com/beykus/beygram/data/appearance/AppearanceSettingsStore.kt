@@ -33,6 +33,7 @@ private val MessageTimeColorKey = intPreferencesKey("message_time_color")
 private val MessageAnimationsKey = stringPreferencesKey("message_animations")
 private val DesignStyleKey = stringPreferencesKey("design_style")
 private val GlassQualityKey = stringPreferencesKey("glass_quality")
+private val NavigationPlacementKey = stringPreferencesKey("navigation_placement")
 
 private val Context.appearanceDataStore by preferencesDataStore(
     name = "appearance",
@@ -62,7 +63,8 @@ class AppearanceSettingsStore(context: Context) {
                 messageTimeColor = preferences[MessageTimeColorKey],
                 messageAnimations = messageAnimationConfigFromStored(preferences[MessageAnimationsKey]),
                 designStyle = designStyleFromStored(preferences[DesignStyleKey]),
-                glassQuality = glassQualityFromStored(preferences[GlassQualityKey])
+                glassQuality = glassQualityFromStored(preferences[GlassQualityKey]),
+                navigationPlacement = navigationPlacementFromStored(preferences[NavigationPlacementKey])
             )
         }
 
@@ -88,6 +90,7 @@ class AppearanceSettingsStore(context: Context) {
             preferences[MessageAnimationsKey] = config.messageAnimations.encode()
             preferences[DesignStyleKey] = config.designStyle.name
             preferences[GlassQualityKey] = config.glassQuality.name
+            preferences[NavigationPlacementKey] = config.navigationPlacement.name
         }
     }
 }
