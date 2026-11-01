@@ -362,3 +362,103 @@ internal fun boundedStats(
     val evicted = candidates.take(stats.size - MUSIC_MAX_STATS).mapTo(HashSet()) { it.trackKey }
     return stats.filterKeys { it !in evicted }
 }
+
+/**
+ * Stores a copy made from an imported file as a new playlist. The copy keeps the file's track order, its source id and its source
+ * revision. Its own revision starts at 0, and so does [MusicPlaylist.revisionAtSource], so the copy starts out equal to its file.
+ * Later local edits never change the source revision. [MusicPlaylist.coverPath] is kept
+ * as given; the repository has checked that it is a cover file of the library. Origins that belong to another account are dropped,
+ * and a repeated origin keeps only its first entry, as [addTracksEdit] does.
+ */
+internal fun importCopyEdit(
+    library: MusicLibrary,
+    copy: MusicPlaylist,
+    playlistId: String,
+    now: Long,
+    newItemId: () -> String
+): MusicEditOutcome<MusicPlaylist> {
+    if (library.playlists.size >= MUSIC_MAX_PLAYLISTS) return MusicOutcome.Failed(MusicFailure.LimitReached)
+    val cleanTitle = normalizeMusicTitle(copy.title) ?: return MusicOutcome.Failed(MusicFailure.InvalidTitle)
+    val tracks = importedTracks(library, copy.tracks, now, newItemId)
+    val playlist = MusicPlaylist(
+        id = playlistId,
+        title = cleanTitle,
+        description = normalizeMusicDescription(copy.description),
+        coverPath = copy.coverPath,
+        tracks = tracks,
+        createdAt = now,
+        updatedAt = now,
+        revision = 0L,
+        sourcePlaylistId = copy.sourcePlaylistId,
+        sourceRevision = copy.sourceRevision?.coerceAtLeast(0L),
+        revisionAtSource = 0L,
+        sortMode = MusicSortMode.Manual
+    )
+    val withPlaylist = library.copy(
+        playlists = library.playlists + playlist,
+        stats = statsAfterAdding(library.stats, tracks.filter { it.origin != null })
+    )
+    val next = withPlaylist.copy(stats = boundedStats(withPlaylist.stats, withPlaylist.playlists))
+    return MusicOutcome.Done(MusicEdit(next, playlist))
+}
+
+/**
+ * Replaces the title, description, tracks, cover and source revision of the local playlist [localId] with [snapshot]. The local id
+ * and the creation time stay, and a snapshot without a cover keeps the current one. The replacement is a local change, so the local
+ * revision moves on, and the copy then equals its file, so [MusicPlaylist.revisionAtSource] takes the new revision. The
+ * file's revision is stored as [MusicPlaylist.sourceRevision].
+ */
+internal fun replaceImportedEdit(
+    library: MusicLibrary,
+    localId: String,
+    snapshot: MusicPlaylist,
+    now: Long,
+    newItemId: () -> String
+): MusicEditOutcome<Unit> {
+    val target = library.playlist(localId) ?: return MusicOutcome.Failed(MusicFailure.NotFound)
+    if (target.isFavorites) return MusicOutcome.Failed(MusicFailure.ProtectedPlaylist)
+    val cleanTitle = normalizeMusicTitle(snapshot.title) ?: return MusicOutcome.Failed(MusicFailure.InvalidTitle)
+    val tracks = importedTracks(library, snapshot.tracks, now, newItemId)
+    val changed = target.copy(
+        title = cleanTitle,
+        description = normalizeMusicDescription(snapshot.description),
+        tracks = tracks,
+        coverPath = snapshot.coverPath ?: target.coverPath,
+        sourcePlaylistId = target.sourcePlaylistId ?: snapshot.sourcePlaylistId,
+        sourceRevision = snapshot.sourceRevision?.coerceAtLeast(0L),
+        sortMode = MusicSortMode.Manual
+    ).touched(now)
+    // Equal to its file again, so this revision is the one an unedited copy is compared and exported with.
+    val updated = changed.copy(revisionAtSource = changed.revision)
+    val withStats = library.copy(stats = statsAfterAdding(library.stats, tracks.filter { it.origin != null }))
+    val next = withStats.replacing(updated)
+    return MusicOutcome.Done(MusicEdit(next.copy(stats = boundedStats(next.stats, next.playlists)), Unit))
+}
+
+/**
+ * Entries of an imported playlist in file order. An origin from another account is dropped, so the entry becomes unavailable.
+ * An origin that already appeared earlier in the list is skipped. A blank or repeated entry id gets a fresh one.
+ */
+private fun importedTracks(
+    library: MusicLibrary,
+    tracks: List<PlaylistTrack>,
+    now: Long,
+    newItemId: () -> String
+): List<PlaylistTrack> {
+    val seenOrigins = HashSet<PlaybackOrigin>()
+    val takenIds = HashSet<String>()
+    val result = ArrayList<PlaylistTrack>()
+    for (track in tracks) {
+        if (result.size >= MUSIC_MAX_TRACKS_PER_PLAYLIST) break
+        val origin = track.origin?.takeIf { it.accountId == library.accountId }
+        if (origin != null && !seenOrigins.add(origin)) continue
+        var itemId = track.itemId
+        if (itemId.isBlank() || !takenIds.add(itemId)) {
+            do {
+                itemId = newItemId()
+            } while (!takenIds.add(itemId))
+        }
+        result += track.copy(itemId = itemId, origin = origin, addedAt = now + result.size)
+    }
+    return result
+}

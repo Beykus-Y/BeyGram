@@ -192,6 +192,7 @@ import com.beykus.beygram.ui.screens.playback.MusicSearchScreen
 import com.beykus.beygram.ui.screens.playback.LocalOpenEqualizer
 import com.beykus.beygram.ui.screens.playback.LocalOpenMusicSearch
 import com.beykus.beygram.ui.screens.playback.LocalOpenMyMusic
+import com.beykus.beygram.ui.screens.bgmusic.LocalOpenMusicPlaylist
 import com.beykus.beygram.ui.screens.music.MyMusicScreen
 import com.beykus.beygram.ui.screens.music.MusicPlaylistScreen
 import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
@@ -402,6 +403,8 @@ private fun BeyGramAppContent(
     var musicSearchReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var myMusicReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var musicPlaylistId by rememberSaveable { mutableStateOf("") }
+    // Where Back from the playlist goes: My Music, or the chat whose `.bgmusic` preview opened it.
+    var musicPlaylistReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
     // The account that opened the playlist. Playlists belong to an account, so a switch leaves the playlist behind.
     var musicPlaylistAccountId by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(selectedAccountId) {
@@ -1577,7 +1580,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = musicSearchReturnRouteName }
     BackHandler(enabled = route == AppRoute.MyMusic) { routeName = myMusicReturnRouteName }
-    BackHandler(enabled = route == AppRoute.MusicPlaylist) { routeName = AppRoute.MyMusic.name }
+    BackHandler(enabled = route == AppRoute.MusicPlaylist) { routeName = musicPlaylistReturnRouteName }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
@@ -2146,6 +2149,13 @@ private fun BeyGramAppContent(
                 myMusicReturnRouteName = routeName
                 routeName = AppRoute.MyMusic.name
             }
+        },
+        // A playlist opened from a chat (its `.bgmusic` preview) returns to that chat with Back.
+        LocalOpenMusicPlaylist provides { playlistId: String ->
+            musicPlaylistReturnRouteName = routeName
+            musicPlaylistId = playlistId
+            musicPlaylistAccountId = selectedAccountId
+            routeName = AppRoute.MusicPlaylist.name
         }
     ) {
     Column(Modifier.fillMaxSize()) {
@@ -2452,6 +2462,7 @@ private fun BeyGramAppContent(
                     onBack = { routeName = myMusicReturnRouteName },
                     onSearch = { musicSearchReturnRouteName = AppRoute.MyMusic.name; routeName = AppRoute.MusicSearch.name },
                     onOpenPlaylist = { playlistId ->
+                        musicPlaylistReturnRouteName = AppRoute.MyMusic.name
                         musicPlaylistId = playlistId
                         musicPlaylistAccountId = selectedAccountId
                         routeName = AppRoute.MusicPlaylist.name
@@ -2461,7 +2472,7 @@ private fun BeyGramAppContent(
                     accountId = selectedAccountId,
                     telegram = repository,
                     playlistId = musicPlaylistId,
-                    onBack = { routeName = AppRoute.MyMusic.name }
+                    onBack = { routeName = musicPlaylistReturnRouteName }
                 )
                 AppRoute.Equalizer -> EqualizerScreen(
                     settings = equalizerSettings,

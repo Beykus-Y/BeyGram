@@ -61,6 +61,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import com.beykus.beygram.ui.screens.bgmusic.BgMusicChatDocument
+import com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -426,7 +428,9 @@ internal fun MediaPreview(
      */
     onStickerOpen: (() -> Unit)? = null,
     /** The chat may supply an ordered, lazily paged music queue instead of a standalone track. */
-    onMusicPlay: ((PlaybackItem) -> Unit)? = null
+    onMusicPlay: ((PlaybackItem) -> Unit)? = null,
+    /** Selection mode is on: a tap on the bubble selects the message instead of opening it. */
+    selectionActive: Boolean = false,
 ) {
     val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
     val thumbId = media.thumbnailFileId ?: media.fileId
@@ -774,25 +778,43 @@ internal fun MediaPreview(
                 Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = palette.textSecondary)
             }
         }
+    } else if (isBgMusicDocument(media)) {
+        BgMusicChatDocument(
+            media = media,
+            file = file,
+            downloadFile = downloadFile,
+            selectionActive = selectionActive,
+            onOpen = onOpen,
+            onLongPress = onLongPress,
+            fallback = { DocumentRow(media, file, onOpen, onLongPress) },
+        )
     } else {
-        val mediaLabel = media.kind.label(context)
-        val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
-        val longPressLabel = stringResource(R.string.a11y_message_actions)
-        Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp))
-            .combinedClickable(onClickLabel = openLabel, onLongClickLabel = longPressLabel, onClick = onOpen, onLongClick = onLongPress)
-            .padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
-                modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(10.dp))
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(media.fileName.ifBlank { stringResource(R.string.media_kind_file) }, color = palette.textPrimary, fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · " + duration(media.durationSeconds) else "",
-                    color = palette.textSecondary, fontSize = 13.sp)
-                if (file.isDownloading || file.isUploading) LinearProgressIndicator(
-                    progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
-            }
+        DocumentRow(media, file, onOpen, onLongPress)
+    }
+}
+
+/** A file in the chat bubble: its name, size and download progress. The row is opened through [onOpen]. */
+@Composable
+private fun DocumentRow(media: MessageMedia, file: MediaFileState, onOpen: () -> Unit, onLongPress: (() -> Unit)?) {
+    val context = LocalContext.current
+    val palette = beyGramPalette()
+    val mediaLabel = media.kind.label(context)
+    val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
+    val longPressLabel = stringResource(R.string.a11y_message_actions)
+    Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp))
+        .combinedClickable(onClickLabel = openLabel, onLongClickLabel = longPressLabel, onClick = onOpen, onLongClick = onLongPress)
+        .padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
+            modifier = Modifier.size(44.dp).background(palette.accentSoft, CircleShape).padding(10.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(media.fileName.ifBlank { stringResource(R.string.media_kind_file) }, color = palette.textPrimary, fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · " + duration(media.durationSeconds) else "",
+                color = palette.textSecondary, fontSize = 13.sp)
+            if (file.isDownloading || file.isUploading) LinearProgressIndicator(
+                progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
         }
     }
 }

@@ -59,9 +59,26 @@ data class MusicPlaylist(
     val revision: Long = 0L,
     /** Set only on copies that came from an import. */
     val sourcePlaylistId: String? = null,
+    /**
+     * Revision of the file this copy was imported from, stored with [sourcePlaylistId]. Local edits bump [revision] but never this
+     * value, so a file is always compared with the version it carries.
+     */
+    val sourceRevision: Long? = null,
+    /**
+     * Value of [revision] when this copy was last made equal to its file: at the import and at each update. While [revision]
+     * still equals it, the copy has no local change and is exported as the file it came from. Null for playlists that were not
+     * imported, and for copies stored before this field existed, which count as edited.
+     */
+    val revisionAtSource: Long? = null,
     val sortMode: MusicSortMode = MusicSortMode.Manual
 ) {
     val isFavorites: Boolean get() = id == MUSIC_FAVORITES_PLAYLIST_ID
+
+    /**
+     * The revision of the version this playlist stands for: [sourceRevision] for an imported copy (or [revision] when a document
+     * written before the field existed has none), and [revision] for every other playlist.
+     */
+    val fileRevision: Long get() = if (sourcePlaylistId != null) sourceRevision ?: revision else revision
 }
 
 /**
