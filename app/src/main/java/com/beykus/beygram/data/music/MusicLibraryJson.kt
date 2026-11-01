@@ -7,7 +7,11 @@ import org.json.JSONObject
 
 /** Result of reading one library document. Only [Decoded] carries data that may be shown or saved again. */
 sealed interface MusicLibraryDecodeResult {
-    data class Decoded(val library: MusicLibrary) : MusicLibraryDecodeResult
+    /**
+     * [skippedCount] entries of the document were left out: malformed, repeated, or beyond a limit. A library with skipped
+     * entries is backed up before the first save overwrites the document, so the left-out data is never lost silently.
+     */
+    data class Decoded(val library: MusicLibrary, val skippedCount: Int = 0) : MusicLibraryDecodeResult
 
     /** Written by a newer schema. The document has to stay exactly as it is. */
     data class UnsupportedVersion(val version: Int) : MusicLibraryDecodeResult
@@ -18,9 +22,10 @@ sealed interface MusicLibraryDecodeResult {
 /**
  * JSON layer of the per-account library file. It has no Android dependency, so the format is covered by plain JVM tests.
  *
- * Writing always uses [MUSIC_LIBRARY_SCHEMA_VERSION]. Reading skips a single malformed playlist, track, stats or history
- * entry, but a document whose top level is broken is reported as [MusicLibraryDecodeResult.Corrupt] so the caller can keep
- * a backup. Optional fields may be missing or null; missing required fields make the entry malformed.
+ * Writing always uses [MUSIC_LIBRARY_SCHEMA_VERSION]. Reading leaves out a single malformed, repeated or over-limit entry
+ * and counts it in [MusicLibraryDecodeResult.Decoded.skippedCount]. A document whose top level is broken, or whose
+ * `playlists` is missing or not an array, is [MusicLibraryDecodeResult.Corrupt]. Optional fields may be missing or null;
+ * a required field that is missing makes its entry malformed.
  */
 object MusicLibraryJson {
     fun encode(library: MusicLibrary): String = JSONObject()
@@ -44,15 +49,25 @@ object MusicLibraryJson {
         if (version < 1) return MusicLibraryDecodeResult.Corrupt("invalid schemaVersion $version")
         val accountId = root.getString("accountId")
         if (accountId.isBlank()) return MusicLibraryDecodeResult.Corrupt("blank accountId")
-        val playlists = root.objectArray("playlists") { playlistFromJson(it) }.distinctBy { it.id }
-        val stats = root.objectArray("stats") { statsFromJson(it) }
-            .distinctBy { it.trackKey }
+        val rawPlaylists = root.optJSONArray("playlists")
+            ?: return MusicLibraryDecodeResult.Corrupt("playlists is missing or not an array")
+        val tally = Tally()
+        val playlists = limitPlaylists(
+            rawPlaylists.readEntries(tally) { playlistFromJson(it, tally) }.distinctCounting(tally) { it.id },
+            tally
+        )
+        val statsByKey = root.entriesOf("stats", tally) { statsFromJson(it) }
+            .distinctCounting(tally) { it.trackKey }
             .associateBy { it.trackKey }
-        val recent = root.objectArray("recent") { historyFromJson(it) }
-            .distinctBy { it.trackKey }
-            .take(MUSIC_MAX_RECENT_ENTRIES)
+        val stats = boundedStats(statsByKey, playlists)
+        tally.skipped += statsByKey.size - stats.size
+        val historyEntries = root.entriesOf("recent", tally) { historyFromJson(it) }
+            .distinctCounting(tally) { it.trackKey }
+        val recent = historyEntries.take(MUSIC_MAX_RECENT_ENTRIES)
+        tally.skipped += historyEntries.size - recent.size
         return MusicLibraryDecodeResult.Decoded(
-            MusicLibrary(accountId = accountId, playlists = playlists, stats = stats, recent = recent)
+            library = MusicLibrary(accountId = accountId, playlists = playlists, stats = stats, recent = recent),
+            skippedCount = tally.skipped
         )
     }
 
@@ -106,30 +121,91 @@ object MusicLibraryJson {
 
     // ---- Decoding ----------------------------------------------------------------------------------
 
-    /** Reads every object of the array; an entry that does not decode is skipped, the rest are kept. */
-    private inline fun <T> JSONArray.objects(read: (JSONObject) -> T): List<T> {
+    /** Counts what decoding left out, so the caller knows whether the stored document held anything it did not keep. */
+    private class Tally {
+        var skipped = 0
+    }
+
+    /** Reads every object of the array. An entry that is not an object, or does not decode, is counted as skipped. */
+    private inline fun <T> JSONArray.readEntries(tally: Tally, read: (JSONObject) -> T): List<T> {
         val result = ArrayList<T>(length())
         for (index in 0 until length()) {
-            val entry = optJSONObject(index) ?: continue
-            runCatching { read(entry) }.getOrNull()?.let { result += it }
+            val entry = optJSONObject(index)
+            val value = if (entry == null) null else runCatching { read(entry) }.getOrNull()
+            if (value == null) {
+                tally.skipped++
+            } else {
+                result += value
+            }
         }
         return result
     }
 
-    /** A named array of objects; a missing or non-array value reads as empty. */
-    private inline fun <T> JSONObject.objectArray(name: String, read: (JSONObject) -> T): List<T> =
-        optJSONArray(name)?.objects(read) ?: emptyList()
+    /**
+     * A named array of objects. A missing or null value reads as empty; a value of another type counts as one skipped
+     * section, so the stored data is not silently replaced by an empty one.
+     */
+    private inline fun <T> JSONObject.entriesOf(name: String, tally: Tally, read: (JSONObject) -> T): List<T> {
+        if (!has(name) || isNull(name)) return emptyList()
+        val array = optJSONArray(name)
+        if (array == null) {
+            tally.skipped++
+            return emptyList()
+        }
+        return array.readEntries(tally, read)
+    }
 
-    private fun playlistFromJson(json: JSONObject): MusicPlaylist {
+    /** Keeps the first entry for each key. Every later repeat is counted as skipped. */
+    private fun <T> List<T>.distinctCounting(tally: Tally, key: (T) -> Any): List<T> {
+        val seen = HashSet<Any>()
+        val result = ArrayList<T>(size)
+        for (entry in this) {
+            if (seen.add(key(entry))) {
+                result += entry
+            } else {
+                tally.skipped++
+            }
+        }
+        return result
+    }
+
+    /**
+     * Keeps at most [MUSIC_MAX_PLAYLISTS] playlists. One slot stays free for the favorites playlist, which the repository adds
+     * when the file has none. The favorites entry itself is always kept.
+     */
+    private fun limitPlaylists(playlists: List<MusicPlaylist>, tally: Tally): List<MusicPlaylist> {
+        val room = MUSIC_MAX_PLAYLISTS - 1
+        val kept = ArrayList<MusicPlaylist>(playlists.size)
+        var used = 0
+        for (playlist in playlists) {
+            if (playlist.isFavorites) {
+                kept += playlist
+            } else if (used < room) {
+                kept += playlist
+                used++
+            } else {
+                tally.skipped++
+            }
+        }
+        return kept
+    }
+
+    private fun playlistFromJson(json: JSONObject, tally: Tally): MusicPlaylist {
         val id = json.getString("id")
         require(id.isNotBlank()) { "playlist id is blank" }
-        val tracks = json.objectArray("tracks") { trackFromJson(it) }.distinctBy { it.itemId }
+        val tracks = json.entriesOf("tracks", tally) { trackFromJson(it) }.distinctCounting(tally) { it.itemId }
+        val kept = if (tracks.size > MUSIC_MAX_TRACKS_PER_PLAYLIST) {
+            tally.skipped += tracks.size - MUSIC_MAX_TRACKS_PER_PLAYLIST
+            tracks.take(MUSIC_MAX_TRACKS_PER_PLAYLIST)
+        } else {
+            tracks
+        }
         return MusicPlaylist(
             id = id,
             title = json.getString("title"),
             description = json.optionalString("description").orEmpty(),
             coverPath = json.optionalString("coverPath"),
-            tracks = tracks,
+            tracks = kept,
             createdAt = json.optLong("createdAt", 0L),
             updatedAt = json.optLong("updatedAt", 0L),
             revision = json.optLong("revision", 0L),

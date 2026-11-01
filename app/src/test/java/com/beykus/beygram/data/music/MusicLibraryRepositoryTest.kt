@@ -1,6 +1,10 @@
 package com.beykus.beygram.data.music
 
 import java.io.File
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,6 +16,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class MusicLibraryRepositoryTest {
     @get:Rule
     val tempFolder = TemporaryFolder()
@@ -232,6 +237,56 @@ class MusicLibraryRepositoryTest {
     }
 
     @Test
+    fun theLibraryIsNotLoadedUntilTheStoredLibraryHasBeenRead() = runTest {
+        val gated = GatedLoadPersistence(persistence)
+        val gatedRepo = repositoryFor(gated, clock)
+        assertFalse(gatedRepo.isLoaded.value)
+        val selecting = launch { gatedRepo.setActiveAccount(TEST_ACCOUNT) }
+        runCurrent()
+        assertFalse(gatedRepo.isLoaded.value)
+        assertTrue(gatedRepo.library.value.playlists.isEmpty())
+        gated.releaseLoads.complete(Unit)
+        selecting.join()
+        assertTrue(gatedRepo.isLoaded.value)
+        assertNotNull(gatedRepo.library.value.favorites)
+    }
+
+    @Test
+    fun changesIssuedWhileLoadingWaitForTheLoadAndApplyToIt() = runTest {
+        persistence.stored[TEST_ACCOUNT] = MusicLibrary(
+            accountId = TEST_ACCOUNT,
+            playlists = listOf(favoritesPlaylist(1L), MusicPlaylist(id = "kept", title = "Kept"))
+        )
+        val gated = GatedLoadPersistence(persistence)
+        val gatedRepo = repositoryFor(gated, clock)
+        val selecting = launch { gatedRepo.setActiveAccount(TEST_ACCOUNT) }
+        runCurrent()
+        val creating = async { gatedRepo.createPlaylist("Added while loading") }
+        runCurrent()
+        assertFalse(creating.isCompleted)
+        gated.releaseLoads.complete(Unit)
+        selecting.join()
+        creating.await().doneValue()
+        assertEquals(
+            listOf("Kept", "Added while loading"),
+            gatedRepo.library.value.playlists.filterNot { it.isFavorites }.map { it.title }
+        )
+    }
+
+    @Test
+    fun aSelectionThatIsCancelledStillFinishesItsLoad() = runTest {
+        val gated = GatedLoadPersistence(persistence)
+        val gatedRepo = repositoryFor(gated, clock)
+        val selecting = launch { gatedRepo.setActiveAccount(TEST_ACCOUNT) }
+        runCurrent()
+        selecting.cancel()
+        gated.releaseLoads.complete(Unit)
+        selecting.join()
+        assertTrue(gatedRepo.isLoaded.value)
+        gatedRepo.createPlaylist("After cancel").doneValue()
+    }
+
+    @Test
     fun recordingPlaysCountsAndKeepsOneHistoryEntryPerTrack() = runTest {
         repo.setActiveAccount(TEST_ACCOUNT)
         val first = testTrack(message = 1).toTrackRef()
@@ -262,6 +317,24 @@ class MusicLibraryRepositoryTest {
     }
 
     @Test
+    fun statsAreCappedAndPlaylistTracksAreNeverEvicted() = runTest {
+        repo.setActiveAccount(TEST_ACCOUNT)
+        val pinned = testTrack(message = 1)
+        val id = repo.createPlaylist("Pinned").doneValue().id
+        repo.addTrack(id, pinned).doneValue()
+        for (message in 1..(MUSIC_MAX_STATS + 1)) {
+            repo.recordPlay(testTrack(message = message.toLong()).toTrackRef(), message.toLong()).doneValue()
+        }
+        val stats = repo.library.value.stats
+        assertEquals(MUSIC_MAX_STATS, stats.size)
+        // The pinned track is in a playlist, so it stays even though its last play is the oldest.
+        assertTrue(stats.containsKey(pinned.trackKey))
+        // Among the tracks outside playlists, the least recently played one (message 2) is the one evicted.
+        assertFalse(stats.containsKey(testTrack(message = 2).toTrackRef().trackKey))
+        assertTrue(stats.containsKey(testTrack(message = MUSIC_MAX_STATS + 1L).toTrackRef().trackKey))
+    }
+
+    @Test
     fun playlistCoversMustLiveInsideTheCoverDirectory() = runTest {
         val root = tempFolder.newFolder("covers")
         val covers = repositoryFor(persistence, clock, coverRoot = root)
@@ -282,5 +355,58 @@ class MusicLibraryRepositoryTest {
         repo.setActiveAccount(TEST_ACCOUNT)
         val id = repo.createPlaylist("NoCovers").doneValue().id
         assertEquals(MusicFailure.InvalidCover, repo.setCover(id, File(tempFolder.root, "cover.jpg").path).failureOf())
+    }
+
+    @Test
+    fun duplicatingAPlaylistCopiesItsCoverFile() = runTest {
+        val root = tempFolder.newFolder("covers")
+        val covers = repositoryFor(persistence, clock, coverRoot = root)
+        covers.setActiveAccount(TEST_ACCOUNT)
+        val source = File(root, "source.jpg").apply { writeText("pixels") }
+        val sourceId = covers.createPlaylist("Art").doneValue().id
+        covers.setCover(sourceId, source.absolutePath).doneValue()
+        val copy = covers.duplicatePlaylist(sourceId, "(copy)").doneValue()
+        val copyCover = File(copy.coverPath!!)
+        assertNotEquals(source.absolutePath, copy.coverPath)
+        assertEquals("pixels", copyCover.readText())
+        covers.deletePlaylist(sourceId).doneValue()
+        assertFalse(source.exists())
+        assertTrue(copyCover.exists())
+    }
+
+    @Test
+    fun replacingOrRemovingACoverDeletesTheFileThatNoPlaylistUsesAnyMore() = runTest {
+        val root = tempFolder.newFolder("covers")
+        val covers = repositoryFor(persistence, clock, coverRoot = root)
+        covers.setActiveAccount(TEST_ACCOUNT)
+        val id = covers.createPlaylist("Cover").doneValue().id
+        val first = File(root, "first.jpg").apply { writeText("1") }
+        val second = File(root, "second.jpg").apply { writeText("2") }
+        covers.setCover(id, first.absolutePath).doneValue()
+        covers.setCover(id, second.absolutePath).doneValue()
+        assertFalse(first.exists())
+        assertTrue(second.exists())
+        covers.deletePlaylist(id).doneValue()
+        assertFalse(second.exists())
+    }
+
+    @Test
+    fun clearAccountDeletesTheCoverFilesOfThatAccount() = runTest {
+        val root = tempFolder.newFolder("covers")
+        val covers = repositoryFor(persistence, clock, coverRoot = root)
+        covers.setActiveAccount("other")
+        val otherCover = File(root, "other.jpg").apply { writeText("x") }
+        val otherId = covers.createPlaylist("Other").doneValue().id
+        covers.setCover(otherId, otherCover.absolutePath).doneValue()
+        covers.setActiveAccount(TEST_ACCOUNT)
+        val mine = File(root, "mine.jpg").apply { writeText("y") }
+        val myId = covers.createPlaylist("Mine").doneValue().id
+        covers.setCover(myId, mine.absolutePath).doneValue()
+        // The other account is not active, so its covers are found through storage.
+        covers.clearAccount("other").doneValue()
+        assertFalse(otherCover.exists())
+        assertTrue(mine.exists())
+        covers.clearAccount(TEST_ACCOUNT).doneValue()
+        assertFalse(mine.exists())
     }
 }

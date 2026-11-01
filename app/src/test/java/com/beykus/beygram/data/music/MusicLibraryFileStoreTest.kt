@@ -24,6 +24,10 @@ class MusicLibraryFileStoreTest {
         )
     )
 
+    /** Backups of the account's file, i.e. files named `<file>.<stamp>.bak`. */
+    private fun backupsOf(file: File): List<File> =
+        file.parentFile!!.listFiles()!!.filter { it.name.startsWith(file.name + ".") && it.name.endsWith(".bak") }
+
     @Test
     fun fileNamesAreHashedAndSeparatePerAccount() {
         val store = store()
@@ -84,6 +88,42 @@ class MusicLibraryFileStoreTest {
         file.writeText(MusicLibraryJson.encode(library("someone-else", "Mix")))
         assertEquals(MusicLibraryLoad.Empty, store.load("acc"))
         assertFalse(file.exists())
+    }
+
+    @Test
+    fun skippedEntriesAreBackedUpOnlyBeforeTheFirstOverwrite() = runTest {
+        val store = store()
+        val file = store.fileFor("acc")
+        file.parentFile!!.mkdirs()
+        val original = """
+            {"schemaVersion": 1, "accountId": "acc", "playlists": [{"id": "p", "title": "Kept"}, {"title": "malformed"}]}
+        """.trimIndent()
+        file.writeText(original)
+        val loaded = store.load("acc") as MusicLibraryLoad.Loaded
+        assertEquals(listOf("p"), loaded.library.playlists.map { it.id })
+        // Loading never rewrites the document, and nothing is backed up before a save.
+        assertEquals(original, file.readText())
+        assertTrue(backupsOf(file).isEmpty())
+        store.save(loaded.library)
+        assertEquals(listOf(original), backupsOf(file).map { it.readText() })
+        assertEquals(MusicLibraryLoad.Loaded(loaded.library), store.load("acc"))
+        store.save(loaded.library)
+        assertEquals(1, backupsOf(file).size)
+    }
+
+    @Test
+    fun backupsAreKeptAtMostThreeNewestFirst() = runTest {
+        val store = store()
+        val file = store.fileFor("acc")
+        file.parentFile!!.mkdirs()
+        for (round in 1..5) {
+            file.writeText("{broken $round")
+            assertEquals(MusicLibraryLoad.Empty, store.load("acc"))
+        }
+        assertEquals(
+            setOf("{broken 3", "{broken 4", "{broken 5"),
+            backupsOf(file).map { it.readText() }.toSet()
+        )
     }
 
     @Test

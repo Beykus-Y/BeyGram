@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.music
 
 import com.beykus.beygram.playback.PlaybackOrigin
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -57,6 +58,10 @@ class MusicLibraryJsonTest {
         )
     }
 
+    /** A document with the given playlists array and nothing else but the required fields. */
+    private fun documentWith(playlists: JSONArray): String =
+        JSONObject().put("schemaVersion", 1).put("accountId", TEST_ACCOUNT).put("playlists", playlists).toString()
+
     @Test
     fun roundTripKeepsUnicodeEmojiLongTitlesAndAllFields() {
         val original = sampleLibrary()
@@ -92,7 +97,18 @@ class MusicLibraryJsonTest {
     }
 
     @Test
-    fun malformedEntriesAreSkippedAndDuplicatesDropped() {
+    fun missingOrNonArrayPlaylistsIsCorrupt() {
+        assertTrue(MusicLibraryJson.decode("""{"schemaVersion": 1, "accountId": "acc"}""") is MusicLibraryDecodeResult.Corrupt)
+        assertTrue(
+            MusicLibraryJson.decode("""{"schemaVersion": 1, "accountId": "acc", "playlists": null}""") is MusicLibraryDecodeResult.Corrupt
+        )
+        assertTrue(
+            MusicLibraryJson.decode("""{"schemaVersion": 1, "accountId": "acc", "playlists": {}}""") is MusicLibraryDecodeResult.Corrupt
+        )
+    }
+
+    @Test
+    fun malformedEntriesAreSkippedCountedAndDuplicatesDropped() {
         val text = """
             {"schemaVersion": 1, "accountId": "acc", "playlists": [
               {"id": "p1", "title": "Good", "tracks": [
@@ -109,6 +125,65 @@ class MusicLibraryJsonTest {
         assertEquals(listOf("p1"), decoded.library.playlists.map { it.id })
         assertEquals("Good", decoded.library.playlists.single().title)
         assertEquals(listOf("t1", "t2"), decoded.library.playlists.single().tracks.map { it.itemId })
+        // Two tracks (one without an id, one repeated id) and two playlists (one without an id, one repeated id).
+        assertEquals(4, decoded.skippedCount)
+    }
+
+    @Test
+    fun aSectionOfTheWrongTypeIsCountedAsSkipped() {
+        val text = """
+            {"schemaVersion": 1, "accountId": "acc", "playlists": [{"id": "p", "title": "T", "tracks": 5}], "stats": "oops"}
+        """.trimIndent()
+        val decoded = MusicLibraryJson.decode(text) as MusicLibraryDecodeResult.Decoded
+        assertTrue(decoded.library.playlists.single().tracks.isEmpty())
+        assertEquals(2, decoded.skippedCount)
+    }
+
+    @Test
+    fun playlistsBeyondTheLimitAreSkippedAndOneSlotStaysFreeForFavorites() {
+        val playlists = JSONArray()
+        repeat(MUSIC_MAX_PLAYLISTS + 2) { index ->
+            playlists.put(JSONObject().put("id", "p$index").put("title", "List $index"))
+        }
+        val decoded = MusicLibraryJson.decode(documentWith(playlists)) as MusicLibraryDecodeResult.Decoded
+        assertEquals(MUSIC_MAX_PLAYLISTS - 1, decoded.library.playlists.size)
+        assertEquals(3, decoded.skippedCount)
+    }
+
+    @Test
+    fun aFullLibraryWithFavoritesDecodesWithoutSkips() {
+        val playlists = listOf(favoritesPlaylist(1L)) +
+            (1 until MUSIC_MAX_PLAYLISTS).map { MusicPlaylist(id = "p$it", title = "List $it") }
+        val text = MusicLibraryJson.encode(MusicLibrary(accountId = TEST_ACCOUNT, playlists = playlists))
+        val decoded = MusicLibraryJson.decode(text) as MusicLibraryDecodeResult.Decoded
+        assertEquals(MUSIC_MAX_PLAYLISTS, decoded.library.playlists.size)
+        assertEquals(0, decoded.skippedCount)
+    }
+
+    @Test
+    fun tracksBeyondThePerPlaylistLimitAreSkipped() {
+        val tracks = JSONArray()
+        repeat(MUSIC_MAX_TRACKS_PER_PLAYLIST + 1) { index ->
+            tracks.put(JSONObject().put("itemId", "t$index").put("title", "T$index"))
+        }
+        val playlist = JSONObject().put("id", "p").put("title", "Big").put("tracks", tracks)
+        val decoded = MusicLibraryJson.decode(documentWith(JSONArray().put(playlist))) as MusicLibraryDecodeResult.Decoded
+        assertEquals(MUSIC_MAX_TRACKS_PER_PLAYLIST, decoded.library.playlists.single().tracks.size)
+        assertEquals(1, decoded.skippedCount)
+    }
+
+    @Test
+    fun statsBeyondTheCapAreEvictedLeastRecentlyPlayedFirstAndCounted() {
+        val stats = (1..MUSIC_MAX_STATS + 1).associate { index ->
+            val track = MusicTrackRef(trackKey = "item:$index", title = "T$index")
+            track.trackKey to MusicListenStats(track = track, playCount = 1, lastPlayedAt = index.toLong())
+        }
+        val library = MusicLibrary(accountId = TEST_ACCOUNT, playlists = listOf(favoritesPlaylist(1L)), stats = stats)
+        val decoded = MusicLibraryJson.decode(MusicLibraryJson.encode(library)) as MusicLibraryDecodeResult.Decoded
+        assertEquals(MUSIC_MAX_STATS, decoded.library.stats.size)
+        assertFalse(decoded.library.stats.containsKey("item:1"))
+        assertTrue(decoded.library.stats.containsKey("item:${MUSIC_MAX_STATS + 1}"))
+        assertEquals(1, decoded.skippedCount)
     }
 
     @Test

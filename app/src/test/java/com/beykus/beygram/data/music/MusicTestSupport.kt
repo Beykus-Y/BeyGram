@@ -3,6 +3,7 @@ package com.beykus.beygram.data.music
 import com.beykus.beygram.playback.PlaybackOrigin
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 
 internal const val TEST_ACCOUNT = "acc"
@@ -29,6 +30,20 @@ internal class FakeMusicPersistence : MusicLibraryPersistence {
     override suspend fun clear(accountId: String) {
         stored.remove(accountId)
     }
+}
+
+/** Persistence whose loads wait for [releaseLoads], so a test can look at the state while a load is in progress. */
+internal class GatedLoadPersistence(private val inner: MusicLibraryPersistence) : MusicLibraryPersistence {
+    val releaseLoads = CompletableDeferred<Unit>()
+
+    override suspend fun load(accountId: String): MusicLibraryLoad {
+        releaseLoads.await()
+        return inner.load(accountId)
+    }
+
+    override suspend fun save(library: MusicLibrary) = inner.save(library)
+
+    override suspend fun clear(accountId: String) = inner.clear(accountId)
 }
 
 internal class FakeClock(var now: Long = 1_000L)

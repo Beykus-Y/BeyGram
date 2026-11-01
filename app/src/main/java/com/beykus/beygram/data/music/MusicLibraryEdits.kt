@@ -114,7 +114,8 @@ internal fun deletePlaylistEdit(library: MusicLibrary, playlistId: String): Musi
 
 /**
  * A copy gets its own id and its own entry ids, so the two playlists never share a track entry. Import links
- * ([MusicPlaylist.sourcePlaylistId]) are not copied; a duplicate is a local playlist.
+ * ([MusicPlaylist.sourcePlaylistId]) are not copied; a duplicate is a local playlist. [copiedCover] is the copy's own cover
+ * file, prepared by the repository, so the source's cover file is never shared.
  */
 internal fun duplicatePlaylistEdit(
     library: MusicLibrary,
@@ -122,7 +123,8 @@ internal fun duplicatePlaylistEdit(
     copySuffix: String,
     copyId: String,
     now: Long,
-    newItemId: () -> String
+    newItemId: () -> String,
+    copiedCover: String?
 ): MusicEditOutcome<MusicPlaylist> {
     val source = library.playlist(sourceId) ?: return MusicOutcome.Failed(MusicFailure.NotFound)
     if (library.playlists.size >= MUSIC_MAX_PLAYLISTS) return MusicOutcome.Failed(MusicFailure.LimitReached)
@@ -130,7 +132,7 @@ internal fun duplicatePlaylistEdit(
         id = copyId,
         title = titleWithCopySuffix(source.title, copySuffix),
         description = source.description,
-        coverPath = source.coverPath,
+        coverPath = copiedCover,
         tracks = source.tracks.map { it.copy(itemId = newItemId()) },
         createdAt = now,
         updatedAt = now,
@@ -191,7 +193,8 @@ internal fun addTracksEdit(
         sortMode = MusicSortMode.Manual
     ).touched(now)
     val withStats = library.copy(stats = statsAfterAdding(library.stats, accepted))
-    return MusicOutcome.Done(MusicEdit(withStats.replacing(updated), result))
+    val next = withStats.replacing(updated)
+    return MusicOutcome.Done(MusicEdit(next.copy(stats = boundedStats(next.stats, next.playlists)), result))
 }
 
 /** The first time a track is added anywhere, its stats record that moment; metadata follows the latest copy. */
@@ -334,5 +337,28 @@ internal fun recordPlayEdit(library: MusicLibrary, track: MusicTrackRef, playedA
     val recent = (listOf(MusicHistoryEntry(trackKey = key, playedAt = playedAt)) +
         library.recent.filterNot { it.trackKey == key })
         .take(MUSIC_MAX_RECENT_ENTRIES)
-    return MusicOutcome.Done(MusicEdit(library.copy(stats = stats, recent = recent), Unit))
+    val bounded = boundedStats(stats, library.playlists, keepKey = key)
+    return MusicOutcome.Done(MusicEdit(library.copy(stats = bounded, recent = recent), Unit))
+}
+
+/**
+ * Keeps the stats map within [MUSIC_MAX_STATS]. Entries of tracks that are still in a playlist are always kept, and
+ * [keepKey] is never evicted. The rest go least recently played first; an entry that was never played goes before any that
+ * was. The map stays above the limit only when the playlists themselves hold more distinct tracks than that.
+ */
+internal fun boundedStats(
+    stats: Map<String, MusicListenStats>,
+    playlists: List<MusicPlaylist>,
+    keepKey: String? = null
+): Map<String, MusicListenStats> {
+    if (stats.size <= MUSIC_MAX_STATS) return stats
+    val inPlaylists = HashSet<String>()
+    for (playlist in playlists) {
+        for (track in playlist.tracks) inPlaylists.add(track.trackKey)
+    }
+    val candidates = stats.values
+        .filter { it.trackKey !in inPlaylists && it.trackKey != keepKey }
+        .sortedWith(compareBy<MusicListenStats> { it.lastPlayedAt ?: it.firstAddedAt ?: 0L }.thenBy { it.trackKey })
+    val evicted = candidates.take(stats.size - MUSIC_MAX_STATS).mapTo(HashSet()) { it.trackKey }
+    return stats.filterKeys { it !in evicted }
 }

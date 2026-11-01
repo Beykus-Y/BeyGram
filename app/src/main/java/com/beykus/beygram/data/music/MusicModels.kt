@@ -21,6 +21,9 @@ const val MUSIC_MAX_TITLE_CHARS = 128
 const val MUSIC_MAX_DESCRIPTION_CHARS = 1_000
 const val MUSIC_MAX_RECENT_ENTRIES = 200
 
+/** Listen statistics kept for tracks that are in no playlist. Tracks that are in a playlist always keep theirs. */
+const val MUSIC_MAX_STATS = 2_000
+
 /** Order in which a playlist's tracks are shown. [Manual] is the stored order; the others are applied once, when picked. */
 enum class MusicSortMode { Manual, Title, Artist, AddedAt, Duration }
 

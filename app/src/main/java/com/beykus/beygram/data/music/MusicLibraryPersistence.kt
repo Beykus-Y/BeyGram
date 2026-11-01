@@ -21,6 +21,6 @@ interface MusicLibraryPersistence {
     /** Replaces the account's stored library. Throws [java.io.IOException] when the library was not saved. */
     suspend fun save(library: MusicLibrary)
 
-    /** Deletes everything stored for the account, including its backups. */
+    /** Deletes everything stored for the account, including its backups. Throws [java.io.IOException] if a file stays. */
     suspend fun clear(accountId: String)
 }
