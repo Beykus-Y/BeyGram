@@ -4,6 +4,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackState
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -114,6 +115,34 @@ class MusicHistoryRecorderTest {
         runCurrent()
         emit(flow, playing(song).copy(positionMs = 1_000L))
         assertTrue(repo.library.value.stats.isEmpty())
+        observer.cancel()
+    }
+
+    @Test
+    fun aSlowWriteDoesNotMakeTheCollectorSkipStarts() = runTest {
+        // Every write waits for the gate, so the later starts arrive while the first write is still on the disk.
+        val gate = CompletableDeferred<Unit>()
+        val inner = FakeMusicPersistence()
+        val slow = object : MusicLibraryPersistence by inner {
+            override suspend fun save(library: MusicLibrary) {
+                gate.await()
+                inner.save(library)
+            }
+        }
+        val repo = repositoryFor(slow, FakeClock())
+        repo.setActiveAccount(TEST_ACCOUNT)
+        val flow = MutableStateFlow(PlaybackState())
+        val observer = launch { MusicHistoryRecorder.observe(repo, flow) }
+        runCurrent()
+        emit(flow, playing(item(1)))
+        emit(flow, playing(item(2)))
+        emit(flow, playing(item(3)))
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals(
+            listOf(3L, 2L, 1L).map { item(it).toTrackRef()!!.trackKey },
+            repo.library.value.recent.map { it.trackKey }
+        )
         observer.cancel()
     }
 
