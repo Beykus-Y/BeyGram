@@ -136,14 +136,13 @@ private fun StyleOptionRow(
 ) {
     val palette = beyGramPalette()
     val shape = RoundedCornerShape(LocalDesignSystem.current.shapes.card)
-    val description = stringResource(R.string.appearance_style_selected, stringResource(style.labelRes()))
     Row(
         Modifier.fillMaxWidth()
             .clip(shape)
             .background(if (selected) palette.accentSoft else palette.surface)
             .border(if (selected) 1.5.dp else 1.dp, if (selected) palette.accent else palette.divider, shape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
-            .semantics { contentDescription = description }
+            .semantics(mergeDescendants = true) {}
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -429,18 +430,16 @@ internal fun MainTabsScaffold(
             }
         } else if (spec.floating) {
             // The floating styles put the bar on top of the content, so the translucent material has something to
-            // float above. The reserved gap keeps the last row reachable while the bar still overlaps its edge.
+            // float above. The reserved gap covers the bar and the system navigation inset, so the last row stays
+            // reachable instead of hiding under the panel.
+            val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             Box(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         stateHolder.SaveableStateProvider(key) { content() }
                     }
                     NowPlayingBar(hideWhenImeVisible = true)
-                    Spacer(
-                        Modifier.height(
-                            (design.spacing.navigationHeight + 18.dp - 12.dp).coerceAtLeast(48.dp)
-                        )
-                    )
+                    Spacer(Modifier.height(design.spacing.navigationHeight + navigationBarInset))
                 }
                 MainTabBar(
                     tabs = tabs,
