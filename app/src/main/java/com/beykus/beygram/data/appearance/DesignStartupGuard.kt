@@ -5,6 +5,7 @@ import android.content.Context
 private const val GUARD_PREFERENCES = "design_startup"
 private const val KEY_RENDERED = "rendered"
 private const val KEY_UNFINISHED = "unfinished_starts"
+private const val KEY_RECOVERY_PENDING = "recovery_pending"
 
 /** How many starts may fail to draw a frame before the saved style is given up. */
 internal const val MAX_UNFINISHED_STARTS = 1
@@ -35,13 +36,23 @@ class DesignStartupGuard(context: Context) {
             .putBoolean(KEY_RENDERED, false)
             .putInt(KEY_UNFINISHED, previousUnfinished + 1)
             .apply()
-        recoveryRequired = previousUnfinished >= MAX_UNFINISHED_STARTS
+        // A recovery that could not be written to disk last time stays pending: the style on disk is still the one
+        // that crashed, so it must be replaced on this start as well.
+        recoveryRequired = preferences.getBoolean(KEY_RECOVERY_PENDING, false) ||
+            previousUnfinished >= MAX_UNFINISHED_STARTS
+        if (recoveryRequired) {
+            preferences.edit().putBoolean(KEY_RECOVERY_PENDING, true).apply()
+        }
         return recoveryRequired
     }
 
-    /** Call after the recovered value has been stored, so a later recreation does not repeat the recovery. */
+    /**
+     * Call only after the recovered value is actually on disk. A failed write keeps the recovery pending, so the next
+     * cold start tries again instead of launching the style that crashed.
+     */
     fun markRecovered() {
         recoveryRequired = false
+        preferences.edit().putBoolean(KEY_RECOVERY_PENDING, false).apply()
     }
 
     /** Call after the first frames have been drawn: the style in use is proven to work. */

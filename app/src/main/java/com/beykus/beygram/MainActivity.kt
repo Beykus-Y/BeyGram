@@ -57,6 +57,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.data.appearance.AppearanceSettingsStore
 import com.beykus.beygram.data.appearance.DesignStartupGuard
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.MAX_UNFINISHED_STARTS
@@ -182,14 +183,23 @@ class MainActivity : FragmentActivity() {
                 )
             }
             val config = forcedStyle?.let { storedConfig.copy(designStyle = it) } ?: storedConfig
+            val appearanceStore = remember { AppearanceSettingsStore(applicationContext) }
             LaunchedEffect(storedConfig, forcedStyle) {
                 val target = forcedStyle ?: return@LaunchedEffect
                 if (storedConfig.designStyle == target) {
-                    // The recovery has been persisted; from here the saved choice wins again.
+                    // The recovery is on disk; from here the saved choice wins again.
                     designStartupGuard.markRecovered()
                     forcedStyle = null
-                } else {
-                    appearance.save(storedConfig.copy(designStyle = target))
+                    return@LaunchedEffect
+                }
+                val recovered = storedConfig.copy(designStyle = target)
+                // Write first and consume the recovery only when that write actually succeeded. If it throws, the
+                // panel keeps forcing Default in this session and the guard stays pending for the next start.
+                val stored = runCatching { appearanceStore.save(recovered) }.isSuccess
+                appearance.save(recovered)
+                if (stored) {
+                    designStartupGuard.markRecovered()
+                    forcedStyle = null
                 }
             }
             // Two drawn frames and a short settle period prove the interface works; only then is the guard cleared.
