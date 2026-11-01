@@ -5,6 +5,9 @@ import com.beykus.beygram.data.music.MusicPlaylist
 /**
  * Matches an incoming `.bgmusic` file with the local library. Pure: it only reads the library and never changes it.
  * The screens act on the result, and nothing is merged, replaced or copied without the user's choice.
+ *
+ * An imported copy is compared by the revision of the file it was saved from ([MusicPlaylist.fileRevision]), so edits made in the
+ * copy never change the answer. Any other playlist is compared by its own revision.
  */
 object BgMusicImportPlanner {
 
@@ -16,7 +19,7 @@ object BgMusicImportPlanner {
         BgMusicImportDecision.decide(
             playlistId = playlistId,
             revision = revision,
-            existing = matchable(library).map { playlist -> matchKey(playlist) to playlist.revision },
+            existing = matchable(library).map { playlist -> matchKey(playlist) to playlist.fileRevision },
         )
 
     /**
@@ -27,7 +30,7 @@ object BgMusicImportPlanner {
         val key = playlistId.trim().lowercase()
         return matchable(library)
             .filter { matchKey(it).trim().lowercase() == key }
-            .maxByOrNull { it.revision }
+            .maxByOrNull { it.fileRevision }
     }
 
     private fun matchable(library: List<MusicPlaylist>): List<MusicPlaylist> = library.filterNot { it.isFavorites }

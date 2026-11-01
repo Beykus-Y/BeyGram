@@ -50,6 +50,21 @@ class BgMusicCacheTest {
     }
 
     @Test
+    fun everyEntryThatLeavesTheCacheIsHandedToTheCallback() {
+        val dropped = mutableListOf<String>()
+        val cache = BgMusicLruCache<String, Int>(2) { key, _ -> dropped += key }
+        cache.put("a", 1)
+        cache.put("b", 2)
+        cache.get("a")
+
+        cache.put("c", 3)
+        assertEquals(listOf("b"), dropped)
+
+        cache.clear()
+        assertEquals(listOf("b", "a", "c"), dropped)
+    }
+
+    @Test
     fun cacheKeysDependOnAccountFileIdAndSize() {
         val key = BgMusicCacheKey("account-1", 7, 100L)
 

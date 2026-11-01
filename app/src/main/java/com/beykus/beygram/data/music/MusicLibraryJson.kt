@@ -83,6 +83,7 @@ object MusicLibraryJson {
         .put("updatedAt", playlist.updatedAt)
         .put("revision", playlist.revision)
         .put("sourcePlaylistId", playlist.sourcePlaylistId ?: JSONObject.NULL)
+        .put("sourceRevision", playlist.sourceRevision ?: JSONObject.NULL)
         .put("sortMode", playlist.sortMode.name)
 
     private fun trackToJson(track: PlaylistTrack): JSONObject = JSONObject()
@@ -210,6 +211,7 @@ object MusicLibraryJson {
             updatedAt = json.optLong("updatedAt", 0L),
             revision = json.optLong("revision", 0L),
             sourcePlaylistId = json.optionalString("sourcePlaylistId"),
+            sourceRevision = json.optionalLong("sourceRevision"),
             sortMode = MusicSortMode.values().firstOrNull { it.name == json.optString("sortMode") }
                 ?: MusicSortMode.Manual
         )

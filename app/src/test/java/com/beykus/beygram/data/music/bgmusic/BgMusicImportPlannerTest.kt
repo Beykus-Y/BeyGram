@@ -69,6 +69,29 @@ class BgMusicImportPlannerTest {
     }
 
     @Test
+    fun editsMadeInAnImportedCopyDoNotChangeWhatItMatches() {
+        val copy = MusicPlaylist(
+            id = "local-copy",
+            title = "Local",
+            revision = 12L,
+            sourcePlaylistId = source,
+            sourceRevision = 3L,
+        )
+
+        assertEquals(BgMusicImportDecision.SameRevision(3L), BgMusicImportPlanner.decide(source, 3L, listOf(copy)))
+        assertEquals(BgMusicImportDecision.NewerRevision(3L), BgMusicImportPlanner.decide(source, 4L, listOf(copy)))
+        assertEquals(BgMusicImportDecision.OlderRevision(3L), BgMusicImportPlanner.decide(source, 2L, listOf(copy)))
+    }
+
+    @Test
+    fun ownPlaylistIsComparedByItsOwnRevision() {
+        assertEquals(
+            BgMusicImportDecision.NewerRevision(12L),
+            BgMusicImportPlanner.decide("own-playlist", 13L, listOf(local("own-playlist", 12L))),
+        )
+    }
+
+    @Test
     fun originalPlaylistMatchesItsOwnId() {
         assertEquals(
             BgMusicImportDecision.NewerRevision(2L),

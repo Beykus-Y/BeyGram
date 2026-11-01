@@ -3,16 +3,20 @@ package com.beykus.beygram.data.music.bgmusic
 import android.content.Context
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 
 /**
  * Reads `.bgmusic` files for the chat. A file is read once per [BgMusicCacheKey] (account, file id and size), and the result stays
- * in a small LRU cache. A cover is written into the cache folder, so it can be shown like any other artwork file.
+ * in a small LRU cache. A cover is written into the cache folder, so it can be shown like any other artwork file; it is deleted
+ * when its cache entry is evicted, so the folder keeps only the covers of cached files.
  */
 object BgMusicFileParser {
     private const val COVER_DIRECTORY = "bgmusic_covers"
     private const val CACHE_ENTRIES = 8
 
-    private val cache = BgMusicLruCache<BgMusicCacheKey, BgMusicParsed>(CACHE_ENTRIES)
+    private val cache = BgMusicLruCache<BgMusicCacheKey, BgMusicParsed>(CACHE_ENTRIES) { _, parsed ->
+        (parsed as? BgMusicParsed.Playlist)?.coverPath?.let { File(it).delete() }
+    }
 
     /** The result for [key] when the file was read before. Never does I/O. */
     fun cached(key: BgMusicCacheKey): BgMusicParsed? = cache.get(key)
@@ -49,7 +53,7 @@ object BgMusicFileParser {
             BgMusicFormat.COVER_PNG_ENTRY -> "png"
             else -> "jpg"
         }
-        val account = key.accountId.replace(Regex("[^A-Za-z0-9]"), "_")
+        val account = accountSegment(key.accountId)
         return try {
             val directory = File(context.cacheDir, COVER_DIRECTORY).apply { mkdirs() }
             val target = File(directory, "${account}_${key.fileId}_${key.sizeBytes}.$extension")
@@ -59,4 +63,13 @@ object BgMusicFileParser {
             null
         }
     }
+
+    /**
+     * The account part of a cover's file name: the SHA-256 of the account id in hex. Different ids never share a name, and the
+     * name never carries the id itself.
+     */
+    private fun accountSegment(accountId: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(accountId.toByteArray(Charsets.UTF_8))
+            .joinToString(separator = "") { "%02x".format(it) }
 }

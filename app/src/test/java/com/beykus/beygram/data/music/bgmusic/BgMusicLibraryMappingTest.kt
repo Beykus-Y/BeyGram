@@ -146,7 +146,8 @@ class BgMusicLibraryMappingTest {
         val copy = BgMusicLibraryMapping.toPlaylistCopy(read, now = 5_000L, origins = emptyMap())
 
         assertEquals(read.playlistId, copy.sourcePlaylistId)
-        assertEquals(4L, copy.revision)
+        assertEquals(0L, copy.revision)
+        assertEquals(4L, copy.sourceRevision)
         assertEquals(listOf("Утро — ☕", "Café Ünïcödé 👨‍👩‍👧", "Spaces and tabs", "Ж-Ж"), copy.tracks.map { it.title })
         assertEquals(source.tracks.map { it.itemId }, copy.tracks.map { it.itemId })
         assertEquals(listOf("Исполнитель 0", "Исполнитель 1", "Исполнитель 2", "Исполнитель 3"), copy.tracks.map { it.performer })
@@ -164,6 +165,15 @@ class BgMusicLibraryMappingTest {
 
         assertEquals(resolved, copy.tracks[0].origin)
         assertNull(copy.tracks[1].origin)
+    }
+
+    @Test
+    fun exportOfAnImportedCopyCarriesTheRevisionOfTheFileItCameFrom() {
+        val copy = playlist(track(entryId(1), "Song", null), sourceId = "99999999-8888-4777-8666-555555555555")
+            .copy(revision = 6L, sourceRevision = 2L)
+
+        assertEquals(2L, manifest(copy).revision)
+        assertEquals(4L, manifest(playlist(track(entryId(1), "Song", null))).revision)
     }
 
     @Test

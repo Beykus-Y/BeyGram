@@ -20,16 +20,25 @@ sealed interface BgMusicParsed {
 
 /**
  * A small least-recently-used map. Reading an entry counts as using it. The map holds at most [maxEntries] values and drops
- * the least recently used one first. All access is synchronized, so the parser threads and the UI can share it.
+ * the least recently used one first. An entry that leaves the map by eviction or by [clear] is handed to [onEvict] once, so a
+ * value that owns a file can remove it; a value replaced by [put] is not. All access is synchronized, so the parser threads and
+ * the UI can share it.
  */
-class BgMusicLruCache<K : Any, V : Any>(private val maxEntries: Int) {
+class BgMusicLruCache<K : Any, V : Any>(
+    private val maxEntries: Int,
+    private val onEvict: (key: K, value: V) -> Unit = { _, _ -> },
+) {
     init {
         require(maxEntries > 0) { "maxEntries must be positive" }
     }
 
     private val lock = Any()
     private val entries = object : LinkedHashMap<K, V>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean = size > maxEntries
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean {
+            val overflow = size > maxEntries
+            if (overflow && eldest != null) onEvict(eldest.key, eldest.value)
+            return overflow
+        }
     }
 
     fun get(key: K): V? = synchronized(lock) { entries[key] }
@@ -41,6 +50,10 @@ class BgMusicLruCache<K : Any, V : Any>(private val maxEntries: Int) {
     fun size(): Int = synchronized(lock) { entries.size }
 
     fun clear() {
-        synchronized(lock) { entries.clear() }
+        synchronized(lock) {
+            val dropped = entries.map { it.key to it.value }
+            entries.clear()
+            dropped.forEach { (key, value) -> onEvict(key, value) }
+        }
     }
 }

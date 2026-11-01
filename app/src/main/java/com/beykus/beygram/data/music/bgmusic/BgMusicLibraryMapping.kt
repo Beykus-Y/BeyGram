@@ -41,7 +41,8 @@ object BgMusicLibraryMapping {
     }
 
     /**
-     * Manifest of [playlist] as seen from [accountId].
+     * Manifest of [playlist] as seen from [accountId]. An imported copy exports the revision of the file it came from
+     * ([MusicPlaylist.fileRevision]), not its own count of local edits.
      *
      * Track ids come from the app's own track ids, never from Telegram data. The audio hash is never written. Sources are
      * written only for an origin of [accountId] whose chat is in [publicChats] (chat id to public username, for channels and
@@ -68,7 +69,7 @@ object BgMusicLibraryMapping {
             .ifEmpty { BgMusicFormat.sanitizeText(untitled, BgMusicFormat.MAX_PLAYLIST_TITLE) }
         return BgMusicManifest(
             playlistId = playlistId,
-            revision = playlist.revision.coerceAtLeast(0L),
+            revision = playlist.fileRevision.coerceAtLeast(0L),
             title = title,
             updatedAtMs = nowMs.coerceIn(0L, BgMusicFormat.MAX_UPDATED_AT_MS),
             tracks = playlist.tracks.map { track ->
@@ -82,7 +83,8 @@ object BgMusicLibraryMapping {
     /**
      * An unsaved local copy of an imported manifest. The repository assigns the id, so [MusicPlaylist.id] is empty here.
      * [origins] maps a track id to the origin that was found in the recipient account. A track without one stays
-     * unavailable (origin null). Added times rise with the position, so sorting by "added" keeps the file's order.
+     * unavailable (origin null). Added times rise with the position, so sorting by "added" keeps the file's order. The file's
+     * revision goes to [MusicPlaylist.sourceRevision]; the copy's own revision starts at 0.
      */
     fun toPlaylistCopy(manifest: BgMusicManifest, now: Long, origins: Map<String, PlaybackOrigin>): MusicPlaylist =
         MusicPlaylist(
@@ -102,8 +104,9 @@ object BgMusicLibraryMapping {
             },
             createdAt = now,
             updatedAt = now,
-            revision = manifest.revision,
+            revision = 0L,
             sourcePlaylistId = manifest.playlistId,
+            sourceRevision = manifest.revision,
             sortMode = MusicSortMode.Manual,
         )
 

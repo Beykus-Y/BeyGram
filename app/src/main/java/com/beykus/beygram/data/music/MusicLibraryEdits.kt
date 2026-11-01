@@ -364,8 +364,10 @@ internal fun boundedStats(
 }
 
 /**
- * Stores a copy made from an imported file as a new playlist. The copy keeps the file's track order, revision and source id.
- * Origins that belong to another account are dropped, and a repeated origin keeps only its first entry, as [addTracksEdit] does.
+ * Stores a copy made from an imported file as a new playlist. The copy keeps the file's track order, its source id and its source
+ * revision. Its own revision starts at 0, so later local edits never change the source revision. [MusicPlaylist.coverPath] is kept
+ * as given; the repository has checked that it is a cover file of the library. Origins that belong to another account are dropped,
+ * and a repeated origin keeps only its first entry, as [addTracksEdit] does.
  */
 internal fun importCopyEdit(
     library: MusicLibrary,
@@ -381,11 +383,13 @@ internal fun importCopyEdit(
         id = playlistId,
         title = cleanTitle,
         description = normalizeMusicDescription(copy.description),
+        coverPath = copy.coverPath,
         tracks = tracks,
         createdAt = now,
         updatedAt = now,
-        revision = copy.revision.coerceAtLeast(0L),
+        revision = 0L,
         sourcePlaylistId = copy.sourcePlaylistId,
+        sourceRevision = copy.sourceRevision?.coerceAtLeast(0L),
         sortMode = MusicSortMode.Manual
     )
     val withPlaylist = library.copy(
@@ -397,8 +401,9 @@ internal fun importCopyEdit(
 }
 
 /**
- * Replaces the title, description, tracks, revision and source of the local playlist [localId] with [snapshot]. The local id,
- * the cover and the creation time stay. The revision becomes the file's revision, so it is not bumped as a local change.
+ * Replaces the title, description, tracks, cover and source revision of the local playlist [localId] with [snapshot]. The local id
+ * and the creation time stay, and a snapshot without a cover keeps the current one. The replacement is a local change, so the local
+ * revision moves on; the file's revision is stored as [MusicPlaylist.sourceRevision].
  */
 internal fun replaceImportedEdit(
     library: MusicLibrary,
@@ -415,11 +420,11 @@ internal fun replaceImportedEdit(
         title = cleanTitle,
         description = normalizeMusicDescription(snapshot.description),
         tracks = tracks,
-        revision = snapshot.revision.coerceAtLeast(0L),
+        coverPath = snapshot.coverPath ?: target.coverPath,
         sourcePlaylistId = target.sourcePlaylistId ?: snapshot.sourcePlaylistId,
-        updatedAt = now,
+        sourceRevision = snapshot.sourceRevision?.coerceAtLeast(0L),
         sortMode = MusicSortMode.Manual
-    )
+    ).touched(now)
     val withStats = library.copy(stats = statsAfterAdding(library.stats, tracks.filter { it.origin != null }))
     val next = withStats.replacing(updated)
     return MusicOutcome.Done(MusicEdit(next.copy(stats = boundedStats(next.stats, next.playlists)), Unit))
