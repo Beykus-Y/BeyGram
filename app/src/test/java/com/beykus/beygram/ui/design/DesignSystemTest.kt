@@ -99,6 +99,16 @@ class DesignSystemTest {
         assertEquals(20.dp, byStyle.getValue(DesignStyle.LiquidGlass).archiveRadius)
     }
 
+    @Test fun settingsCardsFollowTheStyleWithoutMovingDefault() {
+        assertEquals(20.dp, designFor(DesignStyle.Default).shapes.groupCard)
+        assertEquals(18.dp, designFor(DesignStyle.Default).shapes.listGroup)
+        // Material 2 collapses the same cards into its 4dp surface instead of keeping modern rounded panels.
+        assertEquals(4.dp, designFor(DesignStyle.Material2).shapes.groupCard)
+        assertEquals(4.dp, designFor(DesignStyle.Material2).shapes.listGroup)
+        assertEquals(12.dp, designFor(DesignStyle.Material3).shapes.groupCard)
+        assertTrue(designFor(DesignStyle.Signature).shapes.groupCard < designFor(DesignStyle.LiquidGlass).shapes.groupCard)
+    }
+
     @Test fun everyStyleExceptDefaultOwnsItsBubbleGeometry() {
         DesignStyle.entries.filter { it != DesignStyle.Default }.forEach { style ->
             assertNotNull("$style must define its bubble geometry", designFor(style).bubbles)

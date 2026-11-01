@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.design
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.text.font.FontWeight
@@ -54,8 +56,20 @@ data class DesignShapes(
     val chip: Dp,
     val search: Dp,
     val composer: Dp,
-    val navigationIndicator: Dp
+    val navigationIndicator: Dp,
+    /** Settings group card. Default keeps its 20dp card, Material 2 turns it into a 4dp surface. */
+    val groupCard: Dp,
+    /** Slightly smaller settings card used on dense pages. Default keeps 18dp. */
+    val listGroup: Dp
 )
+
+/** Shape of a settings group card, read from the style in effect. */
+@Composable
+fun groupCardShape(): RoundedCornerShape = RoundedCornerShape(LocalDesignSystem.current.shapes.groupCard)
+
+/** Shape of the denser settings card used on long pages. */
+@Composable
+fun listGroupShape(): RoundedCornerShape = RoundedCornerShape(LocalDesignSystem.current.shapes.listGroup)
 
 /** Spacing and sizing scale. Values are semantic steps, not one-off numbers. */
 @Immutable
