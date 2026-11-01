@@ -41,6 +41,16 @@ internal enum class MusicCollectionKind(private val storageKey: String) {
     }
 }
 
+/** Prefix of the route id of the smart collection of one chat: this prefix followed by the chat id. */
+internal const val MUSIC_CHAT_COLLECTION_PREFIX = "collection:chat:"
+
+/** The route id of the library tracks that came from the chat [chatId]. */
+internal fun chatCollectionId(chatId: Long): String = MUSIC_CHAT_COLLECTION_PREFIX + chatId
+
+/** The chat a route id made by [chatCollectionId] names, or null for any other id. */
+internal fun chatIdOfCollection(id: String): Long? =
+    if (id.startsWith(MUSIC_CHAT_COLLECTION_PREFIX)) id.substring(MUSIC_CHAT_COLLECTION_PREFIX.length).toLongOrNull() else null
+
 /** The entry a track is listed and played as when it comes from listen stats or history. */
 internal fun MusicTrackRef.toPlaylistEntry(): PlaylistTrack = PlaylistTrack(
     itemId = trackKey,

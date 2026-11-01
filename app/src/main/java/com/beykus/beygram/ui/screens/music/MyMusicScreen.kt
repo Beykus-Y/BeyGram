@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MUSIC_FAVORITES_PLAYLIST_ID
 import com.beykus.beygram.data.music.MusicLibraries
@@ -77,6 +79,8 @@ internal fun MyMusicScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val repository = remember(context) { MusicLibraries.get(context) }
+    // Set while the library file cannot be read: changes made now are not saved.
+    val storageError by repository.storageError.collectAsStateWithLifecycle()
     val library = rememberMusicLibrary(accountId)
     val nowMs = remember(library) { System.currentTimeMillis() }
     val favorites = remember(library) { library?.favorites?.tracks.orEmpty() }
@@ -135,6 +139,7 @@ internal fun MyMusicScreen(
             }
         } else {
             LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
+                if (storageError) item(key = "storage-error") { StorageErrorBanner() }
                 item(key = "favorites") {
                     MusicSectionHeader(
                         title = stringResource(R.string.music_favorites_title),
@@ -246,6 +251,14 @@ internal fun MyMusicScreen(
                         }
                     }
                 }
+                item(key = "local-only-note") {
+                    Text(
+                        stringResource(R.string.music_local_only_note),
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                }
             }
         }
     }
@@ -313,6 +326,29 @@ private fun MusicActionRow(icon: ImageVector, label: String, onClick: () -> Unit
         }
         Spacer(Modifier.width(12.dp))
         Text(label, color = palette.accent, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** The warning above the list when the library could not be read: changes made then are not saved. */
+@Composable
+private fun StorageErrorBanner() {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(palette.warningSurface)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Rounded.WarningAmber, null, tint = palette.warningText, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            stringResource(R.string.music_storage_error),
+            color = palette.warningText,
+            fontSize = 14.sp,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 

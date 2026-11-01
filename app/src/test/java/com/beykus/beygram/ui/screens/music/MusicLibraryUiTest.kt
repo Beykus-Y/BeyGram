@@ -71,6 +71,16 @@ class MusicLibraryUiTest {
         assertNull(MusicCollectionKind.fromId("1b4e28ba-2fa1-4d1e-8e3a-4c0c3c1f2a10"))
     }
 
+    @Test fun chatCollectionIdsRoundTripAndAreNotOtherCollections() {
+        assertEquals(12345L, chatIdOfCollection(chatCollectionId(12345L)))
+        assertEquals(-100L, chatIdOfCollection(chatCollectionId(-100L)))
+        assertNull(chatIdOfCollection(MusicCollectionKind.Recent.id))
+        assertNull(chatIdOfCollection("1b4e28ba-2fa1-4d1e-8e3a-4c0c3c1f2a10"))
+        assertNull(chatIdOfCollection(MUSIC_CHAT_COLLECTION_PREFIX))
+        assertNull(chatIdOfCollection(MUSIC_CHAT_COLLECTION_PREFIX + "x"))
+        assertNull(MusicCollectionKind.fromId(chatCollectionId(7L)))
+    }
+
     @Test fun clockDurationShowsMinutesAndHours() {
         assertEquals("", formatClockDuration(0))
         assertEquals("", formatClockDuration(-4))

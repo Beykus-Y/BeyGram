@@ -701,6 +701,7 @@
     <string name="music_added_to">Added to “%1$s”</string>
     <string name="music_already_in_playlist">Already in this playlist</string>
     <string name="music_change_cover">Change cover</string>
+    <string name="music_chat_collection_title">From this chat</string>
     <string name="music_collection_added">Recently added</string>
     <string name="music_collection_empty">Nothing here yet</string>
     <string name="music_collection_frequent">Frequently played</string>
@@ -722,6 +723,7 @@
     <string name="music_empty_recent">Tracks you’ve played recently will appear here</string>
     <string name="music_error_account">This playlist belongs to another account</string>
     <string name="music_error_invalid_title">This name isn’t allowed. Try another one.</string>
+    <string name="music_error_invalid_track">This track can’t be added because it couldn’t be played again.</string>
     <string name="music_error_limit">The playlist or track limit has been reached</string>
     <string name="music_error_protected">This playlist can’t be changed</string>
     <string name="music_error_storage">Couldn’t save changes</string>
@@ -729,7 +731,9 @@
     <string name="music_favorite_state_off">Not in favorites</string>
     <string name="music_favorite_state_on">In favorites</string>
     <string name="music_favorites_title">Favorites</string>
+    <string name="music_find_replacement">Find a replacement</string>
     <string name="music_library_title">My music</string>
+    <string name="music_local_only_note">The library is stored only on this device</string>
     <string name="music_move_down">Move down</string>
     <string name="music_move_up">Move up</string>
     <string name="music_play">Play</string>
@@ -744,6 +748,10 @@
     <string name="music_remove_cover">Remove cover</string>
     <string name="music_remove_from_playlist">Remove from playlist</string>
     <string name="music_rename">Rename</string>
+    <string name="music_replacement_done">Track replaced</string>
+    <string name="music_replacement_hint">Looks through your playlists and recent tracks for the same title and performer. Nothing is replaced unless you choose it.</string>
+    <string name="music_replacement_none">No replacement found</string>
+    <string name="music_replacement_search">Open search</string>
     <string name="music_section_collections">Collections</string>
     <string name="music_section_downloaded">Downloaded</string>
     <string name="music_section_playlists">My playlists</string>
@@ -755,6 +763,7 @@
     <string name="music_sort_duration">By duration</string>
     <string name="music_sort_manual">Manual</string>
     <string name="music_sort_title">By title</string>
+    <string name="music_storage_error">The library couldn’t be read. Changes aren’t saved.</string>
     <plurals name="music_track_count">
         <item quantity="one">%d track</item>
         <item quantity="other">%d tracks</item>
@@ -766,4 +775,5 @@
         <item quantity="other">%d tracks are unavailable</item>
     </plurals>
     <string name="music_untitled">Untitled</string>
+    <string name="profile_chat_music_row">Music from this chat in your library · %1$s</string>
 </resources>

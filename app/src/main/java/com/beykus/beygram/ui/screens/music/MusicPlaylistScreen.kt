@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -71,6 +72,7 @@ import com.beykus.beygram.data.music.MusicOutcome
 import com.beykus.beygram.data.music.MusicPlaylist
 import com.beykus.beygram.data.music.MusicSortMode
 import com.beykus.beygram.data.music.PlaylistTrack
+import com.beykus.beygram.data.music.fromChat
 import com.beykus.beygram.data.music.resolvePlaylistTracks
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.playback.PlaybackItem
@@ -91,7 +93,9 @@ internal fun MusicPlaylistScreen(
     accountId: String,
     telegram: TelegramRepository,
     playlistId: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    /** Opens the search, for an unavailable track that has no replacement in the library. */
+    onSearch: () -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -99,10 +103,17 @@ internal fun MusicPlaylistScreen(
     val repository = remember(context) { MusicLibraries.get(context) }
     val library = rememberMusicLibrary(accountId)
     val collection = remember(playlistId) { MusicCollectionKind.fromId(playlistId) }
+    // The tracks of the library that came from one chat, shown as a collection of their own.
+    val chatId: Long? = remember(playlistId) { chatIdOfCollection(playlistId) }
     val nowMs = remember(library) { System.currentTimeMillis() }
     val stored: MusicPlaylist? = library?.playlist(playlistId)
-    val candidates = remember(library, collection) {
-        if (library != null && collection != null) collection.baseTracks(library, nowMs) else emptyList()
+    val candidates = remember(library, collection, chatId) {
+        when {
+            library == null -> emptyList<PlaylistTrack>()
+            chatId != null -> fromChat(library, chatId).map { it.toPlaylistEntry() }
+            collection != null -> collection.baseTracks(library, nowMs)
+            else -> emptyList<PlaylistTrack>()
+        }
     }
     // Only the downloaded collection needs the file lookup; its candidates are checked once per change of the list.
     val downloaded = rememberDownloadedTracks(
@@ -125,16 +136,19 @@ internal fun MusicPlaylistScreen(
         stored?.isFavorites == true -> stringResource(R.string.music_favorites_title)
         stored != null -> stored.title
         collection != null -> stringResource(musicCollectionTitleRes(collection))
+        chatId != null -> stringResource(R.string.music_chat_collection_title)
         // The library is loaded and holds no such playlist, for example because it was deleted.
         library != null -> stringResource(R.string.music_playlist_not_found)
         else -> ""
     }
     // Playback works on the playlist as it is stored. A collection is played as a list of its own.
-    val playlist: MusicPlaylist? = stored ?: if (collection != null) syntheticPlaylist(playlistId, tracks) else null
+    val playlist: MusicPlaylist? = stored ?: if (collection != null || chatId != null) syntheticPlaylist(playlistId, tracks) else null
 
     var menuOpen by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<PlaylistDialog?>(null) }
     var trackMenu by remember { mutableStateOf<String?>(null) }
+    // The unavailable track whose replacement is being looked for, if the sheet is open.
+    var replacing by remember { mutableStateOf<PlaylistTrack?>(null) }
     val copySuffix = stringResource(R.string.music_copy_suffix)
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -308,14 +322,33 @@ internal fun MusicPlaylistScreen(
                                             runEdit { repository.moveTrack(playlistId, index, index + 1) }
                                         }
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.music_remove_from_playlist)) },
-                                        leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = palette.danger) },
-                                        onClick = {
-                                            trackMenu = null
-                                            runEdit { repository.removeTrack(playlistId, track.itemId) }
-                                        }
-                                    )
+                                    if (isUnavailable) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.music_find_replacement)) },
+                                            leadingIcon = { Icon(Icons.Rounded.Search, null, tint = palette.accent) },
+                                            onClick = {
+                                                trackMenu = null
+                                                replacing = track
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.common_delete)) },
+                                            leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = palette.danger) },
+                                            onClick = {
+                                                trackMenu = null
+                                                runEdit { repository.removeTrack(playlistId, track.itemId) }
+                                            }
+                                        )
+                                    } else {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.music_remove_from_playlist)) },
+                                            leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = palette.danger) },
+                                            onClick = {
+                                                trackMenu = null
+                                                runEdit { repository.removeTrack(playlistId, track.itemId) }
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -384,6 +417,16 @@ internal fun MusicPlaylistScreen(
             }) { Text(stringResource(R.string.common_delete), color = palette.danger) }
         },
         dismissButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.common_cancel)) } }
+    )
+    // Open while the user looks for a replacement for the unavailable entry held in `replacing`.
+    val missing = replacing
+    if (missing != null && stored != null) ReplacementSheet(
+        accountId = accountId,
+        telegram = telegram,
+        playlistId = playlistId,
+        missing = missing,
+        onSearch = onSearch,
+        onDismiss = { replacing = null }
     )
 }
 

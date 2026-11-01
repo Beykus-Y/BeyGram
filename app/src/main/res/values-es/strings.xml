@@ -701,6 +701,7 @@
     <string name="music_added_to">Añadido a «%1$s»</string>
     <string name="music_already_in_playlist">Ya está en esta lista</string>
     <string name="music_change_cover">Cambiar portada</string>
+    <string name="music_chat_collection_title">De este chat</string>
     <string name="music_collection_added">Añadidas recientemente</string>
     <string name="music_collection_empty">Aquí todavía no hay nada</string>
     <string name="music_collection_frequent">Más escuchadas</string>
@@ -722,6 +723,7 @@
     <string name="music_empty_recent">Aquí aparecerán las canciones que escuchaste recientemente</string>
     <string name="music_error_account">Esta lista pertenece a otra cuenta</string>
     <string name="music_error_invalid_title">Ese nombre no es válido. Prueba con otro.</string>
+    <string name="music_error_invalid_track">Esta canción no se puede añadir, porque no se podría volver a reproducir.</string>
     <string name="music_error_limit">Se ha alcanzado el límite de listas o canciones</string>
     <string name="music_error_protected">Esta lista no se puede cambiar</string>
     <string name="music_error_storage">No se pudieron guardar los cambios</string>
@@ -729,7 +731,9 @@
     <string name="music_favorite_state_off">No está en favoritos</string>
     <string name="music_favorite_state_on">En favoritos</string>
     <string name="music_favorites_title">Favoritos</string>
+    <string name="music_find_replacement">Buscar un reemplazo</string>
     <string name="music_library_title">Mi música</string>
+    <string name="music_local_only_note">La biblioteca se guarda solo en este dispositivo</string>
     <string name="music_move_down">Mover hacia abajo</string>
     <string name="music_move_up">Mover hacia arriba</string>
     <string name="music_play">Reproducir</string>
@@ -744,6 +748,10 @@
     <string name="music_remove_cover">Quitar portada</string>
     <string name="music_remove_from_playlist">Quitar de la lista</string>
     <string name="music_rename">Renombrar</string>
+    <string name="music_replacement_done">Canción reemplazada</string>
+    <string name="music_replacement_hint">Busca en tus listas y en las canciones recientes el mismo título e intérprete. No se reemplaza nada sin que lo elijas.</string>
+    <string name="music_replacement_none">No se encontró ningún reemplazo</string>
+    <string name="music_replacement_search">Abrir la búsqueda</string>
     <string name="music_section_collections">Colecciones</string>
     <string name="music_section_downloaded">Descargadas</string>
     <string name="music_section_playlists">Mis listas</string>
@@ -755,6 +763,7 @@
     <string name="music_sort_duration">Por duración</string>
     <string name="music_sort_manual">Manual</string>
     <string name="music_sort_title">Por título</string>
+    <string name="music_storage_error">No se pudo leer la biblioteca. Los cambios no se guardan.</string>
     <plurals name="music_track_count">
         <item quantity="one">%d canción</item>
         <item quantity="other">%d canciones</item>
@@ -766,4 +775,5 @@
         <item quantity="other">%d canciones no están disponibles</item>
     </plurals>
     <string name="music_untitled">Sin título</string>
+    <string name="profile_chat_music_row">Música de este chat en tu biblioteca · %1$s</string>
 </resources>

@@ -194,6 +194,7 @@ import com.beykus.beygram.ui.screens.playback.LocalOpenMusicSearch
 import com.beykus.beygram.ui.screens.playback.LocalOpenMyMusic
 import com.beykus.beygram.ui.screens.music.MyMusicScreen
 import com.beykus.beygram.ui.screens.music.MusicPlaylistScreen
+import com.beykus.beygram.ui.screens.music.chatCollectionId
 import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
 import com.beykus.beygram.ui.screens.playback.PlaybackRepositorySource
 import com.beykus.beygram.ui.text.resolve
@@ -404,6 +405,8 @@ private fun BeyGramAppContent(
     var musicPlaylistId by rememberSaveable { mutableStateOf("") }
     // The account that opened the playlist. Playlists belong to an account, so a switch leaves the playlist behind.
     var musicPlaylistAccountId by rememberSaveable { mutableStateOf("") }
+    // Back from the playlist returns here: My Music, or the chat info when the playlist is a chat's collection.
+    var musicPlaylistReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
     LaunchedEffect(selectedAccountId) {
         if (routeName == AppRoute.MusicPlaylist.name && musicPlaylistAccountId != selectedAccountId) {
             musicPlaylistId = ""
@@ -1577,7 +1580,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = musicSearchReturnRouteName }
     BackHandler(enabled = route == AppRoute.MyMusic) { routeName = myMusicReturnRouteName }
-    BackHandler(enabled = route == AppRoute.MusicPlaylist) { routeName = AppRoute.MyMusic.name }
+    BackHandler(enabled = route == AppRoute.MusicPlaylist) { routeName = musicPlaylistReturnRouteName }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
@@ -2017,10 +2020,18 @@ private fun BeyGramAppContent(
         val infoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
         LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
+        // The chat's tracks in the library, as a collection of their own. A protected chat gets none: its music stays in the chat.
+        val openChatMusic: (Long) -> Unit = { chatId ->
+            musicPlaylistId = chatCollectionId(chatId)
+            musicPlaylistAccountId = selectedAccountId
+            musicPlaylistReturnRouteName = AppRoute.ChatInfo.name
+            routeName = AppRoute.MusicPlaylist.name
+        }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onManage = { routeName = AppRoute.ChatManagement.name },
+            onOpenChatMusic = if (chatInfoSecure) null else openChatMusic,
             onStatistics = if (canOpenGroupStatistics(info.info)) {
                 {
                     statisticsReturnRouteName = AppRoute.ChatInfo.name
@@ -2454,6 +2465,7 @@ private fun BeyGramAppContent(
                     onOpenPlaylist = { playlistId ->
                         musicPlaylistId = playlistId
                         musicPlaylistAccountId = selectedAccountId
+                        musicPlaylistReturnRouteName = AppRoute.MyMusic.name
                         routeName = AppRoute.MusicPlaylist.name
                     }
                 )
@@ -2461,7 +2473,8 @@ private fun BeyGramAppContent(
                     accountId = selectedAccountId,
                     telegram = repository,
                     playlistId = musicPlaylistId,
-                    onBack = { routeName = AppRoute.MyMusic.name }
+                    onBack = { routeName = musicPlaylistReturnRouteName },
+                    onSearch = { musicSearchReturnRouteName = AppRoute.MusicPlaylist.name; routeName = AppRoute.MusicSearch.name }
                 )
                 AppRoute.Equalizer -> EqualizerScreen(
                     settings = equalizerSettings,

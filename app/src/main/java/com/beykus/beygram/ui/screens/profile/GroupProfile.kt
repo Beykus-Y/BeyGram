@@ -47,6 +47,7 @@ import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.SharedMediaWindow
+import com.beykus.beygram.ui.screens.music.ChatLibraryMusicRow
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -86,7 +87,9 @@ internal fun GroupProfileScreen(
     onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit,
     onManage: (() -> Unit)? = null,
     /** Repository-backed automatic download for the shared-media viewer. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    /** Opens the library tracks that came from this chat. Null hides the row. */
+    onOpenChatMusic: ((Long) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -146,6 +149,7 @@ internal fun GroupProfileScreen(
             item(key = "rows") {
                 Column {
                     ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null))
+                    onOpenChatMusic?.let { open -> ChatLibraryMusicRow(info.id) { open(info.id) } }
                     if (onManage != null && info.groupAdmin?.canManageAnything == true) {
                         GroupManagementEntry(info.kind, onManage)
                     }

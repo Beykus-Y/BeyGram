@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.music
 
+import com.beykus.beygram.playback.PlaybackOrigin
 import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -213,6 +214,77 @@ class MusicLibraryRepositoryTest {
         repo.setActiveAccount(TEST_ACCOUNT)
         assertEquals(MusicFailure.StorageUnavailable, repo.createPlaylist("Blocked").failureOf())
         assertEquals(0, persistence.saves)
+    }
+
+    @Test
+    fun storageErrorIsSetWhileTheStoredLibraryIsUnreadableAndClearsOnTheNextReadableLoad() = runTest {
+        assertFalse(repo.storageError.value)
+        persistence.loadOverride = MusicLibraryLoad.Unavailable("schema 9")
+        repo.setActiveAccount(TEST_ACCOUNT)
+        assertTrue(repo.isLoaded.value)
+        assertTrue(repo.storageError.value)
+        persistence.loadOverride = null
+        repo.setActiveAccount(TEST_ACCOUNT)
+        assertFalse(repo.storageError.value)
+        assertNotNull(repo.createPlaylist("Readable again").doneValue())
+    }
+
+    @Test
+    fun replacingATrackKeepsItsPositionIdAndAddedTime() = runTest {
+        repo.setActiveAccount(TEST_ACCOUNT)
+        val id = repo.createPlaylist("Swap").doneValue().id
+        repo.addTracks(
+            id,
+            listOf(testTrack(message = 1, title = "a"), testTrack(message = 2, title = "b"), testTrack(message = 3, title = "c"))
+        ).doneValue()
+        val before = repo.playlist(id)
+        val original = before.tracks[1]
+        clock.now = 9_000L
+        repo.replaceTrack(id, original.itemId, testTrack(message = 9, title = "new", durationSeconds = 181)).doneValue()
+        val after = repo.playlist(id)
+        assertEquals(listOf("a", "new", "c"), after.tracks.map { it.title })
+        val replaced = after.tracks[1]
+        assertEquals(original.itemId, replaced.itemId)
+        assertEquals(original.addedAt, replaced.addedAt)
+        assertEquals(PlaybackOrigin(chatId = 1L, messageId = 9L, accountId = TEST_ACCOUNT), replaced.origin)
+        assertEquals(181, replaced.durationSeconds)
+        assertEquals(before.revision + 1, after.revision)
+        assertEquals(9_000L, after.updatedAt)
+        // The new track is known to the listen stats, with the time it entered a playlist.
+        assertEquals(original.addedAt, repo.library.value.stats[replaced.trackKey]?.firstAddedAt)
+    }
+
+    @Test
+    fun replacingRefusesDuplicatesForeignAndOriginlessTracksAndUnknownEntries() = runTest {
+        repo.setActiveAccount(TEST_ACCOUNT)
+        val id = repo.createPlaylist("Guards").doneValue().id
+        repo.addTracks(id, listOf(testTrack(message = 1), testTrack(message = 2))).doneValue()
+        val tracks = repo.playlist(id).tracks
+        val revision = repo.playlist(id).revision
+        assertEquals(MusicFailure.DuplicateTrack, repo.replaceTrack(id, tracks[0].itemId, testTrack(message = 2)).failureOf())
+        assertEquals(
+            MusicFailure.ForeignAccount,
+            repo.replaceTrack(id, tracks[0].itemId, testTrack(message = 5, account = "other")).failureOf()
+        )
+        assertEquals(
+            MusicFailure.InvalidTrack,
+            repo.replaceTrack(id, tracks[0].itemId, testTrack(message = 5).copy(origin = null)).failureOf()
+        )
+        assertEquals(MusicFailure.NotFound, repo.replaceTrack(id, "missing", testTrack(message = 5)).failureOf())
+        assertEquals(MusicFailure.NotFound, repo.replaceTrack("no-such-playlist", tracks[0].itemId, testTrack(message = 5)).failureOf())
+        assertEquals(tracks, repo.playlist(id).tracks)
+        assertEquals(revision, repo.playlist(id).revision)
+    }
+
+    @Test
+    fun replacingAnEntryWithTheSameTrackChangesNothing() = runTest {
+        repo.setActiveAccount(TEST_ACCOUNT)
+        val id = repo.createPlaylist("Same").doneValue().id
+        repo.addTracks(id, listOf(testTrack(message = 1))).doneValue()
+        val entry = repo.playlist(id).tracks[0]
+        val revision = repo.playlist(id).revision
+        repo.replaceTrack(id, entry.itemId, entry).doneValue()
+        assertEquals(revision, repo.playlist(id).revision)
     }
 
     @Test

@@ -144,7 +144,11 @@ enum class MusicFailure {
     InvalidPosition,
     ProtectedPlaylist,
     ForeignAccount,
-    InvalidCover
+    InvalidCover,
+    /** A replacement track has no Telegram origin, so it could never be played again. */
+    InvalidTrack,
+    /** The replacement track is already listed in the same playlist under another entry. */
+    DuplicateTrack
 }
 
 /** Result of a repository call. */
