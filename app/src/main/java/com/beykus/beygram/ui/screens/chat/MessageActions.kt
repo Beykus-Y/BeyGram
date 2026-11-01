@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddReaction
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -82,7 +83,8 @@ internal fun MessageActionsBar(
     onForwardCopy: () -> Unit = {},
     onSelect: () -> Unit = {},
     onTranslate: (() -> Unit)? = null,
-    onReport: (() -> Unit)? = null
+    onReport: (() -> Unit)? = null,
+    onAddToPlaylist: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
@@ -147,6 +149,11 @@ internal fun MessageActionsBar(
                                 leadingIcon = { Icon(Icons.Rounded.Translate, null, tint = palette.accent) },
                                 onClick = { moreOpen = false; translate() }
                             )
+                            onAddToPlaylist?.let { add -> DropdownMenuItem(
+                                text = { Text(stringResource(R.string.music_add_to_playlist)) },
+                                leadingIcon = { Icon(Icons.Rounded.Add, null, tint = palette.accent) },
+                                onClick = { moreOpen = false; add() }
+                            ) }
                             onReport?.let { report -> DropdownMenuItem(
                                 text = { Text(stringResource(R.string.message_action_report)) },
                                 onClick = { moreOpen = false; report() }
