@@ -22,8 +22,13 @@ class DesignStartupGuard(context: Context) {
     /**
      * Call once per process start, before the saved appearance is applied. Returns true when the previous start never
      * drew a frame, which means the saved design style must not be used again without falling back.
+     *
+     * An Activity recreation (rotation, theme change, split-screen) is not a new process start and must not count as an
+     * unfinished one, so only the first call in a process records the marker.
      */
     fun beginStart(): Boolean {
+        if (beganThisProcess) return false
+        beganThisProcess = true
         val previousRendered = preferences.getBoolean(KEY_RENDERED, true)
         val previousUnfinished = if (previousRendered) 0 else preferences.getInt(KEY_UNFINISHED, 0)
         preferences.edit()
@@ -36,6 +41,11 @@ class DesignStartupGuard(context: Context) {
     /** Call after the first frames have been drawn: the style in use is proven to work. */
     fun markRendered() {
         preferences.edit().putBoolean(KEY_RENDERED, true).putInt(KEY_UNFINISHED, 0).apply()
+    }
+
+    private companion object {
+        /** Reset by the process: an Activity recreation keeps it true, a new process starts from false. */
+        var beganThisProcess = false
     }
 }
 
