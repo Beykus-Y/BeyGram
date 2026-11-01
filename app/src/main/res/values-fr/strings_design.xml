@@ -15,6 +15,14 @@
     <string name="appearance_style_quality_balanced_detail">Teinte et bords lumineux sans flou</string>
     <string name="appearance_style_quality_lite">Économe</string>
     <string name="appearance_style_quality_lite_detail">Surface mate dense, lisibilité maximale</string>
+    <string name="appearance_navigation_placement_section">Position de la barre inférieure</string>
+    <string name="appearance_navigation_placement_detail">La position change indépendamment du style : la forme des onglets, les couleurs et le rendu restent identiques.</string>
+    <string name="appearance_navigation_placement_auto">Selon le style</string>
+    <string name="appearance_navigation_placement_auto_detail">Comme le décide le style choisi</string>
+    <string name="appearance_navigation_placement_pinned">Fixée en bas</string>
+    <string name="appearance_navigation_placement_pinned_detail">Toute la largeur, sans marge flottante</string>
+    <string name="appearance_navigation_placement_floating">Flottante</string>
+    <string name="appearance_navigation_placement_floating_detail">Une capsule séparée avec des marges au-dessus des discussions</string>
     <string name="design_style_default">BeyGram standard</string>
     <string name="design_style_default_detail">L\'apparence habituelle de l\'application, inchangée</string>
     <string name="design_style_material2">Material 2</string>

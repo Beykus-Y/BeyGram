@@ -15,6 +15,14 @@
     <string name="appearance_style_quality_balanced_detail">Тонировка и световые кромки без размытия</string>
     <string name="appearance_style_quality_lite">Экономно</string>
     <string name="appearance_style_quality_lite_detail">Плотная матовая поверхность, максимальная читаемость</string>
+    <string name="appearance_navigation_placement_section">Положение нижней панели</string>
+    <string name="appearance_navigation_placement_detail">Положение меняется отдельно от стиля: форма вкладок, цвета и оформление остаются прежними.</string>
+    <string name="appearance_navigation_placement_auto">По стилю</string>
+    <string name="appearance_navigation_placement_auto_detail">Как решает выбранный стиль</string>
+    <string name="appearance_navigation_placement_pinned">Закреплённая снизу</string>
+    <string name="appearance_navigation_placement_pinned_detail">На всю ширину, без плавающего отступа</string>
+    <string name="appearance_navigation_placement_floating">Плавающая</string>
+    <string name="appearance_navigation_placement_floating_detail">Отдельная капсула с отступами поверх чатов</string>
     <string name="design_style_default">Стандартный BeyGram</string>
     <string name="design_style_default_detail">Привычный вид приложения без изменений</string>
     <string name="design_style_material2">Material 2</string>

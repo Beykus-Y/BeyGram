@@ -12,12 +12,34 @@ picked, wallpapers, message data, gestures, permissions or TDLib behaviour.
 | Colour preset | `theme_preset` | `Warm`, `Graphite`, `MaterialYou` | palette only |
 | Brightness | `theme_mode` | `FollowSystem`, `Light`, `Dark`, `Amoled` | palette only |
 | Glass quality | `glass_quality` | `Auto`, `High`, `Balanced`, `Lite` | Liquid Glass only |
+| Bottom bar placement | `navigation_placement` | `Auto`, `Pinned`, `Floating` | phone bottom navigation |
 
 The axes are independent. `Material 2 + Graphite + AMOLED` is a valid combination, and switching the style keeps every
 other choice: custom accent, bubble colour, message text/time colour, wallpaper, message size, line spacing, bubble
 shape, density, motion preset and per-chat overrides.
 
 A missing, damaged or unknown stored value falls back to `Default` / `Auto`. A new installation is `Default`.
+
+## Bottom bar placement
+
+The placement is a separate axis from the style: the style decides **how the bar looks** (indicator, labels, weights,
+surface, divider) and the placement decides **where that same bar is drawn**. There is one set of tabs, handlers and
+selection state; only the layout/surface adapter differs.
+
+* `Auto` (default, and the migration value for every existing install) keeps whatever the style has always done:
+  `Default`, `Material 2` and `Material 3` pin the bar, `Liquid Glass` and `Signature` float it.
+* `Pinned` puts the bar in the ordinary bottom slot: full window width, no side margin, no outer dock radius, no dock
+  shadow, correct system navigation inset. A glass or Signature style keeps its own tab contents and material cues
+  (a single hairline instead of the floating rim); it does not fake backdrop blur, because there is no content behind a
+  pinned bar.
+* `Floating` gives every style the capsule: side margins, bottom margin above the navigation inset, content visible
+  behind it, the style's own shadow. `Material 2` keeps its divider and square-ish indicator.
+
+`MainTabsScaffold` reserves the **measured** bar height plus the floating margin instead of a fixed token, so a large
+font scale or a 3-button navigation inset cannot put the last row under the dock.
+
+On a wide window (`usesMainNavigationRail`, ≥ 600dp) the placement is not applied: the navigation rail stays a rail, so
+the sections do not move away from the leading edge and no phone dock appears in a tablet layout.
 
 ## Resolution
 
@@ -33,8 +55,9 @@ BeyGramTheme → MaterialTheme(colorScheme, shapes, typography)
              → beyGramPalette() for BeyGram components
 ```
 
-`designFor(style, quality)` and `resolveTokens(config, systemDark)` are pure; the Android capability reads live in
-`glassCapabilities(context)`. Screens read tokens, they never branch on the style for colours.
+`designFor(style, quality, placement)` and `resolveTokens(config, systemDark)` are pure; the Android capability reads
+live in `glassCapabilities(context)`. Screens read tokens, they never branch on the style for colours.
+`resolveNavigationFloating(placement, styleFloating)` is the only place where the placement axis meets a style.
 
 ### Motion precedence
 
@@ -52,7 +75,8 @@ motion calmer or more expressive, never longer than a user restriction allows.
 | Spacing | `DesignSpacing` | `xxs…xxl`, screen padding, section gap, list row height, navigation height |
 | Surfaces | `DesignSurfaces` | treatment, elevations, tint, surface alpha, tonal step, optional `GlassStyle` |
 | Motion | `DesignMotionProfile` | `speedScale`, `intensityScale` |
-| Components | `DesignComponents` | navigation variant, search variant, top bar, composer, dividers, floating navigation |
+| Components | `DesignComponents` | navigation variant, search variant, top bar, composer, dividers, the style's natural placement |
+| Navigation placement | `DesignSystem.navigationFloating` | the resolved placement: the style's own stance unless the user forced `Pinned` / `Floating` |
 | Bubbles | `DesignBubbleGeometry` | base geometry; the user's bubble shape, density and explicit radius apply on top |
 
 ## Styles
@@ -121,21 +145,24 @@ The user's bubble shape (`Soft`, `Square`) subtracts radius from the style base,
 ## Editor
 
 `Appearance → Interface style` lists the five styles with live miniatures drawn by the real `BeyGramTheme` of that
-style on the current palette and brightness. The Liquid Glass entry adds the glass quality selector. The page uses the
-shared draft: preview, Apply, Undo and Cancel behave exactly like the rest of the editor, and switching the style never
-writes colours, wallpapers or motion.
+style on the current palette and brightness. Below them, **Bottom bar position** offers `Follow the style`, `Pinned to
+the bottom` and `Floating` with a small sketch of each, and the preview above updates before Apply. The Liquid Glass
+entry adds the glass quality selector. The page uses the shared draft: preview, Apply, Undo and Cancel behave exactly
+like the rest of the editor, and switching the style never writes colours, wallpapers or motion.
 
 ## Draft persistence
 
-`AppearanceDraftSaver` writes 16 slots: the 13 original fields, the design style, the glass quality and the version.
-Drafts of 7–14 slots (v1/v2) still restore, with `Default` / `Auto` for the new fields. Damaged values fall back the
-same way DataStore does.
+`AppearanceDraftSaver` writes 17 slots: the 13 original fields, the design style, the glass quality, the bottom bar
+placement and the version. Drafts of 7–14 slots (v1/v2) still restore with `Default` / `Auto`; a 16-slot v3 draft
+restores with `Auto` for the placement. Damaged values fall back the same way DataStore does.
 
 ## Testing
 
 * `DesignSystemTest` — deterministic resolution, distinct profiles, Default parity, glass quality policy.
 * `DesignStyleTest` — stored-value parsing and fallbacks.
-* `AppearanceDraftSaverTest` — v3 round trip and legacy drafts.
+* `NavigationSpecTest` — the resolved placement for every style and placement, Default numbers, contents never change.
+* `AppearanceMigrationTest` — stored-value parsing for the placement.
+* `AppearanceDraftSaverTest` — v4 round trip and legacy drafts.
 * `MotionDesignProfileTest` — style motion never overrides user/system restrictions.
-* `AppearancePreviewHarnessActivity` (debug) — `--es style <Style> --es quality <Quality> --es page <Page>` and
-  `--es screen chrome` for the navigation/composer chrome over a list.
+* `AppearancePreviewHarnessActivity` (debug) — `--es style <Style> --es quality <Quality> --es placement <Placement>
+  --es page <Page>` and `--es screen chrome` for the navigation/composer chrome over a list.

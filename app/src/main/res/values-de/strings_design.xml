@@ -15,6 +15,14 @@
     <string name="appearance_style_quality_balanced_detail">Tönung und Lichtkanten ohne Unschärfe</string>
     <string name="appearance_style_quality_lite">Sparsam</string>
     <string name="appearance_style_quality_lite_detail">Dichte matte Fläche, maximale Lesbarkeit</string>
+    <string name="appearance_navigation_placement_section">Position der unteren Leiste</string>
+    <string name="appearance_navigation_placement_detail">Die Position ändert sich unabhängig vom Stil: Form der Tabs, Farben und Aussehen bleiben gleich.</string>
+    <string name="appearance_navigation_placement_auto">Wie der Stil</string>
+    <string name="appearance_navigation_placement_auto_detail">So, wie es der gewählte Stil vorgibt</string>
+    <string name="appearance_navigation_placement_pinned">Unten fixiert</string>
+    <string name="appearance_navigation_placement_pinned_detail">Volle Breite, ohne schwebenden Abstand</string>
+    <string name="appearance_navigation_placement_floating">Schwebend</string>
+    <string name="appearance_navigation_placement_floating_detail">Eigene Kapsel mit Abstand über den Chats</string>
     <string name="design_style_default">Standard-BeyGram</string>
     <string name="design_style_default_detail">Das gewohnte Aussehen der App, unverändert</string>
     <string name="design_style_material2">Material 2</string>

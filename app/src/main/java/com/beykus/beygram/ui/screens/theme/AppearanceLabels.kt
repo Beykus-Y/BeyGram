@@ -13,6 +13,7 @@ import com.beykus.beygram.data.appearance.MessageAnimationEasing
 import com.beykus.beygram.data.appearance.MessageAnimationMotionDirection
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.data.appearance.MessageLineSpacing
+import com.beykus.beygram.data.appearance.NavigationPlacement
 import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.ThemePreset
 import com.beykus.beygram.data.appearance.WallpaperGradientChoices
@@ -95,6 +96,20 @@ internal fun GlassQuality.detailRes(): Int = when (this) {
     GlassQuality.High -> R.string.appearance_style_quality_high_detail
     GlassQuality.Balanced -> R.string.appearance_style_quality_balanced_detail
     GlassQuality.Lite -> R.string.appearance_style_quality_lite_detail
+}
+
+@StringRes
+internal fun NavigationPlacement.labelRes(): Int = when (this) {
+    NavigationPlacement.Auto -> R.string.appearance_navigation_placement_auto
+    NavigationPlacement.Pinned -> R.string.appearance_navigation_placement_pinned
+    NavigationPlacement.Floating -> R.string.appearance_navigation_placement_floating
+}
+
+@StringRes
+internal fun NavigationPlacement.detailRes(): Int = when (this) {
+    NavigationPlacement.Auto -> R.string.appearance_navigation_placement_auto_detail
+    NavigationPlacement.Pinned -> R.string.appearance_navigation_placement_pinned_detail
+    NavigationPlacement.Floating -> R.string.appearance_navigation_placement_floating_detail
 }
 
 @StringRes
