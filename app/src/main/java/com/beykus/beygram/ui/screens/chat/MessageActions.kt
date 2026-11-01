@@ -97,13 +97,18 @@ internal fun MessageActionsBar(
                     if (react != null) ActionIcon(Icons.Rounded.AddReaction, stringResource(R.string.message_action_react), palette.accent, react)
                     if (capabilities.canReply) ActionIcon(Icons.AutoMirrored.Rounded.Reply, stringResource(R.string.message_action_reply), palette.accent, onReply)
                     if (capabilities.canCopy && hasText) ActionIcon(Icons.Rounded.ContentCopy, stringResource(R.string.message_action_copy_text), palette.accent, onCopy)
-                    if (capabilities.canEdit) ActionIcon(Icons.Rounded.Edit, if (isMedia) stringResource(R.string.message_action_edit_caption) else stringResource(R.string.message_action_edit), palette.accent, onEdit)
+                    if (capabilities.canEdit && react == null) ActionIcon(Icons.Rounded.Edit, if (isMedia) stringResource(R.string.message_action_edit_caption) else stringResource(R.string.message_action_edit), palette.accent, onEdit)
                     if (capabilities.canDeleteForSelf || capabilities.canDeleteForAll) ActionIcon(Icons.Rounded.Delete, stringResource(R.string.common_delete), palette.danger, onDelete)
                     Box {
                         IconButton(onClick = { moreOpen = true }) {
                             Icon(Icons.Rounded.MoreVert, stringResource(R.string.message_action_more), tint = palette.accent)
                         }
                         DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                            if (react != null && capabilities.canEdit) DropdownMenuItem(
+                                text = { Text(stringResource(if (isMedia) R.string.message_action_edit_caption else R.string.message_action_edit)) },
+                                leadingIcon = { Icon(Icons.Rounded.Edit, null, tint = palette.accent) },
+                                onClick = { moreOpen = false; onEdit() }
+                            )
                             react?.let { pick ->
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.message_action_react)) },
