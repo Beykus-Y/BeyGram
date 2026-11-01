@@ -170,11 +170,26 @@ class MainActivity : FragmentActivity() {
             // The saved choice is read asynchronously. Nothing is drawn until it is known, so the theme never flips.
             val storedConfig = appearance.config.collectAsState().value ?: return@setContent
             // Only the design style may be dropped: colours, wallpapers, message geometry and motion stay untouched.
-            val fallBackToDefault = previousStartFailed &&
-                shouldFallBackToDefault(MAX_UNFINISHED_STARTS, storedConfig.designStyle)
-            val config = if (fallBackToDefault) storedConfig.copy(designStyle = DesignStyle.Default) else storedConfig
-            if (fallBackToDefault) {
-                LaunchedEffect(storedConfig) { appearance.save(config) }
+            // The fallback is a one-shot recovery: once Default is stored, the user is free to pick any style again in
+            // the same session, and that choice is not overwritten.
+            var forcedStyle by remember {
+                mutableStateOf(
+                    if (previousStartFailed && shouldFallBackToDefault(MAX_UNFINISHED_STARTS, storedConfig.designStyle)) {
+                        DesignStyle.Default
+                    } else {
+                        null
+                    }
+                )
+            }
+            val config = forcedStyle?.let { storedConfig.copy(designStyle = it) } ?: storedConfig
+            LaunchedEffect(storedConfig, forcedStyle) {
+                val target = forcedStyle ?: return@LaunchedEffect
+                if (storedConfig.designStyle == target) {
+                    // The recovery has been persisted; from here the saved choice wins again.
+                    forcedStyle = null
+                } else {
+                    appearance.save(storedConfig.copy(designStyle = target))
+                }
             }
             // Two drawn frames and a short settle period prove the interface works; only then is the guard cleared.
             LaunchedEffect(Unit) {
