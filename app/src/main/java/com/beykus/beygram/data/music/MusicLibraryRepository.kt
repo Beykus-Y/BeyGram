@@ -243,6 +243,32 @@ class MusicLibraryRepository(
     suspend fun recordPlay(track: MusicTrackRef, playedAt: Long = clock()): MusicOutcome<Unit> =
         commit { current -> recordPlayEdit(current, track, playedAt) }
 
+    // ---- Imports -----------------------------------------------------------------------------------
+
+    /**
+     * Stores [imported] as a new local playlist with a fresh id. The file's revision and source id are kept, so the copy can be
+     * matched with the same file later. The id of [imported] is ignored. Its [MusicPlaylist.coverPath], when set, must be a cover
+     * file of the library and is stored in the same write as the playlist; a refused cover refuses the whole import. Callers build
+     * it with `BgMusicLibraryMapping`.
+     */
+    suspend fun importPlaylistCopy(imported: MusicPlaylist): MusicOutcome<MusicPlaylist> {
+        if (!isCoverAllowed(imported.coverPath)) return MusicOutcome.Failed(MusicFailure.InvalidCover)
+        val playlistId = newId()
+        val now = clock()
+        return commit { current -> importCopyEdit(current, imported, playlistId, now, newId) }
+    }
+
+    /**
+     * Replaces the content of the local playlist [localId] with [snapshot], keeping its id and creation time. A snapshot without a
+     * cover keeps the current one; a cover must be a cover file of the library, as for [importPlaylistCopy]. Only call this after the
+     * user confirmed the replacement; nothing is replaced silently.
+     */
+    suspend fun replaceImportedPlaylist(localId: String, snapshot: MusicPlaylist): MusicOutcome<Unit> {
+        if (!isCoverAllowed(snapshot.coverPath)) return MusicOutcome.Failed(MusicFailure.InvalidCover)
+        val now = clock()
+        return commit { current -> replaceImportedEdit(current, localId, snapshot, now, newId) }
+    }
+
     // ---- Internals ---------------------------------------------------------------------------------
 
     private suspend fun <T> commit(edit: (MusicLibrary) -> MusicEditOutcome<T>): MusicOutcome<T> =
@@ -289,6 +315,9 @@ class MusicLibraryRepository(
 
     private suspend fun isInsideCoverRoot(path: String): Boolean =
         withContext(ioDispatcher) { isInsideCoverRootNow(path) }
+
+    /** No cover, or a cover file inside [coverRoot]. */
+    private suspend fun isCoverAllowed(path: String?): Boolean = path == null || isInsideCoverRoot(path)
 
     /** The blocking part of the check. It may resolve links on disk, so callers run it on [ioDispatcher]. */
     private fun isInsideCoverRootNow(path: String): Boolean {

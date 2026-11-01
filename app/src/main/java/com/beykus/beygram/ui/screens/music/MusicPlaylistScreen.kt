@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -77,6 +78,7 @@ import com.beykus.beygram.data.music.resolvePlaylistTracks
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.bgmusic.BgMusicExportSheet
 import kotlinx.coroutines.launch
 
 /** The dialog of the playlist screen that is open, if any. */
@@ -149,6 +151,7 @@ internal fun MusicPlaylistScreen(
     var trackMenu by remember { mutableStateOf<String?>(null) }
     // The unavailable track whose replacement is being looked for, if the sheet is open.
     var replacing by remember { mutableStateOf<PlaylistTrack?>(null) }
+    var exportOpen by remember { mutableStateOf(false) }
     val copySuffix = stringResource(R.string.music_copy_suffix)
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -164,6 +167,8 @@ internal fun MusicPlaylistScreen(
     fun runEdit(change: suspend () -> MusicOutcome<*>) {
         scope.launch { context.reportMusicOutcome(change()) }
     }
+
+    if (exportOpen && stored != null) BgMusicExportSheet(playlist = stored, onDismiss = { exportOpen = false })
 
     Scaffold(
         containerColor = palette.screen,
@@ -235,6 +240,11 @@ internal fun MusicPlaylistScreen(
                                         }
                                     }
                                 }
+                            )
+                            if (stored.tracks.isNotEmpty()) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.bgmusic_menu_share_collection)) },
+                                leadingIcon = { Icon(Icons.Rounded.Share, null, tint = palette.accent) },
+                                onClick = { menuOpen = false; exportOpen = true }
                             )
                             if (!stored.isFavorites) DropdownMenuItem(
                                 text = { Text(stringResource(R.string.common_delete)) },

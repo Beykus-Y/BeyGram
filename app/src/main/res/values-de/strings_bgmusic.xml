@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgmusic_action_open">Öffnen</string>
+    <string name="bgmusic_action_save">Für mich speichern</string>
+    <string name="bgmusic_action_save_copy">Als Kopie speichern</string>
+    <string name="bgmusic_action_update">Aktualisieren</string>
+    <string name="bgmusic_add_done">Titel zu „%1$s“ hinzugefügt</string>
+    <string name="bgmusic_add_duplicate">Dieser Titel ist bereits in der Playlist</string>
+    <string name="bgmusic_add_failed">Titel konnte nicht hinzugefügt werden</string>
+    <string name="bgmusic_add_picker_title">Zur Playlist hinzufügen</string>
+    <string name="bgmusic_add_rejected">Titel nicht hinzugefügt: Die Playlist ist voll oder der Titel gehört zu einem anderen Konto</string>
+    <string name="bgmusic_add_to_playlist">Zur Playlist hinzufügen</string>
+    <string name="bgmusic_author_line">Autor: %1$s</string>
+    <string name="bgmusic_close">Schließen</string>
+    <string name="bgmusic_download">Herunterladen</string>
+    <string name="bgmusic_export_failed">Datei konnte nicht vorbereitet werden</string>
+    <string name="bgmusic_export_option_author">Autor angeben</string>
+    <string name="bgmusic_export_option_author_note">Ihr Telegram-Name wird in die Datei geschrieben. Ohne diese Option wird der Name nicht weitergegeben.</string>
+    <string name="bgmusic_export_option_links">Links zu Beiträgen hinzufügen</string>
+    <string name="bgmusic_export_option_links_note">Bei Titeln aus öffentlichen Kanälen und Gruppen wird die Adresse des Beitrags in die Datei geschrieben. Private und geheime Chats werden nie einbezogen.</string>
+    <string name="bgmusic_export_preparing">Datei wird vorbereitet…</string>
+    <string name="bgmusic_export_privacy_note">Standardmäßig enthält die Datei Name, Beschreibung und Titelliste. Links und Autorname werden nur mit Häkchen hinzugefügt.</string>
+    <string name="bgmusic_export_send_chat">In Chat senden</string>
+    <string name="bgmusic_export_sent">Sammlung gesendet</string>
+    <string name="bgmusic_export_share">Teilen</string>
+    <string name="bgmusic_export_size">Dateigröße: %1$s</string>
+    <string name="bgmusic_export_title">Sammlung exportieren</string>
+    <string name="bgmusic_favorites_name">Favoriten</string>
+    <string name="bgmusic_import_already_saved">Diese Sammlung ist bereits gespeichert</string>
+    <string name="bgmusic_import_failed">Sammlung konnte nicht gespeichert werden</string>
+    <string name="bgmusic_import_newer_text">Diese Sammlung ist bereits gespeichert, die Datei enthält aber eine neuere Version. Beim Aktualisieren werden die Titel der gespeicherten Kopie ersetzt, einschließlich Ihrer eigenen Änderungen daran. Oder die Datei als separate Kopie speichern?</string>
+    <string name="bgmusic_menu_share_collection">Sammlung teilen</string>
+    <string name="bgmusic_import_newer_title">Neuere Version vorhanden</string>
+    <string name="bgmusic_import_older_text">In der App gibt es bereits eine neuere Version dieser Sammlung. Diese Datei als separate Kopie speichern?</string>
+    <string name="bgmusic_import_older_title">Datei ist älter als die gespeicherte Sammlung</string>
+    <string name="bgmusic_import_saved">Sammlung in „Meine Musik“ gespeichert</string>
+    <string name="bgmusic_import_updated">Gespeicherte Sammlung aktualisiert</string>
+    <string name="bgmusic_import_working">Wird gespeichert…</string>
+    <string name="bgmusic_invalid_file">Die Datei ist beschädigt oder keine BeyGram-Sammlung</string>
+    <string name="bgmusic_listen_available">Verfügbare Titel anhören</string>
+    <string name="bgmusic_open_collection">Sammlung öffnen</string>
+    <string name="bgmusic_preview_available">Verfügbare Titel: %1$d von %2$d</string>
+    <string name="bgmusic_preview_default_title">BeyGram-Sammlung</string>
+    <string name="bgmusic_preview_no_account">Um die Titel zu finden, öffnen Sie das Telegram-Konto, in dessen Chats sie vorkommen</string>
+    <string name="bgmusic_preview_searching">Titel werden in Ihren Chats gesucht…</string>
+    <string name="bgmusic_track_unavailable">Nicht in Ihren Chats</string>
+    <string name="bgmusic_unsupported_version">Diese Datei wurde mit einer neueren Version von BeyGram erstellt. Bitte aktualisieren Sie die App.</string>
+    <string name="bgmusic_untitled_playlist">Ohne Titel</string>
+    <plurals name="bgmusic_tracks_count">
+        <item quantity="one">%d Titel</item>
+        <item quantity="other">%d Titel</item>
+    </plurals>
+</resources>

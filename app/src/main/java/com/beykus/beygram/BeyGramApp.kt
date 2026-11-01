@@ -192,6 +192,7 @@ import com.beykus.beygram.ui.screens.playback.MusicSearchScreen
 import com.beykus.beygram.ui.screens.playback.LocalOpenEqualizer
 import com.beykus.beygram.ui.screens.playback.LocalOpenMusicSearch
 import com.beykus.beygram.ui.screens.playback.LocalOpenMyMusic
+import com.beykus.beygram.ui.screens.bgmusic.LocalOpenMusicPlaylist
 import com.beykus.beygram.ui.screens.music.MyMusicScreen
 import com.beykus.beygram.ui.screens.music.MusicPlaylistScreen
 import com.beykus.beygram.ui.screens.music.ChatLibraryLink
@@ -404,10 +405,11 @@ private fun BeyGramAppContent(
     var musicSearchReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var myMusicReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var musicPlaylistId by rememberSaveable { mutableStateOf("") }
+    // Where Back from the playlist goes: My Music, the chat whose `.bgmusic` preview opened it, or the chat info
+    // when the playlist is a chat's collection.
+    var musicPlaylistReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
     // The account that opened the playlist. Playlists belong to an account, so a switch leaves the playlist behind.
     var musicPlaylistAccountId by rememberSaveable { mutableStateOf("") }
-    // Back from the playlist returns here: My Music, or the chat info when the playlist is a chat's collection.
-    var musicPlaylistReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
     LaunchedEffect(selectedAccountId) {
         if (routeName == AppRoute.MusicPlaylist.name && musicPlaylistAccountId != selectedAccountId) {
             musicPlaylistId = ""
@@ -2158,6 +2160,13 @@ private fun BeyGramAppContent(
                 myMusicReturnRouteName = routeName
                 routeName = AppRoute.MyMusic.name
             }
+        },
+        // A playlist opened from a chat (its `.bgmusic` preview) returns to that chat with Back.
+        LocalOpenMusicPlaylist provides { playlistId: String ->
+            musicPlaylistReturnRouteName = routeName
+            musicPlaylistId = playlistId
+            musicPlaylistAccountId = selectedAccountId
+            routeName = AppRoute.MusicPlaylist.name
         }
     ) {
     Column(Modifier.fillMaxSize()) {
@@ -2464,9 +2473,9 @@ private fun BeyGramAppContent(
                     onBack = { routeName = myMusicReturnRouteName },
                     onSearch = { musicSearchReturnRouteName = AppRoute.MyMusic.name; routeName = AppRoute.MusicSearch.name },
                     onOpenPlaylist = { playlistId ->
+                        musicPlaylistReturnRouteName = AppRoute.MyMusic.name
                         musicPlaylistId = playlistId
                         musicPlaylistAccountId = selectedAccountId
-                        musicPlaylistReturnRouteName = AppRoute.MyMusic.name
                         routeName = AppRoute.MusicPlaylist.name
                     }
                 )
