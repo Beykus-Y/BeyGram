@@ -59,6 +59,10 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -76,6 +80,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -102,6 +107,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
@@ -134,6 +140,13 @@ import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.beykus.beygram.data.music.MusicLibraries
+import com.beykus.beygram.data.music.toPlaylistTrack
+import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
+import com.beykus.beygram.ui.screens.music.containsTrack
+import com.beykus.beygram.ui.screens.music.rememberMusicLibrary
+import com.beykus.beygram.ui.screens.music.reportMusicOutcome
 
 private const val TRANSPORT_MOTION_MS = 150
 private const val SEEK_STEP_MS = 5_000L
@@ -150,7 +163,8 @@ private enum class PlayerPanel { Player, Queue }
 internal fun MusicPlayerSheet(
     onDismiss: () -> Unit,
     onOpenEqualizer: (() -> Unit)? = null,
-    onOpenMusicSearch: (() -> Unit)? = null
+    onOpenMusicSearch: (() -> Unit)? = null,
+    onOpenMyMusic: (() -> Unit)? = null
 ) {
     val player = rememberMusicPlayerUi()
     LaunchedEffect(player == null) { if (player == null) onDismiss() }
@@ -181,7 +195,8 @@ internal fun MusicPlayerSheet(
                         source = source,
                         onCollapse = onDismiss,
                         onOpenSource = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } },
-                        onOpenMusicSearch = onOpenMusicSearch?.let { open -> { onDismiss(); open() } }
+                        onOpenMusicSearch = onOpenMusicSearch?.let { open -> { onDismiss(); open() } },
+                        onOpenMyMusic = onOpenMyMusic?.let { open -> { onDismiss(); open() } }
                     )
                     PlayerBody(
                         modifier = Modifier.weight(1f),
@@ -221,7 +236,8 @@ private fun PlayerHeader(
     source: PlaybackSourceLabel,
     onCollapse: () -> Unit,
     onOpenSource: (() -> Unit)?,
-    onOpenMusicSearch: (() -> Unit)?
+    onOpenMusicSearch: (() -> Unit)?,
+    onOpenMyMusic: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
     var speedMenu by remember { mutableStateOf(false) }
@@ -274,6 +290,9 @@ private fun PlayerHeader(
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center
             )
+        }
+        if (onOpenMyMusic != null) IconButton(onClick = onOpenMyMusic) {
+            Icon(Icons.Rounded.MusicNote, stringResource(R.string.music_library_title), tint = palette.textSecondary)
         }
         if (onOpenMusicSearch != null) IconButton(onClick = onOpenMusicSearch) {
             Icon(Icons.Rounded.Search, stringResource(R.string.music_search_action), tint = palette.textSecondary)
@@ -458,7 +477,7 @@ private fun PlayerDetails(
         modifier = Modifier.padding(horizontal = 4.dp)
     )
     Spacer(Modifier.height(14.dp))
-    PlayerActions(onOpenQueue, onOpenEqualizer, onShowInChat)
+    PlayerActions(player.item, onOpenQueue, onOpenEqualizer, onShowInChat)
 }
 
 @Composable
@@ -910,6 +929,7 @@ private fun PlayPauseButton(player: MusicPlayerUi, reduced: Boolean) {
 
 @Composable
 private fun PlayerActions(
+    item: PlaybackItem,
     onOpenQueue: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?
@@ -917,7 +937,28 @@ private fun PlayerActions(
     val queueLabel = stringResource(R.string.player_queue)
     val equalizerLabel = stringResource(R.string.player_equalizer)
     val showInChatLabel = stringResource(R.string.media_show_in_chat)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // Heart and add need a Telegram origin and a loaded library for this account; both stay hidden until then.
+    val track = remember(item.occurrenceId, item.origin) { item.toPlaylistTrack() }
+    val library = rememberMusicLibrary(item.accountId)
+    var addOpen by remember(item.occurrenceId) { mutableStateOf(false) }
+    val favorite = track != null && containsTrack(library?.favorites, track)
+    val favoriteLabel = stringResource(R.string.music_favorite_label)
+    val favoriteOnState = stringResource(R.string.music_favorite_state_on)
+    val favoriteOffState = stringResource(R.string.music_favorite_state_off)
+    val addLabel = stringResource(R.string.music_playlist_label)
     val actions = buildList {
+        if (track != null && library != null) {
+            add(PlayerActionUi(
+                icon = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                label = favoriteLabel,
+                onClick = { scope.launch { context.reportMusicOutcome(MusicLibraries.get(context).toggleFavorite(track)) } },
+                active = favorite,
+                stateDescription = if (favorite) favoriteOnState else favoriteOffState
+            ))
+            add(PlayerActionUi(Icons.Rounded.Add, addLabel, onClick = { addOpen = true }))
+        }
         add(PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue))
         if (onOpenEqualizer != null) add(PlayerActionUi(Icons.Rounded.Equalizer, equalizerLabel, onOpenEqualizer))
         if (onShowInChat != null) add(PlayerActionUi(Icons.Rounded.ChatBubble, showInChatLabel, onShowInChat))
@@ -928,27 +969,32 @@ private fun PlayerActions(
             PlayerAction(action, Modifier.weight(1f))
         }
     }
+    if (addOpen && track != null) AddToPlaylistSheet(accountId = item.accountId, track = track, onDismiss = { addOpen = false })
 }
 
 private data class PlayerActionUi(
     val icon: ImageVector,
     val label: String,
-    val onClick: () -> Unit
+    val onClick: () -> Unit,
+    val active: Boolean = false,
+    val stateDescription: String? = null
 )
 
 @Composable
 private fun PlayerAction(action: PlayerActionUi, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
+    val described = action.stateDescription
     Column(
         modifier
             .heightIn(min = 56.dp)
             .clip(RoundedCornerShape(14.dp))
             .clickable(role = Role.Button, onClick = action.onClick)
-            .padding(vertical = 7.dp),
+            .padding(vertical = 7.dp)
+            .then(if (described != null) Modifier.semantics { stateDescription = described } else Modifier),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(action.icon, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
+        Icon(action.icon, contentDescription = null, tint = if (action.active) palette.accent else palette.accentInk, modifier = Modifier.size(22.dp))
         Text(
             action.label,
             color = palette.textSecondary,

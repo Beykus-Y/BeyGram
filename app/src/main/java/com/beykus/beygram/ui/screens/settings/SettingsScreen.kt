@@ -70,7 +70,7 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit,
     onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit,
     onDiagnostics: () -> Unit, onUpdates: () -> Unit, onLanguage: () -> Unit, onSessions: () -> Unit,
-    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicSearch: () -> Unit = {}) {
+    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicLibrary: () -> Unit = {}) {
     val palette = beyGramPalette()
     Column(
         Modifier.fillMaxSize().background(palette.screen)
@@ -96,7 +96,7 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
         SettingsGroup(stringResource(R.string.settings_group_sound_playback)) {
             SettingsLink(Icons.Rounded.GraphicEq, stringResource(R.string.settings_equalizer_title), onEqualizer)
             SettingsRowDivider()
-            SettingsLink(Icons.Rounded.MusicNote, stringResource(R.string.settings_music_title), onMusicSearch)
+            SettingsLink(Icons.Rounded.MusicNote, stringResource(R.string.settings_music_title), onMusicLibrary)
         }
         SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {
             SettingsLink(Icons.Rounded.Key, stringResource(R.string.account_security_title), onAccountSecurity)
