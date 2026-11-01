@@ -44,7 +44,7 @@ object BgMusicWriter {
         require(manifest.updatedAtMs in 0L..BgMusicFormat.MAX_UPDATED_AT_MS) { "updatedAtMs is out of range" }
         val title = BgMusicFormat.sanitizeText(manifest.title, BgMusicFormat.MAX_PLAYLIST_TITLE)
         require(title.isNotEmpty()) { "title must not be empty" }
-        val description = BgMusicFormat.sanitizeText(manifest.description, BgMusicFormat.MAX_DESCRIPTION)
+        val description = BgMusicFormat.sanitizeMultilineText(manifest.description, BgMusicFormat.MAX_DESCRIPTION)
         require(manifest.tracks.size <= BgMusicFormat.MAX_TRACKS) { "a playlist holds at most ${BgMusicFormat.MAX_TRACKS} tracks" }
 
         val fields = mutableListOf<Pair<String, String>>()
@@ -63,7 +63,7 @@ object BgMusicWriter {
         fields += "tracks" to encodeTracks(manifest.tracks)
 
         val bytes = jsonObject(fields).toByteArray(Charsets.UTF_8)
-        require(bytes.size.toLong() <= BgMusicFormat.MAX_MANIFEST_BYTES) { "manifest exceeds 1 MiB" }
+        require(bytes.size.toLong() <= BgMusicFormat.MAX_MANIFEST_BYTES) { "manifest exceeds 2 MiB" }
         return bytes
     }
 

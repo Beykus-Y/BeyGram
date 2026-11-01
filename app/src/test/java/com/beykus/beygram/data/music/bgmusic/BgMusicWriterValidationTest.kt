@@ -51,8 +51,8 @@ class BgMusicWriterValidationTest {
     }
 
     @Test
-    fun manifestLargerThanOneMebibyteIsRejected() {
-        // 5000 tracks with maximal text are about 4 MB of JSON, far above the 1 MiB manifest limit.
+    fun manifestLargerThanTwoMebibytesIsRejected() {
+        // 5000 tracks with maximal text are several megabytes of JSON, far above the 2 MiB manifest limit.
         val heavy = (1..BgMusicFormat.MAX_TRACKS).map {
             testTrack(it, title = "t".repeat(256)).copy(artist = "a".repeat(256), album = "b".repeat(256))
         }

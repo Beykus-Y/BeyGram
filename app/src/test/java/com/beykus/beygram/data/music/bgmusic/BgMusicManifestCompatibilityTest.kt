@@ -158,7 +158,7 @@ class BgMusicManifestCompatibilityTest {
         val manifest = assertSuccess(readAll(manifestArchive(json))).manifest
 
         assertEquals("Mix title", manifest.title)
-        assertEquals("line1line2", manifest.description)
+        assertEquals("line1\nline2", manifest.description)
     }
 
     @Test
@@ -205,12 +205,31 @@ class BgMusicManifestCompatibilityTest {
     }
 
     @Test
-    fun manifestLargerThanOneMebibyteIsManifestTooLarge() {
-        val padding = "x".repeat(1_100_000)
+    fun manifestAtTheTwoMebibyteLimitIsAcceptedAndOneByteMoreIsTooLarge() {
+        val limit = BgMusicFormat.MAX_MANIFEST_BYTES.toInt()
+        val withEmptyPadding = manifestJson(extra = ",\"padding\":\"\"").length
 
+        fun manifestOfBytes(bytes: Int): String =
+            manifestJson(extra = ",\"padding\":\"" + "x".repeat(bytes - withEmptyPadding) + "\"")
+
+        assertEquals(limit, manifestOfBytes(limit).length) // the JSON is ASCII, so characters are bytes
+        assertSuccess(readAll(manifestArchive(manifestOfBytes(limit))))
         assertInvalid(
-            readAll(manifestArchive(manifestJson(description = "\"$padding\""))),
+            readAll(manifestArchive(manifestOfBytes(limit + 1))),
             BgMusicInvalidReason.ManifestTooLarge,
         )
+    }
+
+    @Test
+    fun lineBreaksAreNormalizedPerFieldOnRead() {
+        val json = manifestJson(
+            title = "\"Mix\\nTape\"",
+            description = "\"a\\r\\n\\r\\n\\r\\nb\\rc\"",
+        )
+
+        val manifest = assertSuccess(readAll(manifestArchive(json))).manifest
+
+        assertEquals("Mix Tape", manifest.title)
+        assertEquals("a\n\nb\nc", manifest.description)
     }
 }

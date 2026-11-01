@@ -27,7 +27,7 @@ object BgMusicFormat {
 
     // Size limits. Sizes are bytes, measured after decompression for entries and before it for the file.
     const val MAX_ARCHIVE_BYTES: Long = 4L * 1024 * 1024
-    const val MAX_MANIFEST_BYTES: Long = 1L * 1024 * 1024
+    const val MAX_MANIFEST_BYTES: Long = 2L * 1024 * 1024
     const val MAX_COVER_BYTES: Long = 1L * 1024 * 1024
     const val MAX_TOTAL_UNCOMPRESSED_BYTES: Long = 4L * 1024 * 1024
     const val MAX_ENTRIES = 8
@@ -60,24 +60,60 @@ object BgMusicFormat {
     )
 
     /**
-     * Makes free text safe to store. Control characters, bidi embedding, override and isolate characters, and
-     * unpaired surrogates are removed, the text is trimmed, and it is capped to [maxCodePoints] code points.
-     * Cutting never splits a surrogate pair. The result can be empty.
+     * Makes single-line text safe to store, such as titles, artists, albums and names. Line breaks (CR, LF, VT, FF,
+     * NEL, U+2028, U+2029) and tabs become one space each, so words are not glued together. Other control
+     * characters, bidi embedding, override and isolate characters, and unpaired surrogates are removed. The text is
+     * trimmed and capped to [maxCodePoints] code points; cutting never splits a surrogate pair. The result can be empty.
      */
-    internal fun sanitizeText(raw: String, maxCodePoints: Int): String {
-        val kept = StringBuilder(raw.length)
+    internal fun sanitizeText(raw: String, maxCodePoints: Int): String =
+        sanitize(raw, maxCodePoints, keepLineBreaks = false)
+
+    /**
+     * Makes free text, the playlist description, safe to store and keeps its paragraphs. Every line break becomes LF,
+     * and a run of more than two LF in a row is cut to two. Tabs become spaces. The other rules of [sanitizeText]
+     * apply, including the trim and the cap.
+     */
+    internal fun sanitizeMultilineText(raw: String, maxCodePoints: Int): String =
+        sanitize(raw, maxCodePoints, keepLineBreaks = true)
+
+    private const val TAB = 0x09
+
+    private fun sanitize(raw: String, maxCodePoints: Int, keepLineBreaks: Boolean): String {
+        // CRLF is one line break. Joining it first stops the CR and the LF from counting as two.
+        val text = raw.replace("\r\n", "\n")
+        val kept = StringBuilder(text.length)
+        var lineBreaksInRow = 0
         var index = 0
-        while (index < raw.length) {
-            val codePoint = Character.codePointAt(raw, index)
+        while (index < text.length) {
+            val codePoint = Character.codePointAt(text, index)
             index += Character.charCount(codePoint)
-            if (!isDroppedCodePoint(codePoint)) {
-                kept.appendCodePoint(codePoint)
+            when {
+                keepLineBreaks && isLineBreak(codePoint) -> {
+                    if (lineBreaksInRow < 2) {
+                        kept.append('\n')
+                        lineBreaksInRow++
+                    }
+                }
+                isLineBreak(codePoint) || codePoint == TAB -> {
+                    kept.append(' ')
+                    lineBreaksInRow = 0
+                }
+                !isDroppedCodePoint(codePoint) -> {
+                    kept.appendCodePoint(codePoint)
+                    lineBreaksInRow = 0
+                }
             }
         }
+        // Trim, cap, then trim again: cutting can leave a line break or a space at the end.
         val trimmed = kept.toString().trim()
         val end = endIndexForCodePoints(trimmed, maxCodePoints)
         return trimmed.substring(0, end).trimEnd()
     }
+
+    /** LF, VT, FF, CR, NEL, LINE SEPARATOR and PARAGRAPH SEPARATOR. */
+    private fun isLineBreak(codePoint: Int): Boolean =
+        codePoint == 0x0A || codePoint == 0x0B || codePoint == 0x0C || codePoint == 0x0D ||
+            codePoint == 0x85 || codePoint == 0x2028 || codePoint == 0x2029
 
     private fun isDroppedCodePoint(codePoint: Int): Boolean =
         codePoint < 0x20 ||

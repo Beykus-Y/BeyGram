@@ -253,7 +253,7 @@ object BgMusicReader {
             title = root.requireText("title", BgMusicFormat.MAX_PLAYLIST_TITLE),
             updatedAtMs = root.requireLong("updated_at", 0L, BgMusicFormat.MAX_UPDATED_AT_MS),
             tracks = parseTracks(root),
-            description = root.optionalText("description", BgMusicFormat.MAX_DESCRIPTION),
+            description = root.optionalText("description", BgMusicFormat.MAX_DESCRIPTION, keepLineBreaks = true),
             author = parseAuthor(root),
             formatVersion = formatVersion,
             minReaderVersion = minReaderVersion,
@@ -350,7 +350,10 @@ private fun JSONObject.requireUuid(key: String): String {
     return BgMusicFormat.normalizeUuid(raw) ?: fail(BgMusicInvalidReason.BadField, key)
 }
 
-/** Required text. Control characters are removed and the text is capped. Empty text fails unless [allowEmpty]. */
+/**
+ * Required single-line text. Line breaks and tabs become spaces, other control characters are removed, and the
+ * text is capped. Empty text fails unless [allowEmpty].
+ */
 private fun JSONObject.requireText(key: String, maxCodePoints: Int, allowEmpty: Boolean = false): String {
     val raw = opt(key) as? String ?: fail(BgMusicInvalidReason.BadField, key)
     val text = BgMusicFormat.sanitizeText(raw, maxCodePoints)
@@ -358,12 +361,19 @@ private fun JSONObject.requireText(key: String, maxCodePoints: Int, allowEmpty: 
     return text
 }
 
-/** Optional text. A missing key or a JSON null reads as an empty string. */
-private fun JSONObject.optionalText(key: String, maxCodePoints: Int): String {
+/**
+ * Optional text. A missing key or a JSON null reads as an empty string. Line breaks are kept only when
+ * [keepLineBreaks] is set, which is the case for the description; every other field is single-line.
+ */
+private fun JSONObject.optionalText(key: String, maxCodePoints: Int, keepLineBreaks: Boolean = false): String {
     val value = opt(key)
     if (value == null || value == JSONObject.NULL) return ""
     val raw = value as? String ?: fail(BgMusicInvalidReason.BadField, key)
-    return BgMusicFormat.sanitizeText(raw, maxCodePoints)
+    return if (keepLineBreaks) {
+        BgMusicFormat.sanitizeMultilineText(raw, maxCodePoints)
+    } else {
+        BgMusicFormat.sanitizeText(raw, maxCodePoints)
+    }
 }
 
 private fun parseAuthor(root: JSONObject): BgMusicAuthor? {

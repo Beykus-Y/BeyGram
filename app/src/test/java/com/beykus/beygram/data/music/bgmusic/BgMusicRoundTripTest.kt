@@ -76,8 +76,80 @@ class BgMusicRoundTripTest {
     fun controlCharactersAndBidiOverridesAreRemoved() {
         val dirty = "\u0000Mix\u0007 \u202Eevil\u2069\nname\t "
 
-        assertEquals("Mix evilname", BgMusicFormat.sanitizeText(dirty, 128))
-        assertEquals("Mix evilname", assertSuccess(readAll(writeToBytes(testManifest(title = dirty)))).manifest.title)
+        // A line break or a tab is a space, not a removal, so the two words stay apart.
+        assertEquals("Mix evil name", BgMusicFormat.sanitizeText(dirty, 128))
+        assertEquals("Mix evil name", assertSuccess(readAll(writeToBytes(testManifest(title = dirty)))).manifest.title)
+    }
+
+    @Test
+    fun lineBreaksInSingleLineFieldsBecomeSpacesInsteadOfGluingWords() {
+        assertEquals("Hello World", BgMusicFormat.sanitizeText("Hello\r\nWorld", 128))
+        assertEquals("A B", BgMusicFormat.sanitizeText("A\nB", 128))
+        assertEquals("C D", BgMusicFormat.sanitizeText("C\rD", 128))
+        assertEquals("E F G H", BgMusicFormat.sanitizeText("E\u000BF\u000CG\u0085H", 128))
+        assertEquals("I J", BgMusicFormat.sanitizeText("I\u2028J", 128))
+        assertEquals("K L", BgMusicFormat.sanitizeText("K\tL", 128))
+
+        val track = testTrack(1).copy(artist = "Band\nName", album = "Album\r\n")
+        val result = assertSuccess(readAll(writeToBytes(testManifest(tracks = listOf(track), title = "Mix\nTape")))).manifest
+        assertEquals("Mix Tape", result.title)
+        assertEquals("Band Name", result.tracks.single().artist)
+        assertEquals("Album", result.tracks.single().album)
+    }
+
+    @Test
+    fun descriptionKeepsParagraphsThroughTheRoundTrip() {
+        val description = "First line\nSecond line\n\nNew paragraph"
+
+        val result = assertSuccess(readAll(writeToBytes(testManifest(description = description)))).manifest
+
+        assertEquals(description, result.description)
+    }
+
+    @Test
+    fun descriptionNormalizesCrLfAndLoneCrToLf() {
+        assertEquals("a\nb\nc\n\nd", BgMusicFormat.sanitizeMultilineText("a\r\nb\rc\r\n\r\nd", 1000))
+    }
+
+    @Test
+    fun descriptionCollapsesRunsOfMoreThanTwoLineBreaks() {
+        assertEquals("a\n\nb", BgMusicFormat.sanitizeMultilineText("a\n\n\n\n\nb", 1000))
+        assertEquals("a\n\nb", BgMusicFormat.sanitizeMultilineText("a\r\n\r\n\r\nb", 1000))
+        // A dropped control character does not end a run, and a space does.
+        assertEquals("a\n\nb", BgMusicFormat.sanitizeMultilineText("a\n\u0001\n\n\nb", 1000))
+        assertEquals("a\n \nb", BgMusicFormat.sanitizeMultilineText("a\n \nb", 1000))
+    }
+
+    @Test
+    fun descriptionTrimsLineBreaksAtTheEdges() {
+        assertEquals("Hi there", BgMusicFormat.sanitizeMultilineText("\n\n  Hi there \n\n", 1000))
+    }
+
+    @Test
+    fun descriptionTurnsTabsIntoSpacesAndOtherLineSeparatorsIntoLineBreaks() {
+        assertEquals("x y", BgMusicFormat.sanitizeMultilineText("x\ty", 1000))
+        assertEquals("x\ny", BgMusicFormat.sanitizeMultilineText("x\u2028y", 1000))
+        assertEquals("x\ny", BgMusicFormat.sanitizeMultilineText("x\u000By", 1000))
+    }
+
+    @Test
+    fun descriptionCapCountsCodePointsAndTrimsAfterCutting() {
+        val capped = BgMusicFormat.sanitizeMultilineText("ab\n".repeat(600), 1000)
+        assertEquals(1000, capped.length)
+
+        // The cut lands right after a line break, which must not stay at the end of the description.
+        assertEquals("x".repeat(999), BgMusicFormat.sanitizeMultilineText("x".repeat(999) + "\ny", 1000))
+    }
+
+    @Test
+    fun sanitizedTextIsStableUnderASecondPass() {
+        val samples = listOf("a\r\n\r\n\r\n\tb \u2028 c", "x".repeat(999) + "\ny", "\u0007 Title \u202E\n", "\u0085\u0085 q\n\n\n")
+        for (raw in samples) {
+            val description = BgMusicFormat.sanitizeMultilineText(raw, 1000)
+            assertEquals(description, BgMusicFormat.sanitizeMultilineText(description, 1000))
+            val line = BgMusicFormat.sanitizeText(raw, 1000)
+            assertEquals(line, BgMusicFormat.sanitizeText(line, 1000))
+        }
     }
 
     @Test
@@ -169,6 +241,18 @@ class BgMusicRoundTripTest {
     @Test
     fun fiveThousandTracksRoundTripInOrder() {
         val tracks = (1..BgMusicFormat.MAX_TRACKS).map { testTrack(it) }
+
+        val result = assertSuccess(readAll(writeToBytes(testManifest(tracks = tracks)))).manifest
+
+        assertEquals(tracks, result.tracks)
+    }
+
+    @Test
+    fun fiveThousandTracksWithTypicalCyrillicMetadataFitTheManifestLimit() {
+        // 40/25/25 Cyrillic characters per track is about 280 bytes of JSON, so 5000 tracks stay well under 2 MiB.
+        val tracks = (1..BgMusicFormat.MAX_TRACKS).map {
+            testTrack(it).copy(title = "я".repeat(40), artist = "я".repeat(25), album = "я".repeat(25))
+        }
 
         val result = assertSuccess(readAll(writeToBytes(testManifest(tracks = tracks)))).manifest
 
