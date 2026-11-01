@@ -2243,4 +2243,5 @@
     <string name="composer_move_attachment_left">Переместить влево</string>
     <string name="composer_move_attachment_right">Переместить вправо</string>
     <string name="composer_attachment_actions">Действия с вложением</string>
+    <string name="message_action_react">Реакция</string>
 </resources>

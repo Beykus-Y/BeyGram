@@ -235,7 +235,7 @@ internal fun MessageAlbumBubble(
                         if (!selectionMode) MessageReactionChips(
                             reactionOwner.reactions, observeCustomEmoji, observeFile, onDownloadFile,
                             onToggle = { onReaction(reactionOwner.id, it) },
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp)
+                            modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 2.dp)
                         )
                     }
                 )

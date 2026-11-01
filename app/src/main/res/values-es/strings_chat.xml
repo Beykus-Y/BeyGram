@@ -255,4 +255,5 @@
         <item quantity="one">Queda aproximadamente %1$d minuto</item>
         <item quantity="other">Quedan aproximadamente %1$d minutos</item>
     </plurals>
+    <string name="message_action_react">Añadir reacción</string>
 </resources>

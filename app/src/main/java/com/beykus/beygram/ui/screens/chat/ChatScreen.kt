@@ -323,6 +323,7 @@ fun ChatScreen(
     var pendingWebApp by remember(chat.id) { mutableStateOf<PendingBotWebApp?>(null) }
     var webAppOpening by remember(chat.id) { mutableStateOf(false) }
     var reactionOptions by remember(conversation, chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    var reactionPickerOpen by remember(chat.id) { mutableStateOf(false) }
     val paidReactions = rememberPaidReactions(conversation)
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
@@ -751,7 +752,7 @@ fun ChatScreen(
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
-    fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
+    fun closeActions() { actionsId = null; reactionPickerOpen = false; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     fun enterSelection(message: ChatMessage? = null) {
         closeActions()
         selectionMode = true
@@ -784,6 +785,7 @@ fun ChatScreen(
         // Entering Select from the action menu must not lose the original message context.
         selectionAnchorId = messageId
         actionsId = messageId
+        reactionPickerOpen = false
     }
     val singleActionTarget = selectionAnchorId?.takeIf { selectionIds == selectionGroupIds(messages, it) }
     fun toggleSelection(message: ChatMessage) {
@@ -1498,6 +1500,7 @@ fun ChatScreen(
                     closeActions()
                 }
             },
+            onReactions = if (reactionOwner != null && reactionOptions.isNotEmpty()) { { reactionPickerOpen = true } } else null,
             onCopyEntity = if (actionMessage.isViewOnce || chat.hasProtectedContent) null else copyableMessageLinks(actionMessage.text, actionMessage.entities)
                 .takeIf { it.isNotEmpty() }
                 ?.let { values -> { copyLinks = values; closeActions() } },
@@ -1562,7 +1565,7 @@ fun ChatScreen(
                 onDismiss = { reportMessageId = null }
             )
         }
-        reactionOwner?.takeIf { !deleting }?.let { owner ->
+        reactionOwner?.takeIf { !deleting && reactionPickerOpen }?.let { owner ->
             MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen && !it.isPaid }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
                 setReaction(owner.id, option, addToRecent = true)
                 closeActions()
@@ -1895,7 +1898,9 @@ fun ChatScreen(
         )
         // Keep presence above the entire composer, including any staged attachment tray.
         // Never place it between attachment previews and the caption/keyboard.
-        if (!deleting && !searching && !selectionMode && typingNames.isNotEmpty()) TypingRow(typingNames)
+        key(chat.id) {
+            AnimatedTypingRow(if (!deleting && !searching && !selectionMode) typingNames else emptyList())
+        }
         val replyTarget = messages.firstOrNull { it.id == replyId }
         if (deleting && actionMessage != null) {
             val caps = capabilities
@@ -2777,12 +2782,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     // Inline keyboards and reactions must stack, never paint over one another.
                     Column {
                         inlineContent()
-                        // Reactions share the bubble surface and geometry rather than floating
-                        // underneath it; each pill still has a 48dp accessible hit target.
+                        // Reactions stay inside the clipped bubble and close to its bottom edge.
+                        // Compact pills keep their Compose-expanded touch targets.
                         if (!selectionMode) MessageReactionChips(
                             message.reactions, observeCustomEmoji, observeFile, onDownloadFile,
                             onToggle = { onReaction(message.id, it) },
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp)
+                            modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 2.dp)
                         )
                     }
                 },

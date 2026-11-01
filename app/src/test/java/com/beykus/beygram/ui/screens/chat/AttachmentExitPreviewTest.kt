@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -11,6 +12,13 @@ class AttachmentExitPreviewTest {
         path = "/staged/$id", fileName = "photo.jpg", mimeType = "image/jpeg",
         kind = MediaKind.Photo
     )
+
+    @Test fun menuClosingRetainsContentsUntilHeightAnimationCompletes() {
+        assertTrue(nextAttachmentExitMenu(false, menuOpen = true, panelVisible = true))
+        assertTrue(nextAttachmentExitMenu(true, menuOpen = false, panelVisible = false))
+        assertFalse(nextAttachmentExitMenu(true, menuOpen = false, panelVisible = true))
+        assertFalse(nextAttachmentExitMenu(false, menuOpen = false, panelVisible = false))
+    }
 
     @Test fun finalPhotoRemovalCanFadeLastRealContents() {
         val previous = listOf(photo("a"))
