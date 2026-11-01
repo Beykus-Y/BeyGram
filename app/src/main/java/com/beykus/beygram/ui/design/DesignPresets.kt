@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.design
 
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 
@@ -35,6 +37,15 @@ val DefaultDesignSystem = DesignSystem(
         floatingNavigation = false
     ),
     fab = DesignFab(cornerRadius = 20.dp, elevation = 6.dp),
+    // The exact numbers the chat list has always used: 30sp bold title, 16dp chips, a tonal archive card, 54dp avatars.
+    mainScreen = DesignMainScreen(
+        titleSize = 30.sp, titleWeight = FontWeight.Bold, titleTracking = (-0.3).sp,
+        sectionLabelUppercase = false, sectionLabelTracking = 0.sp,
+        chipRadius = 16.dp, chipSelection = ChipSelectionTone.Filled,
+        archive = ArchiveTreatment.Tonal, archiveRadius = 14.dp, archiveElevation = 0.dp,
+        avatarSize = 54.dp, rowTitleWeight = FontWeight.SemiBold, badgeRadius = 11.dp,
+        headerGap = 14.dp
+    ),
     bubbles = null
 )
 
@@ -69,6 +80,16 @@ val Material2DesignSystem = DesignSystem(
     ),
     // Classic Material Design draws the action button as a circle above a flat list.
     fab = DesignFab(cornerRadius = 28.dp, elevation = 6.dp),
+    // Dense 20sp app-bar title, rectangular chips and a badge that is not a pill, so nothing stays modern-rounded
+    // next to the outlined 2dp search field.
+    mainScreen = DesignMainScreen(
+        titleSize = 22.sp, titleWeight = FontWeight.Medium, titleTracking = 0.sp,
+        sectionLabelUppercase = true, sectionLabelTracking = 0.6.sp,
+        chipRadius = 2.dp, chipSelection = ChipSelectionTone.Underlined,
+        archive = ArchiveTreatment.Card, archiveRadius = 4.dp, archiveElevation = 2.dp,
+        avatarSize = 48.dp, rowTitleWeight = FontWeight.Medium, badgeRadius = 2.dp,
+        headerGap = 10.dp
+    ),
     bubbles = DesignBubbleGeometry(
         cornerRadius = 6.dp, tailRadius = 2.dp, replyRadius = 4.dp, textInset = 12.dp, textTopInset = 8.dp
     )
@@ -104,6 +125,15 @@ val Material3DesignSystem = DesignSystem(
         floatingNavigation = false
     ),
     fab = DesignFab(cornerRadius = 16.dp, elevation = 6.dp),
+    // Material You: a lighter title, tonal chips without a hard accent fill and an 8dp badge.
+    mainScreen = DesignMainScreen(
+        titleSize = 26.sp, titleWeight = FontWeight.SemiBold, titleTracking = 0.sp,
+        sectionLabelUppercase = false, sectionLabelTracking = 0.4.sp,
+        chipRadius = 8.dp, chipSelection = ChipSelectionTone.Tonal,
+        archive = ArchiveTreatment.Tonal, archiveRadius = 12.dp, archiveElevation = 0.dp,
+        avatarSize = 52.dp, rowTitleWeight = FontWeight.Medium, badgeRadius = 8.dp,
+        headerGap = 12.dp
+    ),
     bubbles = DesignBubbleGeometry(
         cornerRadius = 18.dp, tailRadius = 4.dp, replyRadius = 12.dp, textInset = 12.dp, textTopInset = 8.dp
     )
@@ -165,6 +195,15 @@ fun liquidGlassDesign(quality: GlassQuality): DesignSystem {
         ),
         // A lens, not a second pane of glass: the button carries a light shadow and its own round edge.
         fab = DesignFab(cornerRadius = 26.dp, elevation = 4.dp),
+        // Glass reads through the chrome: soft round chips, a larger archive card and a quiet title weight.
+        mainScreen = DesignMainScreen(
+            titleSize = 28.sp, titleWeight = FontWeight.SemiBold, titleTracking = (-0.2).sp,
+            sectionLabelUppercase = false, sectionLabelTracking = 0.3.sp,
+            chipRadius = 18.dp, chipSelection = ChipSelectionTone.Tonal,
+            archive = ArchiveTreatment.Card, archiveRadius = 20.dp, archiveElevation = 0.dp,
+            avatarSize = 54.dp, rowTitleWeight = FontWeight.SemiBold, badgeRadius = 11.dp,
+            headerGap = 14.dp
+        ),
         bubbles = DesignBubbleGeometry(
             cornerRadius = 20.dp, tailRadius = 8.dp, replyRadius = 14.dp, textInset = 12.dp, textTopInset = 8.dp
         )
@@ -203,6 +242,15 @@ val SignatureDesignSystem = DesignSystem(
     ),
     // Quiet depth: the button sits almost on the surface instead of casting a hard Material shadow.
     fab = DesignFab(cornerRadius = 18.dp, elevation = 2.dp),
+    // Editorial hierarchy: the largest title, tight tracking, a plain archive line instead of a card.
+    mainScreen = DesignMainScreen(
+        titleSize = 32.sp, titleWeight = FontWeight.Bold, titleTracking = (-0.6).sp,
+        sectionLabelUppercase = true, sectionLabelTracking = 0.8.sp,
+        chipRadius = 14.dp, chipSelection = ChipSelectionTone.Filled,
+        archive = ArchiveTreatment.Flat, archiveRadius = 0.dp, archiveElevation = 0.dp,
+        avatarSize = 56.dp, rowTitleWeight = FontWeight.Bold, badgeRadius = 10.dp,
+        headerGap = 16.dp
+    ),
     bubbles = DesignBubbleGeometry(
         cornerRadius = 18.dp, tailRadius = 6.dp, replyRadius = 12.dp, textInset = 12.dp, textTopInset = 8.dp
     )

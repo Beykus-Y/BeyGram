@@ -90,6 +90,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -146,6 +147,8 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.LocalNavigationDock
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.createButtonPlacement
+import com.beykus.beygram.ui.design.ArchiveTreatment
+import com.beykus.beygram.ui.design.ChipSelectionTone
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
@@ -258,6 +261,10 @@ fun ChatsScreen(
     val dock = LocalNavigationDock.current
     val fabPlacement = remember(dock) { createButtonPlacement(dock) }
     val fabShape = RoundedCornerShape(design.fab.cornerRadius)
+    // Material 2 shouts its section labels; the other styles keep the sentence case of the resource.
+    val sectionLabel: (String) -> String = { text ->
+        if (design.mainScreen.sectionLabelUppercase) text.uppercase() else text
+    }
     // Статус сессии Telegram общий для телефона и двухпанельного списка: он не зависит от раскладки.
     val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
@@ -308,8 +315,10 @@ fun ChatsScreen(
         }
     }
     val headerMotion = rememberMotionSpec(MotionToken.BannerChange)
+    // The style owns the title scale; the collapsed form keeps the same 0.8 ratio Default has always had (24 of 30).
+    val headerSize = design.mainScreen.titleSize.value
     val headerTitleSize by animateFloatAsState(
-        targetValue = if (compactHeader || headerCollapsed) 24f else 30f,
+        targetValue = if (compactHeader || headerCollapsed) headerSize * 0.8f else headerSize,
         animationSpec = headerMotion.animationSpec<Float>(),
         label = "chatsHeaderTitleSize"
     )
@@ -419,7 +428,7 @@ fun ChatsScreen(
                             letterSpacing = 0.8.sp
                         )
                     }
-                    Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
+                    Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = design.mainScreen.titleWeight, letterSpacing = design.mainScreen.titleTracking,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() })
                 }
@@ -457,7 +466,7 @@ fun ChatsScreen(
             // показывается строкой во всю ширину шапки и исчезает сразу после восстановления связи.
             ChatsConnectionLine(connectionStatus)
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(design.mainScreen.headerGap))
             // Music search is reachable directly from the daily chat list; it reuses the same
             // MusicSearch route, account context and queue as Settings and the full player.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -563,7 +572,13 @@ fun ChatsScreen(
             }
             if (pinnedChats.isNotEmpty()) {
                 item(key = "pinned_header") {
-                    Text(stringResource(R.string.chats_section_pinned), modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        sectionLabel(stringResource(R.string.chats_section_pinned)),
+                        modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp),
+                        color = palette.textSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                        letterSpacing = design.mainScreen.sectionLabelTracking
+                    )
                 }
                 // Same key as the regular rows, so a pin or unpin moves the row instead of replacing it.
                 items(pinnedChats, key = { it.id }) { chat ->
@@ -588,11 +603,13 @@ fun ChatsScreen(
             }
             if (query.isNotBlank()) {
                 item(key = "local_search_header") {
+                    val label = sectionLabel(stringResource(R.string.chats_search_local_section))
                     Text(
-                        stringResource(R.string.chats_search_local_section),
+                        label,
                         color = palette.textSecondary,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
+                        letterSpacing = design.mainScreen.sectionLabelTracking,
                         modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp)
                             .semantics { heading() }
                     )
@@ -795,8 +812,9 @@ private fun TelegramSearchAction(
 }
 
 @Composable
-private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, onHide: () -> Unit) {
+internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, onHide: () -> Unit) {
     val palette = beyGramPalette()
+    val main = LocalDesignSystem.current.mainScreen
     val context = LocalContext.current
     var actionsOpen by remember { mutableStateOf(false) }
     val unread = archivedChats.sumOf { it.unreadCount }
@@ -808,11 +826,21 @@ private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, on
     }
     // Archive is a navigation row, not a featured content card. Keep its touch target >= 56dp
     // while reducing the visual prominence that previously pushed conversations down.
+    // Card is a raised surface, Tonal is today's quiet fill, Flat is just a navigation line inside the list.
+    val archiveShape = RoundedCornerShape(main.archiveRadius)
+    val archiveBackground = when (main.archive) {
+        ArchiveTreatment.Card, ArchiveTreatment.Tonal -> palette.surface
+        ArchiveTreatment.Flat -> Color.Transparent
+    }
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 3.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth()
                 .heightIn(min = 56.dp)
-                .clip(RoundedCornerShape(14.dp)).background(palette.surface)
+                .then(
+                    if (main.archiveElevation > 0.dp) Modifier.shadow(main.archiveElevation, archiveShape)
+                    else Modifier
+                )
+                .clip(archiveShape).background(archiveBackground)
                 .combinedClickable(onClick = onClick, onLongClick = { actionsOpen = true }, role = Role.Button)
                 .semantics(mergeDescendants = true) { contentDescription = accessibleDescription(title, summary) }
                 .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -882,34 +910,66 @@ private fun ArchivePullHint(heightDp: Dp) {
 
 /** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
 @Composable
-private fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val main = design.mainScreen
     val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
-    val containerColor by animateColorAsState(if (selected) palette.accent else palette.surface2, tabSpec)
-    val labelColor by animateColorAsState(if (selected) palette.onAccent else palette.textPrimary, tabSpec)
-    Row(
-        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
-            .background(containerColor)
-            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            title,
-            color = labelColor,
-            fontSize = 14.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            modifier = Modifier.widthIn(max = 144.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (unreadCount != null && unreadCount > 0) {
-            Spacer(Modifier.width(8.dp))
+    // Filled is the BeyGram accent chip, Tonal is the Material 3 filter chip, Underlined is the classic Material 2 tab:
+    // the container keeps the surface and the selection is a rule under the label.
+    val containerColor by animateColorAsState(
+        when {
+            !selected -> palette.surface2
+            main.chipSelection == ChipSelectionTone.Tonal -> palette.accentSoft
+            else -> palette.accent
+        },
+        tabSpec
+    )
+    val labelColor by animateColorAsState(
+        when {
+            !selected -> palette.textPrimary
+            main.chipSelection == ChipSelectionTone.Filled -> palette.onAccent
+            else -> palette.accentInk
+        },
+        tabSpec
+    )
+    val chipShape = RoundedCornerShape(main.chipRadius)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(
+            Modifier.heightIn(min = 48.dp).clip(chipShape)
+                .background(containerColor)
+                .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                unreadCount.toString(),
-                color = if (selected) palette.onAccent else palette.accent,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
+                title,
+                color = labelColor,
+                fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                modifier = Modifier.widthIn(max = 144.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (unreadCount != null && unreadCount > 0) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    unreadCount.toString(),
+                    color = when {
+                        !selected -> palette.accent
+                        main.chipSelection == ChipSelectionTone.Filled -> palette.onAccent
+                        else -> palette.accentInk
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        if (main.chipSelection == ChipSelectionTone.Underlined) {
+            // The rule is always laid out, so switching folders never shifts the row of chips by two dp.
+            Box(
+                Modifier.padding(top = 2.dp).height(2.dp).width(if (selected) 28.dp else 0.dp)
+                    .background(if (selected) palette.accent else Color.Transparent)
             )
         }
     }
@@ -1023,6 +1083,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
     onClick: () -> Unit, onLongClick: (() -> Unit)? = null, highlighted: Boolean = false) {
     val palette = beyGramPalette()
     val listDensity = LocalChatListDensity.current
+    val main = LocalDesignSystem.current.mainScreen
     val unread = showsUnreadIndicator(chat)
     val emptyPreview = (chat.lastMessage as? UiText.Raw)?.text?.isBlank() == true
     val preview = previewLine(chat, emptyPreview)
@@ -1051,11 +1112,11 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             .padding(horizontal = 20.dp, vertical = listDensity.rowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ChatAvatar(chat, 54.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+        ChatAvatar(chat, main.avatarSize, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = main.rowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (chat.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.accent, modifier = Modifier.padding(start = 4.dp).size(14.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(chat.lastMessageTime, color = if (unread) palette.accent else palette.textSecondary, fontSize = 12.sp, fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal)
@@ -1070,7 +1131,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                     // Чат без звука получает серый счётчик, как в Telegram. Ручная отметка без сообщений — точка.
                     val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
                     if (chat.unreadCount > 0) {
-                        Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(11.dp)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(main.badgeRadius)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
                             Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     } else {

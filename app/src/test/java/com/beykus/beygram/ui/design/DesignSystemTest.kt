@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.design
 
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import org.junit.Assert.assertEquals
@@ -51,6 +53,50 @@ class DesignSystemTest {
         assertEquals(NavigationVariant.NavigationBar, designFor(DesignStyle.Material3).components.navigation)
         assertEquals(NavigationVariant.FloatingGlass, designFor(DesignStyle.LiquidGlass).components.navigation)
         assertEquals(NavigationVariant.SignatureDock, designFor(DesignStyle.Signature).components.navigation)
+    }
+
+    @Test fun defaultChatListKeepsTheNumbersItAlwaysHad() {
+        val main = designFor(DesignStyle.Default).mainScreen
+        assertEquals(30.sp, main.titleSize)
+        assertEquals(FontWeight.Bold, main.titleWeight)
+        assertEquals((-0.3).sp, main.titleTracking)
+        assertEquals(16.dp, main.chipRadius)
+        assertEquals(ChipSelectionTone.Filled, main.chipSelection)
+        assertEquals(ArchiveTreatment.Tonal, main.archive)
+        assertEquals(14.dp, main.archiveRadius)
+        assertEquals(54.dp, main.avatarSize)
+        assertEquals(FontWeight.SemiBold, main.rowTitleWeight)
+        assertEquals(11.dp, main.badgeRadius)
+        assertEquals(14.dp, main.headerGap)
+        assertFalse("Default keeps the sentence case of the pinned label", main.sectionLabelUppercase)
+    }
+
+    @Test fun theChatListDiffersSystemicallyBetweenStyles() {
+        val byStyle = DesignStyle.entries.associateWith { designFor(it).mainScreen }
+
+        // The screen itself changes, not only the bar below it.
+        assertEquals(byStyle.size, byStyle.values.distinct().size)
+
+        // A rectangular search field must not sit next to rounded pills: Material 2 squares its chips and its title.
+        assertEquals(2.dp, byStyle.getValue(DesignStyle.Material2).chipRadius)
+        assertEquals(ChipSelectionTone.Underlined, byStyle.getValue(DesignStyle.Material2).chipSelection)
+        assertTrue(byStyle.getValue(DesignStyle.Material2).sectionLabelUppercase)
+        assertEquals(ArchiveTreatment.Card, byStyle.getValue(DesignStyle.Material2).archive)
+
+        // Material 3 uses a tonal filter chip instead of the accent fill.
+        assertEquals(ChipSelectionTone.Tonal, byStyle.getValue(DesignStyle.Material3).chipSelection)
+        assertEquals(8.dp, byStyle.getValue(DesignStyle.Material3).badgeRadius)
+
+        // Signature drops the archive card entirely and keeps the largest hierarchy.
+        assertEquals(ArchiveTreatment.Flat, byStyle.getValue(DesignStyle.Signature).archive)
+        assertTrue(
+            byStyle.getValue(DesignStyle.Signature).titleSize > byStyle.getValue(DesignStyle.Default).titleSize
+        )
+        assertEquals(FontWeight.Bold, byStyle.getValue(DesignStyle.Signature).rowTitleWeight)
+
+        // Glass keeps a card, but with its own softer radius.
+        assertEquals(ArchiveTreatment.Card, byStyle.getValue(DesignStyle.LiquidGlass).archive)
+        assertEquals(20.dp, byStyle.getValue(DesignStyle.LiquidGlass).archiveRadius)
     }
 
     @Test fun everyStyleExceptDefaultOwnsItsBubbleGeometry() {
