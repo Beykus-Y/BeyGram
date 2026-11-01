@@ -28,7 +28,8 @@
     <string name="bgmusic_favorites_name">Любимые</string>
     <string name="bgmusic_import_already_saved">Эта подборка уже сохранена</string>
     <string name="bgmusic_import_failed">Не удалось сохранить подборку</string>
-    <string name="bgmusic_import_newer_text">Эта подборка уже сохранена, а в файле более новая версия. Обновить сохранённую подборку или сохранить файл отдельной копией?</string>
+    <string name="bgmusic_import_newer_text">Эта подборка уже сохранена, а в файле более новая версия. «Обновить» заменит треки сохранённой копии, включая ваши изменения в ней. Или сохранить файл отдельной копией?</string>
+    <string name="bgmusic_menu_share_collection">Поделиться подборкой</string>
     <string name="bgmusic_import_newer_title">Есть более новая версия</string>
     <string name="bgmusic_import_older_text">В приложении уже есть более новая версия этой подборки. Сохранить файл отдельной копией?</string>
     <string name="bgmusic_import_older_title">Файл старее сохранённой подборки</string>

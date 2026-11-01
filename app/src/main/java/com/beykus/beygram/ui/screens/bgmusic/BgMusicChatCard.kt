@@ -1,7 +1,6 @@
 package com.beykus.beygram.ui.screens.bgmusic
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +22,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +34,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +55,12 @@ import com.beykus.beygram.ui.screens.chat.formatMediaSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+
+/**
+ * Opens the local playlist with the given id in the app's playlist screen. The app provides it; without a provider the preview
+ * offers no open action.
+ */
+val LocalOpenMusicPlaylist = compositionLocalOf<((playlistId: String) -> Unit)?> { null }
 
 /** Whether a document message is a `.bgmusic` file, judged from its name or MIME type before any byte is read. */
 internal fun isBgMusicDocument(media: MessageMedia): Boolean =
@@ -86,6 +94,7 @@ internal fun BgMusicChatDocument(
     val context = LocalContext.current
     val palette = beyGramPalette()
     val accountId = LocalPlaybackAccountId.current
+    val openPlaylist = LocalOpenMusicPlaylist.current
     val localPath = file.localPath
     val key = remember(accountId, media.fileId, file.size) { BgMusicCacheKey(accountId, media.fileId, file.size) }
     var parsed by remember(key) { mutableStateOf(BgMusicFileParser.cached(key)) }
@@ -124,7 +133,17 @@ internal fun BgMusicChatDocument(
         )
     }
     if (previewing && current is BgMusicParsed.Playlist) {
-        BgMusicPreviewScreen(parsed = current, onDismiss = { previewing = false })
+        BgMusicPreviewScreen(
+            parsed = current,
+            onDismiss = { previewing = false },
+            onOpenLocalPlaylist = openPlaylist?.let { open ->
+                { playlistId: String ->
+                    // The preview closes before the app leaves the chat, so it is not still open when the chat comes back.
+                    previewing = false
+                    open(playlistId)
+                }
+            },
+        )
     }
 }
 
@@ -148,6 +167,7 @@ private fun BgMusicPlaylistCard(
         Modifier
             .width(244.dp)
             .clip(RoundedCornerShape(12.dp))
+            .semantics { role = Role.Button }
             .combinedClickable(
                 onClickLabel = openLabel,
                 onLongClickLabel = longPressLabel,
@@ -177,11 +197,11 @@ private fun BgMusicPlaylistCard(
             }
         }
         Spacer(Modifier.height(8.dp))
+        // Not clickable of its own: the card takes the tap and the long press, so both reach it from the whole card.
         Box(
             Modifier
                 .clip(RoundedCornerShape(10.dp))
                 .background(palette.accentSoft)
-                .clickable(onClickLabel = openLabel) { tap() }
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Text(
@@ -199,9 +219,11 @@ private fun BgMusicPlaylistCard(
 private fun CollectionCover(coverPath: String?) {
     val palette = beyGramPalette()
     val shape = RoundedCornerShape(8.dp)
-    if (coverPath != null) {
+    // The cache file goes with its cache entry, so a cover file that is gone shows the icon instead.
+    val cover = remember(coverPath) { coverPath?.takeIf { File(it).isFile } }
+    if (cover != null) {
         LocalMediaImage(
-            path = coverPath,
+            path = cover,
             modifier = Modifier.size(44.dp).clip(shape),
             maxDimension = 256,
         )

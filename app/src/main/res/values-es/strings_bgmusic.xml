@@ -28,7 +28,8 @@
     <string name="bgmusic_favorites_name">Favoritos</string>
     <string name="bgmusic_import_already_saved">Esta colección ya está guardada</string>
     <string name="bgmusic_import_failed">No se pudo guardar la colección</string>
-    <string name="bgmusic_import_newer_text">Esta colección ya está guardada, pero el archivo tiene una versión más reciente. ¿Actualizar la colección guardada o guardar el archivo como copia aparte?</string>
+    <string name="bgmusic_import_newer_text">Esta colección ya está guardada, pero el archivo tiene una versión más reciente. Actualizar reemplaza las pistas de la copia guardada, incluidos los cambios hechos en ella. ¿O guardar el archivo como copia aparte?</string>
+    <string name="bgmusic_menu_share_collection">Compartir colección</string>
     <string name="bgmusic_import_newer_title">Hay una versión más reciente</string>
     <string name="bgmusic_import_older_text">La aplicación ya tiene una versión más reciente de esta colección. ¿Guardar este archivo como copia aparte?</string>
     <string name="bgmusic_import_older_title">El archivo es más antiguo que la colección guardada</string>

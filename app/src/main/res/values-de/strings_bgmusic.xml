@@ -28,7 +28,8 @@
     <string name="bgmusic_favorites_name">Favoriten</string>
     <string name="bgmusic_import_already_saved">Diese Sammlung ist bereits gespeichert</string>
     <string name="bgmusic_import_failed">Sammlung konnte nicht gespeichert werden</string>
-    <string name="bgmusic_import_newer_text">Diese Sammlung ist bereits gespeichert, die Datei enthält aber eine neuere Version. Gespeicherte Sammlung aktualisieren oder die Datei als separate Kopie speichern?</string>
+    <string name="bgmusic_import_newer_text">Diese Sammlung ist bereits gespeichert, die Datei enthält aber eine neuere Version. Beim Aktualisieren werden die Titel der gespeicherten Kopie ersetzt, einschließlich Ihrer eigenen Änderungen daran. Oder die Datei als separate Kopie speichern?</string>
+    <string name="bgmusic_menu_share_collection">Sammlung teilen</string>
     <string name="bgmusic_import_newer_title">Neuere Version vorhanden</string>
     <string name="bgmusic_import_older_text">In der App gibt es bereits eine neuere Version dieser Sammlung. Diese Datei als separate Kopie speichern?</string>
     <string name="bgmusic_import_older_title">Datei ist älter als die gespeicherte Sammlung</string>

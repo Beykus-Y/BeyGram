@@ -28,7 +28,8 @@
     <string name="bgmusic_favorites_name">Favoris</string>
     <string name="bgmusic_import_already_saved">Cette sélection est déjà enregistrée</string>
     <string name="bgmusic_import_failed">Impossible d\'enregistrer la sélection</string>
-    <string name="bgmusic_import_newer_text">Cette sélection est déjà enregistrée, mais le fichier contient une version plus récente. Mettre à jour la sélection enregistrée ou enregistrer le fichier comme copie séparée ?</string>
+    <string name="bgmusic_import_newer_text">Cette sélection est déjà enregistrée, mais le fichier contient une version plus récente. La mise à jour remplace les titres de la copie enregistrée, y compris vos modifications. Ou enregistrer le fichier comme copie séparée ?</string>
+    <string name="bgmusic_menu_share_collection">Partager la sélection</string>
     <string name="bgmusic_import_newer_title">Une version plus récente existe</string>
     <string name="bgmusic_import_older_text">L\'application contient déjà une version plus récente de cette sélection. Enregistrer ce fichier comme copie séparée ?</string>
     <string name="bgmusic_import_older_title">Le fichier est plus ancien que la sélection enregistrée</string>

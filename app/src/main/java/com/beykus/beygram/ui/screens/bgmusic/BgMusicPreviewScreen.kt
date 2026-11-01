@@ -50,7 +50,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MUSIC_COVER_DIRECTORY
 import com.beykus.beygram.data.music.MusicLibraries
-import com.beykus.beygram.data.music.MusicLibraryRepository
 import com.beykus.beygram.data.music.MusicOutcome
 import com.beykus.beygram.data.music.MusicPlaylist
 import com.beykus.beygram.data.music.PlaylistTrack
@@ -100,6 +99,8 @@ fun BgMusicPreviewScreen(
     val playlist = parsed as? BgMusicParsed.Playlist
     val manifest = playlist?.manifest
     val coverPath = playlist?.coverPath
+    // The cache file can be removed with its entry, so a missing file shows no cover instead of a broken one.
+    val shownCover = remember(coverPath) { coverPath?.takeIf { File(it).isFile } }
 
     // null while the posts are still being looked up; then a map from track id to the post that was found.
     var resolved by remember(manifest, accountId) { mutableStateOf<Map<String, BgMusicResolvedTrack>?>(null) }
@@ -136,15 +137,20 @@ fun BgMusicPreviewScreen(
         scope.launch {
             busy = true
             messageRes = null
+            var copiedCover: String? = null
+            var stored = false
             try {
+                // The cover is copied into the library's folder first, and the same write that stores the playlist keeps it.
+                copiedCover = withContext(Dispatchers.IO) { coverPath?.let { copyCoverIntoLibrary(context, it) } }
                 val origins = (resolved ?: repository?.let { BgMusicSourceResolver.resolve(it, accountId, current) }.orEmpty())
                     .mapValues { it.value.origin }
                 val snapshot = BgMusicLibraryMapping.toPlaylistCopy(current, System.currentTimeMillis(), origins)
+                    .copy(coverPath = copiedCover)
                 if (replaceLocalId == null) {
                     when (val outcome = libraryRepository.importPlaylistCopy(snapshot)) {
                         is MusicOutcome.Done -> {
+                            stored = true
                             savedId = outcome.value.id
-                            attachCover(context, libraryRepository, outcome.value.id, coverPath)
                             messageRes = R.string.bgmusic_import_saved
                         }
                         is MusicOutcome.Failed -> messageRes = R.string.bgmusic_import_failed
@@ -152,14 +158,16 @@ fun BgMusicPreviewScreen(
                 } else {
                     when (libraryRepository.replaceImportedPlaylist(replaceLocalId, snapshot)) {
                         is MusicOutcome.Done -> {
+                            stored = true
                             savedId = replaceLocalId
-                            attachCover(context, libraryRepository, replaceLocalId, coverPath)
                             messageRes = R.string.bgmusic_import_updated
                         }
                         is MusicOutcome.Failed -> messageRes = R.string.bgmusic_import_failed
                     }
                 }
             } finally {
+                // A copied cover is kept only together with a saved playlist; any other exit removes it again.
+                if (!stored) copiedCover?.let { File(it).delete() }
                 busy = false
             }
         }
@@ -221,9 +229,9 @@ fun BgMusicPreviewScreen(
         ) {
             Column(Modifier.fillMaxSize().padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (coverPath != null) {
+                    if (shownCover != null) {
                         LocalMediaImage(
-                            path = coverPath,
+                            path = shownCover,
                             modifier = Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)),
                             maxDimension = 256,
                         )
@@ -334,6 +342,8 @@ fun BgMusicPreviewScreen(
     if (askChoice && manifest != null) {
         val newer = decision is BgMusicImportDecision.NewerRevision
         val localId = localCopy?.id
+        // Updating needs the saved copy. Without one, the newer file can only be saved as a copy, so "Update" is not offered.
+        val canUpdate = newer && localId != null
         AlertDialog(
             onDismissRequest = { askChoice = false },
             title = {
@@ -346,15 +356,15 @@ fun BgMusicPreviewScreen(
                 TextButton(
                     onClick = {
                         askChoice = false
-                        importFile(if (newer) localId else null)
+                        importFile(if (canUpdate) localId else null)
                     },
                 ) {
-                    Text(stringResource(if (newer) R.string.bgmusic_action_update else R.string.bgmusic_action_save_copy))
+                    Text(stringResource(if (canUpdate) R.string.bgmusic_action_update else R.string.bgmusic_action_save_copy))
                 }
             },
             dismissButton = {
                 Row {
-                    if (newer) {
+                    if (canUpdate) {
                         TextButton(onClick = {
                             askChoice = false
                             importFile(null)
@@ -488,19 +498,8 @@ private fun ImportStatus(
 
 /**
  * Copies the cached cover into the library's own cover folder. A playlist cover may only point there, so the cache file cannot
- * be used directly. A failed copy leaves the playlist without a cover.
+ * be used directly. Returns null when there is no cover or the copy fails; the playlist is then stored without one.
  */
-private suspend fun attachCover(
-    context: Context,
-    library: MusicLibraryRepository,
-    playlistId: String,
-    source: String?,
-) {
-    if (source == null) return
-    val copied = withContext(Dispatchers.IO) { copyCoverIntoLibrary(context, source) } ?: return
-    if (library.setCover(playlistId, copied) !is MusicOutcome.Done) File(copied).delete()
-}
-
 private fun copyCoverIntoLibrary(context: Context, source: String): String? = runCatching {
     val root = File(context.filesDir, MUSIC_COVER_DIRECTORY).apply { mkdirs() }
     val extension = File(source).extension.let { if (it.isEmpty()) "" else ".$it" }
