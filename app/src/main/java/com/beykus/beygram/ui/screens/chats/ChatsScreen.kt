@@ -919,6 +919,9 @@ internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int
     // the container keeps the surface and the selection is a rule under the label.
     val containerColor by animateColorAsState(
         when {
+            // The underlined tab keeps the neutral surface in both states: its accent label would be unreadable on an
+            // accent fill, and the rule under it is what marks the selection.
+            main.chipSelection == ChipSelectionTone.Underlined -> palette.surface2
             !selected -> palette.surface2
             main.chipSelection == ChipSelectionTone.Tonal -> palette.accentSoft
             else -> palette.accent
