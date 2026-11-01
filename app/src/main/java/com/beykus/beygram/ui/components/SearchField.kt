@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.SearchFieldVariant
 
 /**
  * Allow taller text at increased Android font scales without bloating the standard 48dp search pill.
@@ -49,8 +53,19 @@ internal fun SearchField(
     onSearch: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val keyboard = LocalSoftwareKeyboardController.current
     val minHeight = searchFieldMinHeightDp(LocalDensity.current.fontScale).dp
+    val shape = RoundedCornerShape(design.shapes.search)
+    val fill = when (design.components.search) {
+        SearchFieldVariant.Filled -> if (design.style == DesignStyle.Material3) {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        } else {
+            palette.surface2
+        }
+        SearchFieldVariant.Outlined -> palette.surface
+        SearchFieldVariant.Glass -> palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.55f))
+    }
     BasicTextField(
         value = query,
         onValueChange = onChange,
@@ -61,7 +76,15 @@ internal fun SearchField(
         }),
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.textPrimary),
         cursorBrush = SolidColor(palette.accent),
-        modifier = Modifier.fillMaxWidth().heightIn(min = minHeight).clip(RoundedCornerShape(24.dp)).background(palette.surface2).padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = minHeight).clip(shape).background(fill)
+            .then(
+                if (design.components.search == SearchFieldVariant.Outlined) {
+                    Modifier.border(1.dp, palette.divider, shape)
+                } else {
+                    Modifier
+                }
+            )
+            .padding(horizontal = 16.dp),
         decorationBox = { inner ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))

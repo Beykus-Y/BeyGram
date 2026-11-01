@@ -28,6 +28,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.TopBarVariant
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -563,9 +567,30 @@ private fun HiddenTabsSection(hiddenTabs: List<MainTab>, onOpenTab: (MainTab) ->
 @Composable
 internal fun ProfileToolbar(title: String, onBack: () -> Unit, actions: @Composable RowScope.() -> Unit = {}) {
     val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    val design = LocalDesignSystem.current
+    val barShape = RoundedCornerShape(design.shapes.extraSmall)
+    val container = Modifier.fillMaxWidth().then(
+        when (design.components.topBar) {
+            TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation, barShape).background(palette.surface)
+            TopBarVariant.Glass -> Modifier
+                .background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.72f)))
+            TopBarVariant.Signature -> Modifier.background(palette.surface)
+            TopBarVariant.Flat -> Modifier
+        }
+    )
+    Row(container.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
-        Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
+        Text(
+            title,
+            color = palette.textPrimary,
+            fontSize = if (design.style == DesignStyle.Default) 18.sp else 19.sp,
+            fontWeight = when (design.style) {
+                DesignStyle.Material2 -> FontWeight.Medium
+                DesignStyle.Material3 -> FontWeight.Medium
+                else -> FontWeight.SemiBold
+            },
+            modifier = Modifier.weight(1f).semantics { heading() }
+        )
         actions()
     }
 }

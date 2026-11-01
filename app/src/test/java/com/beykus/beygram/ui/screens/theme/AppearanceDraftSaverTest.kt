@@ -3,7 +3,10 @@ package com.beykus.beygram.ui.screens.theme
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.BubbleStyle
 import com.beykus.beygram.data.appearance.ChatWallpaper
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.ListDensity
+import com.beykus.beygram.data.appearance.encode
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationDirection
 import com.beykus.beygram.data.appearance.MessageAnimationEasing
@@ -64,7 +67,28 @@ class AppearanceDraftSaverTest {
         val draft = completeDraft()
         val restored = decodeAppearanceDraft(encodeAppearanceDraft(draft))
         assertEquals(draft, restored)
-        assertEquals(14, encodeAppearanceDraft(draft).size)
+        assertEquals(16, encodeAppearanceDraft(draft).size)
+    }
+
+    @Test fun designStyleAndGlassQualitySurviveActivityRecreation() {
+        val draft = completeDraft().copy(
+            designStyle = DesignStyle.LiquidGlass,
+            glassQuality = GlassQuality.Balanced
+        )
+        val restored = decodeAppearanceDraft(encodeAppearanceDraft(draft))
+        assertEquals(DesignStyle.LiquidGlass, restored?.designStyle)
+        assertEquals(GlassQuality.Balanced, restored?.glassQuality)
+    }
+
+    @Test fun draftSavedBeforeTheDesignStyleExistedStillRestores() {
+        // A version-2 draft: thirteen values plus the trailing version, without the design style and glass quality.
+        val legacy = listOf(
+            "Warm", "Dark", "Rounded", "Comfortable", "", "", "preset:lavender-flow:40",
+            "16", "", "Normal", "", "", MessageAnimationConfig().encode(), "2"
+        )
+        val restored = decodeAppearanceDraft(legacy)
+        assertEquals(DesignStyle.Default, restored?.designStyle)
+        assertEquals(GlassQuality.Auto, restored?.glassQuality)
     }
 
     @Test fun minimalLegacyDraftStillRestoresWithCurrentDefaults() {

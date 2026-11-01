@@ -72,6 +72,10 @@ import com.beykus.beygram.ui.screens.chat.MessageAnimationFrame
 import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.chat.bubbleShape
 import com.beykus.beygram.ui.screens.chat.BubbleLayout
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.rememberDesign
+import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.LocalMessageLineSpacing
 import com.beykus.beygram.ui.theme.LocalMessageTextSize
@@ -88,20 +92,26 @@ internal fun AppearanceThemeScope(
     content: @Composable () -> Unit
 ) {
     val dark = config.mode.isDark(systemDark)
-    val metrics = remember(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp) {
-        bubbleMetricsFor(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp)
+    val design = rememberDesign(config)
+    val glassBackdrop = rememberGlassBackdrop()
+    val metrics = remember(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp, design.bubbles) {
+        bubbleMetricsFor(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp, design.bubbles)
     }
     BeyGramTheme(
         darkTheme = dark,
         tokens = resolveTokens(config, systemDark),
+        design = design,
         messageTextSizeSp = config.messageTextSizeSp,
         messageLineSpacing = config.messageLineSpacing
     ) {
         CompositionLocalProvider(
             LocalBubbleMetrics provides metrics,
-            LocalChatWallpaper provides config.wallpaper
+            LocalChatWallpaper provides config.wallpaper,
+            LocalGlassBackdrop provides glassBackdrop
         ) {
-            content()
+            Box(Modifier.fillMaxSize().glassBackdropSource(glassBackdrop)) {
+                content()
+            }
         }
     }
 }

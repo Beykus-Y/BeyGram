@@ -58,6 +58,7 @@ import kotlin.math.roundToInt
 
 internal enum class AppearancePage {
     Overview,
+    Style,
     Colors,
     Messages,
     Animations,
@@ -84,6 +85,11 @@ fun ThemeSettingsScreen(
     onSave: (AppearanceConfig) -> Unit,
     onBack: () -> Unit,
     manageWallpaperFiles: Boolean = true,
+    /**
+     * The page the editor opens on. Empty means the overview. It exists for the debug screenshot harness and for
+     * deep links into one section; a normal visit always starts on the overview.
+     */
+    initialPageName: String = "",
     motion: MotionSettings = MotionSettings(),
     onMotionChange: (MotionSettings) -> Unit = {},
     chatAnimations: ChatAnimationSettings = ChatAnimationSettings(),
@@ -92,7 +98,9 @@ fun ThemeSettingsScreen(
 ) {
     val palette = beyGramPalette()
     val systemDark = isSystemInDarkTheme()
-    var pageName by rememberSaveable { mutableStateOf(AppearancePage.Overview.name) }
+    var pageName by rememberSaveable {
+        mutableStateOf(AppearancePage.entries.firstOrNull { it.name == initialPageName }?.name ?: AppearancePage.Overview.name)
+    }
     var previewReturnName by rememberSaveable { mutableStateOf(AppearancePage.Overview.name) }
     var replayKey by rememberSaveable { mutableIntStateOf(0) }
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
@@ -277,6 +285,12 @@ fun ThemeSettingsScreen(
                                 onOpenPage = ::openPage,
                                 onOpenPreview = { openPage(AppearancePage.Preview) }
                             )
+                            AppearancePage.Style -> AppearanceStylePage(
+                                draft = draft,
+                                systemDark = systemDark,
+                                onDraftChange = ::changeDraft,
+                                onOpenPreview = { openPage(AppearancePage.Preview) }
+                            )
                             AppearancePage.Colors -> AppearanceColorsPage(
                                 draft = draft,
                                 systemDark = systemDark,
@@ -366,6 +380,7 @@ fun ThemeSettingsScreen(
 
 private fun AppearancePage.titleRes(): Int = when (this) {
     AppearancePage.Overview -> R.string.theme_title
+    AppearancePage.Style -> R.string.appearance_style_title
     AppearancePage.Colors -> R.string.appearance_colors_title
     AppearancePage.Messages -> R.string.appearance_messages_title
     AppearancePage.Animations -> R.string.theme_animations_title

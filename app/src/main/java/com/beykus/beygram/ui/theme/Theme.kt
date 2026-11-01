@@ -1,10 +1,12 @@
 package com.beykus.beygram.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -14,6 +16,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.appearance.MessageLineSpacing
+import com.beykus.beygram.ui.design.DesignShapes
+import com.beykus.beygram.ui.design.DesignSystem
+import com.beykus.beygram.ui.design.DefaultDesignSystem
+import com.beykus.beygram.ui.design.LocalDesignSystem
 
 /** Tokens of the theme in effect. [BeyGramTheme] provides them; screens read them through beyGramPalette(). */
 val LocalBeyGramTokens = compositionLocalOf { LightTokens }
@@ -27,8 +33,7 @@ val LocalMessageLineSpacing: androidx.compose.runtime.ProvidableCompositionLocal
 /** Material's colour scheme with every role taken from these tokens. */
 /** Keeps Material3 component colours in sync with the same BeyGram semantic tokens.
  * Unspecified Material3 defaults used to leak unrelated purple/error/secondary colours. */
-internal fun BeyGramTokens.toColorScheme(dark: Boolean): ColorScheme {
-    val containers = surfaceContainerTones(dark)
+internal fun BeyGramTokens.toColorScheme(dark: Boolean, containers: SurfaceContainerTones = surfaceContainerTones(dark)): ColorScheme {
     val errorFill = lerp(surface, danger, if (dark) 0.17f else 0.10f)
     val bright = if (dark) surface2 else surface
     val dim = if (dark) bg else surface2
@@ -79,27 +84,48 @@ internal fun readableOnColor(fill: Color): Color =
     if (contrastRatio(Color.White, fill) >= contrastRatio(Color.Black, fill)) Color.White else Color.Black
 
 /**
- * Provides one token set together with the Material colour scheme built from it, so screens never mix values from two themes.
- * [darkTheme] picks Material's dark or light scheme. [tokens] picks the colours and defaults to the Warm set for that brightness.
+ * Describes the design style with Material's own shape scale, so every Material widget (buttons, text fields, sheets,
+ * dialogs, chips, cards, FAB) follows the style without touching the screens that use them.
+ */
+internal fun DesignShapes.toMaterialShapes(): Shapes = Shapes(
+    extraSmall = RoundedCornerShape(extraSmall),
+    small = RoundedCornerShape(small),
+    medium = RoundedCornerShape(medium),
+    large = RoundedCornerShape(large),
+    extraLarge = RoundedCornerShape(extraLarge)
+)
+
+/**
+ * Provides one token set together with the Material colour scheme, shape scale and type scale built from it, so screens
+ * never mix values from two themes. [darkTheme] picks Material's dark or light scheme. [tokens] picks the colours and
+ * defaults to the Warm set for that brightness. [design] picks the design style; it defaults to the original BeyGram
+ * design, so a caller that does not pass one keeps exactly the old look.
  */
 @Composable
 fun BeyGramTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     tokens: BeyGramTokens = if (darkTheme) DarkTokens else LightTokens,
+    design: DesignSystem = DefaultDesignSystem,
     messageTextSizeSp: Int = 16,
     messageLineSpacing: MessageLineSpacing = MessageLineSpacing.Normal,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = remember(tokens, darkTheme) { tokens.toColorScheme(darkTheme) }
+    val colorScheme = remember(tokens, darkTheme, design.surfaces.containerTonalStep) {
+        tokens.toColorScheme(darkTheme, tokens.surfaceContainerTones(darkTheme, design.surfaces.containerTonalStep))
+    }
+    val shapes = remember(design.shapes) { design.shapes.toMaterialShapes() }
+    val typography = remember(design.style) { typographyFor(design.style) }
 
     CompositionLocalProvider(
         LocalBeyGramTokens provides tokens,
+        LocalDesignSystem provides design,
         LocalMessageTextSize provides messageTextSizeSp.coerceIn(12, 22).sp,
         LocalMessageLineSpacing provides messageLineSpacing.multiplier
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = Typography,
+            shapes = shapes,
+            typography = typography,
             content = content
         )
     }

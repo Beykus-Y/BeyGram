@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_section_style">Oberflächenstil</string>
+    <string name="appearance_style_title">Oberflächenstil</string>
+    <string name="appearance_style_summary">%1$s</string>
+    <string name="appearance_style_note">Der Stil ändert Formen, Typografie, Navigation und Oberflächen der ganzen App. Palette, Helligkeit, Hintergrundbild, Textgröße und Animationen bleiben unverändert.</string>
+    <string name="appearance_style_selected">Stil „%1$s“ ausgewählt</string>
+    <string name="appearance_style_quality_section">Glasqualität</string>
+    <string name="appearance_style_quality_detail">Volles Glas verwischt den Hintergrund hinter den Panels. Wenn das Gerät nicht mithält, senkt BeyGram den Effekt selbst.</string>
+    <string name="appearance_style_quality_auto">Automatisch</string>
+    <string name="appearance_style_quality_auto_detail">Nach Gerät und Systemeinstellungen</string>
+    <string name="appearance_style_quality_high">Maximum</string>
+    <string name="appearance_style_quality_high_detail">Echte Hintergrundunschärfe hinter den Panels</string>
+    <string name="appearance_style_quality_balanced">Ausgeglichen</string>
+    <string name="appearance_style_quality_balanced_detail">Tönung und Lichtkanten ohne Unschärfe</string>
+    <string name="appearance_style_quality_lite">Sparsam</string>
+    <string name="appearance_style_quality_lite_detail">Dichte matte Fläche, maximale Lesbarkeit</string>
+    <string name="design_style_default">Standard-BeyGram</string>
+    <string name="design_style_default_detail">Das gewohnte Aussehen der App, unverändert</string>
+    <string name="design_style_material2">Material 2</string>
+    <string name="design_style_material2_detail">Klassisches Material Design: strenge Formen, Schatten und dichte Typografie</string>
+    <string name="design_style_material3">Material 3</string>
+    <string name="design_style_material3_detail">Material You: tonale Flächen, weiche Formen, dynamische Farben</string>
+    <string name="design_style_liquid_glass">Liquid Glass</string>
+    <string name="design_style_liquid_glass_detail">Schwebende Glasflächen mit Hintergrundunschärfe und Lichtkanten</string>
+    <string name="design_style_signature">BeyGram Signature</string>
+    <string name="design_style_signature_detail">BeyGrams eigene Sprache: Chat zuerst, ruhige Tiefe und eigenes Dock</string>
+</resources>

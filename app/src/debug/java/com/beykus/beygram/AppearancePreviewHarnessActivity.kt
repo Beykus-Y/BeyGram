@@ -16,6 +16,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.ChatWallpaper
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationDirection
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
@@ -23,7 +25,9 @@ import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.ThemePreset
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
 import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
+import com.beykus.beygram.ui.screens.theme.AppearancePage
 import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
+import com.beykus.beygram.ui.design.rememberDesign
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.resolveTokens
 
@@ -37,6 +41,9 @@ class AppearancePreviewHarnessActivity : ComponentActivity() {
         enableEdgeToEdge()
         val mode = ThemeMode.entries.firstOrNull { it.name == intent.getStringExtra("mode") } ?: ThemeMode.Dark
         val preset = ThemePreset.entries.firstOrNull { it.name == intent.getStringExtra("palette") } ?: ThemePreset.Warm
+        val style = DesignStyle.entries.firstOrNull { it.name == intent.getStringExtra("style") } ?: DesignStyle.Default
+        val quality = GlassQuality.entries.firstOrNull { it.name == intent.getStringExtra("quality") } ?: GlassQuality.Auto
+        val initialPage = AppearancePage.entries.firstOrNull { it.name == intent.getStringExtra("page") } ?: AppearancePage.Overview
         setContent {
             val initial = remember {
                 AppearanceConfig(
@@ -49,18 +56,21 @@ class AppearancePreviewHarnessActivity : ComponentActivity() {
                     )
                 )
             }
-            var saved by remember { mutableStateOf(initial) }
-            var draft by remember { mutableStateOf(initial) }
+            val appearanceConfig = initial.copy(designStyle = style, glassQuality = quality)
+            var saved by remember { mutableStateOf(appearanceConfig) }
+            var draft by remember { mutableStateOf(appearanceConfig) }
             val systemDark = isSystemInDarkTheme()
+            val design = rememberDesign(saved)
             BeyGramTheme(
                 darkTheme = saved.mode.isDark(systemDark),
                 tokens = resolveTokens(saved, systemDark),
+                design = design,
                 messageTextSizeSp = saved.messageTextSizeSp,
                 messageLineSpacing = saved.messageLineSpacing
             ) {
                 CompositionLocalProvider(
                     LocalBubbleMetrics provides bubbleMetricsFor(
-                        saved.bubbleStyle, saved.density, saved.bubbleCornerRadiusDp
+                        saved.bubbleStyle, saved.density, saved.bubbleCornerRadiusDp, design.bubbles
                     )
                 ) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -70,6 +80,7 @@ class AppearancePreviewHarnessActivity : ComponentActivity() {
                             onDraftChange = { draft = it },
                             onSave = { saved = it; draft = it },
                             onBack = { finish() },
+                            initialPageName = initialPage.name,
                             // The harness shares the debug app's filesDir. Never let its synthetic preview delete
                             // a wallpaper imported by the real Dev build.
                             manageWallpaperFiles = false

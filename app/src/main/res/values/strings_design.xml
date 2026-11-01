@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_section_style">Стиль интерфейса</string>
+    <string name="appearance_style_title">Стиль интерфейса</string>
+    <string name="appearance_style_summary">%1$s</string>
+    <string name="appearance_style_note">Стиль меняет форму, типографику, навигацию и поверхности всего приложения. Палитра, яркость, обои, размер текста и анимации остаются как есть.</string>
+    <string name="appearance_style_selected">Выбран стиль «%1$s»</string>
+    <string name="appearance_style_quality_section">Качество стекла</string>
+    <string name="appearance_style_quality_detail">Полное стекло размывает фон за панелями. Если устройство не успевает, BeyGram снижает эффект сам.</string>
+    <string name="appearance_style_quality_auto">Авто</string>
+    <string name="appearance_style_quality_auto_detail">По возможностям устройства и настройкам системы</string>
+    <string name="appearance_style_quality_high">Максимум</string>
+    <string name="appearance_style_quality_high_detail">Настоящее размытие фона за панелями</string>
+    <string name="appearance_style_quality_balanced">Сбалансированно</string>
+    <string name="appearance_style_quality_balanced_detail">Тонировка и световые кромки без размытия</string>
+    <string name="appearance_style_quality_lite">Экономно</string>
+    <string name="appearance_style_quality_lite_detail">Плотная матовая поверхность, максимальная читаемость</string>
+    <string name="design_style_default">Стандартный BeyGram</string>
+    <string name="design_style_default_detail">Привычный вид приложения без изменений</string>
+    <string name="design_style_material2">Material 2</string>
+    <string name="design_style_material2_detail">Классический Material Design: строгие формы, тени и плотная типографика</string>
+    <string name="design_style_material3">Material 3</string>
+    <string name="design_style_material3_detail">Material You: тональные поверхности, мягкие формы, динамические цвета</string>
+    <string name="design_style_liquid_glass">Liquid Glass</string>
+    <string name="design_style_liquid_glass_detail">Плавающие стеклянные панели с размытием фона и световыми кромками</string>
+    <string name="design_style_signature">BeyGram Signature</string>
+    <string name="design_style_signature_detail">Фирменный стиль BeyGram: чат на первом месте, спокойная глубина, собственный док</string>
+</resources>
