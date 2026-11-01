@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
 
 /** Settings grouped by purpose. Routes remain owned by the caller. */
 @Composable
@@ -144,19 +145,24 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
 @Composable
 private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    // The style owns the group card: Default keeps its 20dp, Material 2 turns the card into a tight 4dp surface.
+    val groupShape = RoundedCornerShape(design.shapes.card)
     Column(Modifier.padding(bottom = 14.dp)) {
         Text(
-            title,
+            // Material 2 shouts its headings; the other styles keep the sentence case of the resource.
+            if (design.mainScreen.sectionLabelUppercase) title.uppercase() else title,
             color = palette.textSecondary,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
+            letterSpacing = design.mainScreen.sectionLabelTracking,
             modifier = Modifier.fillMaxWidth()
                 .padding(start = 22.dp, end = 22.dp, top = 4.dp, bottom = 8.dp)
                 .semantics { heading() }
         )
         Column(
             modifier = Modifier.padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(20.dp))
+                .clip(groupShape)
                 .background(palette.surface)
                 .padding(vertical = 4.dp),
             content = content
