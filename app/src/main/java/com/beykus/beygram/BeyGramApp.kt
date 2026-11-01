@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.archive.archivePreferencesName
+import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.AccountDeletionTracker
 import com.beykus.beygram.data.tdlib.TdLibReadiness
@@ -710,6 +711,9 @@ private fun BeyGramAppContent(
         PlaybackEngine.setActiveAccount(selectedAccountId)
         com.beykus.beygram.media.bgbeat.BgBeatManager.getInstance(context).onAccountChanged(selectedAccountId)
     }
+    // The music library follows the selected account. Listen history is recorded for the whole process by BeyGramApplication.
+    val musicLibrary = remember(context) { MusicLibraries.get(context) }
+    LaunchedEffect(selectedAccountId) { musicLibrary.setActiveAccount(selectedAccountId) }
     // Restore only after the selected account's real repository is authorized. Paused restoration never
     // prepares a stream or starts a service. Identity is validated against TDLib before creating a queue.
     LaunchedEffect(authState, selectedAccountId, repositorySelection, connectionState) {
