@@ -53,8 +53,14 @@ private fun copyToCache(context: Context, uri: Uri, dir: File): File? = try {
         if (input == null) {
             null
         } else {
-            input.use { source -> target.outputStream().use { source.copyTo(it) } }
-            target
+            try {
+                input.use { source -> target.outputStream().use { source.copyTo(it) } }
+                target
+            } catch (e: Exception) {
+                // Drop a partial copy so a failed import leaves nothing behind.
+                target.delete()
+                throw e
+            }
         }
     }
 } catch (_: Exception) {
@@ -71,6 +77,8 @@ fun BgMixSheet(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val player = remember { BgMixPlayer(File(context.filesDir, "bgmix-cache")) }
+    // Copies made for this panel. They are only referenced by the native session, so they go when it closes.
+    val imported = remember { mutableListOf<File>() }
     val status by player.status.collectAsStateWithLifecycle()
     var available by remember { mutableStateOf(true) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -78,7 +86,11 @@ fun BgMixSheet(onDismiss: () -> Unit) {
 
     DisposableEffect(player) {
         if (!player.start()) available = false
-        onDispose { player.release() }
+        onDispose {
+            player.release()
+            imported.forEach { it.delete() }
+            imported.clear()
+        }
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -87,6 +99,7 @@ fun BgMixSheet(onDismiss: () -> Unit) {
             val files = withContext(Dispatchers.Default) {
                 uris.mapNotNull { copyToCache(context, it, File(context.filesDir, "bgmix-input")) }
             }
+            imported.addAll(files)
             withContext(Dispatchers.Default) { files.forEach { player.addTrack(it) } }
             message = if (files.size < uris.size) unsupportedText else null
         }
