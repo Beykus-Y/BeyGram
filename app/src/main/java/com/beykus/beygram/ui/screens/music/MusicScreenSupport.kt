@@ -54,6 +54,10 @@ import com.beykus.beygram.data.music.resolvePlaylistTracks
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /**
  * The library of [accountId], or null while it is not shown: the repository is still reading an account, or the loaded
@@ -70,8 +74,9 @@ internal fun rememberMusicLibrary(accountId: String): MusicLibrary? {
 }
 
 /**
- * The tracks of [candidates] that have a local file, or null while the lookup runs. The lookup asks TDLib about every
- * candidate, so it runs once for each change of the list, never during composition.
+ * The tracks of [candidates] that have a local file, or null while the lookup runs. The lookup asks Telegram about
+ * every candidate, so it runs once for each change of the list, never during composition. The result then follows each
+ * file as it finishes downloading.
  */
 @Composable
 internal fun rememberDownloadedTracks(
@@ -81,7 +86,21 @@ internal fun rememberDownloadedTracks(
 ): List<PlaylistTrack>? {
     val downloaded by produceState<List<PlaylistTrack>?>(null, telegram, accountId, candidates) {
         value = null
-        value = downloadedTracks(candidates, resolvePlaylistTracks(telegram, accountId, candidates))
+        val resolved = resolvePlaylistTracks(telegram, accountId, candidates)
+        // Each resolved file is watched, so a download that finishes while the list is open updates it.
+        val onDisk = resolved.map { item ->
+            val fileId = item?.fileId
+            if (fileId == null) {
+                flowOf(false)
+            } else {
+                telegram.observeFile(fileId).map { it.localPath?.isNotBlank() == true }.distinctUntilChanged()
+            }
+        }
+        if (onDisk.isEmpty()) {
+            value = emptyList()
+        } else {
+            combine(onDisk) { flags -> downloadedTracks(candidates, flags.toList()) }.collect { value = it }
+        }
     }
     return downloaded
 }

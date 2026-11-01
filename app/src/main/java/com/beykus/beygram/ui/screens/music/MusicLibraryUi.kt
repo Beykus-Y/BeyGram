@@ -92,11 +92,11 @@ internal fun visibleSmartCollections(library: MusicLibrary, nowMs: Long): List<M
         .filter { it.baseTracks(library, nowMs).isNotEmpty() }
 
 /**
- * Keeps the candidates whose resolved item has a local file. [resolved] lines up with [candidates]; a candidate without
- * a resolved item is not downloaded.
+ * Keeps the candidates whose file is on disk. [onDisk] lines up with [candidates]; a candidate without a flag is not
+ * downloaded.
  */
-internal fun downloadedTracks(candidates: List<PlaylistTrack>, resolved: List<PlaybackItem?>): List<PlaylistTrack> =
-    candidates.filterIndexed { index, _ -> resolved.getOrNull(index)?.path?.isNotBlank() == true }
+internal fun downloadedTracks(candidates: List<PlaylistTrack>, onDisk: List<Boolean>): List<PlaylistTrack> =
+    candidates.filterIndexed { index, _ -> onDisk.getOrNull(index) == true }
 
 /**
  * Whether each entry of a playlist is unavailable. Nothing is unavailable before the lookup has finished ([resolved] is

@@ -291,9 +291,6 @@ private fun PlayerHeader(
                 textAlign = TextAlign.Center
             )
         }
-        if (onOpenMyMusic != null) IconButton(onClick = onOpenMyMusic) {
-            Icon(Icons.Rounded.MusicNote, stringResource(R.string.music_library_title), tint = palette.textSecondary)
-        }
         if (onOpenMusicSearch != null) IconButton(onClick = onOpenMusicSearch) {
             Icon(Icons.Rounded.Search, stringResource(R.string.music_search_action), tint = palette.textSecondary)
         }
@@ -302,6 +299,17 @@ private fun PlayerHeader(
                 Icon(Icons.Rounded.MoreVert, stringResource(R.string.player_menu), tint = palette.textSecondary)
             }
             DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
+                if (onOpenMyMusic != null) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.music_library_title), color = palette.textPrimary) },
+                        leadingIcon = { Icon(Icons.Rounded.MusicNote, null, tint = palette.accent) },
+                        onClick = {
+                            speedMenu = false
+                            onOpenMyMusic()
+                        }
+                    )
+                    HorizontalDivider(color = palette.divider)
+                }
                 Text(
                     stringResource(R.string.player_speed_title),
                     color = palette.textSecondary,
@@ -940,7 +948,10 @@ private fun PlayerActions(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Heart and add need a Telegram origin and a loaded library for this account; both stay hidden until then.
-    val track = remember(item.occurrenceId, item.origin) { item.toPlaylistTrack() }
+    // Items of a chat with protected content are never kept in the library, so they stay hidden too. The chat is only
+    // known for the selected account; otherwise the buttons stay.
+    val protectedChat = rememberOriginChat(item.origin)?.hasProtectedContent == true
+    val track = remember(item.occurrenceId, item.origin) { item.toPlaylistTrack() }?.takeUnless { protectedChat }
     val library = rememberMusicLibrary(item.accountId)
     var addOpen by remember(item.occurrenceId) { mutableStateOf(false) }
     val favorite = track != null && containsTrack(library?.favorites, track)

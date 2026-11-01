@@ -127,8 +127,8 @@ class MusicLibraryUiTest {
 
     @Test fun downloadedKeepsOnlyCandidatesWithALocalFile() {
         val candidates = listOf(track(1, itemId = "a"), track(2, itemId = "b"), track(3, itemId = "c"))
-        val resolved = listOf(item("/music/1.mp3"), item(""), null)
-        assertEquals(listOf("a"), downloadedTracks(candidates, resolved).map { it.itemId })
+        val onDisk = listOf(true, false, false)
+        assertEquals(listOf("a"), downloadedTracks(candidates, onDisk).map { it.itemId })
     }
 
     @Test fun unavailableFlagsAreEmptyUntilTheLookupFinishes() {

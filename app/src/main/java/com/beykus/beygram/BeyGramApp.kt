@@ -402,6 +402,15 @@ private fun BeyGramAppContent(
     var musicSearchReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var myMusicReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var musicPlaylistId by rememberSaveable { mutableStateOf("") }
+    // The account that opened the playlist. Playlists belong to an account, so a switch leaves the playlist behind.
+    var musicPlaylistAccountId by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(selectedAccountId) {
+        if (routeName == AppRoute.MusicPlaylist.name && musicPlaylistAccountId != selectedAccountId) {
+            musicPlaylistId = ""
+            musicPlaylistAccountId = ""
+            routeName = AppRoute.MyMusic.name
+        }
+    }
     var previousRouteName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     // One shared account switcher is rendered above every route.
     var accountSwitcherVisible by rememberSaveable { mutableStateOf(false) }
@@ -2128,8 +2137,15 @@ private fun BeyGramAppContent(
             routeName = AppRoute.MusicSearch.name
         },
         LocalOpenMyMusic provides {
-            myMusicReturnRouteName = routeName
-            routeName = AppRoute.MyMusic.name
+            if (routeName == AppRoute.MyMusic.name) {
+                // Already open: the player sheet closes and My Music stays as it is.
+            } else if (routeName == AppRoute.MusicPlaylist.name) {
+                // The playlist is part of My Music, so Back still returns to the route My Music was opened from.
+                routeName = AppRoute.MyMusic.name
+            } else {
+                myMusicReturnRouteName = routeName
+                routeName = AppRoute.MyMusic.name
+            }
         }
     ) {
     Column(Modifier.fillMaxSize()) {
@@ -2435,7 +2451,11 @@ private fun BeyGramAppContent(
                     telegram = repository,
                     onBack = { routeName = myMusicReturnRouteName },
                     onSearch = { musicSearchReturnRouteName = AppRoute.MyMusic.name; routeName = AppRoute.MusicSearch.name },
-                    onOpenPlaylist = { playlistId -> musicPlaylistId = playlistId; routeName = AppRoute.MusicPlaylist.name }
+                    onOpenPlaylist = { playlistId ->
+                        musicPlaylistId = playlistId
+                        musicPlaylistAccountId = selectedAccountId
+                        routeName = AppRoute.MusicPlaylist.name
+                    }
                 )
                 AppRoute.MusicPlaylist -> MusicPlaylistScreen(
                     accountId = selectedAccountId,

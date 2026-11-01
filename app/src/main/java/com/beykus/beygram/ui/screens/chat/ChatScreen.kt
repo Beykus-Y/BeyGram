@@ -1523,7 +1523,7 @@ fun ChatScreen(
             onReport = if (!actionMessage.isOutgoing && !chat.isSecret) {
                 { reportMessageId = actionMessage.id; closeActions() }
             } else null,
-            onAddToPlaylist = playlistTrackOf(actionMessage, accountId, { id -> observeFile(id).value }, context.getString(R.string.media_kind_audio))?.let { track -> { playlistTrack = track; closeActions() } }
+            onAddToPlaylist = if (chat.hasProtectedContent) null else playlistTrackOf(actionMessage, accountId, { id -> observeFile(id).value }, context.getString(R.string.media_kind_audio))?.let { track -> { playlistTrack = track; closeActions() } }
         ) else if (searching) ChatSearchBar(
             query = searchQuery,
             onQueryChange = { searchQuery = it },

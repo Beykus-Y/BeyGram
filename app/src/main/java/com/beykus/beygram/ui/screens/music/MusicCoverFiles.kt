@@ -9,6 +9,7 @@ import android.net.Uri
 import com.beykus.beygram.data.music.MUSIC_COVER_DIRECTORY
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -46,7 +47,7 @@ internal suspend fun importMusicCover(context: Context, source: Uri): File? = wi
         val target = File(root, "${UUID.randomUUID()}.jpg")
         target.outputStream().use { upright.compress(Bitmap.CompressFormat.JPEG, COVER_JPEG_QUALITY, it) }
         target
-    }.getOrNull()
+    }.onFailure { if (it is CancellationException) throw it }.getOrNull()
 }
 
 /**
@@ -60,7 +61,7 @@ internal suspend fun removeMusicCoverFile(context: Context, path: String?) {
         runCatching {
             val file = File(path).canonicalFile
             if (file.parentFile == musicCoverRoot(context).canonicalFile) file.delete()
-        }
+        }.onFailure { if (it is CancellationException) throw it }
     }
 }
 

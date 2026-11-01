@@ -37,9 +37,12 @@ internal data class PlaybackSourceLabel(
     val canOpen: Boolean
 )
 
-/** Resolves music source names from the selected account's repository, never a different Telegram login. */
+/**
+ * The chat [origin] names, read from the selected account's repository, never a different Telegram login. Null while the
+ * chat is not known, and for an origin of another account, which is not looked up here.
+ */
 @Composable
-internal fun rememberPlaybackSourceLabel(origin: PlaybackOrigin?): PlaybackSourceLabel {
+internal fun rememberOriginChat(origin: PlaybackOrigin?): ChatPreview? {
     val selected = LocalPlaybackRepositorySource.current
     var preview by remember(origin, selected) { mutableStateOf<ChatPreview?>(null) }
     LaunchedEffect(origin, selected) {
@@ -52,6 +55,13 @@ internal fun rememberPlaybackSourceLabel(origin: PlaybackOrigin?): PlaybackSourc
         if (preview == null) repository.loadChat(current.chatId)
         flow.collect { preview = it }
     }
+    return preview
+}
+
+/** Resolves music source names from the selected account's repository, never a different Telegram login. */
+@Composable
+internal fun rememberPlaybackSourceLabel(origin: PlaybackOrigin?): PlaybackSourceLabel {
+    val preview = rememberOriginChat(origin)
     val kind = playbackSourceKind(
         hasOrigin = origin != null,
         isSavedMessages = preview?.isSavedMessages == true,

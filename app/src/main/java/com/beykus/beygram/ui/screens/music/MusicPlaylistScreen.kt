@@ -125,6 +125,8 @@ internal fun MusicPlaylistScreen(
         stored?.isFavorites == true -> stringResource(R.string.music_favorites_title)
         stored != null -> stored.title
         collection != null -> stringResource(musicCollectionTitleRes(collection))
+        // The library is loaded and holds no such playlist, for example because it was deleted.
+        library != null -> stringResource(R.string.music_playlist_not_found)
         else -> ""
     }
     // Playback works on the playlist as it is stored. A collection is played as a list of its own.

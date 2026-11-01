@@ -331,7 +331,11 @@ internal fun MusicSearchScreen(
                         subtitle = chats[message.chatId]?.title.orEmpty(),
                         onClick = { play(message) },
                         onSend = onPick?.let { pick -> musicFileDraft(message, chats, item.title)?.let { draft -> { pick(draft) } } },
-                        onAddToPlaylist = if (onPick == null) item.toPlaylistTrack()?.let { track -> { addTrack = track } } else null
+                        onAddToPlaylist = if (onPick == null && chats[message.chatId]?.hasProtectedContent != true) {
+                            item.toPlaylistTrack()?.let { track -> { addTrack = track } }
+                        } else {
+                            null
+                        }
                     )
                 }
                 // Public results have an independent state: a local miss must never imply no public matches.
