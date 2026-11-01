@@ -1898,7 +1898,9 @@ fun ChatScreen(
         )
         // Keep presence above the entire composer, including any staged attachment tray.
         // Never place it between attachment previews and the caption/keyboard.
-        AnimatedTypingRow(if (!deleting && !searching && !selectionMode) typingNames else emptyList())
+        key(chat.id) {
+            AnimatedTypingRow(if (!deleting && !searching && !selectionMode) typingNames else emptyList())
+        }
         val replyTarget = messages.firstOrNull { it.id == replyId }
         if (deleting && actionMessage != null) {
             val caps = capabilities
