@@ -91,6 +91,18 @@ class NavigationSpecTest {
         }
     }
 
+    @Test fun theTwoFloatingStylesDoNotShareOneDockGeometry() {
+        val glass = navigationSpecFor(designFor(DesignStyle.LiquidGlass))
+        val signature = navigationSpecFor(designFor(DesignStyle.Signature))
+
+        // Air, radius, elevation and the weight of the selection pill are designed per style, not copied.
+        assertTrue("Glass keeps more air around the capsule", glass.horizontalMargin > signature.horizontalMargin)
+        assertTrue("Glass keeps more air below the capsule", glass.bottomMargin > signature.bottomMargin)
+        assertTrue("the capsule radii differ", glass.dockRadius != signature.dockRadius)
+        assertTrue("Signature is the quieter layer", signature.indicatorAlpha < glass.indicatorAlpha)
+        assertTrue("Signature casts less shadow", signature.floatingElevation < glass.floatingElevation)
+    }
+
     @Test fun floatingBarsAreNeverFlatAndFlatBarsAreNeverFloating() {
         DesignStyle.entries.forEach { style ->
             NavigationPlacement.entries.forEach { placement ->

@@ -66,6 +66,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.LocalConfiguration
@@ -142,7 +143,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.accessibility.accessibleChatRowDescription
 import com.beykus.beygram.ui.accessibility.accessibleDescription
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.components.LocalNavigationDock
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.createButtonPlacement
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
@@ -249,6 +252,12 @@ fun ChatsScreen(
     // The split list pane is narrower than a phone: the title and side paddings give room to the
     // header actions (saved messages, account switcher, avatar) without pushing them off-screen.
     val headerPadding = if (compactHeader) 14.dp else 20.dp
+    // The create button follows the real navigation: it lines up with a floating capsule and keeps its air, or stays in
+    // the classic bottom-end corner above a pinned bar. The list keeps enough room to scroll its last row clear of it.
+    val design = LocalDesignSystem.current
+    val dock = LocalNavigationDock.current
+    val fabPlacement = remember(dock) { createButtonPlacement(dock) }
+    val fabShape = RoundedCornerShape(design.fab.cornerRadius)
     // Статус сессии Telegram общий для телефона и двухпанельного списка: он не зависит от раскладки.
     val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
@@ -533,8 +542,8 @@ fun ChatsScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).nestedScroll(pullConnection),
-            // Keep the last conversation accessible above the overlay button.
-            contentPadding = PaddingValues(bottom = 104.dp)
+            // Keep the last conversation accessible above the overlay button, measured from the button itself.
+            contentPadding = PaddingValues(bottom = fabPlacement.listClearance)
         ) {
             // Stories live on the main chat list only, not in search results or a server folder.
             if (activeFolderId == null && query.isBlank()) {
@@ -659,10 +668,12 @@ fun ChatsScreen(
       }
       FloatingActionButton(
           onClick = onNewChat,
-          modifier = Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 16.dp),
+          modifier = Modifier.align(Alignment.BottomEnd)
+              .padding(end = fabPlacement.endPadding, bottom = fabPlacement.bottomPadding),
           containerColor = palette.accent,
           contentColor = palette.onAccent,
-          shape = RoundedCornerShape(20.dp)
+          shape = fabShape,
+          elevation = FloatingActionButtonDefaults.elevation(defaultElevation = design.fab.elevation)
       ) {
           Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.new_chat_title), modifier = Modifier.size(24.dp))
       }

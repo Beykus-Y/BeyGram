@@ -1,7 +1,9 @@
 package com.beykus.beygram
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -42,7 +44,12 @@ import com.beykus.beygram.ui.theme.resolveTokens
 class AppearancePreviewHarnessActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // The same transparent bars the real Activity asks for. The default auto style draws the platform's light
+        // navigation-bar scrim, which a translucent dock then shows as a band that does not exist in the app.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+        )
         val mode = ThemeMode.entries.firstOrNull { it.name == intent.getStringExtra("mode") } ?: ThemeMode.Dark
         val preset = ThemePreset.entries.firstOrNull { it.name == intent.getStringExtra("palette") } ?: ThemePreset.Warm
         val style = DesignStyle.entries.firstOrNull { it.name == intent.getStringExtra("style") } ?: DesignStyle.Default
