@@ -57,10 +57,9 @@ target_compile_options(bgbeat_jni PRIVATE -fexceptions -frtti -Wall -Wextra)
 
 if(HAVE_BGMEDIA)
     if(NOT TARGET bgmedia_core)
+        # bgmedia_miniaudio keeps miniaudio device IO enabled: MiniaudioMixDevice.cpp needs ma_device,
+        # which MA_NO_DEVICE_IO removes. bgbeat_jni.cpp still defines it for its own translation unit.
         add_subdirectory("${BGMEDIA_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/bgmedia" EXCLUDE_FROM_ALL)
-        if(TARGET bgmedia_miniaudio)
-            target_compile_definitions(bgmedia_miniaudio PRIVATE MA_NO_DEVICE_IO)
-        endif()
     endif()
 
     target_include_directories(bgbeat_jni PRIVATE
