@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgmusic_action_open">Ouvrir</string>
+    <string name="bgmusic_action_save">Enregistrer pour moi</string>
+    <string name="bgmusic_action_save_copy">Enregistrer une copie</string>
+    <string name="bgmusic_action_update">Mettre à jour</string>
+    <string name="bgmusic_add_done">Titre ajouté à « %1$s »</string>
+    <string name="bgmusic_add_duplicate">Ce titre est déjà dans la playlist</string>
+    <string name="bgmusic_add_failed">Impossible d\'ajouter le titre</string>
+    <string name="bgmusic_add_picker_title">Ajouter à la playlist</string>
+    <string name="bgmusic_add_rejected">Titre non ajouté : la playlist est pleine ou le titre vient d\'un autre compte</string>
+    <string name="bgmusic_add_to_playlist">Ajouter à la playlist</string>
+    <string name="bgmusic_author_line">Auteur : %1$s</string>
+    <string name="bgmusic_close">Fermer</string>
+    <string name="bgmusic_download">Télécharger</string>
+    <string name="bgmusic_export_failed">Impossible de préparer le fichier</string>
+    <string name="bgmusic_export_option_author">Indiquer l\'auteur</string>
+    <string name="bgmusic_export_option_author_note">Votre nom Telegram sera inscrit dans le fichier. Sans cette option, le nom n\'est pas transmis.</string>
+    <string name="bgmusic_export_option_links">Ajouter les liens vers les publications</string>
+    <string name="bgmusic_export_option_links_note">Pour les titres issus de canaux et de groupes publics, l\'adresse de la publication est inscrite. Les discussions privées et secrètes ne sont jamais incluses.</string>
+    <string name="bgmusic_export_preparing">Préparation du fichier…</string>
+    <string name="bgmusic_export_privacy_note">Par défaut, le fichier contient le nom, la description et la liste des titres. Les liens et le nom de l\'auteur ne sont ajoutés que si vous les activez.</string>
+    <string name="bgmusic_export_send_chat">Envoyer dans un chat</string>
+    <string name="bgmusic_export_sent">Sélection envoyée</string>
+    <string name="bgmusic_export_share">Partager</string>
+    <string name="bgmusic_export_size">Taille du fichier : %1$s</string>
+    <string name="bgmusic_export_title">Exporter la sélection</string>
+    <string name="bgmusic_favorites_name">Favoris</string>
+    <string name="bgmusic_import_already_saved">Cette sélection est déjà enregistrée</string>
+    <string name="bgmusic_import_failed">Impossible d\'enregistrer la sélection</string>
+    <string name="bgmusic_import_newer_text">Cette sélection est déjà enregistrée, mais le fichier contient une version plus récente. Mettre à jour la sélection enregistrée ou enregistrer le fichier comme copie séparée ?</string>
+    <string name="bgmusic_import_newer_title">Une version plus récente existe</string>
+    <string name="bgmusic_import_older_text">L\'application contient déjà une version plus récente de cette sélection. Enregistrer ce fichier comme copie séparée ?</string>
+    <string name="bgmusic_import_older_title">Le fichier est plus ancien que la sélection enregistrée</string>
+    <string name="bgmusic_import_saved">Sélection enregistrée dans « Ma musique »</string>
+    <string name="bgmusic_import_updated">Sélection enregistrée mise à jour</string>
+    <string name="bgmusic_import_working">Enregistrement…</string>
+    <string name="bgmusic_invalid_file">Le fichier est endommagé ou n\'est pas une sélection BeyGram</string>
+    <string name="bgmusic_listen_available">Écouter les titres disponibles</string>
+    <string name="bgmusic_open_collection">Ouvrir la sélection</string>
+    <string name="bgmusic_preview_available">Titres disponibles : %1$d sur %2$d</string>
+    <string name="bgmusic_preview_default_title">Sélection BeyGram</string>
+    <string name="bgmusic_preview_no_account">Pour trouver les titres, ouvrez le compte Telegram dont les discussions les contiennent</string>
+    <string name="bgmusic_preview_searching">Recherche de titres dans vos discussions…</string>
+    <string name="bgmusic_track_unavailable">Absent de vos discussions</string>
+    <string name="bgmusic_unsupported_version">Ce fichier a été créé avec une version plus récente de BeyGram. Mettez l\'application à jour.</string>
+    <string name="bgmusic_untitled_playlist">Sans titre</string>
+    <plurals name="bgmusic_tracks_count">
+        <item quantity="one">%d titre</item>
+        <item quantity="other">%d titres</item>
+    </plurals>
+</resources>

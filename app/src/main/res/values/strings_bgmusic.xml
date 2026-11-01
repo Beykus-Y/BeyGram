@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgmusic_action_open">Открыть</string>
+    <string name="bgmusic_action_save">Сохранить себе</string>
+    <string name="bgmusic_action_save_copy">Сохранить копией</string>
+    <string name="bgmusic_action_update">Обновить</string>
+    <string name="bgmusic_add_done">Трек добавлен в «%1$s»</string>
+    <string name="bgmusic_add_duplicate">Этот трек уже есть в плейлисте</string>
+    <string name="bgmusic_add_failed">Не удалось добавить трек</string>
+    <string name="bgmusic_add_picker_title">Добавить в плейлист</string>
+    <string name="bgmusic_add_rejected">Трек не добавлен: плейлист заполнен или трек из другого аккаунта</string>
+    <string name="bgmusic_add_to_playlist">Добавить в плейлист</string>
+    <string name="bgmusic_author_line">Автор: %1$s</string>
+    <string name="bgmusic_close">Закрыть</string>
+    <string name="bgmusic_download">Скачать</string>
+    <string name="bgmusic_export_failed">Не удалось подготовить файл</string>
+    <string name="bgmusic_export_option_author">Указать автора</string>
+    <string name="bgmusic_export_option_author_note">В файл попадёт ваше имя в Telegram. Без этой отметки имя не передаётся.</string>
+    <string name="bgmusic_export_option_links">Добавить ссылки на посты</string>
+    <string name="bgmusic_export_option_links_note">Для треков из публичных каналов и групп в файл попадает адрес поста. Личные и секретные чаты не указываются.</string>
+    <string name="bgmusic_export_preparing">Готовим файл…</string>
+    <string name="bgmusic_export_privacy_note">По умолчанию в файл попадают название, описание и список треков. Ссылки и имя автора добавляются только по отметке.</string>
+    <string name="bgmusic_export_send_chat">Отправить в чат</string>
+    <string name="bgmusic_export_sent">Подборка отправлена</string>
+    <string name="bgmusic_export_share">Поделиться</string>
+    <string name="bgmusic_export_size">Размер файла: %1$s</string>
+    <string name="bgmusic_export_title">Экспорт подборки</string>
+    <string name="bgmusic_favorites_name">Любимые</string>
+    <string name="bgmusic_import_already_saved">Эта подборка уже сохранена</string>
+    <string name="bgmusic_import_failed">Не удалось сохранить подборку</string>
+    <string name="bgmusic_import_newer_text">Эта подборка уже сохранена, а в файле более новая версия. Обновить сохранённую подборку или сохранить файл отдельной копией?</string>
+    <string name="bgmusic_import_newer_title">Есть более новая версия</string>
+    <string name="bgmusic_import_older_text">В приложении уже есть более новая версия этой подборки. Сохранить файл отдельной копией?</string>
+    <string name="bgmusic_import_older_title">Файл старее сохранённой подборки</string>
+    <string name="bgmusic_import_saved">Подборка сохранена в «Моя музыка»</string>
+    <string name="bgmusic_import_updated">Сохранённая подборка обновлена</string>
+    <string name="bgmusic_import_working">Сохраняем…</string>
+    <string name="bgmusic_invalid_file">Файл повреждён или не является подборкой BeyGram</string>
+    <string name="bgmusic_listen_available">Прослушать доступное</string>
+    <string name="bgmusic_open_collection">Открыть подборку</string>
+    <string name="bgmusic_preview_available">Доступно треков: %1$d из %2$d</string>
+    <string name="bgmusic_preview_default_title">Подборка BeyGram</string>
+    <string name="bgmusic_preview_no_account">Чтобы найти треки, откройте аккаунт Telegram, в чатах которого они есть</string>
+    <string name="bgmusic_preview_searching">Ищем треки в ваших чатах…</string>
+    <string name="bgmusic_track_unavailable">Нет в ваших чатах</string>
+    <string name="bgmusic_unsupported_version">Файл создан в более новой версии BeyGram. Обновите приложение.</string>
+    <string name="bgmusic_untitled_playlist">Без названия</string>
+    <plurals name="bgmusic_tracks_count">
+        <item quantity="one">%d трек</item>
+        <item quantity="few">%d трека</item>
+        <item quantity="many">%d треков</item>
+        <item quantity="other">%d трека</item>
+    </plurals>
+</resources>
