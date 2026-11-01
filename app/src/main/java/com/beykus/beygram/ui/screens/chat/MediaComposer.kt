@@ -1163,6 +1163,11 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
  * Keep a read-only thumbnail snapshot only for a direct visible -> hidden transition.
  * A notice-only/menu-only panel must not revive removed photos when it closes later.
  */
+/** An action menu remains measurable while the enclosing tray shrinks out. */
+internal fun nextAttachmentExitMenu(previous: Boolean, menuOpen: Boolean, panelVisible: Boolean): Boolean =
+    menuOpen || (!panelVisible && previous)
+
+/** Keep only the current attachment snapshot for the sheet exit. */
 internal fun nextAttachmentExitPreview(
     previous: List<OutgoingMedia>,
     current: List<OutgoingMedia>,
@@ -1196,17 +1201,20 @@ internal fun AttachmentPanel(
     // Retain only the outgoing presentation for a short closing fade. Staging, deletion
     // and upload state change immediately; this snapshot never restores a removed file.
     var exitPreview by remember(state) { mutableStateOf<List<OutgoingMedia>>(emptyList()) }
+    var exitMenuOpen by remember(state) { mutableStateOf(false) }
     val panelVisibility = remember(state) { MutableTransitionState(false) }
     panelVisibility.targetState = visible
     SideEffect {
         // If an error/notice keeps the shell visible after the final removal, there is
         // no attachment panel left to animate later when that notice is dismissed.
         exitPreview = nextAttachmentExitPreview(exitPreview, state.pending, visible)
+        exitMenuOpen = nextAttachmentExitMenu(exitMenuOpen, state.menuOpen, visible)
     }
     LaunchedEffect(visible, panelVisibility.currentState, panelVisibility.isIdle) {
         // Do not retain paths to removed private photos after the closing animation.
         if (!visible && panelVisibility.isIdle && !panelVisibility.currentState) {
             exitPreview = emptyList()
+            exitMenuOpen = false
         }
     }
     val enterSpec = rememberMotionSpec(MotionToken.SheetEnter)
@@ -1225,13 +1233,13 @@ internal fun AttachmentPanel(
     ) {
     Column(Modifier.fillMaxWidth().background(palette.surface)) {
         when {
-            state.menuOpen -> AttachmentMenu(
+            state.menuOpen || (!visible && exitMenuOpen) -> AttachmentMenu(
                 allowsPolls = state.allowsPolls,
                 allowsMusic = state.allowsMusic,
-                enabled = !state.sending && !state.importing && !state.locating,
-                chatObjectsEnabled = state.pending.isEmpty(),
-                onAction = state::performAction,
-                onClose = state::closeMenu
+                enabled = state.menuOpen && !state.sending && !state.importing && !state.locating,
+                chatObjectsEnabled = state.menuOpen && state.pending.isEmpty(),
+                onAction = { if (state.menuOpen) state.performAction(it) },
+                onClose = { if (state.menuOpen) state.closeMenu() }
             )
             state.active -> PreparedAttachmentsPanel(
                 state = state,
