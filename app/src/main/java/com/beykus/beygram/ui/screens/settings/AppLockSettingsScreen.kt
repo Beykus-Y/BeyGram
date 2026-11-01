@@ -69,6 +69,7 @@ import com.beykus.beygram.security.PinField
 import com.beykus.beygram.security.rememberBiometricAuthenticator
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.listGroupShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -273,7 +274,7 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
 private fun SettingsCard(content: @Composable () -> Unit) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface)
+        Modifier.fillMaxWidth().clip(listGroupShape()).background(palette.surface)
     ) {
         content()
     }

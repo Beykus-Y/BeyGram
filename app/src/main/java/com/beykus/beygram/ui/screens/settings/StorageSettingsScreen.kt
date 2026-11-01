@@ -58,6 +58,7 @@ import com.beykus.beygram.domain.model.StorageCategory
 import com.beykus.beygram.domain.model.StorageUsage
 import com.beykus.beygram.domain.repository.StorageRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.listGroupShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.storageSizeText
@@ -65,7 +66,7 @@ import com.beykus.beygram.ui.theme.AvatarPalette
 
 private enum class ClearScope { Selected, All }
 
-/** Память и кэш: сколько места занимают файлы, очистка выбранного и лимиты, которые приложение держит само. */
+/** РџР°РјСЏС‚СЊ Рё РєСЌС€: СЃРєРѕР»СЊРєРѕ РјРµСЃС‚Р° Р·Р°РЅРёРјР°СЋС‚ С„Р°Р№Р»С‹, РѕС‡РёСЃС‚РєР° РІС‹Р±СЂР°РЅРЅРѕРіРѕ Рё Р»РёРјРёС‚С‹, РєРѕС‚РѕСЂС‹Рµ РїСЂРёР»РѕР¶РµРЅРёРµ РґРµСЂР¶РёС‚ СЃР°РјРѕ. */
 @Composable
 fun StorageSettingsScreen(
     repository: StorageRepository,
@@ -102,7 +103,7 @@ fun StorageSettingsScreen(
                 onClearSelected = { pendingClear = ClearScope.Selected },
                 onClearAll = { pendingClear = ClearScope.All }
             )
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.storage_limit_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_limit_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageSizeLimit.entries.forEach { limit ->
@@ -111,7 +112,7 @@ fun StorageSettingsScreen(
                     }
                 }
             }
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.storage_retention_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_retention_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageRetention.entries.forEach { retention ->
@@ -143,7 +144,7 @@ fun StorageSettingsScreen(
 @Composable
 private fun UsageCard(usage: StorageUsage?, loading: Boolean, selected: Set<StorageCategory>, busy: Boolean, onToggle: (StorageCategory) -> Unit) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.storage_usage_title), color = palette.textSecondary, fontSize = 13.sp)
         if (usage == null) {
             if (loading) {
@@ -223,7 +224,7 @@ private fun ClearCard(
     val palette = beyGramPalette()
     val selectedBytes = usage?.let { current -> selected.sumOf { current.bytes(it) } } ?: 0L
     val filesBytes = usage?.filesBytes ?: 0L
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(stringResource(R.string.storage_selected_size, storageSizeText(selectedBytes)), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onClearSelected, enabled = !busy && selectedBytes > 0L, modifier = Modifier.weight(1f)) {
@@ -275,7 +276,7 @@ private fun StorageCategory.labelRes(): Int = when (this) {
     StorageCategory.Other -> R.string.storage_category_other
 }
 
-/** Цвета категорий берутся из палитры аватарок, по одному на категорию. */
+/** Р¦РІРµС‚Р° РєР°С‚РµРіРѕСЂРёР№ Р±РµСЂСѓС‚СЃСЏ РёР· РїР°Р»РёС‚СЂС‹ Р°РІР°С‚Р°СЂРѕРє, РїРѕ РѕРґРЅРѕРјСѓ РЅР° РєР°С‚РµРіРѕСЂРёСЋ. */
 private fun StorageCategory.color(): Color = when (this) {
     StorageCategory.Photos -> AvatarPalette[4]
     StorageCategory.Videos -> AvatarPalette[1]

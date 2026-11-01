@@ -16,7 +16,7 @@ val DefaultDesignSystem = DesignSystem(
     shapes = DesignShapes(
         extraSmall = 4.dp, small = 8.dp, medium = 12.dp, large = 16.dp, extraLarge = 28.dp,
         button = 16.dp, card = 20.dp, sheet = 28.dp, dialog = 28.dp, chip = 12.dp,
-        search = 24.dp, composer = 20.dp, navigationIndicator = 16.dp
+        search = 24.dp, composer = 20.dp, navigationIndicator = 16.dp, groupCard = 20.dp, listGroup = 18.dp
     ),
     spacing = DesignSpacing(
         xxs = 2.dp, xs = 4.dp, sm = 8.dp, md = 12.dp, lg = 16.dp, xl = 20.dp, xxl = 24.dp,
@@ -58,7 +58,7 @@ val Material2DesignSystem = DesignSystem(
     shapes = DesignShapes(
         extraSmall = 2.dp, small = 4.dp, medium = 4.dp, large = 8.dp, extraLarge = 12.dp,
         button = 4.dp, card = 4.dp, sheet = 0.dp, dialog = 4.dp, chip = 16.dp,
-        search = 2.dp, composer = 4.dp, navigationIndicator = 0.dp
+        search = 2.dp, composer = 4.dp, navigationIndicator = 0.dp, groupCard = 4.dp, listGroup = 4.dp
     ),
     spacing = DesignSpacing(
         xxs = 2.dp, xs = 4.dp, sm = 8.dp, md = 12.dp, lg = 16.dp, xl = 20.dp, xxl = 24.dp,
@@ -104,7 +104,7 @@ val Material3DesignSystem = DesignSystem(
     shapes = DesignShapes(
         extraSmall = 4.dp, small = 8.dp, medium = 12.dp, large = 16.dp, extraLarge = 28.dp,
         button = 20.dp, card = 12.dp, sheet = 28.dp, dialog = 28.dp, chip = 8.dp,
-        search = 28.dp, composer = 20.dp, navigationIndicator = 16.dp
+        search = 28.dp, composer = 20.dp, navigationIndicator = 16.dp, groupCard = 12.dp, listGroup = 12.dp
     ),
     spacing = DesignSpacing(
         xxs = 2.dp, xs = 4.dp, sm = 8.dp, md = 12.dp, lg = 16.dp, xl = 24.dp, xxl = 32.dp,
@@ -166,7 +166,7 @@ fun liquidGlassDesign(quality: GlassQuality): DesignSystem {
         shapes = DesignShapes(
             extraSmall = 10.dp, small = 14.dp, medium = 18.dp, large = 24.dp, extraLarge = 32.dp,
             button = 22.dp, card = 24.dp, sheet = 32.dp, dialog = 28.dp, chip = 18.dp,
-            search = 24.dp, composer = 24.dp, navigationIndicator = 26.dp
+            search = 24.dp, composer = 24.dp, navigationIndicator = 26.dp, groupCard = 24.dp, listGroup = 20.dp
         ),
         spacing = DesignSpacing(
             xxs = 2.dp, xs = 4.dp, sm = 8.dp, md = 12.dp, lg = 16.dp, xl = 22.dp, xxl = 28.dp,
@@ -220,7 +220,7 @@ val SignatureDesignSystem = DesignSystem(
     shapes = DesignShapes(
         extraSmall = 6.dp, small = 10.dp, medium = 14.dp, large = 20.dp, extraLarge = 28.dp,
         button = 16.dp, card = 18.dp, sheet = 26.dp, dialog = 22.dp, chip = 14.dp,
-        search = 18.dp, composer = 16.dp, navigationIndicator = 12.dp
+        search = 18.dp, composer = 16.dp, navigationIndicator = 12.dp, groupCard = 18.dp, listGroup = 16.dp
     ),
     spacing = DesignSpacing(
         xxs = 2.dp, xs = 4.dp, sm = 8.dp, md = 12.dp, lg = 16.dp, xl = 22.dp, xxl = 28.dp,
