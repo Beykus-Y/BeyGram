@@ -255,4 +255,5 @@
     <string name="chat_video_note_processing">Processing</string>
     <string name="chat_video_note_send_failed">Could not send video message</string>
     <string name="chat_you">You</string>
+    <string name="message_action_react">Add reaction</string>
 </resources>
