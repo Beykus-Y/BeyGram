@@ -31,7 +31,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.listGroupShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
-/** РўРѕР»СЊРєРѕ С„РѕСЂРјР°С‚ РІСЂРµРјРµРЅРё РїРѕСЃР»РµРґРЅРµРіРѕ РІРёР·РёС‚Р°. РљС‚Рѕ РІРёРґРёС‚ СЌС‚Рѕ РІСЂРµРјСЏ, РЅР°СЃС‚СЂР°РёРІР°РµС‚СЃСЏ РІ В«РџСЂРёРІР°С‚РЅРѕСЃС‚Рё Рё Р±РµР·РѕРїР°СЃРЅРѕСЃС‚РёВ» Рё С…СЂР°РЅРёС‚СЃСЏ РІ TDLib. */
+/** Только формат времени последнего визита. Кто видит это время, настраивается в «Приватности и безопасности» и хранится в TDLib. */
 @Composable
 fun LastSeenSettingsScreen(style: LastSeenStyle, onStyleChange: (LastSeenStyle) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()

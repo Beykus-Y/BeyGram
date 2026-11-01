@@ -147,6 +147,7 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.LocalNavigationDock
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.createButtonPlacement
+import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.ArchiveTreatment
 import com.beykus.beygram.ui.design.ChipSelectionTone
 import com.beykus.beygram.ui.design.LocalDesignSystem
@@ -828,8 +829,9 @@ internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, o
     // while reducing the visual prominence that previously pushed conversations down.
     // Card is a raised surface, Tonal is today's quiet fill, Flat is just a navigation line inside the list.
     val archiveShape = RoundedCornerShape(main.archiveRadius)
+    val groupSurface = groupSurfaceColor()
     val archiveBackground = when (main.archive) {
-        ArchiveTreatment.Card, ArchiveTreatment.Tonal -> palette.surface
+        ArchiveTreatment.Card, ArchiveTreatment.Tonal -> groupSurface
         ArchiveTreatment.Flat -> Color.Transparent
     }
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 3.dp)) {

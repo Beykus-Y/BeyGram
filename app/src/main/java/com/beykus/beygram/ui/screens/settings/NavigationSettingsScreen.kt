@@ -39,7 +39,7 @@ import com.beykus.beygram.ui.components.icon
 import com.beykus.beygram.ui.components.title
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
-/** РќР°СЃС‚СЂРѕР№РєР° РЅР°РІРёРіР°С†РёРё: РєР°РєРёРµ СЂР°Р·РґРµР»С‹ РїРѕРєР°Р·С‹РІР°С‚СЊ. Р§Р°С‚С‹ РїРѕРєР°Р·С‹РІР°СЋС‚СЃСЏ РІСЃРµРіРґР°; РЅР° С€РёСЂРѕРєРѕРј СЌРєСЂР°РЅРµ СЂР°Р·РґРµР»С‹ СЃС‚РѕСЏС‚ СЂРµР№РєРѕР№. */
+/** Настройка навигации: какие разделы показывать. Чаты показываются всегда; на широком экране разделы стоят рейкой. */
 @Composable
 fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (TabVisibility) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()
