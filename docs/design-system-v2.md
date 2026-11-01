@@ -77,6 +77,7 @@ Android rendition of translucent floating panels — not an Apple API. Floating 
 and composer, with the **backdrop** sampled:
 
 * `Modifier.glassBackdropSource(backdrop)` records the screen content into an offscreen `GraphicsLayer` every frame.
+  It is only wired up when the resolved style actually draws glass, so Default and the other styles never pay for it.
 * `GlassPanel` draws that layer offset to the panel position, applies a real `RenderEffect` blur (API 31+), then a
   tint, a one-pixel light rim and a specular highlight.
 * Blurring the panel's own children (`Modifier.blur`) is deliberately not used: it smears the panel instead of the

@@ -109,7 +109,10 @@ internal fun AppearanceThemeScope(
             LocalChatWallpaper provides config.wallpaper,
             LocalGlassBackdrop provides glassBackdrop
         ) {
-            Box(Modifier.fillMaxSize().glassBackdropSource(glassBackdrop)) {
+            Box(
+                Modifier.fillMaxSize()
+                    .then(if (design.surfaces.glass != null) Modifier.glassBackdropSource(glassBackdrop) else Modifier)
+            ) {
                 content()
             }
         }

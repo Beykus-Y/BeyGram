@@ -60,7 +60,11 @@ internal fun DesignChromePreview(config: AppearanceConfig, systemDark: Boolean) 
         val backdrop = rememberGlassBackdrop()
         CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
             val palette = beyGramPalette()
-            Box(Modifier.fillMaxSize().glassBackdropSource(backdrop).background(palette.screen)) {
+            Box(
+                Modifier.fillMaxSize()
+                    .then(if (design.surfaces.glass != null) Modifier.glassBackdropSource(backdrop) else Modifier)
+                    .background(palette.screen)
+            ) {
                 Column(
                     Modifier.fillMaxSize()
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))

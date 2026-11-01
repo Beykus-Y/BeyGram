@@ -186,7 +186,10 @@ class MainActivity : FragmentActivity() {
                     LocalGlassBackdrop provides glassBackdrop
                 ) {
                     Surface(
-                        modifier = Modifier.fillMaxSize().glassBackdropSource(glassBackdrop),
+                        modifier = Modifier.fillMaxSize()
+                            // Recording the backdrop costs an offscreen pass per frame, so it is only wired up for a
+                            // style that actually draws glass. Default and the other styles pay nothing.
+                            .then(if (design.surfaces.glass != null) Modifier.glassBackdropSource(glassBackdrop) else Modifier),
                         color = MaterialTheme.colorScheme.background
                     ) {
                         Box(Modifier.fillMaxSize()) {
