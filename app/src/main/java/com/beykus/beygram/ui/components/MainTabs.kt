@@ -341,47 +341,49 @@ private fun NavigationBarContent(
     val indicatorSpec = rememberMotionSpec(MotionToken.TabSelect)
     BoxWithConstraints(modifier) {
         val availableWidth = maxWidth
+        val tabWidth = availableWidth / tabs.size.coerceAtLeast(1)
+        val selectedIndex = tabs.indexOf(selected)
+        val targetX = tabWidth * selectedIndex.coerceAtLeast(0) + (tabWidth - spec.pillWidth) / 2
+        // The indicator is owned above the route content, so a tab change moves it rather than starting a new one.
+        val indicator = LocalMainTabIndicator.current
+        LaunchedEffect(targetX.value, indicatorSpec) {
+            if (selectedIndex < 0) return@LaunchedEffect
+            if (!spec.showSelectionPill) return@LaunchedEffect
+            if (indicator.placed) {
+                indicator.x.animateTo(targetX.value, indicatorSpec.animationSpec())
+            } else {
+                indicator.x.snapTo(targetX.value)
+                indicator.placed = true
+            }
+        }
         Column {
             if (spec.divider) HorizontalDivider(color = palette.divider)
-            val tabWidth = availableWidth / tabs.size.coerceAtLeast(1)
-            val selectedIndex = tabs.indexOf(selected)
-            val targetX = tabWidth * selectedIndex.coerceAtLeast(0) + (tabWidth - spec.pillWidth) / 2
-            // The indicator is owned above the route content, so a tab change moves it rather than starting a new one.
-            val indicator = LocalMainTabIndicator.current
-            LaunchedEffect(targetX.value, indicatorSpec) {
-                if (selectedIndex < 0) return@LaunchedEffect
-                if (!spec.showSelectionPill) return@LaunchedEffect
-                if (indicator.placed) {
-                    indicator.x.animateTo(targetX.value, indicatorSpec.animationSpec())
-                } else {
-                    indicator.x.snapTo(targetX.value)
-                    indicator.placed = true
-                }
-            }
-            // The indicator sits behind the row, so the layout never moves.
-            if (selectedIndex >= 0 && spec.showSelectionPill) {
-                Box(
-                    Modifier
-                        .offset(x = indicator.x.value.dp)
-                        .size(width = spec.pillWidth, height = spec.pillHeight)
-                        .clip(RoundedCornerShape(spec.pillRadius))
-                        .background(palette.accentSoft)
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    // Тот же набор взаимоисключающих вкладок, что и в рейке широкого экрана.
-                    .selectableGroup()
-            ) {
-                tabs.forEach { tab ->
-                    MainTabItem(
-                        tab = tab,
-                        selected = tab == selected,
-                        onSelect = { onSelect(tab) },
-                        modifier = Modifier.weight(1f),
-                        selectionPill = false
+            // The indicator and the row share one Box, so the indicator sits behind the icons and never adds height.
+            Box(Modifier.fillMaxWidth()) {
+                if (selectedIndex >= 0 && spec.showSelectionPill) {
+                    Box(
+                        Modifier
+                            .offset(x = indicator.x.value.dp)
+                            .size(width = spec.pillWidth, height = spec.pillHeight)
+                            .clip(RoundedCornerShape(spec.pillRadius))
+                            .background(palette.accentSoft)
                     )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // Тот же набор взаимоисключающих вкладок, что и в рейке широкого экрана.
+                        .selectableGroup()
+                ) {
+                    tabs.forEach { tab ->
+                        MainTabItem(
+                            tab = tab,
+                            selected = tab == selected,
+                            onSelect = { onSelect(tab) },
+                            modifier = Modifier.weight(1f),
+                            selectionPill = false
+                        )
+                    }
                 }
             }
         }

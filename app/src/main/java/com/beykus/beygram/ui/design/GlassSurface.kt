@@ -126,10 +126,10 @@ fun GlassPanel(
         // The tint is what makes glass readable: it is always drawn, blurred or not. The base alpha keeps the content
         // behind the panel muted even on hardware that cannot blur, so the labels never fight the list underneath.
         val tintAlpha = glass?.tintAlpha?.coerceIn(0f, 1f) ?: 0f
-        val baseAlpha = if (backdrop != null && glass != null && glass.samplesBackdrop) {
-            maxOf(tintAlpha, 0.62f)
+        val baseAlpha = if (glass != null && glass.samplesBackdrop) {
+            maxOf(tintAlpha, 0.88f)
         } else {
-            maxOf(tintAlpha, 0.78f)
+            maxOf(tintAlpha, 0.93f)
         }
         Box(Modifier.matchParentSize().background(tint.copy(alpha = baseAlpha)))
         if (glass != null) {
