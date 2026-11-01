@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.music.bgmusic
 
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -38,10 +39,10 @@ sealed class BgMusicReadResult {
 
 /** Why a file was rejected. Each value maps to one rule in docs/formats/bgmusic-v1.md. */
 enum class BgMusicInvalidReason {
-    /** The compressed file or the total uncompressed content is over its limit. */
+    /** The compressed file or the total uncompressed content is over its limit, or the device runs out of memory. */
     TooLarge,
 
-    /** The input does not start with a ZIP local file header. */
+    /** The input is shorter than four bytes or does not start with a ZIP local file header, which an empty ZIP lacks. */
     NotZip,
 
     /** The ZIP structure is damaged or truncated, or it uses features v1 does not accept, such as encryption. */
@@ -65,7 +66,7 @@ enum class BgMusicInvalidReason {
     ManifestTooLarge,
     CoverTooLarge,
 
-    /** The manifest is not valid UTF-8 JSON, is not an object, or is nested too deeply. */
+    /** The manifest is not valid UTF-8, is not strict JSON, is not an object, repeats a key, or is nested too deeply. */
     BadJson,
 
     /** The `format` field is missing or is not `beygram.music`. */
@@ -85,6 +86,8 @@ object BgMusicReader {
 
     /**
      * Reads one archive from [input]. The stream is read sequentially and is never closed; the caller owns it.
+     * Every input produces a result, with one exception: a [CancellationException] is rethrown, so cancellation is
+     * never reported as a bad file.
      *
      * Limits are enforced while the bytes are read, never from the sizes declared in the archive. [declaredSize]
      * (for example the size reported by the file provider) is used only to reject a file before reading it.
@@ -102,6 +105,15 @@ object BgMusicReader {
             BgMusicReadResult.Invalid(failure.reason, failure.detail)
         } catch (overflow: StackOverflowError) {
             BgMusicReadResult.Invalid(BgMusicInvalidReason.BadJson, "nesting")
+        } catch (exhausted: OutOfMemoryError) {
+            // The archive cannot be held in memory on this device, so it is treated as too large.
+            BgMusicReadResult.Invalid(BgMusicInvalidReason.TooLarge, "memory")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (interrupted: InterruptedException) {
+            // The read stopped because the thread was interrupted. The file may be fine, so this is an I/O failure.
+            Thread.currentThread().interrupt()
+            BgMusicReadResult.Invalid(BgMusicInvalidReason.IoError, "interrupted")
         } catch (unexpected: Exception) {
             // Damage and truncation are properties of the file. Any other I/O failure belongs to the source,
             // so the file itself may be fine and the caller can retry.
@@ -228,12 +240,13 @@ object BgMusicReader {
     }
 
     /**
-     * Parses the manifest in a fixed order: text, JSON shape, signature, versions, then fields. The version check
-     * comes before any field check, so a newer file is reported as Unsupported even if its layout changed.
+     * Parses the manifest in a fixed order: UTF-8 text, strict JSON, JSON object, signature, versions, then fields.
+     * The version check comes before any field check, so a newer file is reported as Unsupported even if its layout
+     * changed.
      */
     private fun parseManifest(raw: ByteArray): BgMusicManifest {
         val text = decodeUtf8(raw)
-        checkNestingDepth(text)
+        BgMusicStrictJson.problem(text, BgMusicFormat.MAX_NESTING_DEPTH)?.let { fail(BgMusicInvalidReason.BadJson, it) }
         val root = try {
             JSONObject(text)
         } catch (malformed: Exception) {
@@ -299,34 +312,6 @@ private fun decodeUtf8(raw: ByteArray): String {
         fail(BgMusicInvalidReason.BadJson, "manifest is not UTF-8")
     }
     return if (text.startsWith("\uFEFF")) text.substring(1) else text
-}
-
-/**
- * Rejects JSON nested deeper than [BgMusicFormat.MAX_NESTING_DEPTH] before the parser recurses. The v1 schema
- * needs five levels, so this bound never rejects a valid file.
- */
-private fun checkNestingDepth(text: String) {
-    var depth = 0
-    var inString = false
-    var escaped = false
-    for (ch in text) {
-        if (inString) {
-            when {
-                escaped -> escaped = false
-                ch == '\\' -> escaped = true
-                ch == '"' -> inString = false
-            }
-            continue
-        }
-        when (ch) {
-            '"' -> inString = true
-            '{', '[' -> {
-                depth++
-                if (depth > BgMusicFormat.MAX_NESTING_DEPTH) fail(BgMusicInvalidReason.BadJson, "nesting")
-            }
-            '}', ']' -> depth--
-        }
-    }
 }
 
 private fun integerValue(value: Any?): Long? = when (value) {

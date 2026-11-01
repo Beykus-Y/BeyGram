@@ -3,6 +3,7 @@ package com.beykus.beygram.data.music.bgmusic
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
@@ -10,6 +11,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.Random
+import java.util.concurrent.CancellationException
 
 /** Serves [data] up to [failAt] bytes, then fails the way a broken file provider would. */
 private class FailingSource(private val data: ByteArray, private val failAt: Int) : InputStream() {
@@ -263,5 +265,55 @@ class BgMusicArchiveSecurityTest {
 
         assertFalse("the writer must leave the caller's stream open", tracker.closed)
         assertTrue(tracker.size() > 0)
+    }
+
+    @Test
+    fun emptyZipIsNotZip() {
+        // An empty archive holds only the end-of-central-directory record, so it does not start with a local header.
+        val emptyZip = byteArrayOf(0x50, 0x4B, 0x05, 0x06) + ByteArray(18)
+
+        assertInvalid(readAll(emptyZip), BgMusicInvalidReason.NotZip)
+    }
+
+    @Test
+    fun headerCutRightAfterTheSignatureIsCorruptArchive() {
+        assertInvalid(readAll(byteArrayOf(0x50, 0x4B, 0x03, 0x04)), BgMusicInvalidReason.CorruptArchive)
+    }
+
+    @Test
+    fun outOfMemoryWhileReadingIsReportedAsTooLarge() {
+        val exhausted = object : InputStream() {
+            override fun read(): Int = throw OutOfMemoryError("synthetic")
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int = throw OutOfMemoryError("synthetic")
+        }
+
+        assertInvalid(BgMusicReader.read(exhausted), BgMusicInvalidReason.TooLarge)
+    }
+
+    @Test
+    fun interruptedReadIsAnIoErrorAndKeepsTheInterruptFlag() {
+        val interrupted = object : InputStream() {
+            override fun read(): Int = throw InterruptedException("synthetic")
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int = throw InterruptedException("synthetic")
+        }
+        try {
+            assertInvalid(BgMusicReader.read(interrupted), BgMusicInvalidReason.IoError)
+            assertTrue("the interrupt flag must reach the caller", Thread.interrupted())
+        } finally {
+            Thread.interrupted()
+        }
+    }
+
+    @Test
+    fun cancellationIsRethrownInsteadOfBeingReported() {
+        val cancelled = object : InputStream() {
+            override fun read(): Int = throw CancellationException("synthetic")
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int = throw CancellationException("synthetic")
+        }
+
+        assertThrows(CancellationException::class.java) { BgMusicReader.read(cancelled) }
     }
 }

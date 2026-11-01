@@ -36,7 +36,6 @@ class BgMusicRoundTripTest {
             "👨\u200D👩\u200D👧 family",
             "🇷🇺 flag pair",
             "é combining accent",
-            "mixed \u200F RLM mark",
         )
         for (title in titles) {
             val manifest = testManifest(tracks = listOf(testTrack(1, title = title)), title = title)
@@ -79,6 +78,22 @@ class BgMusicRoundTripTest {
         // A line break or a tab is a space, not a removal, so the two words stay apart.
         assertEquals("Mix evil name", BgMusicFormat.sanitizeText(dirty, 128))
         assertEquals("Mix evil name", assertSuccess(readAll(writeToBytes(testManifest(title = dirty)))).manifest.title)
+    }
+
+    @Test
+    fun invisibleFormattingCharactersAreRemovedButZwjIsKept() {
+        val raw = "a\u200Bb\u200Ec\u200Fd\u061Ce\uFEFFf\u200Dg"
+
+        assertEquals("abcdef\u200Dg", BgMusicFormat.sanitizeText(raw, 128))
+        assertEquals("abcdef\u200Dg", BgMusicFormat.sanitizeMultilineText(raw, 128))
+    }
+
+    @Test
+    fun removedCharactersBetweenLineBreaksDoNotSplitTheRun() {
+        // A removed character is invisible, so only the line breaks around it are visible to the reader.
+        assertEquals("a\n\nb", BgMusicFormat.sanitizeMultilineText("a\n\u0000\nb", 1000))
+        assertEquals("a\n\nb", BgMusicFormat.sanitizeMultilineText("a\n\u0007\n\n\nb", 1000))
+        assertEquals("a\n\nb", BgMusicFormat.sanitizeMultilineText("a\n\u0007\n\u200B\n\nb", 1000))
     }
 
     @Test

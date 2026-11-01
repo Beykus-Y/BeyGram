@@ -232,4 +232,53 @@ class BgMusicManifestCompatibilityTest {
         assertEquals("Mix Tape", manifest.title)
         assertEquals("a\n\nb\nc", manifest.description)
     }
+
+    @Test
+    fun singleQuotedPayloadThatHidesNestingIsBadJson() {
+        // Android's org.json reads '"' as a whole string, so a scan that only knows double quotes loses the depth.
+        val payload = manifestJson(extra = ",\"quote\":'\"',\"deep\":" + "[".repeat(100) + "]".repeat(100))
+
+        assertInvalid(readAll(manifestArchive(payload)), BgMusicInvalidReason.BadJson)
+    }
+
+    @Test
+    fun commentsTrailingDataAndLenientSyntaxAreBadJson() {
+        val cases = listOf(
+            "block comment" to manifestJson(extra = ",\"c\":1 /* note */"),
+            "line comment" to manifestJson(extra = ",\"c\":1 // note\n"),
+            "hash comment" to manifestJson(extra = ",\"c\":1 # note\n"),
+            "trailing text" to (manifestJson() + "x"),
+            "second document" to (manifestJson() + manifestJson()),
+            "trailing NUL" to (manifestJson() + "\u0000"),
+            "unquoted key" to manifestJson(extra = ",color:1"),
+            "single-quoted key" to manifestJson(extra = ",'c':1"),
+            "unquoted word" to manifestJson(extra = ",\"c\":undefined"),
+            "NaN" to manifestJson(extra = ",\"c\":NaN"),
+            "semicolon separator" to manifestJson(extra = ",\"c\":1;\"d\":2"),
+            "equals separator" to manifestJson(extra = ",\"c\"=1"),
+            "fat arrow separator" to manifestJson(extra = ",\"c\"=>1"),
+        )
+        for ((label, json) in cases) {
+            val result = readAll(manifestArchive(json))
+            val invalid = result as? BgMusicReadResult.Invalid ?: throw AssertionError("$label: expected Invalid, got $result")
+            assertEquals(label, BgMusicInvalidReason.BadJson, invalid.reason)
+        }
+    }
+
+    @Test
+    fun nestingLimitCountsTheManifestObjectAsLevelOne() {
+        val fifteenArrays = manifestJson(extra = ",\"deep\":" + "[".repeat(15) + "]".repeat(15))
+        val sixteenArrays = manifestJson(extra = ",\"deep\":" + "[".repeat(16) + "]".repeat(16))
+
+        assertSuccess(readAll(manifestArchive(fifteenArrays)))
+        assertInvalid(readAll(manifestArchive(sixteenArrays)), BgMusicInvalidReason.BadJson)
+    }
+
+    @Test
+    fun repeatedKeysAreBadJsonEvenWhenTheValuesAgree() {
+        assertInvalid(readAll(manifestArchive(manifestJson(extra = ",\"title\":\"Mix\""))), BgMusicInvalidReason.BadJson)
+        val track = "{\"id\":\"${testTrackId(1)}\",\"title\":\"Song\",\"artist\":\"A\",\"album\":\"B\"," +
+            "\"duration_sec\":200,\"artist\":\"A\"}"
+        assertInvalid(readAll(manifestArchive(manifestJson(tracks = "[$track]"))), BgMusicInvalidReason.BadJson)
+    }
 }

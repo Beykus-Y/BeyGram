@@ -62,7 +62,8 @@ object BgMusicFormat {
     /**
      * Makes single-line text safe to store, such as titles, artists, albums and names. Line breaks (CR, LF, VT, FF,
      * NEL, U+2028, U+2029) and tabs become one space each, so words are not glued together. Other control
-     * characters, bidi embedding, override and isolate characters, and unpaired surrogates are removed. The text is
+     * characters, bidi embedding, override and isolate characters, invisible marks, and unpaired surrogates are removed.
+     * The text is
      * trimmed and capped to [maxCodePoints] code points; cutting never splits a surrogate pair. The result can be empty.
      */
     internal fun sanitizeText(raw: String, maxCodePoints: Int): String =
@@ -115,12 +116,17 @@ object BgMusicFormat {
         codePoint == 0x0A || codePoint == 0x0B || codePoint == 0x0C || codePoint == 0x0D ||
             codePoint == 0x85 || codePoint == 0x2028 || codePoint == 0x2029
 
+    /** Controls, bidi embedding, override and isolate characters, invisible marks, and unpaired surrogates. */
     private fun isDroppedCodePoint(codePoint: Int): Boolean =
         codePoint < 0x20 ||
             codePoint in 0x7F..0x9F ||
             codePoint in 0xD800..0xDFFF ||
             codePoint in 0x202A..0x202E ||
-            codePoint in 0x2066..0x2069
+            codePoint in 0x2066..0x2069 ||
+            codePoint == 0x061C || // ARABIC LETTER MARK
+            codePoint == 0x200B || // ZERO WIDTH SPACE
+            codePoint in 0x200E..0x200F || // LEFT-TO-RIGHT and RIGHT-TO-LEFT MARK
+            codePoint == 0xFEFF // ZERO WIDTH NO-BREAK SPACE (byte order mark)
 
     private fun endIndexForCodePoints(text: String, maxCodePoints: Int): Int {
         var index = 0
