@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.settings
 
+import com.beykus.beygram.ui.components.settingsIconTint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -193,7 +194,7 @@ private fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) 
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Icon(icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
         Text(title, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
         Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
     }
@@ -214,7 +215,7 @@ private fun SettingsToggle(
             .padding(horizontal = 20.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Icon(icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
         Column(Modifier.weight(1f).padding(start = 14.dp, end = 8.dp)) {
             Text(title, color = palette.textPrimary, fontSize = 16.sp)
             if (subtitle != null) {
