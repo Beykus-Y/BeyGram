@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.components
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -71,7 +72,7 @@ internal fun TrafficUsageSummary(
     val palette = beyGramPalette()
     val networkLabel = autoDownloadNetworkLabel(network)
     Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp),
+        modifier.fillMaxWidth().clip(styledShape(18.dp)).background(palette.surface).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -87,7 +88,7 @@ internal fun TrafficUsageSummary(
                 color = palette.accentInk,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(palette.accentSoft)
+                modifier = Modifier.clip(styledShape(8.dp)).background(palette.accentSoft)
                     .padding(horizontal = 8.dp, vertical = 3.dp)
             )
         }
@@ -189,7 +190,7 @@ internal fun TrafficUsageBadge(
         fontSize = 11.sp,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = modifier.clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.55f))
+        modifier = modifier.clip(styledShape(8.dp)).background(Color.Black.copy(alpha = 0.55f))
             .padding(horizontal = 8.dp, vertical = 3.dp)
     )
 }

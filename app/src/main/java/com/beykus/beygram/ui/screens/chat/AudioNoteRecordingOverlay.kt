@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -30,7 +31,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 @Composable
 internal fun AudioNoteRecordingDock(recorder: AudioNoteRecorder, modifier: Modifier = Modifier, onCancel: () -> Unit) {
     val palette = beyGramPalette()
-    Row(modifier.clip(RoundedCornerShape(20.dp)).background(palette.surface2).padding(start = 12.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+    Row(modifier.clip(styledShape(20.dp)).background(palette.surface2).padding(start = 12.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Spacer(Modifier.size(9.dp).clip(CircleShape).background(palette.danger))
         Icon(Icons.Rounded.Mic, null, tint = palette.danger, modifier = Modifier.size(19.dp))

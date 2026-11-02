@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.notifications
 
 import android.Manifest
+import com.beykus.beygram.ui.design.styledShape
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -137,7 +138,7 @@ fun NotificationSettingsScreen(
             Text(if (allowed) stringResource(R.string.notif_permission_granted) else stringResource(R.string.notif_permission_denied), color = if (allowed) palette.textPrimary else palette.warningText)
             Text(if (running) stringResource(R.string.notif_background_running) else stringResource(R.string.notif_background_stopped), color = palette.textSecondary)
             if (messagesBlocked) Text(stringResource(R.string.notif_messages_channel_blocked), color = palette.warningText)
-            if (!allowed) Button(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), onClick = {
+            if (!allowed) Button(shape = styledShape(16.dp), onClick = {
                 if (Build.VERSION.SDK_INT >= 33 && !runtime.preferences.permissionAsked) { runtime.preferences.permissionAsked = true; AppLockManager.get(context).expectExternalActivity(); permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
                 else open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
             }) { Text(stringResource(R.string.notif_allow_notifications)) }

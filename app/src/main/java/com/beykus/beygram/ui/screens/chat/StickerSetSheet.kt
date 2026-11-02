@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.layout.Box
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -197,7 +198,7 @@ internal fun StickerSetSheet(
                 if (cover != null) {
                     StickerArtwork(
                         cover,
-                        Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)),
+                        Modifier.size(48.dp).clip(styledShape(12.dp)),
                         observeFile,
                         downloadFile
                     )

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.auth
 
 import androidx.compose.foundation.layout.PaddingValues
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -75,7 +76,7 @@ fun LoginCodeScreen(
             supportingText = if (errorMessage != null) {
                 { Text(text = errorMessage, color = palette.danger) }
             } else null,
-            shape = RoundedCornerShape(14.dp),
+            shape = styledShape(14.dp),
             colors = beyGramTextFieldColors()
         )
 
@@ -95,7 +96,7 @@ fun LoginCodeScreen(
             onClick = { onComplete(code) },
             enabled = canContinue,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = styledShape(16.dp),
             contentPadding = PaddingValues(vertical = 15.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = palette.accent,

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -640,7 +641,7 @@ internal fun AccountSwitcherContent(
         if (errorText != null) {
             Surface(
                 color = palette.warningSurface,
-                shape = RoundedCornerShape(14.dp),
+                shape = styledShape(14.dp),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
             ) {
                 Row(

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.geometry.Rect
@@ -199,7 +200,7 @@ internal fun MessageAlbumBubble(
                                 if (index < rows.lastIndex) Spacer(Modifier.height(2.dp))
                             }
                             if (reply != null) {
-                                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).clip(RoundedCornerShape(10.dp))
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).clip(styledShape(10.dp))
                                     .background(palette.surface.copy(alpha = 0.72f)).combinedClickable(
                                         onClickLabel = selectionLabel,
                                         onLongClickLabel = selectionLabel,
@@ -292,7 +293,7 @@ private fun AlbumMediaTile(
         }
     }
 
-    Box(modifier.aspectRatio(1f).padding(1.dp).clip(RoundedCornerShape(5.dp)).background(palette.disabled)
+    Box(modifier.aspectRatio(1f).padding(1.dp).clip(styledShape(5.dp)).background(palette.disabled)
         .combinedClickable(
             onClickLabel = if (selectionMode) selectionLabel else if (revealed) openLabel else spoilerLabel,
             onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
@@ -313,7 +314,7 @@ private fun AlbumMediaTile(
                 modifier = Modifier.size(36.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(7.dp))
         }
         if (media.durationSeconds > 0) Text(duration(media.durationSeconds), color = Color.White, fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(5.dp)).padding(horizontal = 4.dp, vertical = 2.dp))
+            modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.55f), styledShape(5.dp)).padding(horizontal = 4.dp, vertical = 2.dp))
         if (file.isDownloading || file.isUploading) LinearProgressIndicator(
             progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
             modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -719,7 +720,7 @@ private fun StarsTopUpMethodsDialog(
                 methods.forEach { method ->
                     FilledTonalButton(
                         onClick = { onOpen(method) },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = styledShape(14.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(
                             containerColor = palette.accentSoft,
                             contentColor = palette.accentInk

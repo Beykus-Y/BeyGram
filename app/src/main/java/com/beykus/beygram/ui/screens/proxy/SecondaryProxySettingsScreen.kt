@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.proxy
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -66,7 +67,7 @@ internal fun SecondaryProxySettingsScreen(
             Text(stringResource(R.string.multi_proxy_title), fontSize = 22.sp, color = palette.textPrimary)
         }
         Column(
-            Modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(20.dp)).padding(18.dp),
+            Modifier.fillMaxWidth().background(palette.surface, styledShape(20.dp)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(Icons.Rounded.Shield, contentDescription = null, tint = palette.accent)

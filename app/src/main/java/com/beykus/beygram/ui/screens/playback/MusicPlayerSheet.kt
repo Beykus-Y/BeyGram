@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import android.os.SystemClock
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
@@ -264,7 +265,7 @@ private fun PlayerHeader(
         Column(
             Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(styledShape(12.dp))
                 .then(
                     if (onOpenSource != null) Modifier.clickable(role = Role.Button, onClickLabel = openSourceLabel) { onOpenSource() }
                     else Modifier
@@ -499,7 +500,7 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, reduced: Boolean) {
     Box(
         Modifier
             .size(size)
-            .shadow(6.dp, RoundedCornerShape(20.dp), clip = false)
+            .shadow(6.dp, styledShape(20.dp), clip = false)
             .graphicsLayer {
                 scaleX = scale.value
                 scaleY = scale.value
@@ -998,7 +999,7 @@ private fun PlayerAction(action: PlayerActionUi, modifier: Modifier = Modifier) 
     Column(
         modifier
             .heightIn(min = 56.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(styledShape(14.dp))
             .clickable(role = Role.Button, onClick = action.onClick)
             .padding(vertical = 7.dp)
             .then(if (described != null) Modifier.semantics { stateDescription = described } else Modifier),
@@ -1266,7 +1267,7 @@ private fun QueueCurrentCard(
     } else ""
     Surface(
         color = palette.accentSoft,
-        shape = RoundedCornerShape(16.dp),
+        shape = styledShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -1347,7 +1348,7 @@ private fun QueueUpcomingRow(
             .heightIn(min = QUEUE_ROW_HEIGHT)
             .zIndex(if (dragging) 1f else 0f)
             .graphicsLayer { translationY = dragOffset }
-            .clip(RoundedCornerShape(12.dp))
+            .clip(styledShape(12.dp))
             .background(if (highlighted) palette.accentSoft.copy(alpha = 0.65f) else Color.Transparent),
         verticalAlignment = Alignment.CenterVertically
     ) {

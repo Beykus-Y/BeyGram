@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.app.DatePickerDialog
+import com.beykus.beygram.ui.design.styledShape
 import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -220,7 +221,7 @@ internal fun ChatExportDialog(
                             Spacer(Modifier.height(14.dp))
                             Column(
                                 Modifier.fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(styledShape(12.dp))
                                     .background(palette.warningSurface)
                                     .padding(12.dp)
                             ) {

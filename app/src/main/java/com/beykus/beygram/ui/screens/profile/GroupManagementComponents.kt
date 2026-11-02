@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,7 +57,7 @@ internal fun GroupManagementSection(
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(styledShape(18.dp))
             .background(palette.surface)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) {}
@@ -65,7 +66,7 @@ internal fun GroupManagementSection(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(42.dp).clip(RoundedCornerShape(13.dp)).background(palette.accentSoft),
+            Modifier.size(42.dp).clip(styledShape(13.dp)).background(palette.accentSoft),
             contentAlignment = Alignment.Center
         ) {
             Icon(icon, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
@@ -213,7 +214,7 @@ internal fun GroupManagementEntry(kind: ProfileKind, onClick: () -> Unit) {
     val palette = beyGramPalette()
     FilledTonalButton(
         onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
+        shape = styledShape(16.dp),
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).heightIn(min = 48.dp)
     ) {

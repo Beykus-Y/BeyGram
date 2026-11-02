@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.annotation.StringRes
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -191,7 +192,7 @@ private fun AttachmentActionTile(action: AttachmentAction, enabled: Boolean, onA
         Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 76.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(styledShape(16.dp))
             .background(palette.surface2)
             .clickable(enabled = enabled, role = Role.Button) { onAction(action) }
             .padding(horizontal = 6.dp, vertical = 10.dp),

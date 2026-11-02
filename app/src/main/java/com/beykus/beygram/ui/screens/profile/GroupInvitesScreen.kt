@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import android.content.ClipData
+import com.beykus.beygram.ui.design.styledShape
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -268,7 +269,7 @@ private fun GroupSubscriptionRenameDialog(
                     singleLine = true,
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = styledShape(14.dp),
                     colors = beyGramTextFieldColors()
                 )
                 problemText?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.errorAnnouncement()) }
@@ -300,7 +301,7 @@ private fun GroupInviteLinkCard(
     onRevoke: () -> Unit
 ) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(18.dp)).padding(16.dp)) {
+    Column(Modifier.fillMaxWidth().background(palette.surface, styledShape(18.dp)).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
@@ -424,7 +425,7 @@ private fun GroupInviteLinkDialog(
                     singleLine = true,
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = styledShape(14.dp),
                     colors = beyGramTextFieldColors()
                 )
                 Text(
@@ -459,7 +460,7 @@ private fun GroupInviteLinkDialog(
                     enabled = !busy && !approval,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = styledShape(14.dp),
                     colors = beyGramTextFieldColors()
                 )
                 Row(

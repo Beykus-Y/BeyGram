@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chats
 
 import androidx.compose.animation.animateColorAsState
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -782,7 +783,7 @@ private fun TelegramSearchAction(
     Row(
         modifier = Modifier.fillMaxWidth()
             .heightIn(min = 56.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(styledShape(16.dp))
             .background(palette.accentSoft)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) {
@@ -862,7 +863,7 @@ internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, o
             // Действия открываются прямо под строкой, без всплывающего окна.
             Column(
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
-                    .clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)
+                    .clip(styledShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)
             ) {
                 ArchiveAction(Icons.Rounded.VisibilityOff, stringResource(R.string.chats_archive_hide), palette.accent, palette.accentInk, FontWeight.SemiBold, onHide)
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(palette.divider))

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
+import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -1361,7 +1362,7 @@ private fun PreparedAttachmentsPanel(
     ) {
         if (state.locating) {
             Row(
-                Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp))
+                Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(styledShape(14.dp))
                     .background(palette.surface2).padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1410,7 +1411,7 @@ private fun ExtraAttachmentCard(extra: MessageExtraDraft, enabled: Boolean, onRe
     val palette = beyGramPalette()
     val label = extraLabel(extra)
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp))
+        Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(styledShape(14.dp))
             .background(palette.surface2).padding(start = 6.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1424,7 +1425,7 @@ private fun ExtraAttachmentCard(extra: MessageExtraDraft, enabled: Boolean, onRe
             },
             contentDescription = null,
             tint = palette.accentInk,
-            modifier = Modifier.size(40.dp).background(palette.accentSoft, RoundedCornerShape(9.dp)).padding(9.dp)
+            modifier = Modifier.size(40.dp).background(palette.accentSoft, styledShape(9.dp)).padding(9.dp)
         )
         Text(
             label,
@@ -1510,7 +1511,7 @@ private fun CompactVisualAttachmentTray(
                 val actionsLabel = stringResource(R.string.composer_attachment_actions)
                 val documentTile = isDocumentAttachmentTile(item, preparation)
                 Box(
-                    modifier = Modifier.size(100.dp).clip(RoundedCornerShape(14.dp))
+                    modifier = Modifier.size(100.dp).clip(styledShape(14.dp))
                         .background(palette.surface2)
                 ) {
                     if (documentTile) {
@@ -1572,7 +1573,7 @@ private fun CompactVisualAttachmentTray(
                         Row(
                             modifier = Modifier.align(Alignment.BottomStart)
                                 .padding(6.dp)
-                                .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(7.dp))
+                                .background(Color.Black.copy(alpha = 0.65f), styledShape(7.dp))
                                 .padding(horizontal = 4.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1585,7 +1586,7 @@ private fun CompactVisualAttachmentTray(
                     } else if (item.kind == MediaKind.Animation && !documentTile) {
                         Text("GIF", color = Color.White, fontSize = 10.sp,
                             modifier = Modifier.align(Alignment.BottomStart).padding(6.dp)
-                                .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(6.dp))
+                                .background(Color.Black.copy(alpha = 0.65f), styledShape(6.dp))
                                 .padding(horizontal = 5.dp, vertical = 2.dp))
                     }
                     if (preparation?.processing == true) {
@@ -1630,7 +1631,7 @@ private fun CompactVisualAttachmentTray(
             if (enabled && displayPending.size < MAX_PENDING_ATTACHMENTS) {
                 item(key = "add-more-media") {
                     Box(
-                        Modifier.size(100.dp).clip(RoundedCornerShape(14.dp))
+                        Modifier.size(100.dp).clip(styledShape(14.dp))
                             .background(palette.surface2)
                             .clickable(enabled = enabled, role = Role.Button, onClick = state.pickPhotos)
                             .semantics { contentDescription = context.getString(R.string.composer_attach_description) },
@@ -1729,7 +1730,7 @@ private fun PendingAttachmentCard(
     val context = LocalContext.current
     val preparation = state.preparationFor(item)
     Column(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp))
+        Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(styledShape(14.dp))
             .background(palette.surface2).padding(6.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1787,7 +1788,7 @@ private fun PendingAttachmentPreview(
     item: OutgoingMedia,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    modifier: Modifier = Modifier.size(40.dp).clip(RoundedCornerShape(9.dp))
+    modifier: Modifier = Modifier.size(40.dp).clip(styledShape(9.dp))
 ) {
     when {
         item.thumbnailPath != null -> LocalMediaImage(item.thumbnailPath, modifier, maxDimension = 320)

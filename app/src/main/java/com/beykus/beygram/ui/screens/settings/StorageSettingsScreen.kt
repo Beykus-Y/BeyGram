@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -170,7 +171,7 @@ private fun UsageCard(usage: StorageUsage?, loading: Boolean, selected: Set<Stor
 private fun UsageBar(usage: StorageUsage) {
     val palette = beyGramPalette()
     val segments = StorageCategory.entries.map { it.color() to usage.bytes(it) } + (palette.accent to usage.uploadBytes) + (palette.textSecondary to usage.databaseBytes)
-    Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(palette.surface2)) {
+    Row(Modifier.fillMaxWidth().height(10.dp).clip(styledShape(5.dp)).background(palette.surface2)) {
         segments.filter { it.second > 0L }.forEach { (color, bytes) ->
             Box(Modifier.weight(bytes.toFloat()).fillMaxHeight().background(color))
         }

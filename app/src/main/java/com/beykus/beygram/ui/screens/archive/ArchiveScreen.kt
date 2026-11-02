@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.archive
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -124,7 +125,7 @@ fun ArchiveScreen(
 private fun ArchiveSettingsSection(settings: ArchiveSettings, onChange: (ArchiveSettings) -> Unit) {
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).clip(styledShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
             ArchiveSwitchRow(stringResource(R.string.archive_setting_return_on_message), settings.returnOnNewMessage) { onChange(settings.copy(returnOnNewMessage = it)) }
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
             ArchiveSwitchRow(stringResource(R.string.archive_setting_sound), settings.archiveSound) { onChange(settings.copy(archiveSound = it)) }

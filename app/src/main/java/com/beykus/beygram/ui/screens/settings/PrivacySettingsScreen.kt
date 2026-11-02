@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -232,7 +233,7 @@ fun PrivacySettingsScreen(
             Text(stringResource(R.string.privacy_intro), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
             StealthModeLink(active = stealthActive, onClick = onStealth)
             loadError?.let { message ->
-                Surface(shape = RoundedCornerShape(16.dp), color = palette.warningSurface) {
+                Surface(shape = styledShape(16.dp), color = palette.warningSurface) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text(message, color = palette.warningText)
                         TextButton(enabled = !loading, onClick = { refresh++ }) { Text(stringResource(R.string.common_retry), color = palette.accentInk) }
@@ -587,7 +588,7 @@ private fun ContactPickerDialog(
         .filter { it.userId !in excluded }
         .filter { query.isBlank() || it.title.contains(query, ignoreCase = true) || it.subtitle.contains(query, ignoreCase = true) }
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(24.dp), color = palette.surface, modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = styledShape(24.dp), color = palette.surface, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(12.dp))

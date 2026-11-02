@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.combinedClickable
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,7 +98,7 @@ private fun StickerCell(
         )
     }
     Box(
-        Modifier.size(68.dp).clip(RoundedCornerShape(12.dp))
+        Modifier.size(68.dp).clip(styledShape(12.dp))
             .then(clickModifier)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -199,7 +200,7 @@ internal fun ForwardChatDialog(
                         LazyColumn(Modifier.heightIn(max = 96.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(targets, key = { "${it.chatId}:${it.topicId}" }) { target ->
                                 Box(
-                                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(palette.accentSoft)
+                                    Modifier.fillMaxWidth().clip(styledShape(12.dp)).background(palette.accentSoft)
                                         .clickable(enabled = !locked, role = Role.Button) { toggle(target) }
                                         .padding(horizontal = 12.dp, vertical = 8.dp)
                                 ) {

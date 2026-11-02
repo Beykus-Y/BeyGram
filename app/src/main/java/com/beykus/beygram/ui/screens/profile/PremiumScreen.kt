@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -610,7 +611,7 @@ private fun PremiumLoadingSkeleton() {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
         Column(
             Modifier.fillMaxWidth().padding(16.dp)
-                .clip(RoundedCornerShape(20.dp))
+                .clip(styledShape(20.dp))
                 .background(palette.surface)
                 .padding(horizontal = 18.dp, vertical = 16.dp)
                 .semantics(mergeDescendants = true) {}
@@ -657,7 +658,7 @@ private fun PremiumSkeletonCard(rows: Int) {
                 Box(
                     Modifier.fillMaxWidth(if (index % 2 == 1) 0.64f else 0.9f)
                         .height(14.dp)
-                        .clip(RoundedCornerShape(7.dp))
+                        .clip(styledShape(7.dp))
                         .background(palette.surface2)
                 )
             }
@@ -817,7 +818,7 @@ private fun PremiumGiftCodeSection(
                     { Text(stringResource(premiumGiftCodeValidationLabel(validationError))) }
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                shape = RoundedCornerShape(14.dp),
+                shape = styledShape(14.dp),
                 colors = beyGramTextFieldColors(),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -825,7 +826,7 @@ private fun PremiumGiftCodeSection(
             Button(
                 onClick = ::check,
                 enabled = !busy,
-                shape = RoundedCornerShape(14.dp),
+                shape = styledShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = palette.accent,
                     contentColor = palette.onAccent,
@@ -1140,7 +1141,7 @@ internal fun PaymentNoticeCard(notice: PaymentNotice) {
         lineHeight = 20.sp,
         modifier = Modifier.fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(styledShape(16.dp))
             .background(background)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .errorAnnouncement()
@@ -1203,7 +1204,7 @@ internal fun MonetizationStateCard(
     val announcement = if (announce) Modifier.statusAnnouncement() else Modifier
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(styledShape(20.dp))
             .background(background)
             .padding(horizontal = 18.dp, vertical = 16.dp)
             .semantics(mergeDescendants = true) {}

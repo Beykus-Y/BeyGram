@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.diagnostics
 
 import android.content.Context
+import com.beykus.beygram.ui.design.styledShape
 import android.content.Intent
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
@@ -172,7 +173,7 @@ fun ResourcesScreen(onBack: () -> Unit) {
                 Text(stringResource(R.string.resources_record_hint), color = palette.textSecondary, fontSize = 13.sp)
             }
 
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().clip(styledShape(20.dp)).background(palette.surface).padding(16.dp)) {
                 Text(stringResource(R.string.resources_cpu), color = palette.textPrimary, fontSize = 16.sp)
                 Text(
                     latest?.rates?.cpuPercent?.let { String.format(Locale.getDefault(), "%.1f%%", it) } ?: unavailable,
@@ -218,7 +219,7 @@ fun ResourcesScreen(onBack: () -> Unit) {
                 )
             }
 
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().clip(styledShape(20.dp)).background(palette.surface).padding(16.dp)) {
                 Text(stringResource(R.string.resources_network), color = palette.textPrimary, fontSize = 16.sp)
                 Text(
                     latest?.let {

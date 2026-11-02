@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.diagnostics
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -239,7 +240,7 @@ private fun DraftForm(
         }
         Switch(checked = state.includeDiagnostics, onCheckedChange = onIncludeDiagnosticsChange)
     }
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(palette.surface).padding(16.dp)) {
+    Column(Modifier.fillMaxWidth().clip(styledShape(16.dp)).background(palette.surface).padding(16.dp)) {
         Text(stringResource(R.string.report_attached_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
         AttachedItem(stringResource(R.string.report_attached_description))
@@ -267,7 +268,7 @@ private fun DraftForm(
         onClick = onSubmit,
         enabled = state.canSubmit,
         modifier = Modifier.fillMaxWidth().height(52.dp),
-        shape = RoundedCornerShape(16.dp)
+        shape = styledShape(16.dp)
     ) {
         Text(stringResource(R.string.report_submit), fontSize = 16.sp)
     }
@@ -359,7 +360,7 @@ private fun FailedView(
         Button(
             onClick = onRetry,
             enabled = !state.reason.isTerminal,
-            shape = RoundedCornerShape(16.dp)
+            shape = styledShape(16.dp)
         ) { Text(stringResource(R.string.report_retry)) }
         OutlinedButton(onClick = onShareManually) { Text(stringResource(R.string.report_share_manually)) }
     }
