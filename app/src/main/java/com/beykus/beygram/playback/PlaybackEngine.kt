@@ -1010,6 +1010,8 @@ object PlaybackEngine {
     private fun startBgMix(context: Context, queue: PlaybackQueue): Boolean {
         BgMixSettingsStore.load(context)
         if (!BgMixSettingsStore.enabled.value) return false
+        // BG Mix does not repeat; a queue with repeat selected stays on ExoPlayer, which does.
+        if (_state.value.repeatMode != PlaybackRepeatMode.Off) return false
         if (queue.index !in queue.items.indices) return false
         // Creates the shared player and appContext on first use, so the notification and queue paths work.
         player(context)
