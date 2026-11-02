@@ -258,6 +258,10 @@ object PlaybackEngine {
         _audioSessionId.value = null
         return object : ForwardingPlayer(created) {
             override fun play() {
+                if (bgMixActive()) {
+                    bgMixPlay()
+                    return
+                }
                 if (deferredSeek != null) {
                     deferredSeek = deferredSeek?.copy(resume = true)
                     _state.update { it.copy(intentPlaying = true) }
@@ -277,12 +281,28 @@ object PlaybackEngine {
             }
 
             override fun pause() {
+                if (bgMixActive()) {
+                    pauseBgMix()
+                    return
+                }
                 // System/lock-screen/headset pause must cancel a pending deferred resume as well.
                 deferredSeek = deferredSeek?.copy(resume = false)
                 _state.update { it.copy(intentPlaying = false, playing = false) }
                 progress?.cancel()
                 progress = null
                 super.pause()
+            }
+
+            override fun seekToNext() {
+                if (bgMixActive()) bgMix?.next() else super.seekToNext()
+            }
+
+            override fun seekToPrevious() {
+                if (!bgMixActive()) super.seekToPrevious()
+            }
+
+            override fun seekTo(positionMs: Long) {
+                if (!bgMixActive()) super.seekTo(positionMs)
             }
 
             override fun stop() {
@@ -347,6 +367,10 @@ object PlaybackEngine {
     ) {
         if (onStarted != null) startedCallback = item.key to onStarted
         val currentState = _state.value
+        if (bgMixActive() && currentState.item?.key == item.key) {
+            bgMixPlay()
+            return
+        }
         if (exo != null && currentState.item?.key == item.key) {
             // A file that plays without a queue (for example from the chat feed) adopts the queue of the music tab,
             // so after pause/resume it continues there. The same file from another account/message has another key
@@ -477,7 +501,7 @@ object PlaybackEngine {
         autoPlay: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
-        if (autoPlay && startBgMix(context, queue)) return
+        if (autoPlay && startPositionMs == null && startFraction <= 0f && startBgMix(context, queue)) return
         stopBgMix()
         val target = rawPlayer(context)
         transitionToken++
@@ -1050,17 +1074,17 @@ object PlaybackEngine {
 
     private fun toggleBgMix() {
         val state = _state.value
-        when {
-            state.ended -> {
-                val context = appContext ?: return
-                startBgMix(context, PlaybackQueue(state.queue, state.queueIndex))
-            }
-            state.intentPlaying || state.playing -> pauseBgMix()
-            else -> {
-                bgMix?.resume()
-                _state.update { it.copy(intentPlaying = true, ended = false) }
-            }
+        if (!state.ended && (state.intentPlaying || state.playing)) pauseBgMix() else bgMixPlay()
+    }
+
+    /** Resumes BG Mix, or restarts the queue from its current index when it has ended. */
+    private fun bgMixPlay() {
+        if (_state.value.ended) {
+            playQueueIndex(_state.value.queueIndex)
+            return
         }
+        bgMix?.resume()
+        _state.update { it.copy(intentPlaying = true, ended = false) }
     }
 
     private fun pauseBgMix() {
@@ -1165,9 +1189,9 @@ object PlaybackEngine {
 
     fun playQueueIndex(index: Int) {
         if (bgMixActive()) {
-            val context = appContext ?: return
-            startBgMix(context, PlaybackQueue(_state.value.queue, index))
-            return
+            val context = appContext
+            if (context != null && startBgMix(context, PlaybackQueue(_state.value.queue, index))) return
+            stopBgMix()
         }
         val snapshot = _state.value
         if (!canSelectQueueIndex(snapshot, index)) return
