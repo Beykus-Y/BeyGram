@@ -293,6 +293,22 @@ object PlaybackEngine {
                 super.pause()
             }
 
+            override fun getAvailableCommands(): Player.Commands {
+                val base = super.getAvailableCommands()
+                if (!bgMixActive()) return base
+                return Player.Commands.Builder().addAll(base)
+                    .add(Player.COMMAND_PLAY_PAUSE)
+                    .add(Player.COMMAND_SEEK_TO_NEXT)
+                    .build()
+            }
+
+            override fun isCommandAvailable(command: Int): Boolean {
+                if (bgMixActive() && (command == Player.COMMAND_PLAY_PAUSE || command == Player.COMMAND_SEEK_TO_NEXT)) {
+                    return true
+                }
+                return super.isCommandAvailable(command)
+            }
+
             override fun seekToNext() {
                 if (bgMixActive()) bgMix?.next() else super.seekToNext()
             }
@@ -643,10 +659,14 @@ object PlaybackEngine {
     }
 
     /** The Media3 timeline is authoritative under shuffle/repeat; UI availability must match next/previous handlers. */
-    private fun PlaybackState.withTimelineNavigation(target: Player? = exo): PlaybackState = copy(
-        timelineHasNext = target?.hasNextMediaItem(),
-        timelineHasPrevious = target?.hasPreviousMediaItem()
-    )
+    private fun PlaybackState.withTimelineNavigation(target: Player? = exo): PlaybackState {
+        // BG Mix publishes its own navigation from its queue; the ExoPlayer timeline is empty then.
+        if (bgMixActive()) return this
+        return copy(
+            timelineHasNext = target?.hasNextMediaItem(),
+            timelineHasPrevious = target?.hasPreviousMediaItem()
+        )
+    }
 
     /**
      * A new playlist must get a fresh randomized order, not the sequential order Media3 derives from a previous
@@ -1201,8 +1221,13 @@ object PlaybackEngine {
     fun playQueueIndex(index: Int) {
         if (bgMixActive()) {
             val context = appContext
-            if (context != null && startBgMix(context, PlaybackQueue(_state.value.queue, index))) return
+            val queue = PlaybackQueue(_state.value.queue, index)
+            if (context != null && startBgMix(context, queue)) return
             stopBgMix()
+            if (context != null) {
+                startQueue(context, queue, queueSource, startPositionMs = null, startFraction = 0f)
+                return
+            }
         }
         val snapshot = _state.value
         if (!canSelectQueueIndex(snapshot, index)) return
