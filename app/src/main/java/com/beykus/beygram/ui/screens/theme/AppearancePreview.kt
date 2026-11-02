@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.theme
 
+import com.beykus.beygram.ui.design.signatureChrome
+import com.beykus.beygram.ui.design.HairlineEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -377,7 +379,7 @@ private fun PreviewChatHeader(contact: String) {
             when (design.components.topBar) {
                 TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
                 TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.86f)))
-                TopBarVariant.Signature -> Modifier.background(palette.surface)
+                TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
                 TopBarVariant.Flat -> Modifier.background(palette.surface)
             }
         ).padding(horizontal = 14.dp, vertical = 9.dp),
@@ -521,7 +523,8 @@ private fun PreviewComposer(
             when (design.components.composer) {
                 ComposerVariant.Outlined -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
                 ComposerVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.86f)))
-                ComposerVariant.Signature, ComposerVariant.Rounded -> Modifier.background(palette.surface)
+                ComposerVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
+                ComposerVariant.Rounded -> Modifier.background(palette.surface)
             }
         ).padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,

@@ -1,5 +1,8 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.ui.design.ComposerVariant
+import com.beykus.beygram.ui.design.signatureChrome
+import com.beykus.beygram.ui.design.HairlineEdge
 import android.content.ClipData
 import com.beykus.beygram.ui.design.styledShape
 import android.content.ClipboardManager
@@ -1987,7 +1990,11 @@ fun ChatScreen(
         if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar(
             if (secretChatClosed) stringResource(R.string.secret_chat_closed_composer) else stringResource(R.string.chat_read_only)
         )
-        if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().then(
+            // Signature keeps the composer on the canvas behind one hairline; the field itself is the only filled plane.
+            if (design.components.composer == ComposerVariant.Signature) Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
+            else Modifier.background(palette.surface)
+        ).navigationBarsPadding().imePadding()) {
         // A bot with no outgoing message in its whole history gets an explicit /start action, independent of inline mode or Mini Apps.
         if (info?.kind == ProfileKind.Bot && !editing && !recordingActive && !attachments.active &&
             !history.isLoading && !history.hasOlderMessages && history.messages.none { it.isOutgoing }
@@ -2478,7 +2485,8 @@ private fun ChatTopBar(
         when (design.components.topBar) {
             TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
             TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.78f)))
-            TopBarVariant.Signature -> Modifier.background(palette.surface)
+            // Signature: the header shares the canvas with the messages, one hairline marks where it ends.
+            TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
             TopBarVariant.Flat -> Modifier.background(palette.surface)
         }
     )) {
