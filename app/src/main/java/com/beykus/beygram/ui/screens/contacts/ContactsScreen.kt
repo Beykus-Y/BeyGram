@@ -1,5 +1,8 @@
 package com.beykus.beygram.ui.screens.contacts
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
@@ -309,8 +312,11 @@ private fun ContactRow(
     val palette = beyGramPalette()
     val contextLabel = stringResource(R.string.feature_more_actions)
     var menuOpen by remember { mutableStateOf(false) }
+    // Signature draws the row as the same rounded inset tile as a chat row; other styles keep the full-width row.
+    val main = LocalDesignSystem.current.mainScreen
     Row(
         Modifier.fillMaxWidth()
+            .then(if (main.rowInset > 0.dp) Modifier.padding(horizontal = main.rowInset).clip(RoundedCornerShape(main.rowRadius)) else Modifier)
             .combinedClickable(
                 enabled = enabled,
                 onClick = onClick,
@@ -327,7 +333,7 @@ private fun ContactRow(
                     }
                 )
             }
-            .padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 2.dp),
+            .padding(horizontal = (20.dp - main.rowInset).coerceAtLeast(0.dp), vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         TelegramAvatar(contact.initials, Color(contact.avatarColorArgb), 48.dp, contact.photo, observeFile, downloadFile)

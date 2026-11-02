@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.settings
 
+import com.beykus.beygram.ui.components.settingsIconTint
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -103,7 +104,7 @@ private fun TabSwitchRow(tab: MainTab, checked: Boolean, onCheckedChange: (Boole
         Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange).padding(horizontal = 20.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(tab.icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Icon(tab.icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
         Text(tab.title, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
         Switch(checked = checked, onCheckedChange = null)
     }

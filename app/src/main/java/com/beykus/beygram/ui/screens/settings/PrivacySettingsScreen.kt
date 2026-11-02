@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.settings
 
+import com.beykus.beygram.ui.components.settingsIconTint
 import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
@@ -370,7 +371,7 @@ private fun PrivacySettingRow(
                 DropdownMenuItem(
                     text = { Text(audienceLabel(choice)) },
                     leadingIcon = if (choice == state.rules.choice) {
-                        { Icon(Icons.Rounded.Check, null, tint = palette.accent) }
+                        { Icon(Icons.Rounded.Check, null, tint = settingsIconTint()) }
                     } else null,
                     onClick = {
                         expanded = false
@@ -397,7 +398,7 @@ private fun StealthModeLink(active: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Rounded.VisibilityOff, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Icon(Icons.Rounded.VisibilityOff, contentDescription = null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
             Text(stringResource(R.string.stealth_title), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Text(
@@ -417,7 +418,7 @@ private fun BlockedUsersLink(onClick: () -> Unit) {
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Rounded.Block, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Icon(Icons.Rounded.Block, contentDescription = null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
             Text(stringResource(R.string.privacy_blocked_users_title), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Text(stringResource(R.string.privacy_blocked_users_detail), color = palette.textSecondary, fontSize = 13.sp)
