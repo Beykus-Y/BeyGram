@@ -56,6 +56,7 @@ import com.beykus.beygram.data.settings.StealthScheduleDelayRange
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.settings.stealthDelayUsesServer
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -114,7 +115,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         StatusCard(settings = settings, saveFailed = saveFailed)
 
         GroupTitle(stringResource(R.string.stealth_group_presets))
-        Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface).padding(vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
             ChoiceRow(stringResource(R.string.stealth_preset_normal), selected = preset == StealthPresetKind.Normal) {
                 update { stealthPreset(StealthPresetKind.Normal, it) }
             }
@@ -133,7 +134,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         }
 
         GroupTitle(stringResource(R.string.stealth_group_switches))
-        Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface).padding(vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
             SwitchRow(
                 title = stringResource(R.string.stealth_hide_typing_title),
                 detail = stringResource(R.string.stealth_hide_typing_detail),
@@ -174,7 +175,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         ScheduledSendSection(settings = settings, update = ::update)
 
         Column(
-            Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface).padding(16.dp),
+            Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(stringResource(R.string.stealth_limits_title), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -184,7 +185,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         }
 
         Row(
-            Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface)
+            Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor())
                 .clickable(role = Role.Button, onClick = onServerPrivacy)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -197,7 +198,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         }
 
         Column(
-            Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface).padding(16.dp),
+            Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (exceptions > 0) {
@@ -220,7 +221,7 @@ private fun ScheduledSendSection(settings: StealthSettings, update: ((StealthSet
     val palette = beyGramPalette()
     var editingCustom by remember { mutableStateOf(false) }
     GroupTitle(stringResource(R.string.stealth_schedule_group_title))
-    Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
         SwitchRow(
             title = stringResource(R.string.stealth_schedule_title),
             detail = stringResource(R.string.stealth_schedule_detail),
@@ -253,7 +254,7 @@ private fun ScheduledSendSection(settings: StealthSettings, update: ((StealthSet
         )
     }
     Column(
-        Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface).padding(16.dp),
+        Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (settings.serverScheduledSend && !stealthDelayUsesServer(settings.scheduledSendDelaySeconds)) {
@@ -314,14 +315,14 @@ private fun DelayedSendSection(store: DelayedSendSettingsStore) {
     val selectedDelay by store.delaySeconds.collectAsStateWithLifecycle()
     var saveFailed by remember { mutableStateOf(false) }
     GroupTitle(stringResource(R.string.delayed_send_group_title))
-    Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
         DelayedSendChoices.forEachIndexed { index, seconds ->
             if (index > 0) SettingsRowDivider(startInset = SettingsRowInset)
             ChoiceRow(delayChoiceLabel(seconds), selected = selectedDelay == seconds) { saveFailed = !store.update(seconds) }
         }
     }
     Column(
-        Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface).padding(16.dp),
+        Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(stringResource(R.string.delayed_send_footnote), color = palette.textSecondary, fontSize = 13.sp)
@@ -340,7 +341,7 @@ private fun delayChoiceLabel(seconds: Int): String = when (seconds) {
 private fun StatusCard(settings: StealthSettings, saveFailed: Boolean) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface).padding(16.dp),
+        Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(stringResource(R.string.stealth_title), color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)

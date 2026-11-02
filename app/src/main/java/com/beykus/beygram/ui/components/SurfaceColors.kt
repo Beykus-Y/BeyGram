@@ -20,3 +20,17 @@ fun groupSurfaceColor(): Color {
         else -> palette.surface
     }
 }
+
+/**
+ * Fill of a modal bottom sheet. Material 3 lays its sheets on the low surface container, one tonal step above the
+ * screen; the other styles keep the plain surface they have always drawn.
+ */
+@Composable
+fun sheetSurfaceColor(): Color {
+    val design = LocalDesignSystem.current
+    val palette = beyGramPalette()
+    return when (design.style) {
+        DesignStyle.Material3 -> MaterialTheme.colorScheme.surfaceContainerLow
+        else -> palette.surface
+    }
+}

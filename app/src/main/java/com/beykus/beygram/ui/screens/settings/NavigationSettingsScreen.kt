@@ -34,6 +34,7 @@ import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.TabVisibility
 import com.beykus.beygram.ui.components.MainTabItem
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.components.icon
 import com.beykus.beygram.ui.components.title
@@ -54,7 +55,7 @@ fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (Tab
                 color = palette.textSecondary, fontSize = 14.sp,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)
             )
-            Column(Modifier.padding(horizontal = 16.dp).clip(groupCardShape()).background(palette.surface).padding(vertical = 4.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp).clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
                 ChatsLockedRow()
                 optional.forEach { tab ->
                     SettingsRowDivider()
@@ -65,7 +66,7 @@ fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (Tab
             }
             Column(
                 Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth()
-                    .clip(groupCardShape()).background(palette.surface).padding(horizontal = 16.dp, vertical = 12.dp),
+                    .clip(groupCardShape()).background(groupSurfaceColor()).padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(stringResource(R.string.nav_preview_caption), color = palette.textSecondary, fontSize = 12.sp)

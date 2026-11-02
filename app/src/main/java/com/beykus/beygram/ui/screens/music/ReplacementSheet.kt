@@ -21,6 +21,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MUSIC_REPLACEMENT_LOOKUP_BATCH
 import com.beykus.beygram.data.music.MusicLibraries
@@ -84,7 +85,7 @@ internal fun ReplacementSheet(
         value = ReplacementLookup(found.toList(), done = true)
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = palette.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = sheetSurfaceColor()) {
         // Scrolls, so a long list of candidates stays reachable.
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 12.dp)

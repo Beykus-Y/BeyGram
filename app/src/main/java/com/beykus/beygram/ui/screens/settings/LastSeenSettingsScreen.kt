@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.listGroupShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
@@ -40,7 +41,7 @@ fun LastSeenSettingsScreen(style: LastSeenStyle, onStyleChange: (LastSeenStyle) 
         ProfileToolbar(stringResource(R.string.settings_last_seen_title), onBack)
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.settings_last_seen_intro), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
-            Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(palette.surface).padding(vertical = 4.dp)) {
+            Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
                 StyleRow(LastSeenStyle.Relative, style, stringResource(R.string.settings_last_seen_relative_title), stringResource(R.string.settings_last_seen_relative_detail)) { onStyleChange(LastSeenStyle.Relative) }
                 SettingsRowDivider(startInset = SettingsRowInset)
                 StyleRow(LastSeenStyle.Exact, style, stringResource(R.string.settings_last_seen_exact_title), stringResource(R.string.settings_last_seen_exact_detail)) { onStyleChange(LastSeenStyle.Exact) }
