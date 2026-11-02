@@ -83,9 +83,10 @@ class BgMixPlayer(private val cacheDir: File) {
         true
     }
 
-    fun setQueue(files: List<File>) = withHandle(Unit) { h ->
+    /** Replaces the queue. Returns one native id per file, in order; 0 marks a file the decoder rejected. */
+    fun setQueue(files: List<File>): List<Long> = withHandle(emptyList<Long>()) { h ->
         BgMixNative.nativeClearQueue(h)
-        files.forEach { BgMixNative.nativeAddTrack(h, it.absolutePath.toByteArray(Charsets.UTF_8)) }
+        files.map { BgMixNative.nativeAddTrack(h, it.absolutePath.toByteArray(Charsets.UTF_8)) }
     }
 
     /** Returns the queue item id, or 0 when the file was rejected. */

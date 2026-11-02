@@ -24,6 +24,8 @@ import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.media.bgmix.BgMixSettingsStore
+import com.beykus.beygram.media.bgmix.BgMixStatus
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -192,6 +194,9 @@ object PlaybackEngine {
     private val prefetchedKeys = mutableSetOf<String>()
     private var prefetchPolicyJob: Job? = null
     private var prefetchPolicyAccount: String? = null
+    /** BG Mix music path: used only for eligible local music queues while the experimental flag is on. */
+    private var bgMix: BgMixQueueDriver? = null
+    private var bgMixJob: Job? = null
 
     /**
      * A cover thumbnail may finish downloading after playback has already started. The key carries account/origin,
@@ -472,6 +477,8 @@ object PlaybackEngine {
         autoPlay: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
+        if (autoPlay && startBgMix(context, queue)) return
+        stopBgMix()
         val target = rawPlayer(context)
         transitionToken++
         syncPosition()
@@ -530,6 +537,7 @@ object PlaybackEngine {
 
     @OptIn(UnstableApi::class)
     private fun startSingle(context: Context, item: PlaybackItem, startPositionMs: Long?, startFraction: Float) {
+        stopBgMix()
         val target = rawPlayer(context)
         transitionToken++
         queuePageGeneration++
@@ -715,6 +723,7 @@ object PlaybackEngine {
 
     /** Перемотка по абсолютной позиции; для растущего Ogg запрос откладывается до полной загрузки. */
     fun seekToPosition(positionMs: Long) {
+        if (bgMixActive()) return
         val target = exo ?: return
         val position = positionMs.coerceAtLeast(0L)
         val item = _state.value.item ?: return
@@ -745,6 +754,7 @@ object PlaybackEngine {
 
     /** Перемотка по доле длины. [fallbackDurationMs] используется, если контейнер ещё не сообщил длину. */
     fun seekTo(fraction: Float, fallbackDurationMs: Long = 0L) {
+        if (bgMixActive()) return
         val target = exo ?: return
         val duration = target.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: fallbackDurationMs
         if (duration <= 0L) return
@@ -903,6 +913,10 @@ object PlaybackEngine {
 
     /** Пауза или продолжение. Конец файла и ошибку обрабатывает обёртка плеера, поэтому системные кнопки ведут себя так же. */
     fun togglePlayPause() {
+        if (bgMixActive()) {
+            toggleBgMix()
+            return
+        }
         val target = controls ?: return
         // A deferred Ogg seek is waiting for the completed file; starting at zero here would undo it.
         if (deferredSeek != null) {
@@ -932,6 +946,10 @@ object PlaybackEngine {
 
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
     fun pause() {
+        if (bgMixActive()) {
+            pauseBgMix()
+            return
+        }
         exo?.pause()
         deferredSeek = deferredSeek?.copy(resume = false)
         progress?.cancel()
@@ -958,7 +976,106 @@ object PlaybackEngine {
     /** Alias used by UI that wants an unambiguous "clear everything" action. */
     fun clear() = stop()
 
+    private fun bgMixActive(): Boolean = bgMix?.isActive == true
+
+    /**
+     * Starts [queue] through BG Mix when the experimental flag is on and every item is an eligible local file.
+     * Returns false without touching the ExoPlayer state, so the caller falls back to the regular path.
+     */
+    private fun startBgMix(context: Context, queue: PlaybackQueue): Boolean {
+        BgMixSettingsStore.load(context)
+        if (!BgMixSettingsStore.enabled.value) return false
+        if (queue.index !in queue.items.indices) return false
+        val driver = bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }
+        if (!driver.start(queue.items, queue.index)) return false
+        val item = queue.items[queue.index]
+        progress?.cancel()
+        progress = null
+        exo?.let {
+            it.stop()
+            it.clearMediaItems()
+        }
+        transitionToken++
+        clearDeferredSeek()
+        pendingStartFraction = 0f
+        startedCallback = startedCallback?.takeIf { it.first == item.key }
+        _audioSessionId.value = null
+        _state.value = stateFor(
+            item = item,
+            queue = queue.items,
+            index = queue.index,
+            positionMs = 0L,
+            playing = false,
+            intentPlaying = true,
+            speed = 1f
+        )
+        bgMixJob?.cancel()
+        val statusFlow = driver.status
+        if (statusFlow != null) {
+            bgMixJob = scope.launch {
+                statusFlow.collect { status -> if (status != null) applyBgMix(status) }
+            }
+        }
+        startPlaybackService()
+        return true
+    }
+
+    /** Copies the native status into the Media state the UI and the notification read. */
+    private fun applyBgMix(status: BgMixStatus) {
+        val driver = bgMix ?: return
+        val playingNativeId = status.queue.firstOrNull { it.state == "playing" }?.id
+        val index = playingNativeId?.let { driver.indexOfNative(it) } ?: _state.value.queueIndex
+        val item = driver.itemAt(index) ?: return
+        val master = status.decks.getOrNull(status.master)
+        val deckPlaying = master?.playing == true
+        val finished = status.queue.isNotEmpty() &&
+            status.queue.all { it.state == "played" || it.state == "failed" } &&
+            !status.transitionActive && !deckPlaying
+        val playing = !status.paused && deckPlaying && !finished
+        _state.update { current ->
+            current.copy(
+                item = item,
+                queue = driver.queueItems,
+                queueIndex = index,
+                playing = playing,
+                intentPlaying = !status.paused && !finished,
+                positionMs = ((master?.positionSeconds ?: 0.0) * 1000).toLong(),
+                durationMs = ((master?.durationSeconds ?: 0.0) * 1000).toLong(),
+                started = current.started || playing,
+                ended = finished,
+                isBuffering = false
+            )
+        }
+    }
+
+    private fun toggleBgMix() {
+        val state = _state.value
+        when {
+            state.ended -> {
+                val context = appContext ?: return
+                startBgMix(context, PlaybackQueue(state.queue, state.queueIndex))
+            }
+            state.intentPlaying || state.playing -> pauseBgMix()
+            else -> {
+                bgMix?.resume()
+                _state.update { it.copy(intentPlaying = true, ended = false) }
+            }
+        }
+    }
+
+    private fun pauseBgMix() {
+        bgMix?.pause()
+        _state.update { it.copy(playing = false, intentPlaying = false) }
+    }
+
+    private fun stopBgMix() {
+        bgMixJob?.cancel()
+        bgMixJob = null
+        bgMix?.stop()
+    }
+
     private fun haltPlayer() {
+        stopBgMix()
         progress?.cancel()
         progress = null
         clearDeferredSeek()
@@ -1001,6 +1118,10 @@ object PlaybackEngine {
     }
 
     fun next() {
+        if (bgMixActive()) {
+            bgMix?.next()
+            return
+        }
         val target = exo ?: return
         val state = _state.value
         val hasNext = target.hasNextMediaItem()
@@ -1043,6 +1164,11 @@ object PlaybackEngine {
     }
 
     fun playQueueIndex(index: Int) {
+        if (bgMixActive()) {
+            val context = appContext ?: return
+            startBgMix(context, PlaybackQueue(_state.value.queue, index))
+            return
+        }
         val snapshot = _state.value
         if (!canSelectQueueIndex(snapshot, index)) return
         val target = exo ?: return
@@ -1060,6 +1186,7 @@ object PlaybackEngine {
     }
 
     fun previous() {
+        if (bgMixActive()) return
         val target = exo ?: return
         val state = _state.value
         // Previous restarts the current track when it is already a few seconds in; otherwise it goes to the previous item.
