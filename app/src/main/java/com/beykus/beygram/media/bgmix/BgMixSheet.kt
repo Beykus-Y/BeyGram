@@ -68,6 +68,33 @@ private fun copyToCache(context: Context, uri: Uri, dir: File): File? = try {
 }
 
 /**
+ * Owns the copies imported for one panel. A copy finished after the panel closed is deleted at once,
+ * so a dismissed sheet never leaves files behind.
+ */
+private class ImportTracker {
+    private val lock = Any()
+    private val files = mutableListOf<File>()
+    private var closed = false
+
+    /** Returns the file if it is kept, or null after the panel has closed (the file is deleted). */
+    fun add(file: File): File? = synchronized(lock) {
+        if (closed) {
+            file.delete()
+            null
+        } else {
+            files.add(file)
+            file
+        }
+    }
+
+    fun close() = synchronized(lock) {
+        closed = true
+        files.forEach { it.delete() }
+        files.clear()
+    }
+}
+
+/**
  * Experimental BG Mix panel, opened from Settings when the flag is on. It has its own transport and does not
  * replace the regular music player, so normal playback is unaffected.
  */
@@ -78,7 +105,7 @@ fun BgMixSheet(onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     val player = remember { BgMixPlayer(File(context.filesDir, "bgmix-cache")) }
     // Copies made for this panel. They are only referenced by the native session, so they go when it closes.
-    val imported = remember { mutableListOf<File>() }
+    val imported = remember { ImportTracker() }
     val status by player.status.collectAsStateWithLifecycle()
     var available by remember { mutableStateOf(true) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -87,9 +114,11 @@ fun BgMixSheet(onDismiss: () -> Unit) {
     DisposableEffect(player) {
         if (!player.start()) available = false
         onDispose {
-            player.release()
-            imported.forEach { it.delete() }
-            imported.clear()
+            // release() joins the render thread and frees native memory; keep that off the main thread.
+            Thread {
+                player.release()
+                imported.close()
+            }.start()
         }
     }
 
@@ -97,9 +126,10 @@ fun BgMixSheet(onDismiss: () -> Unit) {
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
             val files = withContext(Dispatchers.Default) {
-                uris.mapNotNull { copyToCache(context, it, File(context.filesDir, "bgmix-input")) }
+                uris.mapNotNull { uri ->
+                    copyToCache(context, uri, File(context.filesDir, "bgmix-input"))?.let { imported.add(it) }
+                }
             }
-            imported.addAll(files)
             withContext(Dispatchers.Default) { files.forEach { player.addTrack(it) } }
             message = if (files.size < uris.size) unsupportedText else null
         }

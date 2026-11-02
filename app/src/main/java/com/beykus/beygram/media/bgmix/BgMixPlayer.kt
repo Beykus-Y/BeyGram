@@ -59,7 +59,7 @@ class BgMixPlayer(private val cacheDir: File) {
         if (h == 0L) return false
 
         val at = try {
-            createTrack()
+            openTrack()
         } catch (e: RuntimeException) {
             Log.e(TAG, "AudioTrack could not be created", e)
             BgMixNative.nativeDestroy(h)
@@ -69,7 +69,6 @@ class BgMixPlayer(private val cacheDir: File) {
         handle = h
         track = at
         running = true
-        at.play()
         renderThread = Thread({ renderLoop(h, at) }, "bgmix-render").apply {
             priority = Thread.MAX_PRIORITY
             isDaemon = true
@@ -165,6 +164,19 @@ class BgMixPlayer(private val cacheDir: File) {
                 break
             }
         }
+    }
+
+    /** Builds and starts the track. Any failure releases it before rethrowing. */
+    private fun openTrack(): AudioTrack {
+        val at = createTrack()
+        try {
+            check(at.state == AudioTrack.STATE_INITIALIZED) { "AudioTrack not initialised" }
+            at.play()
+        } catch (e: RuntimeException) {
+            runCatching { at.release() }
+            throw e
+        }
+        return at
     }
 
     private fun createTrack(): AudioTrack {
