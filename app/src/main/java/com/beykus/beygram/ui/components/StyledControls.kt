@@ -155,6 +155,13 @@ fun Switch(
     colors: SwitchColors = SwitchDefaults.colors(),
     interactionSource: MutableInteractionSource? = null
 ) {
+    // BeyGram Signature: ink selects. An unchanged default switch takes an ink track with a canvas thumb when on, so the
+    // accent stays for actions; a caller that passes its own colours keeps them.
+    val resolvedColors = if (LocalDesignSystem.current.style == DesignStyle.Signature && colors == SwitchDefaults.colors()) {
+        signatureSwitchColors()
+    } else {
+        colors
+    }
     if (!isMaterial2) {
         androidx.compose.material3.Switch(
             checked = checked,
@@ -162,12 +169,27 @@ fun Switch(
             modifier = modifier,
             thumbContent = thumbContent,
             enabled = enabled,
-            colors = colors,
+            colors = resolvedColors,
             interactionSource = interactionSource
         )
         return
     }
     ClassicSwitch(checked, onCheckedChange, modifier, enabled, interactionSource)
+}
+
+/** The Signature switch: ink track and canvas thumb when on, a quiet outlined track when off. */
+@Composable
+private fun signatureSwitchColors(): SwitchColors {
+    val palette = beyGramPalette()
+    return SwitchDefaults.colors(
+        checkedThumbColor = palette.screen,
+        checkedTrackColor = palette.textPrimary,
+        checkedBorderColor = palette.textPrimary,
+        checkedIconColor = palette.textPrimary,
+        uncheckedThumbColor = palette.textSecondary,
+        uncheckedTrackColor = palette.surface2,
+        uncheckedBorderColor = palette.divider
+    )
 }
 
 @Composable

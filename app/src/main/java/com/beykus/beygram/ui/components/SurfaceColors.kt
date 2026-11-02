@@ -34,3 +34,14 @@ fun sheetSurfaceColor(): Color {
         else -> palette.surface
     }
 }
+
+/**
+ * Tint of the decorative icon at the start of a settings row. BeyGram Signature keeps the accent for actions and
+ * unread counts, so the row icons take the ink; the other styles keep their accent icons.
+ */
+@Composable
+fun settingsIconTint(): Color {
+    val design = LocalDesignSystem.current
+    val palette = beyGramPalette()
+    return if (design.style == DesignStyle.Signature) palette.textPrimary else palette.accent
+}
