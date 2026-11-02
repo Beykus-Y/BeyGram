@@ -68,11 +68,21 @@ class NavigationSpecTest {
     }
 
     @Test fun otherStylesKeepTheirSelectedLabel() {
-        DesignStyle.entries.filter { it != DesignStyle.Material3 }.forEach { style ->
+        DesignStyle.entries.filter { it != DesignStyle.Material3 && it != DesignStyle.Signature }.forEach { style ->
             val spec = navigationSpecFor(designFor(style))
             assertEquals("$style label weight", FontWeight.SemiBold, spec.selectedLabelWeight)
             assertFalse("$style label colour", spec.selectedLabelOnSurface)
+            assertFalse("$style keeps its accent selection", spec.selectedInk)
         }
+    }
+
+    @Test fun signatureMarksTheSelectionInInk() {
+        val spec = navigationSpecFor(designFor(DesignStyle.Signature))
+        // Ink, a bold label and the mark carry the selection; there is no pill wash to read it from.
+        assertEquals(FontWeight.Bold, spec.selectedLabelWeight)
+        assertTrue(spec.selectedInk)
+        assertTrue(spec.indicatorMark)
+        assertTrue(spec.hairline)
     }
 
     @Test fun followTheStyleKeepsThePlacementEveryStyleHasAlwaysHad() {
