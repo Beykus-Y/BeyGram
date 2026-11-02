@@ -143,6 +143,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Upload screenshot goldens and diffs
+        # Screenshot tests (#634, docs/screenshot-tests.md): the recorded or verified goldens and, on a mismatch,
+        # the actual and diff images, so a visual change can be reviewed without a local build.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.sha }}
+          path: |
+            app/src/test/screenshots/
+            app/build/outputs/roborazzi/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Build debug, release and instrumented-test APKs (no device tests)
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease :app:assembleDevDebugAndroidTest
 
