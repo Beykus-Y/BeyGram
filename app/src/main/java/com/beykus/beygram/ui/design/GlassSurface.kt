@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -23,8 +22,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
@@ -105,13 +106,22 @@ fun Modifier.glassBackdropSource(backdrop: GlassBackdrop): Modifier = this
  * (Balanced, Lite, an old Android version or reduced transparency) the same panel is drawn with a denser tint and no
  * blur pass, so the interface never depends on a hardware effect being available.
  */
+/** How a pane of glass meets what is around it. */
+enum class GlassEdge {
+    /** A floating pane: one light rim around the whole shape. */
+    Rim,
+    /** Full-width chrome at the top of a screen: square window edges and one hairline where it meets the content. */
+    BottomHairline
+}
+
 @Composable
 fun GlassPanel(
     design: DesignSystem,
     tint: Color,
     rim: Color,
-    shape: RoundedCornerShape,
+    shape: Shape,
     modifier: Modifier = Modifier,
+    edge: GlassEdge = GlassEdge.Rim,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -157,7 +167,16 @@ fun GlassPanel(
         if (glass != null) {
             // One light edge, brightest where the light falls and fading towards the bottom. A uniform frame plus a
             // heavy shadow read as a plastic tray rather than a pane of glass.
-            Box(
+            if (edge == GlassEdge.BottomHairline) Box(
+                Modifier.matchParentSize().drawBehind {
+                    val stroke = 1.dp.toPx()
+                    drawRect(
+                        color = rim.copy(alpha = glass.rimAlpha * 0.6f),
+                        topLeft = Offset(0f, size.height - stroke),
+                        size = Size(size.width, stroke)
+                    )
+                }
+            ) else Box(
                 Modifier.matchParentSize()
                     .border(
                         width = 1.dp,
@@ -177,7 +196,7 @@ fun GlassPanel(
 }
 
 /** Render-effect wrapper, kept separate so an unsupported API level simply draws nothing instead of failing. */
-private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: RoundedCornerShape): Modifier =
+private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape): Modifier =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         graphicsLayer {
             clip = true

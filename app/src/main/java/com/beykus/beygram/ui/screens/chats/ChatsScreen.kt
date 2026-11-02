@@ -151,6 +151,17 @@ import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.ArchiveTreatment
 import com.beykus.beygram.ui.design.ChipSelectionTone
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.usesGlassPanels
+import com.beykus.beygram.ui.design.recordsGlassBackdrop
+import com.beykus.beygram.ui.design.rememberGlassBackdrop
+import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.GlassPanel
+import com.beykus.beygram.ui.design.GlassEdge
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.motion.fadeEnter
@@ -398,21 +409,9 @@ fun ChatsScreen(
         return
     }
 
-    // The root Box is bounded by MainTabsScaffold: above the bottom navigation on phones,
-    // beside the navigation rail on wide screens. Its FAB is never drawn under the system navigation bar.
-    Box(
-        modifier = Modifier.fillMaxSize().background(palette.screen)
-            .windowInsetsPadding(
-                WindowInsets.safeDrawing.only(
-                    // In the two-pane layout the pane's right edge is in the middle of the window:
-                    // the end inset belongs to the chat pane, not to the list.
-                    if (compactHeader) WindowInsetsSides.Top + WindowInsetsSides.Start
-                    else WindowInsetsSides.Top + WindowInsetsSides.Horizontal
-                )
-            )
-    ) {
-      Column(Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(start = headerPadding, end = headerPadding, top = 8.dp, bottom = 4.dp)) {
+    // The header is one block shared by both layouts: in a column above the list, or as glass chrome over it.
+    val chatsHeader: @Composable (Modifier) -> Unit = { modifier ->
+        Column(modifier = modifier.fillMaxWidth().padding(start = headerPadding, end = headerPadding, top = 8.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     AnimatedVisibility(
@@ -547,13 +546,14 @@ fun ChatsScreen(
                 }
             }
         }
-
-        ArchivePullSlot(shownPx = { if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f })
+    }
+    val chatList: @Composable (Modifier, Dp) -> Unit = { modifier, topPadding ->
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).nestedScroll(pullConnection),
-            // Keep the last conversation accessible above the overlay button, measured from the button itself.
-            contentPadding = PaddingValues(bottom = fabPlacement.listClearance)
+            modifier = modifier.nestedScroll(pullConnection),
+            // Keep the last conversation accessible above the overlay button, measured from the button itself. Under
+            // glass chrome the list also starts below the header it scrolls beneath.
+            contentPadding = PaddingValues(top = topPadding, bottom = fabPlacement.listClearance)
         ) {
             // Stories live on the main chat list only, not in search results or a server folder.
             if (activeFolderId == null && query.isBlank()) {
@@ -683,6 +683,56 @@ fun ChatsScreen(
                 }
             }
         }
+    }
+    // Glass chrome: the chat list header becomes a pane over the list. Its own recorder captures the list only, and only
+    // when the device really blurs it; Balanced and Lite draw the same pane with a dense tint and record nothing.
+    val glassChrome = design.usesGlassPanels
+    val chatsBackdrop = if (glassChrome && design.recordsGlassBackdrop) rememberGlassBackdrop() else null
+    var glassHeaderHeightPx by remember { mutableIntStateOf(0) }
+
+    // The root Box is bounded by MainTabsScaffold: above the bottom navigation on phones,
+    // beside the navigation rail on wide screens. Its FAB is never drawn under the system navigation bar.
+    Box(
+        modifier = Modifier.fillMaxSize().background(palette.screen)
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(
+                    // In the two-pane layout the pane's right edge is in the middle of the window:
+                    // the end inset belongs to the chat pane, not to the list.
+                    if (compactHeader) WindowInsetsSides.Top + WindowInsetsSides.Start
+                    else WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                )
+            )
+    ) {
+      if (glassChrome) {
+          // Liquid Glass: the list runs the whole height and the header floats over it as one pane of glass. Only the
+          // list is recorded for the pane, never the pane itself, so it cannot sample a layer it is drawn into (#623).
+          val headerHeight = with(density) { glassHeaderHeightPx.toDp() }
+          val pullShown = if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f
+          val pullDp = with(density) { pullShown.toDp() }
+          Box(Modifier.fillMaxSize().then(if (chatsBackdrop != null) Modifier.glassBackdropSource(chatsBackdrop) else Modifier)) {
+              chatList(Modifier.fillMaxSize(), headerHeight + pullDp)
+              // The pull hint opens the same gap the list leaves for it, right under the glass.
+              Box(Modifier.padding(top = headerHeight)) { ArchivePullSlot(shownPx = { pullShown }) }
+          }
+          CompositionLocalProvider(LocalGlassBackdrop provides chatsBackdrop) {
+              GlassPanel(
+                  design = design,
+                  tint = palette.surface,
+                  rim = palette.textSecondary,
+                  shape = RectangleShape,
+                  edge = GlassEdge.BottomHairline,
+                  modifier = Modifier.fillMaxWidth().onSizeChanged { glassHeaderHeightPx = it.height }
+              ) {
+                  chatsHeader(Modifier)
+              }
+          }
+      } else {
+      Column(Modifier.fillMaxSize()) {
+        chatsHeader(Modifier)
+
+        ArchivePullSlot(shownPx = { if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f })
+        chatList(Modifier.weight(1f), 0.dp)
+      }
       }
       FloatingActionButton(
           onClick = onNewChat,
