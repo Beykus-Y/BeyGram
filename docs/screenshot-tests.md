@@ -1,0 +1,59 @@
+# Скриншотные эталоны стилей (#634)
+
+Повторяемая проверка вида главного экрана для пяти стилей и двух ручных положений нижней панели. Зонтик: #620.
+
+## Инструмент
+
+**Roborazzi + Robolectric (native graphics)**, обычные JVM unit-тесты варианта `devDebug`.
+
+Почему так:
+
+- облачная сессия не собирает Android локально, единственная проверка — CI, а в CI нет эмулятора; Robolectric рисует
+  Compose на JVM через нативный рендерер Android (`@GraphicsMode(NATIVE)`), эмулятор не нужен;
+- тесты идут в уже существующем шаге `:app:testDevDebugUnitTest`, отдельный pipeline и плагин Gradle не нужны;
+- Paparazzi отвергнут: он привязан к layoutlib конкретной версии AGP/compileSdk, а проект на AGP 9 и compileSdk 36.1;
+  Roborazzi подключается как обычная библиотека и не зависит от плагина Android Gradle.
+
+Robolectric запускается на SDK 34: для SDK 35+ он требует JDK 21, а CI работает на JDK 17. Приложение в тестах заменено
+на простой `Application`, поэтому TDLib и нативные медиа-библиотеки не загружаются.
+
+## Что снимается
+
+`app/src/test/java/com/beykus/beygram/ui/screenshots/StyleMatrixScreenshotTest.kt` — настоящий `MainTabsScaffold` и
+настоящие строки `ChatListItem` на фиксированных данных (закреплённые, непрочитанные, без звука, длинное имя, отметка
+«непрочитано»), экран 360×760 dp, xhdpi.
+
+| Стиль | Pinned | Floating |
+|---|---|---|
+| Default | light, dark, font200 | light, dark, font200 |
+| Material 2 | light, dark, font200 | light, dark, font200 |
+| Material 3 | light, dark, font200 | light, dark, font200 |
+| Liquid Glass (Balanced) | light, dark, font200 | light, dark, font200 |
+| Signature | light, dark, font200 | light, dark, font200 |
+
+30 эталонов в `app/src/test/screenshots/<Стиль>_<Положение>_<вид>.png`.
+
+Кроме снимков, для каждой из 10 комбинаций при fontScale 1.0 и 2.0 проверяется геометрия: последняя строка списка после
+прокрутки до конца заканчивается выше вкладок, то есть плавающая панель её не перекрывает.
+
+Режим «По стилю» (Auto) не снимается отдельно: он даёт ровно то же положение, что и стиль сам по себе, это проверяет
+`NavigationSpecTest` на JVM.
+
+## Как работает в CI
+
+- Есть эталоны в `app/src/test/screenshots` → режим `verify`: любое отличие пикселей валит `testDevDebugUnitTest`.
+- Эталонов нет → режим `record` (так был создан первый набор).
+- Артефакт `screenshots-<sha>` в каждом прогоне `Android release` содержит эталоны и, при расхождении, картинки
+  `*_actual.png` и `*_compare.png` из `app/build/outputs/roborazzi/`.
+
+Намеренное изменение вида: перезаписать эталоны (`./gradlew :app:testDevDebugUnitTest -Pscreenshots=record` локально или
+взять PNG из артефакта CI), посмотреть разницу в PR и закоммитить. Эталон не правят ради зелёного CI без проверки, что
+изменение задумано.
+
+## Чего эти тесты не ловят
+
+- Настоящий blur Liquid Glass High и падения в `RenderThread` (#623): Robolectric — не GPU. Это остаётся проверкой на
+  устройстве (Samsung M21, API 29/30/31+).
+- AMOLED, жестовая/трёхкнопочная навигация, планшет, RTL, другие экраны (чат, настройки, профиль, плеер) — следующие
+  шаги матрицы; добавляются новыми тестами в тот же класс или рядом.
+- TalkBack, контраст, frame time — только на устройстве.

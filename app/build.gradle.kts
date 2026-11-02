@@ -175,6 +175,24 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    testOptions {
+        unitTests {
+            // Robolectric screenshot tests read strings, fonts and the test activity from the merged resources.
+            isIncludeAndroidResources = true
+            all { test ->
+                // Screenshot goldens (#634) live in src/test/screenshots. CI verifies them; -Pscreenshots=record
+                // rewrites them after an intended visual change. With no golden committed yet the run records, so the
+                // first CI run can produce the baseline (see docs/screenshot-tests.md).
+                val goldens = file("src/test/screenshots")
+                val hasGoldens = goldens.listFiles { f -> f.extension == "png" }?.isNotEmpty() == true
+                val mode = providers.gradleProperty("screenshots").orNull ?: if (hasGoldens) "verify" else "record"
+                require(mode in setOf("record", "verify", "compare")) { "-Pscreenshots must be record, verify or compare" }
+                test.systemProperty("roborazzi.test.$mode", "true")
+                test.inputs.dir(goldens).withPropertyName("screenshotGoldens").optional()
+                test.maxHeapSize = "2g"
+            }
+        }
+    }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -224,6 +242,11 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.json)
+    // Screenshot goldens (#634): Compose rendered on the JVM by Robolectric's native graphics, compared by Roborazzi.
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
