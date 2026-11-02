@@ -188,7 +188,7 @@ android {
                 val mode = providers.gradleProperty("screenshots").orNull ?: if (hasGoldens) "verify" else "record"
                 require(mode in setOf("record", "verify", "compare")) { "-Pscreenshots must be record, verify or compare" }
                 test.systemProperty("roborazzi.test.$mode", "true")
-                test.inputs.dir(goldens).withPropertyName("screenshotGoldens").optional()
+                test.inputs.files(fileTree(goldens)).withPropertyName("screenshotGoldens")
                 test.maxHeapSize = "2g"
             }
         }
