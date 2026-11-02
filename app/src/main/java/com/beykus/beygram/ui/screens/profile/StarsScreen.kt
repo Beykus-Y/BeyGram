@@ -750,7 +750,7 @@ private fun StarTransactionRow(transaction: StarTransactionItem) {
     val amountText = formatStarAmount(transaction.amount.starCount, transaction.amount.nanostarCount)
         .let { if (positive) "+$it" else it }
     Column(
-        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {
