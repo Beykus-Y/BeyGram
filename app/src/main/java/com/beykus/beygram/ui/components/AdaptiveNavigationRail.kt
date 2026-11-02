@@ -1,5 +1,12 @@
 package com.beykus.beygram.ui.components
 
+import com.beykus.beygram.ui.design.TopBarVariant
+import com.beykus.beygram.ui.design.NavigationVariant
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.draw.shadow
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -61,10 +68,23 @@ internal fun MainTabRail(
     modifier: Modifier = Modifier
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    // The rail is the tablet form of the bottom bar, so it takes the same surface: the tonal container of the Material 3
+    // navigation bar, the elevated edge of Material 2 and the plain surface everywhere else (Default unchanged).
+    val railColor = if (design.components.navigation == NavigationVariant.NavigationBar) {
+        MaterialTheme.colorScheme.surfaceContainer
+    } else {
+        palette.surface
+    }
+    val railElevation = if (design.components.topBar == TopBarVariant.Elevated) design.surfaces.barElevation else 0.dp
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .background(palette.surface)
+            .then(
+                if (railElevation > 0.dp) Modifier.zIndex(1f).shadow(railElevation, RectangleShape, clip = false)
+                else Modifier
+            )
+            .background(railColor)
             .windowInsetsPadding(
                 WindowInsets.systemBars.union(WindowInsets.displayCutout)
                     .only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)
