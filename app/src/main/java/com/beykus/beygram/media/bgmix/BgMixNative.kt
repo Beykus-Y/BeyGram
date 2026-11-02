@@ -42,6 +42,10 @@ object BgMixNative {
     @JvmStatic
     external fun nativeTransport(handle: Long, action: Int)
 
+    /** Seeks the master deck; false while a transition is running. */
+    @JvmStatic
+    external fun nativeSeek(handle: Long, seconds: Double): Boolean
+
     @JvmStatic
     external fun nativeUpdate(handle: Long)
 

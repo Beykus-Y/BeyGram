@@ -318,7 +318,7 @@ object PlaybackEngine {
             }
 
             override fun seekTo(positionMs: Long) {
-                if (!bgMixActive()) super.seekTo(positionMs)
+                if (bgMixActive()) seekToPosition(positionMs) else super.seekTo(positionMs)
             }
 
             override fun stop() {
@@ -767,7 +767,11 @@ object PlaybackEngine {
 
     /** Перемотка по абсолютной позиции; для растущего Ogg запрос откладывается до полной загрузки. */
     fun seekToPosition(positionMs: Long) {
-        if (bgMixActive()) return
+        if (bgMixActive()) {
+            // A seek during a BG Mix transition is refused by the native session; the next status tick keeps the UI honest.
+            bgMix?.seek(positionMs.coerceAtLeast(0L) / 1000.0)
+            return
+        }
         val target = exo ?: return
         val position = positionMs.coerceAtLeast(0L)
         val item = _state.value.item ?: return
@@ -798,7 +802,11 @@ object PlaybackEngine {
 
     /** Перемотка по доле длины. [fallbackDurationMs] используется, если контейнер ещё не сообщил длину. */
     fun seekTo(fraction: Float, fallbackDurationMs: Long = 0L) {
-        if (bgMixActive()) return
+        if (bgMixActive()) {
+            val duration = _state.value.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
+            if (duration > 0L) seekToPosition((fraction.coerceIn(0f, 1f) * duration.toFloat()).toLong())
+            return
+        }
         val target = exo ?: return
         val duration = target.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: fallbackDurationMs
         if (duration <= 0L) return
@@ -1032,6 +1040,8 @@ object PlaybackEngine {
         if (!BgMixSettingsStore.enabled.value) return false
         // BG Mix does not repeat; a queue with repeat selected stays on ExoPlayer, which does.
         if (_state.value.repeatMode != PlaybackRepeatMode.Off) return false
+        // BG Mix plays the queue in order; shuffle stays on ExoPlayer.
+        if (_state.value.shuffleEnabled) return false
         if (queue.index !in queue.items.indices) return false
         // Creates the shared player and appContext on first use, so the notification and queue paths work.
         player(context)
@@ -1101,6 +1111,7 @@ object PlaybackEngine {
                 isBuffering = false
             )
         }
+        fireStartedCallback()
     }
 
     private fun toggleBgMix() {
