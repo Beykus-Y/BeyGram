@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -158,7 +159,21 @@ internal data class NavigationSpec(
      * Colour role of the selected label. Material 3 draws it in the on-surface role while the icon takes the
      * on-indicator role; the other styles keep the accent ink for both.
      */
-    val selectedLabelOnSurface: Boolean = false
+    val selectedLabelOnSurface: Boolean = false,
+    /**
+     * The selection is a short ink mark above the icon instead of a pill behind it ([markWidth] x [markHeight]); the
+     * same shared indicator glides between tabs. Used by BeyGram Signature.
+     */
+    val indicatorMark: Boolean = false,
+    val markWidth: Dp = 20.dp,
+    val markHeight: Dp = 3.dp,
+    /** The selected icon and label are drawn in the ink (text colour) rather than the accent. */
+    val selectedInk: Boolean = false,
+    /**
+     * One hairline separates the bar from the content: on top of a pinned bar, around a floating capsule. The bar then
+     * sits on the canvas colour when pinned, so the chrome reads as part of the screen and not as a second surface.
+     */
+    val hairline: Boolean = false
 ) {
     /** The elevation that applies to the current placement. */
     val elevation: Dp get() = if (floating) floatingElevation else pinnedElevation
@@ -212,15 +227,20 @@ internal fun navigationSpecFor(design: DesignSystem): NavigationSpec = when (des
         horizontalMargin = 16.dp, bottomMargin = 10.dp, dockRadius = 24.dp, indicatorAlpha = 0.82f,
         floating = design.navigationFloating
     )
-    // Signature: a calmer, tighter capsule than Glass — less air, a smaller radius, an even quieter selection wash.
-    NavigationVariant.SignatureDock -> NavigationSpec(
-        pillWidth = 56.dp, pillHeight = 28.dp, pillRadius = 12.dp,
+    // Signature: no pill. The selected tab is drawn in ink with a short mark above it; pinned, the bar sits on the
+    // canvas behind one hairline, floating, the same tabs sit in a calm capsule with a hairline rim and little shadow.
+    NavigationVariant.SignatureMark -> NavigationSpec(
+        pillWidth = 56.dp, pillHeight = 28.dp, pillRadius = 2.dp,
         showSelectionPill = true, showLabels = true, labelSize = 11.sp,
-        labelWeight = FontWeight.Bold, iconSize = 22.dp,
-        barTopPadding = 8.dp, barBottomPadding = 9.dp, pinnedElevation = 0.dp, floatingElevation = 4.dp,
+        labelWeight = FontWeight.Medium, iconSize = 22.dp,
+        barTopPadding = 10.dp, barBottomPadding = 9.dp, pinnedElevation = 0.dp, floatingElevation = 3.dp,
         divider = false,
-        horizontalMargin = 14.dp, bottomMargin = 9.dp, dockRadius = 18.dp, indicatorAlpha = 0.72f,
-        floating = design.navigationFloating
+        horizontalMargin = 14.dp, bottomMargin = 9.dp, dockRadius = 20.dp, indicatorAlpha = 1f,
+        floating = design.navigationFloating,
+        selectedLabelWeight = FontWeight.Bold,
+        indicatorMark = true,
+        selectedInk = true,
+        hairline = true
     )
 }
 
@@ -253,7 +273,11 @@ internal fun MainTabItem(
         animationSpec = pressSpec.animationSpec(),
         label = "mainTabPress"
     )
-    val tint = if (selected) palette.accentInk else palette.textSecondary
+    val tint = when {
+        !selected -> palette.textSecondary
+        spec.selectedInk -> palette.textPrimary
+        else -> palette.accentInk
+    }
     val labelTint = if (selected && spec.selectedLabelOnSurface) palette.textPrimary else tint
     val itemModifier = if (interactive) {
         modifier.selectable(
@@ -296,7 +320,7 @@ internal fun MainTabItem(
                     .matchParentSize()
                     .clip(indicatorShape)
                     .background(
-                        if (selected && selectionPill && spec.showSelectionPill) {
+                        if (selected && selectionPill && spec.showSelectionPill && !spec.indicatorMark) {
                             palette.accentSoft.copy(alpha = palette.accentSoft.alpha * spec.indicatorAlpha)
                         } else {
                             Color.Transparent
@@ -313,6 +337,11 @@ internal fun MainTabItem(
                 )
             }
             Icon(tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(resolvedIconSize))
+            if (selected && selectionPill && spec.indicatorMark) {
+                // A standalone item (the settings preview, the rail) has no shared indicator and no bar padding above
+                // it, so it draws its own mark inside the icon box, where no parent can clip it.
+                SelectionMark(spec, palette.textPrimary, Modifier.align(Alignment.TopCenter))
+            }
         }
         if (spec.showLabels) {
             Spacer(Modifier.height(4.dp))
@@ -327,11 +356,27 @@ internal fun MainTabItem(
     }
 }
 
-/** Background of the bar itself: the plain surface for Default, a tonal container for Material 3, a capsule for the floating styles. */
+/** How far above the icon box the Signature mark sits, so it reads as a tab marker near the top edge of the bar. */
+private fun markLift(spec: NavigationSpec): Dp = (spec.barTopPadding - 4.dp).coerceAtLeast(0.dp)
+
+/** The Signature selection mark: a short rounded ink bar. */
 @Composable
-private fun navigationBarColor(design: DesignSystem, fallback: Color): Color = when (design.components.navigation) {
+private fun SelectionMark(spec: NavigationSpec, color: Color, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(width = spec.markWidth, height = spec.markHeight)
+            .clip(RoundedCornerShape(spec.markHeight / 2))
+            .background(color)
+    )
+}
+
+/**
+ * Background of the bar itself: the plain surface for Default, a tonal container for Material 3, a capsule for the
+ * floating styles. A pinned Signature bar sits on the canvas, so the content and the chrome share one plane.
+ */
+@Composable
+private fun navigationBarColor(design: DesignSystem, fallback: Color, canvas: Color): Color = when (design.components.navigation) {
     NavigationVariant.NavigationBar -> MaterialTheme.colorScheme.surfaceContainer
-    NavigationVariant.FloatingGlass, NavigationVariant.SignatureDock -> fallback
+    NavigationVariant.SignatureMark -> if (design.navigationFloating) fallback else canvas
     else -> fallback
 }
 
@@ -354,7 +399,7 @@ internal fun MainTabBar(
     val design = LocalDesignSystem.current
     val spec = remember(design) { navigationSpecFor(design) }
     val glass = design.surfaces.glass
-    val barColor = navigationBarColor(design, palette.surface)
+    val barColor = navigationBarColor(design, palette.surface, palette.screen)
     val floating = spec.floating
     val density = LocalDensity.current
     // Only the floating capsule is rounded: a pinned bar must keep square window edges even in Glass or Signature,
@@ -401,6 +446,7 @@ internal fun MainTabBar(
         }
         floating -> Box(
             outer.shadow(spec.elevation, barShape).clip(barShape).background(barColor)
+                .then(if (spec.hairline) Modifier.border(1.dp, palette.divider, barShape) else Modifier)
         ) {
             content()
         }
@@ -416,6 +462,9 @@ internal fun MainTabBar(
                 Box(Modifier.matchParentSize().glassHighlight(glass.highlightAlpha * 0.6f))
             }
             content()
+            if (spec.hairline) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(palette.divider))
+            }
             if (glass != null) {
                 Box(
                     Modifier.fillMaxWidth().height(1.dp)
@@ -457,7 +506,17 @@ private fun NavigationBarContent(
             if (spec.divider) HorizontalDivider(color = palette.divider)
             // The indicator and the row share one Box, so the indicator sits behind the icons and never adds height.
             Box(Modifier.fillMaxWidth()) {
-                if (selectedIndex >= 0 && spec.showSelectionPill) {
+                if (selectedIndex >= 0 && spec.showSelectionPill && spec.indicatorMark) {
+                    // The mark rides the same indicator as the pill, centred on the tab and lifted towards the top edge.
+                    SelectionMark(
+                        spec,
+                        palette.textPrimary,
+                        Modifier.offset(
+                            x = indicator.x.value.dp + (spec.pillWidth - spec.markWidth) / 2,
+                            y = -markLift(spec)
+                        )
+                    )
+                } else if (selectedIndex >= 0 && spec.showSelectionPill) {
                     Box(
                         Modifier
                             .offset(x = indicator.x.value.dp)

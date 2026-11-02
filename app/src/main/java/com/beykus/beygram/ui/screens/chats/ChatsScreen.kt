@@ -971,9 +971,16 @@ private fun ArchivePullHint(heightDp: Dp) {
 /** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
 @Composable
 internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
-    if (LocalDesignSystem.current.mainScreen.chipSelection == ChipSelectionTone.Filter) {
-        Material3FolderChip(title, selected, unreadCount, onClick)
-        return
+    when (LocalDesignSystem.current.mainScreen.chipSelection) {
+        ChipSelectionTone.Filter -> {
+            Material3FolderChip(title, selected, unreadCount, onClick)
+            return
+        }
+        ChipSelectionTone.Ink -> {
+            InkFolderChip(title, selected, unreadCount, onClick)
+            return
+        }
+        else -> Unit
     }
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -1091,8 +1098,57 @@ private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: I
     }
 }
 
+/**
+ * The BeyGram Signature folder: a plain label when off, an ink-filled 36dp chip with the canvas colour as label when on.
+ * Selection is ink, so the accent stays on the unread count; the 48dp touch target is kept around the smaller chip.
+ */
+@Composable
+private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val main = LocalDesignSystem.current.mainScreen
+    val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
+    val containerColor by animateColorAsState(if (selected) palette.textPrimary else Color.Transparent, tabSpec)
+    val labelColor by animateColorAsState(if (selected) palette.screen else palette.textSecondary, tabSpec)
+    val chipShape = RoundedCornerShape(main.chipRadius)
+    Box(
+        Modifier.heightIn(min = 48.dp).clip(chipShape)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            Modifier.heightIn(min = 36.dp).clip(chipShape)
+                .background(containerColor)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title,
+                color = labelColor,
+                fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                modifier = Modifier.widthIn(max = 144.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (unreadCount != null && unreadCount > 0) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    unreadCount.toString(),
+                    color = if (selected) palette.screen else palette.accent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
 @Composable
 internal fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
+    if (LocalDesignSystem.current.mainScreen.chipSelection == ChipSelectionTone.Ink) {
+        InkFolderChip(title, selected, count, onClick)
+        return
+    }
     val palette = beyGramPalette()
     Row(
         modifier = Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(50)).background(if (selected) palette.accent else palette.surface2)
@@ -1216,8 +1272,12 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         statusLabel = sendStatusLabel(chat),
         secretLabel = if (chat.isSecret) stringResource(R.string.chats_secret_chat) else null
     )
+    // Signature draws the row as a rounded tile inside the list: the press and the open-chat highlight stop short of the
+    // screen edge. The content keeps the same 20dp start position as every other style.
+    val tileShape = RoundedCornerShape(main.rowRadius)
     Row(
         modifier = Modifier.fillMaxWidth()
+            .then(if (main.rowInset > 0.dp) Modifier.padding(horizontal = main.rowInset).clip(tileShape) else Modifier)
             .background(if (highlighted) palette.accentSoft else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick, role = Role.Button)
             .semantics(mergeDescendants = true) {
@@ -1225,7 +1285,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                 // TalkBack announces which conversation is already open in the right pane.
                 if (highlighted) selected = true
             }
-            .padding(horizontal = 20.dp, vertical = listDensity.rowVerticalPadding),
+            .padding(horizontal = (20.dp - main.rowInset).coerceAtLeast(0.dp), vertical = listDensity.rowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
         ChatAvatar(chat, main.avatarSize, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
@@ -1240,7 +1300,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             Spacer(Modifier.height(3.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (chat.isMuted) Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
-                Text(preview, color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(preview, color = if (unread && main.unreadPreviewEmphasis && !chat.isMuted) palette.textPrimary else palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 SendStatusIcon(chat)
                 if (unread) {
                     Spacer(Modifier.width(8.dp))

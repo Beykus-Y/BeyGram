@@ -44,7 +44,9 @@ class NavigationSpecTest {
         assertFalse(byStyle.getValue(DesignStyle.Material3).floating)
 
         assertTrue(byStyle.getValue(DesignStyle.LiquidGlass).floating)
-        assertTrue(byStyle.getValue(DesignStyle.Signature).floating)
+        // Signature is chat-first: pinned unless the user floats it, and never a pill.
+        assertFalse(byStyle.getValue(DesignStyle.Signature).floating)
+        assertTrue(byStyle.getValue(DesignStyle.Signature).indicatorMark)
 
         // Two floating styles must still differ, otherwise the selector would lie.
         assertTrue(
@@ -66,11 +68,21 @@ class NavigationSpecTest {
     }
 
     @Test fun otherStylesKeepTheirSelectedLabel() {
-        DesignStyle.entries.filter { it != DesignStyle.Material3 }.forEach { style ->
+        DesignStyle.entries.filter { it != DesignStyle.Material3 && it != DesignStyle.Signature }.forEach { style ->
             val spec = navigationSpecFor(designFor(style))
             assertEquals("$style label weight", FontWeight.SemiBold, spec.selectedLabelWeight)
             assertFalse("$style label colour", spec.selectedLabelOnSurface)
+            assertFalse("$style keeps its accent selection", spec.selectedInk)
         }
+    }
+
+    @Test fun signatureMarksTheSelectionInInk() {
+        val spec = navigationSpecFor(designFor(DesignStyle.Signature))
+        // Ink, a bold label and the mark carry the selection; there is no pill wash to read it from.
+        assertEquals(FontWeight.Bold, spec.selectedLabelWeight)
+        assertTrue(spec.selectedInk)
+        assertTrue(spec.indicatorMark)
+        assertTrue(spec.hairline)
     }
 
     @Test fun followTheStyleKeepsThePlacementEveryStyleHasAlwaysHad() {
@@ -115,13 +127,13 @@ class NavigationSpecTest {
 
     @Test fun theTwoFloatingStylesDoNotShareOneDockGeometry() {
         val glass = navigationSpecFor(designFor(DesignStyle.LiquidGlass))
-        val signature = navigationSpecFor(designFor(DesignStyle.Signature))
+        val signature = navigationSpecFor(designFor(DesignStyle.Signature, navigationPlacement = NavigationPlacement.Floating))
 
         // Air, radius, elevation and the weight of the selection pill are designed per style, not copied.
         assertTrue("Glass keeps more air around the capsule", glass.horizontalMargin > signature.horizontalMargin)
         assertTrue("Glass keeps more air below the capsule", glass.bottomMargin > signature.bottomMargin)
         assertTrue("the capsule radii differ", glass.dockRadius != signature.dockRadius)
-        assertTrue("Signature is the quieter layer", signature.indicatorAlpha < glass.indicatorAlpha)
+        assertTrue("Signature marks the selection instead of washing it", signature.indicatorMark && !glass.indicatorMark)
         assertTrue("Signature casts less shadow", signature.floatingElevation < glass.floatingElevation)
     }
 

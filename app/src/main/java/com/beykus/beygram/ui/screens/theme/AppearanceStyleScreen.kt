@@ -409,17 +409,31 @@ private fun StyleNavigationStrip(design: DesignSystem, compact: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
+        // Signature marks the selected tab with a short ink bar instead of a pill, and draws it in ink, not accent.
+        val mark = design.components.navigation == NavigationVariant.SignatureMark
         repeat(dotCount) { index ->
             val selected = index == 0 && design.components.navigation != NavigationVariant.ClassicTabs
             Box(
                 Modifier.size(width = if (compact) 12.dp else 22.dp, height = if (compact) 6.dp else 12.dp)
                     .clip(indicator)
-                    .background(if (selected) palette.accentSoft else Color.Transparent),
+                    .background(if (selected && !mark) palette.accentSoft else Color.Transparent),
                 contentAlignment = Alignment.Center
             ) {
+                if (selected && mark) {
+                    Box(
+                        Modifier.align(Alignment.TopCenter).size(width = if (compact) 6.dp else 10.dp, height = 1.5.dp)
+                            .clip(CircleShape).background(palette.textPrimary)
+                    )
+                }
                 Box(
                     Modifier.size(if (compact) 3.dp else 5.dp).clip(CircleShape)
-                        .background(if (selected) palette.accentInk else palette.textSecondary)
+                        .background(
+                            when {
+                                !selected -> palette.textSecondary
+                                mark -> palette.textPrimary
+                                else -> palette.accentInk
+                            }
+                        )
                 )
             }
         }

@@ -113,8 +113,12 @@ data class DesignSpacing(
 /** How a style builds surfaces: flat paper, tonal containers, raised cards, translucent glass or layered depth. */
 enum class SurfaceTreatment { Flat, Tonal, Elevated, Glass, Layered }
 
-/** Visual structure of the main navigation. [PillTabs] is the original BeyGram bottom bar and must stay pixel-identical. */
-enum class NavigationVariant { PillTabs, ClassicTabs, NavigationBar, FloatingGlass, SignatureDock }
+/**
+ * Visual structure of the main navigation. [PillTabs] is the original BeyGram bottom bar and must stay pixel-identical.
+ * [SignatureMark] has no pill at all: the selected tab is drawn in ink with a short mark above it, and the same bar works
+ * pinned on the canvas or floating in a capsule.
+ */
+enum class NavigationVariant { PillTabs, ClassicTabs, NavigationBar, FloatingGlass, SignatureMark }
 
 /** Visual structure of the search field. */
 enum class SearchFieldVariant { Filled, Outlined, Glass }
@@ -172,7 +176,12 @@ enum class ChipSelectionTone {
      * The Material 3 filter chip: a 32dp outlined chip when off, the secondary container with a leading check when on.
      * The touch target stays 48dp around the smaller visual chip.
      */
-    Filter
+    Filter,
+    /**
+     * BeyGram Signature: no container when off, only a quiet label; the selected folder is filled with the ink (the
+     * text colour) and its label takes the canvas colour. Accent stays reserved for unread counts and actions.
+     */
+    Ink
 }
 
 /**
@@ -205,7 +214,16 @@ data class DesignMainScreen(
      */
     val showBrandOverline: Boolean = true,
     /** Visual height of the search field at the standard font scale. Material 3 uses its 56dp search bar. */
-    val searchHeight: Dp = 48.dp
+    val searchHeight: Dp = 48.dp,
+    /**
+     * Side inset of a chat row's pressed and selected tile. 0 keeps the full-width row; Signature draws the row as a
+     * rounded tile inside the list, so press feedback never touches the screen edge.
+     */
+    val rowInset: Dp = 0.dp,
+    /** Corner of that tile. Only used together with [rowInset]. */
+    val rowRadius: Dp = 0.dp,
+    /** Unread rows draw their preview in the text colour, so new messages stand out without extra chrome. */
+    val unreadPreviewEmphasis: Boolean = false
 )
 
 /** Elevation, translucency and the optional glass treatment of a style. */
