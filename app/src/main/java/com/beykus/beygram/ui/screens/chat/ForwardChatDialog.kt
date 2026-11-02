@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -171,6 +172,7 @@ internal fun ForwardChatDialog(
             containerColor = palette.screen,
             topBar = {
                 TopAppBar(
+                    modifier = Modifier.topAppBarSurface(),
                     title = {
                         Text(
                             if (chat != null) stringResource(R.string.forward_choose_topic, chat.title)

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -273,6 +274,7 @@ internal fun MusicSearchScreen(
         containerColor = palette.screen,
         topBar = {
             TopAppBar(
+                modifier = Modifier.topAppBarSurface(),
                 title = {
                     Text(
                         stringResource(if (onPick != null) R.string.music_attach_title else R.string.settings_music_title),

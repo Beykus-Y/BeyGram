@@ -577,10 +577,9 @@ private fun HiddenTabsSection(hiddenTabs: List<MainTab>, onOpenTab: (MainTab) ->
 internal fun ProfileToolbar(title: String, onBack: () -> Unit, actions: @Composable RowScope.() -> Unit = {}) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
-    val barShape = RoundedCornerShape(design.shapes.extraSmall)
     val container = Modifier.fillMaxWidth().then(
         when (design.components.topBar) {
-            TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation, barShape).background(palette.surface)
+            TopBarVariant.Elevated -> Modifier.topAppBarSurface()
             TopBarVariant.Glass -> Modifier
                 .background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.72f)))
             TopBarVariant.Signature -> Modifier.background(palette.surface)

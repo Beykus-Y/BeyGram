@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.music
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -108,6 +109,7 @@ internal fun MyMusicScreen(
         containerColor = palette.screen,
         topBar = {
             TopAppBar(
+                modifier = Modifier.topAppBarSurface(),
                 title = {
                     Text(
                         stringResource(R.string.music_library_title),
