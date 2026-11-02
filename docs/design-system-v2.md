@@ -27,7 +27,7 @@ surface, divider) and the placement decides **where that same bar is drawn**. Th
 selection state; only the layout/surface adapter differs.
 
 * `Auto` (default, and the migration value for every existing install) keeps whatever the style has always done:
-  `Default`, `Material 2` and `Material 3` pin the bar, `Liquid Glass` and `Signature` float it.
+  `Default`, `Material 2`, `Material 3` and `Signature` pin the bar, `Liquid Glass` floats it.
 * `Pinned` puts the bar in the ordinary bottom slot: full window width, no side margin, no outer dock radius, no dock
   shadow, correct system navigation inset. A glass or Signature style keeps its own tab contents and material cues
   (a single hairline instead of the floating rim); it does not fake backdrop blur, because there is no content behind a
@@ -59,9 +59,9 @@ radius and the header gap. `ChatsScreen` and `SwipeChatRow` read them, so switch
 only the bar below it. Default keeps its 30sp title, 16dp accent chips, tonal archive card, 54dp avatars and 11dp badge,
 which `DesignSystemTest` pins.
 
-The two floating styles are designed separately instead of sharing one "bath": Glass keeps more air (16/10), a larger
-radius (24dp), a softer selection wash (82%) and a real shadow; Signature is tighter (14/9), smaller (18dp), quieter
-(72%) and almost shadowless.
+The floating capsules are designed separately instead of sharing one "bath": Glass keeps more air (16/10), a larger
+radius (24dp), a softer selection wash (82%) and a real shadow; a floating Signature bar is tighter (14/9), 20dp, has
+no wash at all (an ink mark instead) and a hairline rim with an almost flat shadow.
 
 On a wide window (`usesMainNavigationRail`, ≥ 600dp) the placement is not applied: the navigation rail stays a rail, so
 the sections do not move away from the leading edge and no phone dock appears in a tablet layout.
@@ -153,25 +153,26 @@ and persisted before the theme is applied. Only `design_style` changes: palette,
 accounts and TDLib data are untouched, so a bad style can never lock the user out of the app.
 
 ### BeyGram Signature
-BeyGram's own language, not a mixture: chat-first hierarchy, Source Sans 3 with an editorial scale (heavy display and
-wide-tracked labels), 6–28dp geometry, quiet layered depth (1–8dp) instead of hard shadows, a floating dock and a
-composer that belongs to the conversation. It is never applied automatically.
+BeyGram's own language, "ink and mark": chrome on the canvas behind one hairline, selection drawn in ink (the text
+colour) with a short mark, accent kept for unread counts and actions, soft 6–26dp rectangles, layered depth instead
+of shadows and an editorial Source Sans 3 scale. The bar is pinned by default and keeps its tabs when floated. Full
+specification: [beygram-signature.md](beygram-signature.md). It is never applied automatically.
 
 ## Component adapters
 
 | Component | Default | Material 2 | Material 3 | Liquid Glass | Signature |
 |---|---|---|---|---|---|
-| Navigation | pill tabs 56×32 | classic tabs + divider | navigation bar 64×32 | floating glass capsule | floating dock |
+| Navigation | pill tabs 56×32 | classic tabs + divider | navigation bar 64×32 | floating glass capsule | ink + mark, pinned on canvas |
 | Dock air (side/bottom, floating) | 12/8 | 12/8 | 12/8 | 16/10 | 14/9 |
-| Dock radius / selection wash | 16dp · 100% | 2dp · 100% | 20dp · 100% | 24dp · 82% | 18dp · 72% |
+| Dock radius / selection wash | 16dp · 100% | 2dp · 100% | 20dp · 100% | 24dp · 82% | 20dp · mark, no wash |
 | Create button | 20dp, 6dp | circle, 6dp | 16dp, 6dp | 26dp, 4dp | 18dp, 2dp |
-| Search | filled 24dp | outlined 2dp | filled, container-high | translucent | filled 18dp |
-| Folder chips | 16dp, accent fill | 2dp, accent rule | 8dp, tonal | 18dp, tonal | 14dp, accent fill |
+| Search | filled 24dp | outlined 2dp | filled, container-high | translucent | filled 14dp |
+| Folder chips | 16dp, accent fill | 2dp, accent rule | 8dp, tonal | 18dp, tonal | 12dp, ink fill |
 | Archive row | tonal card 14dp | elevated card 4dp | tonal 12dp | card 20dp | plain line |
-| List row | 54dp avatar, semibold | 48dp, medium | 52dp, medium | 54dp, semibold | 56dp, bold |
+| List row | 54dp avatar, semibold | 48dp, medium | 52dp, medium | 54dp, semibold | 56dp, bold, inset 16dp tile |
 | Unread badge | 11dp pill | 2dp square | 8dp pill | 11dp pill | 10dp pill |
 | Top bar | flat | elevated 4dp | flat | translucent | layered |
-| Composer | 20dp | 4dp, square send | 20dp | 24dp translucent | 16dp |
+| Composer | 20dp | 4dp, square send | 20dp | 24dp translucent | 22dp |
 | Bubbles | existing metrics | 6/2dp | 18/4dp | 20/8dp | 18/6dp |
 
 The user's bubble shape (`Soft`, `Square`) subtracts radius from the style base, and an explicitly chosen radius wins.

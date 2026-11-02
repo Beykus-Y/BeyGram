@@ -70,6 +70,9 @@ import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.listRowTitleWeight
+import com.beykus.beygram.ui.components.StyledListDivider
+import com.beykus.beygram.ui.components.MainTabTitle
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -171,8 +174,7 @@ fun ContactsScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .imePadding()
     ) {
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.contacts_title), color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        MainTabTitle(stringResource(R.string.contacts_title), Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
             IconButton(onClick = { showAddDialog = true }) { Icon(Icons.Rounded.PersonAdd, stringResource(R.string.contacts_add_contact_description), tint = palette.accent) }
         }
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -226,6 +228,7 @@ fun ContactsScreen(
                         onCopy = { copyNumber(contact) },
                         onCopyUsername = { copyUsername(contact) }
                         )
+                        StyledListDivider()
                     }
                 }
             }
@@ -330,7 +333,7 @@ private fun ContactRow(
         TelegramAvatar(contact.initials, Color(contact.avatarColorArgb), 48.dp, contact.photo, observeFile, downloadFile)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
-            Text(contact.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(contact.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = listRowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(contact.subtitle, color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         // The row itself owns the long-press and TalkBack actions; no repeated overflow icon on every contact.

@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.settings
 
+import com.beykus.beygram.ui.components.settingsIconTint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.MainTabTitle
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.LocalDesignSystem
 
@@ -81,9 +83,9 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .verticalScroll(rememberScrollState())
     ) {
-        Text(
-            stringResource(R.string.settings_title), color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp).semantics { heading() }
+        MainTabTitle(
+            stringResource(R.string.settings_title),
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
         )
 
         SettingsGroup(stringResource(R.string.settings_group_interface)) {
@@ -193,7 +195,7 @@ private fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) 
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Icon(icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
         Text(title, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
         Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
     }
@@ -214,7 +216,7 @@ private fun SettingsToggle(
             .padding(horizontal = 20.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Icon(icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
         Column(Modifier.weight(1f).padding(start = 14.dp, end = 8.dp)) {
             Text(title, color = palette.textPrimary, fontSize = 16.sp)
             if (subtitle != null) {

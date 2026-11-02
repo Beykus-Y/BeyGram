@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.stories
 
+import com.beykus.beygram.ui.components.topAppBarSurface
 import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -349,7 +350,7 @@ fun StoryPublisherScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
+            Modifier.fillMaxWidth().topAppBarSurface().padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = close) {

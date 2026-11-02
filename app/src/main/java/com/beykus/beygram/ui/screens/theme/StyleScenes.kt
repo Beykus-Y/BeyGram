@@ -70,6 +70,7 @@ import com.beykus.beygram.ui.screens.chats.ServerFolderChip
 import com.beykus.beygram.ui.components.Switch
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.components.settingsIconTint
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.ArchiveTreatment
 import com.beykus.beygram.ui.design.GlassEdge
@@ -445,7 +446,7 @@ private fun SceneChatRow(chat: SampleChat, index: Int, divider: Boolean) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     stringResource(chat.message),
-                    color = palette.textSecondary,
+                    color = if (chat.unread > 0 && main.unreadPreviewEmphasis) palette.textPrimary else palette.textSecondary,
                     fontSize = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -544,7 +545,7 @@ private fun SceneSettingRow(icon: ImageVector, @StringRes title: Int, toggle: Bo
         Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
+        Icon(icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(18.dp))
         Text(
             stringResource(title),
