@@ -1157,7 +1157,9 @@ object PlaybackEngine {
         }
     }
 
-    private fun requestBgFocus(context: Context) {
+    /** Requests audio focus and the becoming-noisy receiver. Returns true when focus was granted. */
+    private fun requestBgFocus(context: Context): Boolean {
+        var granted = false
         val audio = context.getSystemService(AudioManager::class.java)
         if (audio != null) {
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -1169,9 +1171,8 @@ object PlaybackEngine {
                 )
                 .setOnAudioFocusChangeListener(bgFocusListener)
                 .build()
-            if (audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                bgFocusRequest = request
-            }
+            granted = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            if (granted) bgFocusRequest = request
         }
         if (!bgNoisyRegistered) {
             ContextCompat.registerReceiver(
@@ -1182,6 +1183,7 @@ object PlaybackEngine {
             )
             bgNoisyRegistered = true
         }
+        return granted
     }
 
     private fun releaseBgFocus() {
@@ -1306,6 +1308,8 @@ object PlaybackEngine {
             playQueueIndex(_state.value.queueIndex)
             return
         }
+        val context = appContext
+        if (context != null && !requestBgFocus(context)) return
         val before = _state.value
         bgMix?.resume()
         _state.update { it.copy(intentPlaying = true, ended = false) }
