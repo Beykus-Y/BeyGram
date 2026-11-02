@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.ui.components.topAppBarSurface
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
@@ -88,7 +89,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Row(Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().topAppBarSurface().background(palette.surface).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textPrimary) }
                 Column(Modifier.weight(1f)) {
                     Text(context?.title ?: stringResource(R.string.message_original_reply), color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
