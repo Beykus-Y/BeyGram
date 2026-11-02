@@ -3,39 +3,47 @@ package com.beykus.beygram.ui.screens.theme
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
@@ -44,18 +52,18 @@ import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.NavigationPlacement
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.design.DesignSystem
-import com.beykus.beygram.ui.design.LocalDesignSystem
-import com.beykus.beygram.ui.design.NavigationVariant
 import com.beykus.beygram.ui.design.rememberDesign
-import com.beykus.beygram.ui.theme.BeyGramTheme
-import com.beykus.beygram.ui.theme.resolveTokens
 
-private val StyleThumbnailSize = 96.dp
+/** Height of the main preview. It shows a whole phone screen top to bottom without taking the page over. */
+private val StylePreviewHeight = 300.dp
+private val StyleCardWidth = 112.dp
+private val StyleCardPhoneHeight = 168.dp
 
 /**
- * The style selector. Each option draws a real miniature of that style with the user's current palette and brightness,
- * so the choice is made on what the interface actually looks like rather than on a name.
+ * The style selector. The main preview draws one whole screen of the app (chats, a conversation or settings) in the
+ * draft's style, palette, brightness and bar placement; below it each style is a small phone with the same chat list,
+ * so the five options differ by header, search, folders, list rows, create button and bottom bar at a glance.
+ * Every picture is built from the real components and tokens and synthetic text only.
  */
 @Composable
 internal fun AppearanceStylePage(
@@ -65,10 +73,14 @@ internal fun AppearanceStylePage(
     onOpenPreview: () -> Unit
 ) {
     val palette = beyGramPalette()
+    var scene by rememberSaveable { mutableStateOf(StyleScene.Chats) }
+    val styleLabel = stringResource(draft.designStyle.labelRes())
+    val sceneLabel = stringResource(scene.labelRes)
+    val previewDescription = stringResource(R.string.style_preview_description, styleLabel, sceneLabel)
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             .padding(horizontal = AppearanceDimens.pagePadding, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             AppearanceSectionLabel(stringResource(R.string.theme_preview_title), Modifier.weight(1f))
@@ -81,16 +93,36 @@ internal fun AppearanceStylePage(
                 )
             }
         }
-        AppearanceCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(10.dp)) {
-            Box(Modifier.fillMaxWidth().height(150.dp).clip(AppearanceDimens.innerShape)) {
-                StylePreviewSurface(draft, systemDark)
-            }
+        AppearanceCard(contentPadding = PaddingValues(10.dp)) {
+            StyleScenePreview(
+                config = draft,
+                systemDark = systemDark,
+                scene = scene,
+                virtualWidth = 380.dp,
+                modifier = Modifier.fillMaxWidth().height(StylePreviewHeight)
+                    .clip(AppearanceDimens.innerShape)
+                    // The outline keeps the edge of the screen visible on AMOLED, where both are black.
+                    .border(1.dp, palette.divider, AppearanceDimens.innerShape)
+                    .clearAndSetSemantics { contentDescription = previewDescription }
+            )
+            AppearanceChoiceFlow(
+                options = StyleScene.entries.map { stringResource(it.labelRes) to (it == scene) },
+                onSelect = { scene = StyleScene.entries[it] }
+            )
+            GlassPreviewNote(draft)
         }
 
         AppearanceSectionLabel(stringResource(R.string.appearance_section_style))
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            DesignStyle.entries.forEach { style ->
-                StyleOptionRow(
+        val selectedIndex = DesignStyle.entries.indexOf(draft.designStyle).coerceAtLeast(0)
+        val listState = rememberLazyListState(initialFirstVisibleItemIndex = (selectedIndex - 1).coerceAtLeast(0))
+        LazyRow(
+            state = listState,
+            modifier = Modifier.fillMaxWidth().selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = 2.dp)
+        ) {
+            items(DesignStyle.entries, key = { it.name }) { style ->
+                StyleCard(
                     style = style,
                     config = draft,
                     systemDark = systemDark,
@@ -99,6 +131,12 @@ internal fun AppearanceStylePage(
                 )
             }
         }
+        Text(
+            stringResource(draft.designStyle.descriptionRes()),
+            color = palette.textSecondary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
 
         AppearanceSectionLabel(stringResource(R.string.appearance_navigation_placement_section))
         AppearanceCard {
@@ -108,12 +146,14 @@ internal fun AppearanceStylePage(
                 fontSize = 12.sp,
                 lineHeight = 17.sp
             )
-            NavigationPlacement.entries.forEach { placement ->
-                NavigationPlacementRow(
-                    placement = placement,
-                    selected = draft.navigationPlacement == placement,
-                    onSelect = { onDraftChange(draft.copy(navigationPlacement = placement)) }
-                )
+            Column(Modifier.selectableGroup()) {
+                NavigationPlacement.entries.forEach { placement ->
+                    NavigationPlacementRow(
+                        placement = placement,
+                        selected = draft.navigationPlacement == placement,
+                        onSelect = { onDraftChange(draft.copy(navigationPlacement = placement)) }
+                    )
+                }
             }
         }
 
@@ -126,12 +166,14 @@ internal fun AppearanceStylePage(
                     fontSize = 12.sp,
                     lineHeight = 17.sp
                 )
-                GlassQuality.entries.forEach { quality ->
-                    QualityOptionRow(
-                        quality = quality,
-                        selected = draft.glassQuality == quality,
-                        onSelect = { onDraftChange(draft.copy(glassQuality = quality)) }
-                    )
+                Column(Modifier.selectableGroup()) {
+                    GlassQuality.entries.forEach { quality ->
+                        QualityOptionRow(
+                            quality = quality,
+                            selected = draft.glassQuality == quality,
+                            onSelect = { onDraftChange(draft.copy(glassQuality = quality)) }
+                        )
+                    }
                 }
             }
         }
@@ -145,8 +187,29 @@ internal fun AppearanceStylePage(
     }
 }
 
+/**
+ * Says what the glass in the preview is. The preview never samples a backdrop, so it does not pretend to blur; when
+ * the device or the chosen quality draws glass without blur anyway, the note says the preview is exactly that.
+ */
 @Composable
-private fun StyleOptionRow(
+private fun GlassPreviewNote(draft: AppearanceConfig) {
+    if (draft.designStyle != DesignStyle.LiquidGlass) return
+    val design = rememberDesign(draft)
+    val blurs = design.surfaces.glass?.samplesBackdrop == true && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    Text(
+        stringResource(if (blurs) R.string.style_preview_glass_note else R.string.style_preview_glass_fallback_note),
+        color = beyGramPalette().textSecondary,
+        fontSize = 12.sp,
+        lineHeight = 17.sp
+    )
+}
+
+/**
+ * One style as a small phone with the chat list in that style. The card is the only selectable element: the picture
+ * is hidden from TalkBack, so the option is announced once, with its name and one selected state.
+ */
+@Composable
+private fun StyleCard(
     style: DesignStyle,
     config: AppearanceConfig,
     systemDark: Boolean,
@@ -154,42 +217,49 @@ private fun StyleOptionRow(
     onSelect: () -> Unit
 ) {
     val palette = beyGramPalette()
-    val shape = RoundedCornerShape(LocalDesignSystem.current.shapes.card)
-    Row(
-        Modifier.fillMaxWidth()
+    val shape = AppearanceDimens.cardShape
+    val phoneShape = AppearanceDimens.innerShape
+    Column(
+        Modifier.width(StyleCardWidth)
             .clip(shape)
             .background(if (selected) palette.accentSoft else palette.surface)
-            .border(if (selected) 1.5.dp else 1.dp, if (selected) palette.accent else palette.divider, shape)
+            .border(if (selected) 2.dp else 1.dp, if (selected) palette.accent else palette.divider, shape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
-            .semantics(mergeDescendants = true) {}
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        StyleThumbnail(style = style, config = config, systemDark = systemDark)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                stringResource(style.labelRes()),
-                color = if (selected) palette.accentInk else palette.textPrimary,
-                fontSize = 15.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.SemiBold
+        Box(Modifier.fillMaxWidth().height(StyleCardPhoneHeight)) {
+            StyleScenePreview(
+                config = config.copy(designStyle = style),
+                systemDark = systemDark,
+                scene = StyleScene.Chats,
+                modifier = Modifier.fillMaxSize()
+                    .clip(phoneShape)
+                    .border(1.dp, palette.divider, phoneShape)
+                    .clearAndSetSemantics {}
             )
-            Text(
-                stringResource(style.descriptionRes()),
-                color = palette.textSecondary,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-                maxLines = 3
-            )
+            if (selected) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(4.dp).size(22.dp)
+                        .clip(CircleShape).background(palette.accent)
+                        .border(1.5.dp, palette.surface, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.Check, null, tint = palette.onAccent, modifier = Modifier.size(14.dp))
+                }
+            }
         }
-        Box(
-            Modifier.size(20.dp).clip(CircleShape)
-                .border(2.dp, if (selected) palette.accent else palette.divider, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            if (selected) Box(Modifier.size(10.dp).clip(CircleShape).background(palette.accent))
-        }
+        Text(
+            stringResource(style.labelRes()),
+            color = if (selected) palette.accentInk else palette.textPrimary,
+            fontSize = 13.sp,
+            lineHeight = 17.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)
+        )
     }
 }
 
@@ -306,122 +376,5 @@ private fun NavigationPlacementGlyph(placement: NavigationPlacement, selected: B
                 .clip(RoundedCornerShape(if (floating) 3.dp else 0.dp))
                 .background(accent)
         )
-    }
-}
-
-/** The thumbnail of one style, drawn by that style's own tokens with the palette the user already has. */
-@Composable
-private fun StyleThumbnail(style: DesignStyle, config: AppearanceConfig, systemDark: Boolean) {
-    val design = rememberDesign(style, config.glassQuality, config.navigationPlacement)
-    val tokens = resolveTokens(config.copy(designStyle = style), systemDark)
-    BeyGramTheme(
-        darkTheme = config.mode.isDark(systemDark),
-        tokens = tokens,
-        design = design
-    ) {
-        Box(
-            Modifier.width(StyleThumbnailSize).height(64.dp)
-                .clip(RoundedCornerShape(design.shapes.small))
-                .background(beyGramPalette().screen)
-        ) {
-            StyleMiniature(design, compact = true)
-        }
-    }
-}
-
-/** A larger rendition of the selected style: header, two bubbles and the navigation it implies. */
-@Composable
-private fun StylePreviewSurface(config: AppearanceConfig, systemDark: Boolean) {
-    val design = rememberDesign(config.designStyle, config.glassQuality, config.navigationPlacement)
-    val tokens = resolveTokens(config, systemDark)
-    BeyGramTheme(darkTheme = config.mode.isDark(systemDark), tokens = tokens, design = design) {
-        Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
-            StyleMiniature(design, compact = false)
-        }
-    }
-}
-
-@Composable
-private fun StyleMiniature(design: DesignSystem, compact: Boolean) {
-    val palette = beyGramPalette()
-    val pad = if (compact) 6.dp else 12.dp
-    val bubbleHeight = if (compact) 9.dp else 18.dp
-    val bubbleShape = RoundedCornerShape(design.shapes.small)
-    Column(Modifier.fillMaxSize().padding(pad), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(Modifier.size(if (compact) 10.dp else 18.dp).clip(CircleShape).background(palette.accentSoft))
-            Box(
-                Modifier.width(if (compact) 26.dp else 48.dp).height(if (compact) 4.dp else 6.dp)
-                    .clip(CircleShape).background(palette.surface2)
-            )
-            Spacer(Modifier.weight(1f))
-            if (!compact) {
-                Box(
-                    Modifier.width(40.dp).height(14.dp).clip(RoundedCornerShape(design.shapes.chip))
-                        .background(palette.surface2)
-                )
-            }
-        }
-        Box(
-            Modifier.fillMaxWidth(0.68f).height(bubbleHeight)
-                .clip(bubbleShape).background(palette.incomingBubble)
-                .border(if (design.surfaces.treatment == com.beykus.beygram.ui.design.SurfaceTreatment.Elevated) 1.dp else 0.dp, palette.divider, bubbleShape)
-        )
-        Box(
-            Modifier.fillMaxWidth(0.55f).height(bubbleHeight).align(Alignment.End)
-                .clip(bubbleShape).background(palette.outgoingBubble)
-        )
-        if (!compact) {
-            Box(
-                Modifier.fillMaxWidth(0.4f).height(bubbleHeight)
-                    .clip(bubbleShape).background(palette.incomingBubble)
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        StyleNavigationStrip(design, compact)
-    }
-}
-
-/**
- * The navigation shape of the style and of the chosen placement, so the miniature shows the structural difference and
- * not only the corners. A pinned bar is always full width with square edges; a floating one is a capsule with margins.
- */
-@Composable
-private fun StyleNavigationStrip(design: DesignSystem, compact: Boolean) {
-    val palette = beyGramPalette()
-    val height = if (compact) 12.dp else 22.dp
-    val indicator = RoundedCornerShape(design.shapes.navigationIndicator)
-    val dotCount = 4
-    val dock = design.navigationFloating
-    Row(
-        Modifier.fillMaxWidth()
-            .then(if (dock) Modifier.padding(horizontal = if (compact) 6.dp else 10.dp) else Modifier)
-            .height(height)
-            .clip(if (dock) RoundedCornerShape(design.shapes.extraSmall) else RoundedCornerShape(0.dp))
-            .background(if (dock) palette.surface2 else palette.surface)
-            .then(
-                if (design.components.navigation == NavigationVariant.ClassicTabs) {
-                    Modifier.border(0.5.dp, palette.divider, RoundedCornerShape(0.dp))
-                } else {
-                    Modifier
-                }
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceEvenly
-    ) {
-        repeat(dotCount) { index ->
-            val selected = index == 0 && design.components.navigation != NavigationVariant.ClassicTabs
-            Box(
-                Modifier.size(width = if (compact) 12.dp else 22.dp, height = if (compact) 6.dp else 12.dp)
-                    .clip(indicator)
-                    .background(if (selected) palette.accentSoft else Color.Transparent),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    Modifier.size(if (compact) 3.dp else 5.dp).clip(CircleShape)
-                        .background(if (selected) palette.accentInk else palette.textSecondary)
-                )
-            }
-        }
     }
 }

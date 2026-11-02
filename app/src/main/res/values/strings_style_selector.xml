@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Style selector previews (#633). Sample chats are synthetic: the preview never reads real data. -->
+    <string name="style_preview_scene_chats">Чаты</string>
+    <string name="style_preview_scene_messages">Переписка</string>
+    <string name="style_preview_scene_settings">Настройки</string>
+    <string name="style_preview_description">Превью стиля «%1$s», экран «%2$s»</string>
+    <string name="style_preview_glass_note">В превью стекло показано без размытия фона. Настоящее размытие появляется в самом интерфейсе.</string>
+    <string name="style_preview_glass_fallback_note">Сейчас стекло рисуется плотной тонировкой без размытия, так же как в превью.</string>
+    <string name="style_preview_search">Поиск</string>
+    <string name="style_preview_folder_all">Все</string>
+    <string name="style_preview_folder_personal">Личные</string>
+    <string name="style_preview_folder_groups">Группы</string>
+    <string name="style_preview_archive_summary">3 чата</string>
+    <string name="style_preview_chat1_name">Анна</string>
+    <string name="style_preview_chat1_message">Скинула фото с выходных</string>
+    <string name="style_preview_chat1_time">12:40</string>
+    <string name="style_preview_chat2_name">Команда проекта</string>
+    <string name="style_preview_chat2_message">Сборка готова к проверке</string>
+    <string name="style_preview_chat2_time">11:02</string>
+    <string name="style_preview_chat3_name">Михаил</string>
+    <string name="style_preview_chat3_message">Созвонимся вечером?</string>
+    <string name="style_preview_chat3_time">Вчера</string>
+    <string name="style_preview_chat4_name">Заметки</string>
+    <string name="style_preview_chat4_message">Список покупок</string>
+    <string name="style_preview_chat4_time">Пн</string>
+    <string name="style_preview_settings_general">Основные</string>
+    <string name="style_preview_settings_notifications">Уведомления</string>
+    <string name="style_preview_settings_sounds">Звуки в чатах</string>
+    <string name="style_preview_settings_privacy">Конфиденциальность</string>
+    <string name="style_preview_settings_data">Данные</string>
+    <string name="style_preview_settings_autodownload">Автозагрузка медиа</string>
+    <string name="style_preview_settings_storage">Память устройства</string>
+</resources>
