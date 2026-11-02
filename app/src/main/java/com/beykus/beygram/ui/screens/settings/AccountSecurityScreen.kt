@@ -58,6 +58,7 @@ import com.beykus.beygram.domain.model.validateNewPassword
 import com.beykus.beygram.domain.repository.AccountSecurityRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
@@ -568,7 +569,7 @@ private fun SecurityCard(title: String, content: @Composable ColumnScope.() -> U
             modifier = Modifier.padding(horizontal = 6.dp).semantics { heading() }
         )
         Column(
-            Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface)
+            Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             content = content

@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
@@ -42,7 +43,7 @@ internal fun ChatActionsSheet(
             finally { busy = false }
         }
     }
-    ModalBottomSheet(onDismissRequest = onClose, containerColor = palette.surface) {
+    ModalBottomSheet(onDismissRequest = onClose, containerColor = sheetSurfaceColor()) {
         Text(chat.title, color = palette.textPrimary, style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp))
         TextButton(onClick = { perform { setPinned(!chat.isPinned) } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {

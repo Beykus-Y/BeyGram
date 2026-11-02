@@ -48,6 +48,7 @@ import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
+import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.media.bgbeat.BgBeatSection
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -177,7 +178,7 @@ internal fun MusicPlayerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = palette.surface,
+        containerColor = sheetSurfaceColor(),
         contentColor = palette.textPrimary,
         dragHandle = { BottomSheetDefaults.DragHandle(color = palette.textSecondary) }
     ) {

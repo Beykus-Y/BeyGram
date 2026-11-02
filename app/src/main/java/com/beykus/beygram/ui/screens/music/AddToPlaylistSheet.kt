@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.music.MusicOutcome
@@ -64,7 +65,7 @@ internal fun AddToPlaylistSheet(
     val repository = remember(context) { MusicLibraries.get(context) }
     val library = rememberMusicLibrary(accountId)
     var creating by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = palette.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = sheetSurfaceColor()) {
         // Scrolls, so every playlist and the create row stay reachable when there are many playlists.
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 12.dp)

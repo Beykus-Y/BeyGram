@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.StickerItem
@@ -188,7 +189,7 @@ internal fun StickerSetSheet(
         action(item)
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = palette.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = sheetSurfaceColor()) {
         Column(Modifier.fillMaxWidth().heightIn(min = 280.dp, max = 560.dp).padding(bottom = 16.dp)) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),

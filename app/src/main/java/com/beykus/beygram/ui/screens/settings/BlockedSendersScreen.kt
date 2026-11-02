@@ -56,6 +56,7 @@ import com.beykus.beygram.domain.model.BlockedSendersPage
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
@@ -169,7 +170,7 @@ fun BlockedSendersScreen(
         } else {
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clip(groupCardShape()).background(palette.surface),
+                    .clip(groupCardShape()).background(groupSurfaceColor()),
                 state = listState, contentPadding = PaddingValues(vertical = 4.dp)
             ) {
                 itemsIndexed(senders, key = { _, sender -> "${sender.kind}:${sender.senderId}" }) { index, sender ->

@@ -70,6 +70,7 @@ import com.beykus.beygram.domain.model.PrivacySettingState
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
@@ -289,7 +290,7 @@ private fun PrivacyGroup(
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, color = palette.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 6.dp))
         Column(
-            Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface).padding(vertical = 4.dp)
+            Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)
         ) {
             states.forEachIndexed { index, state ->
                 if (index > 0) SettingsRowDivider(startInset = SettingsRowInset)
@@ -391,7 +392,7 @@ private fun PrivacySettingRow(
 private fun StealthModeLink(active: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface)
+        Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor())
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -411,7 +412,7 @@ private fun StealthModeLink(active: Boolean, onClick: () -> Unit) {
 private fun BlockedUsersLink(onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().clip(groupCardShape()).background(palette.surface)
+        Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor())
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

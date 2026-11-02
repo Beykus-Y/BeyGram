@@ -46,6 +46,7 @@ import com.beykus.beygram.data.media.TrafficUsageStore
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.ui.components.TrafficUsageSummary
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.listGroupShape
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
@@ -132,7 +133,7 @@ fun AutoDownloadSettingsScreen(onBack: () -> Unit, accountId: String = "legacy")
             )
 
             Column(
-                Modifier.fillMaxWidth().clip(listGroupShape()).background(palette.surface).padding(16.dp),
+                Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 SwitchRow(
@@ -163,7 +164,7 @@ private fun CategoryRuleCard(
     val palette = beyGramPalette()
     var menuOpen by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clip(listGroupShape()).background(palette.surface).padding(16.dp),
+        Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         SwitchRow(title = title, checked = rule.enabled, onCheckedChange = onToggle)

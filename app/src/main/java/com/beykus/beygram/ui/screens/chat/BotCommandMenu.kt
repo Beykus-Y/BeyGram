@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.BotCommandMenu
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -50,7 +51,7 @@ internal fun BotCommandSheet(chatTitle: String, menu: BotCommandMenu, onDismiss:
         if (needle.isEmpty()) menu.commands
         else menu.commands.filter { it.command.contains(needle, ignoreCase = true) || it.description.contains(needle, ignoreCase = true) }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = palette.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = sheetSurfaceColor()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
             Text(stringResource(R.string.chat_bot_commands_title), color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
             Text(chatTitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
