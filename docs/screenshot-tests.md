@@ -41,8 +41,8 @@ Robolectric запускается на SDK 34: для SDK 35+ он требуе
 
 ## Как работает в CI
 
-- Есть эталоны в `app/src/test/screenshots` → режим `verify`: любое отличие пикселей валит `testDevDebugUnitTest`.
-- Эталонов нет → режим `record` (так был создан первый набор).
+- По умолчанию режим `verify`: отличие от эталона сверх порога Roborazzi (около 1% пикселей, он гасит сдвиги
+  сглаживания между образами раннера) валит `testDevDebugUnitTest`. Пропавший эталон тоже валит тест.
 - Артефакт `screenshots-<sha>` в каждом прогоне `Android release` содержит эталоны и, при расхождении, картинки
   `*_actual.png` и `*_compare.png` из `app/build/outputs/roborazzi/`.
 

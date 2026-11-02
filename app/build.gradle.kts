@@ -180,12 +180,11 @@ android {
             // Robolectric screenshot tests read strings, fonts and the test activity from the merged resources.
             isIncludeAndroidResources = true
             all { test ->
-                // Screenshot goldens (#634) live in src/test/screenshots. CI verifies them; -Pscreenshots=record
-                // rewrites them after an intended visual change. With no golden committed yet the run records, so the
-                // first CI run can produce the baseline (see docs/screenshot-tests.md).
+                // Screenshot goldens (#634) live in src/test/screenshots and are verified by default, so deleted
+                // goldens fail instead of being re-recorded silently. -Pscreenshots=record rewrites them after an
+                // intended visual change (see docs/screenshot-tests.md).
                 val goldens = file("src/test/screenshots")
-                val hasGoldens = goldens.listFiles { f -> f.extension == "png" }?.isNotEmpty() == true
-                val mode = providers.gradleProperty("screenshots").orNull ?: if (hasGoldens) "verify" else "record"
+                val mode = providers.gradleProperty("screenshots").orNull ?: "verify"
                 require(mode in setOf("record", "verify", "compare")) { "-Pscreenshots must be record, verify or compare" }
                 test.systemProperty("roborazzi.test.$mode", "true")
                 test.inputs.files(fileTree(goldens)).withPropertyName("screenshotGoldens")
