@@ -1325,12 +1325,14 @@ object PlaybackEngine {
     }
 
     private fun stopBgMix() {
+        // Only a session that was running changes what the media session shows; ExoPlayer stops are not affected.
+        val wasActive = bgMixActive()
         val before = _state.value
         bgMixJob?.cancel()
         bgMixJob = null
         bgMix?.stop()
         releaseBgFocus()
-        if (before.playing || before.intentPlaying) {
+        if (wasActive && (before.playing || before.intentPlaying)) {
             notifyChanges(before, before.copy(playing = false, intentPlaying = false))
         }
     }
