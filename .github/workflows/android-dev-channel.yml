@@ -43,7 +43,7 @@ jobs:
 
       - name: Checkout BG Media submodule
         env:
-          BG_MEDIA_PAT: ${{ secrets.GH_TOCKEN || secrets.GH_TOKEN || secrets.BG_MEDIA_TOKEN }}
+          BG_MEDIA_PAT: ${{ secrets.BG_MEDIA_TOKEN }}
         run: |
           if [ -n "$BG_MEDIA_PAT" ]; then
             echo "Configuring submodule authentication for BG Media..."
