@@ -132,6 +132,8 @@ and composer, with the **backdrop** sampled:
 * Blurring the panel's own children (`Modifier.blur`) is deliberately not used: it smears the panel instead of the
   background.
 
+Which surfaces are glass, the layers of the material and the measurement protocol: [liquid-glass.md](liquid-glass.md).
+
 Quality levels: `High` (sampled blur, 28dp), `Balanced` (tint and rim, no blur pass), `Lite` (dense matte). `Auto`
 picks `Balanced` without API 31 blur support, `Lite` under reduced transparency, `Balanced` in power saving or on low-RAM
 devices. Message bubbles and body content stay opaque: readability wins over decoration, and translucent surfaces never

@@ -188,4 +188,27 @@ class DesignSystemTest {
             autoGlassQuality(GlassCapabilities(true, reducedTransparency = false, constrainedPerformance = true))
         )
     }
+
+    @Test fun explicitHighNeverPromisesBlurOnADeviceThatCannotDrawIt() {
+        val noBlur = GlassCapabilities(false, reducedTransparency = true, constrainedPerformance = false)
+        val capable = GlassCapabilities(true, reducedTransparency = false, constrainedPerformance = false)
+        assertEquals(GlassQuality.Balanced, effectiveGlassQuality(GlassQuality.High, noBlur))
+        assertFalse(designFor(DesignStyle.LiquidGlass, effectiveGlassQuality(GlassQuality.High, noBlur)).usesGlass)
+        // The saved choice is untouched, so a capable device draws the real blur for the same setting.
+        assertEquals(GlassQuality.High, effectiveGlassQuality(GlassQuality.High, capable))
+        // Lower explicit choices and Auto are never raised.
+        assertEquals(GlassQuality.Lite, effectiveGlassQuality(GlassQuality.Lite, capable))
+        assertEquals(GlassQuality.Balanced, effectiveGlassQuality(GlassQuality.Balanced, capable))
+        assertEquals(GlassQuality.Balanced, effectiveGlassQuality(GlassQuality.Auto, noBlur.copy(reducedTransparency = false)))
+    }
+
+    @Test fun glassDepthStaysQuieterThanAPlasticTray() {
+        // One lens-like lift, not a heavy floating tray: every level keeps a small shadow and real glass a lighter tint.
+        val high = designFor(DesignStyle.LiquidGlass, GlassQuality.High).surfaces.glass!!
+        val balanced = designFor(DesignStyle.LiquidGlass, GlassQuality.Balanced).surfaces.glass!!
+        val lite = designFor(DesignStyle.LiquidGlass, GlassQuality.Lite).surfaces.glass!!
+        assertTrue(high.shadowElevation <= 6.dp)
+        assertTrue(lite.shadowElevation < balanced.shadowElevation && balanced.shadowElevation < high.shadowElevation)
+        assertTrue(high.tintAlpha < balanced.tintAlpha && balanced.tintAlpha < lite.tintAlpha)
+    }
 }

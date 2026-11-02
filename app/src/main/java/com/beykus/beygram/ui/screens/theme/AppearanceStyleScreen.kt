@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.theme
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -218,7 +219,14 @@ private fun QualityOptionRow(quality: GlassQuality, selected: Boolean, onSelect:
                 lineHeight = 19.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
             )
-            Text(stringResource(quality.detailRes()), color = palette.textSecondary, fontSize = 11.sp, lineHeight = 15.sp)
+            // The saved High choice stays as it is, but the row says what the device really draws instead of
+            // promising a blur that Android below 12 cannot render.
+            val detail = if (quality == GlassQuality.High && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                R.string.appearance_style_quality_high_unavailable
+            } else {
+                quality.detailRes()
+            }
+            Text(stringResource(detail), color = palette.textSecondary, fontSize = 11.sp, lineHeight = 15.sp)
         }
     }
 }

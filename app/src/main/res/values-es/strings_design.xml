@@ -11,6 +11,7 @@
     <string name="appearance_style_quality_auto_detail">Según el dispositivo y el sistema</string>
     <string name="appearance_style_quality_high">Máxima</string>
     <string name="appearance_style_quality_high_detail">Desenfoque real del fondo tras los paneles</string>
+    <string name="appearance_style_quality_high_unavailable">El desenfoque no está disponible en este dispositivo; los paneles se dibujan como en «Equilibrada»</string>
     <string name="appearance_style_quality_balanced">Equilibrada</string>
     <string name="appearance_style_quality_balanced_detail">Tinte y bordes de luz sin desenfoque</string>
     <string name="appearance_style_quality_lite">Económica</string>
