@@ -37,6 +37,7 @@ import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
 import com.beykus.beygram.data.update.StableRelease
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
 @Composable
 fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = viewModel()) {
@@ -46,17 +47,14 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
     Column(
         Modifier.fillMaxSize().background(palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-            .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back),
-                    tint = palette.textPrimary)
-            }
-            Text(stringResource(R.string.updates_title), fontSize = 26.sp, color = palette.textPrimary,
-                fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
-        }
+        // The same app bar as every other settings page, so the style's top bar reaches this page too.
+        ProfileToolbar(stringResource(R.string.updates_title), onBack)
+        Column(
+            Modifier.fillMaxWidth().weight(1f)
+                .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
         Text(stringResource(R.string.updates_installed_version, BuildConfig.VERSION_NAME),
             color = palette.textSecondary)
         Text(
@@ -112,6 +110,7 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
         }
         model.installHint?.let { Text(it, color = palette.textSecondary, fontSize = 14.sp) }
         Spacer(modifier = Modifier.padding(bottom = 16.dp))
+        }
     }
 }
 
