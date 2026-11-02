@@ -41,7 +41,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,6 +53,9 @@ import com.beykus.beygram.domain.model.CallStatus
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.listRowTitleWeight
+import com.beykus.beygram.ui.components.StyledListDivider
+import com.beykus.beygram.ui.components.MainTabTitle
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -96,9 +98,9 @@ fun CallsScreen(
         Modifier.fillMaxSize().background(palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
     ) {
-        Text(
-            stringResource(R.string.calls_title), color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
+        MainTabTitle(
+            stringResource(R.string.calls_title),
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
         )
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         when {
@@ -117,6 +119,7 @@ fun CallsScreen(
             else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(calls, key = { "${it.chatId}:${it.messageId}" }) { call ->
                     CallRow(call, observeFile, downloadFile)
+                    StyledListDivider()
                 }
                 if (nextOffset.isNotEmpty()) item {
                     TextButton(onClick = { load(nextOffset) }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
@@ -142,7 +145,7 @@ private fun CallRow(call: CallRecord, observeFile: (Int) -> StateFlow<MediaFileS
         Column(Modifier.weight(1f)) {
             Text(
                 call.title.ifBlank { stringResource(R.string.call_title_unknown) }, color = if (missed) palette.danger else palette.textPrimary, fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis
+                fontWeight = listRowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(call.directionIcon(), null, tint = statusTint, modifier = Modifier.size(16.dp))

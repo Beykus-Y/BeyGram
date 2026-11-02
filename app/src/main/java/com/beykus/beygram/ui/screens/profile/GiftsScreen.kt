@@ -683,7 +683,7 @@ private fun GiftCatalogRow(
 ) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {
@@ -734,7 +734,7 @@ private fun GiftCatalogRow(
 private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {
@@ -795,7 +795,7 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
 private fun GiftCollectionRow(collection: GiftCollectionItem) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .heightIn(min = 48.dp)
             .semantics(mergeDescendants = true) {},
