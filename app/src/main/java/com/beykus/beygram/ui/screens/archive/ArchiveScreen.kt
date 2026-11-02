@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.archive
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -82,7 +83,7 @@ fun ArchiveScreen(
         modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 6.dp, end = 20.dp, bottom = 6.dp),
+            modifier = Modifier.fillMaxWidth().topAppBarSurface().padding(start = 8.dp, top = 6.dp, end = 20.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = context.getString(R.string.common_back) }) {

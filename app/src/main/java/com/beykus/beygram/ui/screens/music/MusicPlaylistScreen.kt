@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.music
 
 import android.content.Context
+import com.beykus.beygram.ui.components.topAppBarSurface
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -174,6 +175,7 @@ internal fun MusicPlaylistScreen(
         containerColor = palette.screen,
         topBar = {
             TopAppBar(
+                modifier = Modifier.topAppBarSurface(),
                 title = {
                     Text(
                         title,
