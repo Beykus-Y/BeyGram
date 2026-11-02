@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.playback
 
+import com.beykus.beygram.ui.design.signatureChrome
+import com.beykus.beygram.ui.design.HairlineEdge
 import androidx.compose.animation.AnimatedVisibility
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.Crossfade
@@ -210,7 +212,7 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> 
                 when (design.components.topBar) {
                     TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
                     TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.86f)))
-                    TopBarVariant.Signature -> Modifier.background(palette.surface)
+                    TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
                     TopBarVariant.Flat -> Modifier.background(palette.surface)
                 }
             )
