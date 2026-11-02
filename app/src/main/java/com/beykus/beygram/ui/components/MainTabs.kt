@@ -338,8 +338,9 @@ internal fun MainTabItem(
             }
             Icon(tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(resolvedIconSize))
             if (selected && selectionPill && spec.indicatorMark) {
-                // A standalone item (the settings preview) has no shared indicator, so it draws its own mark.
-                SelectionMark(spec, palette.textPrimary, Modifier.align(Alignment.TopCenter).offset(y = -markLift(spec)))
+                // A standalone item (the settings preview, the rail) has no shared indicator and no bar padding above
+                // it, so it draws its own mark inside the icon box, where no parent can clip it.
+                SelectionMark(spec, palette.textPrimary, Modifier.align(Alignment.TopCenter))
             }
         }
         if (spec.showLabels) {
