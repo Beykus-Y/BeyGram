@@ -1,10 +1,15 @@
 package com.beykus.beygram.playback
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.IntentFilter
 import android.content.Intent
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.net.Uri
 import android.os.SystemClock
 import android.view.TextureView
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -13,6 +18,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.FlagSet
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -196,6 +202,10 @@ object PlaybackEngine {
     private var prefetchPolicyAccount: String? = null
     /** BG Mix music path: used only for eligible local music queues while the experimental flag is on. */
     private var bgMix: BgMixQueueDriver? = null
+    /** Listeners the media session registered on the wrapper; BG Mix events go to them directly. */
+    private val bgMixListeners = mutableSetOf<Player.Listener>()
+    private var bgFocusRequest: AudioFocusRequest? = null
+    private var bgNoisyRegistered = false
     private var bgMixJob: Job? = null
 
     /**
@@ -320,6 +330,36 @@ object PlaybackEngine {
             override fun seekTo(positionMs: Long) {
                 if (bgMixActive()) seekToPosition(positionMs) else super.seekTo(positionMs)
             }
+
+            override fun addListener(listener: Player.Listener) {
+                bgMixListeners.add(listener)
+                super.addListener(listener)
+            }
+
+            override fun removeListener(listener: Player.Listener) {
+                bgMixListeners.remove(listener)
+                super.removeListener(listener)
+            }
+
+            override fun isPlaying(): Boolean = if (bgMixActive()) _state.value.playing else super.isPlaying()
+
+            override fun getPlayWhenReady(): Boolean =
+                if (bgMixActive()) _state.value.intentPlaying else super.getPlayWhenReady()
+
+            override fun getPlaybackState(): Int = when {
+                !bgMixActive() -> super.getPlaybackState()
+                _state.value.ended -> Player.STATE_ENDED
+                else -> Player.STATE_READY
+            }
+
+            override fun getCurrentPosition(): Long =
+                if (bgMixActive()) _state.value.positionMs else super.getCurrentPosition()
+
+            override fun getContentPosition(): Long =
+                if (bgMixActive()) _state.value.positionMs else super.getContentPosition()
+
+            override fun getDuration(): Long =
+                if (bgMixActive()) _state.value.durationMs.takeIf { it > 0L } ?: C.TIME_UNSET else super.getDuration()
 
             override fun stop() {
                 // MediaSession "stop" closes the session completely instead of leaving a phantom notification.
@@ -1031,6 +1071,82 @@ object PlaybackEngine {
 
     private fun bgMixActive(): Boolean = bgMix?.isActive == true
 
+    /** Placeholder for the ExoPlayer timeline while BG Mix plays: the current file, never played by ExoPlayer. */
+    private fun placeholderItem(item: PlaybackItem): MediaItem = MediaItem.Builder()
+        .setMediaId(item.key)
+        .setUri(Uri.fromFile(File(item.path)))
+        .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).setArtist(item.performer).build())
+        .build()
+
+    /** Tells the media session which of its player values changed. ExoPlayer events are ignored during BG Mix. */
+    private fun notifyChanges(before: PlaybackState, after: PlaybackState) {
+        val events = ArrayList<Int>()
+        if (before.playing != after.playing) events.add(Player.EVENT_IS_PLAYING_CHANGED)
+        if (before.intentPlaying != after.intentPlaying) events.add(Player.EVENT_PLAY_WHEN_READY_CHANGED)
+        if (before.ended != after.ended) events.add(Player.EVENT_PLAYBACK_STATE_CHANGED)
+        if (before.item?.key != after.item?.key) {
+            events.add(Player.EVENT_MEDIA_ITEM_TRANSITION)
+            events.add(Player.EVENT_POSITION_DISCONTINUITY)
+        }
+        if (events.isEmpty() || bgMixListeners.isEmpty()) return
+        val wrapper = controls ?: return
+        val flags = FlagSet.Builder().addAll(*events.toIntArray()).build()
+        bgMixListeners.toList().forEach { it.onEvents(wrapper, Player.Events(flags)) }
+    }
+
+    /** Pauses BG Mix when another app takes audio focus or the output becomes noisy (headphones unplugged). */
+    private val bgFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+            if (bgMixActive()) pauseBgMix()
+        }
+    }
+
+    private val bgNoisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (bgMixActive()) pauseBgMix()
+        }
+    }
+
+    private fun requestBgFocus(context: Context) {
+        val audio = context.getSystemService(AudioManager::class.java)
+        if (audio != null) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener(bgFocusListener)
+                .build()
+            if (audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                bgFocusRequest = request
+            }
+        }
+        if (!bgNoisyRegistered) {
+            ContextCompat.registerReceiver(
+                context.applicationContext,
+                bgNoisyReceiver,
+                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            bgNoisyRegistered = true
+        }
+    }
+
+    private fun releaseBgFocus() {
+        val context = appContext
+        val request = bgFocusRequest
+        bgFocusRequest = null
+        if (context != null && request != null) {
+            context.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request)
+        }
+        if (context != null && bgNoisyRegistered) {
+            runCatching { context.unregisterReceiver(bgNoisyReceiver) }
+            bgNoisyRegistered = false
+        }
+    }
+
     /**
      * Starts [queue] through BG Mix when the experimental flag is on and every item is an eligible local file.
      * Returns false without touching the ExoPlayer state, so the caller falls back to the regular path.
@@ -1048,11 +1164,16 @@ object PlaybackEngine {
         val driver = bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }
         if (!driver.start(queue.items, queue.index)) return false
         val item = queue.items[queue.index]
+        val before = _state.value
         progress?.cancel()
         progress = null
         exo?.let {
             it.stop()
             it.clearMediaItems()
+            // A paused placeholder keeps the session's current item (title, duration) and notification alive.
+            it.setMediaItem(placeholderItem(item))
+            it.prepare()
+            it.playWhenReady = false
         }
         transitionToken++
         clearDeferredSeek()
@@ -1071,6 +1192,8 @@ object PlaybackEngine {
         _state.update {
             it.copy(timelineHasNext = queue.index < queue.items.lastIndex, timelineHasPrevious = false)
         }
+        notifyChanges(before, _state.value)
+        requestBgFocus(context)
         bgMixJob?.cancel()
         val statusFlow = driver.status
         if (statusFlow != null) {
@@ -1085,6 +1208,7 @@ object PlaybackEngine {
     /** Copies the native status into the Media state the UI and the notification read. */
     private fun applyBgMix(status: BgMixStatus) {
         val driver = bgMix ?: return
+        val before = _state.value
         val playingNativeId = status.queue.firstOrNull { it.state == "playing" }?.id
         val index = playingNativeId?.let { driver.indexOfNative(it) } ?: _state.value.queueIndex
         val item = driver.itemAt(index) ?: return
@@ -1111,6 +1235,7 @@ object PlaybackEngine {
                 isBuffering = false
             )
         }
+        notifyChanges(before, _state.value)
         fireStartedCallback()
     }
 
@@ -1125,19 +1250,24 @@ object PlaybackEngine {
             playQueueIndex(_state.value.queueIndex)
             return
         }
+        val before = _state.value
         bgMix?.resume()
         _state.update { it.copy(intentPlaying = true, ended = false) }
+        notifyChanges(before, _state.value)
     }
 
     private fun pauseBgMix() {
+        val before = _state.value
         bgMix?.pause()
         _state.update { it.copy(playing = false, intentPlaying = false) }
+        notifyChanges(before, _state.value)
     }
 
     private fun stopBgMix() {
         bgMixJob?.cancel()
         bgMixJob = null
         bgMix?.stop()
+        releaseBgFocus()
     }
 
     private fun haltPlayer() {
@@ -1479,6 +1609,7 @@ object PlaybackEngine {
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (bgMixActive()) return
             _state.update {
                 it.copy(
                     playing = isPlaying,
@@ -1496,6 +1627,7 @@ object PlaybackEngine {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (bgMixActive()) return
             val pendingDeferredResume = deferredSeek?.resume == true &&
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST
             _state.update {
@@ -1511,6 +1643,7 @@ object PlaybackEngine {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (bgMixActive()) return
             updateAudioSessionId()
             if (playbackState == Player.STATE_READY) applyPendingStartFraction()
             val endedNow = playbackState == Player.STATE_ENDED
@@ -1537,10 +1670,12 @@ object PlaybackEngine {
 
         // Перемотку с уведомления или экрана блокировки делает сам плеер, минуя PlaybackEngine: позицию обновляем и на паузе.
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            if (bgMixActive()) return
             syncPosition()
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (bgMixActive()) return
             val mediaId = mediaItem?.mediaId
             val snapshot = _state.value
             if (mediaId != null && reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
@@ -1578,6 +1713,7 @@ object PlaybackEngine {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            if (bgMixActive()) return
             progress?.cancel()
             clearDeferredSeek()
             _state.update { it.copy(playing = false, intentPlaying = false, failed = true, isBuffering = false).withTimelineNavigation(exo) }
