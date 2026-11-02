@@ -272,6 +272,22 @@ Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeTransport(JNIEnv*, jclass,
 #endif
 }
 
+// Seeks the master deck to seconds. Returns false while a transition is running or nothing is loaded.
+JNIEXPORT jboolean JNICALL
+Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeSeek(JNIEnv*, jclass, jlong handle, jdouble seconds) {
+#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
+    MixHost* host = hostFrom(handle);
+    if (!host) return JNI_FALSE;
+    std::lock_guard lock(host->control);
+    const auto snap = host->session->snapshot();
+    return host->session->seekDeck(snap.engine.master, seconds) ? JNI_TRUE : JNI_FALSE;
+#else
+    (void)handle;
+    (void)seconds;
+    return JNI_FALSE;
+#endif
+}
+
 // Control tick. Must run regularly (about every 50 ms) from a non-audio thread.
 JNIEXPORT void JNICALL
 Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeUpdate(JNIEnv*, jclass, jlong handle) {

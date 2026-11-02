@@ -58,6 +58,9 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         player?.pause()
     }
 
+    /** Seeks the current BG Mix session; false when it cannot seek right now. */
+    fun seek(seconds: Double): Boolean = player?.seek(seconds) ?: false
+
     fun resume() {
         player?.play()
     }

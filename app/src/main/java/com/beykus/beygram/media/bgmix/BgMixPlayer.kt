@@ -133,6 +133,9 @@ class BgMixPlayer(private val cacheDir: File) {
 
     private class ReleaseTarget(val track: AudioTrack, val renderThread: Thread?, val handle: Long)
 
+    /** Seeks the master deck; false while a transition is running or nothing is loaded. */
+    fun seek(seconds: Double): Boolean = withHandle(false) { h -> BgMixNative.nativeSeek(h, seconds) }
+
     private fun transport(action: Int) = withHandle(Unit) { h ->
         BgMixNative.nativeTransport(h, action)
     }
