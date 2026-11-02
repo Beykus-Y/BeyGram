@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.settings
 
 import android.Manifest
+import com.beykus.beygram.ui.design.styledShape
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -375,7 +376,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 }
                 reports.forEach { report ->
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        Modifier.fillMaxWidth().clip(styledShape(10.dp))
                             .clickable { selectedReportId = report.id }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.stories
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -390,7 +391,7 @@ fun StoryPublisherScreen(
                 if (media == null) R.string.stories_choose_media_description else R.string.stories_change_media
             )
             Box(
-                Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(24.dp))
+                Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(styledShape(24.dp))
                     .background(palette.surface2)
                     .clickable(enabled = !preparing && !busy, role = Role.Button) {
                         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
@@ -422,7 +423,7 @@ fun StoryPublisherScreen(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)
-                            .clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.55f))
+                            .clip(styledShape(12.dp)).background(Color.Black.copy(alpha = 0.55f))
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     )
                 }
@@ -636,7 +637,7 @@ private fun StorySectionTitle(text: String) {
 private fun StoryChoiceChip(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
-        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
+        Modifier.heightIn(min = 48.dp).clip(styledShape(16.dp))
             .background(if (selected) palette.accent else palette.surface2)
             .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 14.dp),
@@ -715,7 +716,7 @@ internal fun StoryRecipientsDialog(
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.padding(horizontal = 20.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp))
+            Modifier.padding(horizontal = 20.dp).fillMaxWidth().clip(styledShape(24.dp))
                 .background(palette.surface).padding(18.dp)
         ) {
             Text(
@@ -847,7 +848,7 @@ private fun StoryArchiveDialog(
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.padding(horizontal = 20.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp))
+            Modifier.padding(horizontal = 20.dp).fillMaxWidth().clip(styledShape(24.dp))
                 .background(palette.surface).padding(18.dp)
         ) {
             Text(
@@ -966,7 +967,7 @@ private fun StoryArchiveRow(
         Modifier.fillMaxWidth().heightIn(min = 58.dp).clickable(role = Role.Button, onClick = onOpen).padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.size(42.dp).clip(RoundedCornerShape(10.dp)).background(palette.surface2), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(42.dp).clip(styledShape(10.dp)).background(palette.surface2), contentAlignment = Alignment.Center) {
             val path = file.localPath
             if (path != null) LocalMediaImage(path, Modifier.fillMaxSize())
             else Icon(Icons.Rounded.Image, null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))

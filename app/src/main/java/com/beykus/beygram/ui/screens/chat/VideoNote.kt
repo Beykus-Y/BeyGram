@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.view.TextureView
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
@@ -100,7 +101,7 @@ internal fun PendingVideoNoteBubble(pending: PendingVideoNote) {
                 }
             }
             Row(
-                Modifier.padding(top = 4.dp).background(palette.surface, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+                Modifier.padding(top = 4.dp).background(palette.surface, styledShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(time, color = palette.messageTime, fontSize = 12.sp)
@@ -259,7 +260,7 @@ internal fun VideoNoteBubble(
             if (unseen && !played) Box(Modifier.align(Alignment.CenterEnd).size(10.dp).background(palette.accent, CircleShape))
         }
         Row(
-            Modifier.padding(top = 4.dp).background(palette.surface, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+            Modifier.padding(top = 4.dp).background(palette.surface, styledShape(10.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(duration(shownSeconds), color = palette.textSecondary, fontSize = 12.sp)

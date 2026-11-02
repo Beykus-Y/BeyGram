@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -256,7 +257,7 @@ private fun GroupMembers(info: ProfileInfo, isLoading: Boolean, observeFile: (In
         }
         return
     }
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.padding(horizontal = 16.dp).clip(styledShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
         info.memberPreview.forEachIndexed { index, member ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 82.dp))
             MemberRow(member, observeFile, downloadFile) { onOpenUser(member.userId) }

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.Manifest
+import com.beykus.beygram.ui.design.styledShape
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -1106,7 +1107,7 @@ private fun VideoNoteScreenBrightness(active: Boolean) {
 @Composable
 internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modifier = Modifier, onCancel: () -> Unit) {
     val palette = beyGramPalette()
-    Row(modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface2).padding(horizontal = 8.dp),
+    Row(modifier.heightIn(min = 48.dp).clip(styledShape(20.dp)).background(palette.surface2).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Spacer(Modifier.size(9.dp).clip(CircleShape).background(palette.danger))
         Icon(Icons.Rounded.Videocam, null, tint = palette.danger, modifier = Modifier.size(19.dp))
@@ -1161,7 +1162,7 @@ internal fun VideoNoteRecordingOverlay(recorder: VideoNoteRecorder, modifier: Mo
                         color = Color.White,
                         fontSize = 13.sp,
                         modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp)
-                            .clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.4f)).padding(horizontal = 8.dp, vertical = 2.dp)
+                            .clip(styledShape(10.dp)).background(Color.Black.copy(alpha = 0.4f)).padding(horizontal = 8.dp, vertical = 2.dp)
                     )
                 }
             }

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import android.content.Context
+import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -178,7 +179,7 @@ fun ProfileScreen(
                                 FilledTonalButton(
                                     onClick = onEdit,
                                     enabled = !state.isLoading && state.error == null && !saving && !preparing,
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = styledShape(14.dp),
                                     modifier = actionModifier.heightIn(min = 48.dp).semantics { contentDescription = editDescription },
                                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)
                                 ) {
@@ -222,7 +223,7 @@ fun ProfileScreen(
                         Spacer(Modifier.height(14.dp))
                         FilledTonalButton(
                             onClick = { onGifts(info.id, false, info.title) },
-                            shape = RoundedCornerShape(14.dp),
+                            shape = styledShape(14.dp),
                             modifier = Modifier.heightIn(min = 48.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)
                         ) {
@@ -305,9 +306,9 @@ fun ProfileScreen(
                 photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(top = 12.dp).errorAnnouncement()) }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilledTonalButton(onClick = ::discard, enabled = !saving, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f).height(50.dp),
+                FilledTonalButton(onClick = ::discard, enabled = !saving, shape = styledShape(16.dp), modifier = Modifier.weight(1f).height(50.dp),
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.common_cancel), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                Button(enabled = !saving, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f).height(50.dp),
+                Button(enabled = !saving, shape = styledShape(16.dp), modifier = Modifier.weight(1f).height(50.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = palette.accent, contentColor = palette.onAccent), onClick = { scope.launch {
                         saving = true; photoError = null
                         try {
@@ -632,15 +633,15 @@ fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save
             } }) { Text(if (saving) "…" else stringResource(R.string.common_save)) }
         }
         if (saving) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
-        if (discard) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(palette.warningSurface).errorAnnouncement().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (discard) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(styledShape(16.dp)).background(palette.warningSurface).errorAnnouncement().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.profile_unsaved_changes), color = palette.warningText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             TextButton(onClick = onBack) { Text(stringResource(R.string.profile_discard_changes), color = palette.warningText, fontWeight = FontWeight.SemiBold) }
         }
         Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            OutlinedTextField(first, { first = it.take(64) }, label = { Text(stringResource(R.string.profile_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
-            OutlinedTextField(last, { last = it.take(64) }, label = { Text(stringResource(R.string.profile_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
-            OutlinedTextField(username, { username = it.removePrefix("@").take(32) }, label = { Text(stringResource(R.string.profile_username)) }, prefix = { Text("@") }, supportingText = { Text(stringResource(R.string.profile_username_hint)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
-            OutlinedTextField(bio, { bio = it }, label = { Text(stringResource(R.string.profile_about_me)) }, supportingText = { Text(stringResource(R.string.profile_bio_counter, bioCount, bioLimit)) }, isError = bioCount > bioLimit, minLines = 3, maxLines = 6, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
+            OutlinedTextField(first, { first = it.take(64) }, label = { Text(stringResource(R.string.profile_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = styledShape(14.dp), colors = beyGramTextFieldColors())
+            OutlinedTextField(last, { last = it.take(64) }, label = { Text(stringResource(R.string.profile_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = styledShape(14.dp), colors = beyGramTextFieldColors())
+            OutlinedTextField(username, { username = it.removePrefix("@").take(32) }, label = { Text(stringResource(R.string.profile_username)) }, prefix = { Text("@") }, supportingText = { Text(stringResource(R.string.profile_username_hint)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), shape = styledShape(14.dp), colors = beyGramTextFieldColors())
+            OutlinedTextField(bio, { bio = it }, label = { Text(stringResource(R.string.profile_about_me)) }, supportingText = { Text(stringResource(R.string.profile_bio_counter, bioCount, bioLimit)) }, isError = bioCount > bioLimit, minLines = 3, maxLines = 6, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), shape = styledShape(14.dp), colors = beyGramTextFieldColors())
             Text(stringResource(R.string.profile_save_hint), color = palette.textSecondary, fontSize = 13.sp)
             error?.let { Text(it, color = palette.danger, modifier = Modifier.errorAnnouncement()) }
         }

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -378,7 +379,7 @@ fun AccountSecurityScreen(
             }
             loadError?.let { message ->
                 item {
-                    Surface(shape = RoundedCornerShape(16.dp), color = palette.warningSurface) {
+                    Surface(shape = styledShape(16.dp), color = palette.warningSurface) {
                         Column(Modifier.fillMaxWidth().padding(16.dp)) {
                             Text(message, color = palette.warningText)
                             TextButton(enabled = !loading, onClick = { refresh++ }) {
@@ -400,7 +401,7 @@ fun AccountSecurityScreen(
             }
             notice?.let { message ->
                 item {
-                    Surface(shape = RoundedCornerShape(16.dp), color = palette.successSurface) {
+                    Surface(shape = styledShape(16.dp), color = palette.successSurface) {
                         Text(
                             message,
                             color = palette.successText,
@@ -411,7 +412,7 @@ fun AccountSecurityScreen(
             }
             if (deletedOnServer) {
                 item {
-                    Surface(shape = RoundedCornerShape(16.dp), color = palette.successSurface) {
+                    Surface(shape = styledShape(16.dp), color = palette.successSurface) {
                         Text(
                             stringResource(R.string.account_security_deleted_on_server),
                             color = palette.successText,
@@ -422,7 +423,7 @@ fun AccountSecurityScreen(
                 }
             } else if (deletionRunning) {
                 item {
-                    Surface(shape = RoundedCornerShape(16.dp), color = palette.warningSurface) {
+                    Surface(shape = styledShape(16.dp), color = palette.warningSurface) {
                         Text(
                             stringResource(R.string.account_security_delete_busy),
                             color = palette.warningText,

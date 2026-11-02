@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.clickable
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -218,7 +219,7 @@ internal fun ChatSettingsSheet(
                         items(WallpaperPresets, key = { it.id }) { preset ->
                             val selected = (effectiveWallpaper as? ChatWallpaper.Preset)?.id == preset.id
                             val option = ChatWallpaper.Preset(preset.id)
-                            val outline = RoundedCornerShape(12.dp)
+                            val outline = styledShape(12.dp)
                             Column(
                                 modifier = Modifier.width(112.dp).selectable(
                                     selected = selected,
@@ -277,7 +278,7 @@ internal fun ChatSettingsSheet(
                     if (soundMenu) {
                         Column(
                             Modifier.fillMaxWidth().heightIn(max = 220.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(styledShape(12.dp))
                                 .background(palette.surface2)
                                 .verticalScroll(rememberScrollState())
                                 .padding(horizontal = 4.dp)

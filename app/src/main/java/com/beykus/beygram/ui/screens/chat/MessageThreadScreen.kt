@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -528,7 +529,7 @@ internal fun MessageThreadScreen(
                     replyTarget?.let { target ->
                         Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(
-                                Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                                Modifier.weight(1f).clip(styledShape(12.dp))
                                     .background(palette.surface2)
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {

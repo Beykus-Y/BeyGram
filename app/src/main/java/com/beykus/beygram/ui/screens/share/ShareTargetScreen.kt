@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.share
 
 import android.net.Uri
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -180,7 +181,7 @@ internal fun ShareTargetScreen(
                 // A concise preview gives context before choosing a recipient; never sends anything on selection.
                 if (text.isNotEmpty() || hasFiles) {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = styledShape(16.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -218,8 +219,8 @@ internal fun ShareTargetScreen(
                         item(key = "quick-saved") {
                             Surface(
                                 color = MaterialTheme.colorScheme.primaryContainer,
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                                shape = styledShape(16.dp),
+                                modifier = Modifier.fillMaxWidth().clip(styledShape(16.dp))
                                     .clickable {
                                         targetId = quickSaved.id
                                         topicId = 0L
@@ -232,7 +233,7 @@ internal fun ShareTargetScreen(
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     Box(
-                                        Modifier.size(46.dp).clip(RoundedCornerShape(15.dp))
+                                        Modifier.size(46.dp).clip(styledShape(15.dp))
                                             .background(MaterialTheme.colorScheme.primary),
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -269,7 +270,7 @@ internal fun ShareTargetScreen(
                         ) {
                             Box(
                                 Modifier.size(46.dp)
-                                    .clip(RoundedCornerShape(16.dp))
+                                    .clip(styledShape(16.dp))
                                     .background(if (chat.isSavedMessages) palette.accentSoft else MaterialTheme.colorScheme.surfaceContainerHighest),
                                 contentAlignment = Alignment.Center
                             ) {

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -176,7 +177,7 @@ internal fun GroupSettingsScreen(
         }
         if (saving || photoBusy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         if (discardWarning) Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(palette.warningSurface)
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(styledShape(16.dp)).background(palette.warningSurface)
                 .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -232,7 +233,7 @@ internal fun GroupSettingsScreen(
                     singleLine = true,
                     enabled = !saving && !photoBusy,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = styledShape(14.dp),
                     colors = beyGramTextFieldColors()
                 )
                 OutlinedTextField(
@@ -246,7 +247,7 @@ internal fun GroupSettingsScreen(
                     enabled = !saving && !photoBusy,
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = styledShape(14.dp),
                     colors = beyGramTextFieldColors()
                 )
             }
@@ -266,7 +267,7 @@ internal fun GroupSettingsScreen(
                     enabled = canEditUsername && !saving && !photoBusy,
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = styledShape(14.dp),
                     colors = beyGramTextFieldColors()
                 )
             }

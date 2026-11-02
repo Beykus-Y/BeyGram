@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -301,14 +302,14 @@ private fun InlineResultThumbnail(
     }
     val path = file.localPath
     if (path == null) InlineResultThumbnailFallback(result.kind)
-    else LocalMediaImage(path, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)), maxDimension = 128)
+    else LocalMediaImage(path, Modifier.size(44.dp).clip(styledShape(10.dp)), maxDimension = 128)
 }
 
 @Composable
 private fun InlineResultThumbnailFallback(kind: InlineBotResultKind) {
     val palette = beyGramPalette()
     Box(
-        Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(palette.surface2),
+        Modifier.size(44.dp).clip(styledShape(10.dp)).background(palette.surface2),
         contentAlignment = Alignment.Center
     ) { Icon(kind.icon(), contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(21.dp)) }
 }

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.music
 
 import android.content.Context
+import com.beykus.beygram.ui.design.styledShape
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -176,7 +177,7 @@ internal fun MusicTrackRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(palette.accentSoft),
+            Modifier.size(44.dp).clip(styledShape(12.dp)).background(palette.accentSoft),
             contentAlignment = Alignment.Center
         ) {
             Icon(Icons.Rounded.MusicNote, null, tint = palette.accentInk, modifier = Modifier.size(22.dp))

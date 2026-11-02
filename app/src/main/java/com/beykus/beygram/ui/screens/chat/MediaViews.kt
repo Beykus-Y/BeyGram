@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
+import com.beykus.beygram.ui.design.styledShape
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -612,7 +613,7 @@ internal fun MediaPreview(
                 if (revealed) Text(
                     media.kind.label(context) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
                     color = Color.White, fontSize = 11.sp,
-                    modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
+                    modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = 0.5f), styledShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
                 )
             }
             if (file.isDownloading || file.isUploading) LinearProgressIndicator(
@@ -654,7 +655,7 @@ internal fun MediaPreview(
         val longPressLabel = stringResource(R.string.a11y_message_actions)
         val playSpec = rememberMotionSpec(MotionToken.MicroFeedback)
         Row(
-            Modifier.width(280.dp).clip(RoundedCornerShape(12.dp))
+            Modifier.width(280.dp).clip(styledShape(12.dp))
                 .combinedClickable(
                     onClickLabel = if (card.isCurrent) openLabel else playLabel,
                     onLongClickLabel = longPressLabel,
@@ -802,7 +803,7 @@ private fun DocumentRow(media: MessageMedia, file: MediaFileState, onOpen: () ->
     val mediaLabel = media.kind.label(context)
     val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
     val longPressLabel = stringResource(R.string.a11y_message_actions)
-    Row(Modifier.width(244.dp).clip(RoundedCornerShape(12.dp))
+    Row(Modifier.width(244.dp).clip(styledShape(12.dp))
         .combinedClickable(onClickLabel = openLabel, onLongClickLabel = longPressLabel, onClick = onOpen, onLongClick = onLongPress)
         .padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, tint = palette.accentInk,
@@ -1241,7 +1242,7 @@ private fun PhotoPreview(file: MediaFileState, thumbnailPath: String?, onDownloa
     Box(Modifier.fillMaxSize()) {
         if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true)
         Column(
-            Modifier.align(Alignment.Center).padding(24.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.align(Alignment.Center).padding(24.dp).background(Color.Black.copy(alpha = 0.5f), styledShape(12.dp)).padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.White)
@@ -1253,7 +1254,7 @@ private fun PhotoPreview(file: MediaFileState, thumbnailPath: String?, onDownloa
 
 @Composable
 private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color(0xFFCFC4FF), onClick: () -> Unit) {
-    Column(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.heightIn(min = 48.dp).clip(styledShape(12.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
         Spacer(Modifier.height(4.dp))
         Text(label, color = tint, fontSize = 12.sp)
@@ -1306,7 +1307,7 @@ private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls:
         // Кнопки стоят поверх картинки, а не внутри её жестов: тап по кнопке не должен переключать панели или сдвигать фото.
         // Внизу по центру, чтобы на низком окне не наезжать на кнопки листания у краёв.
         if (showZoomControls) Row(
-            Modifier.align(Alignment.BottomCenter).padding(16.dp).background(Color(0x80070B10), RoundedCornerShape(24.dp)),
+            Modifier.align(Alignment.BottomCenter).padding(16.dp).background(Color(0x80070B10), styledShape(24.dp)),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { zoomTo(scale / 1.5f) }, enabled = scale > 1f) {

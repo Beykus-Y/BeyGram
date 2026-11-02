@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.widget.Toast
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -76,7 +77,7 @@ internal fun PaidMediaCard(
     val paymentState by PaidContentPaymentStore.state.collectAsState()
     val firstItem = paid.firstPurchasedMedia
     Box(modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(palette.surface2)) {
+        Column(Modifier.fillMaxWidth().clip(styledShape(12.dp)).background(palette.surface2)) {
             if (paid.isPurchased) {
                 if (firstItem != null && observeFile != null && downloadFile != null) {
                     PurchasedPreview(firstItem, key, actions, observeFile, downloadFile, autoDownloadFile)
@@ -127,7 +128,7 @@ internal fun InvoiceCard(
     val price = formatPriceMinorUnits(invoice.totalAmountMinor, invoice.currency)
     Box(modifier.fillMaxWidth()) {
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(palette.surface2).padding(12.dp),
+            Modifier.fillMaxWidth().clip(styledShape(12.dp)).background(palette.surface2).padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -146,7 +147,7 @@ internal fun InvoiceCard(
                         color = palette.warningText,
                         fontSize = 12.sp,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(styledShape(6.dp))
                             .background(palette.warningSurface)
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     )

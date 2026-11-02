@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.music
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -319,7 +320,7 @@ private fun MusicActionRow(icon: ImageVector, label: String, onClick: () -> Unit
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(palette.accentSoft),
+            Modifier.size(44.dp).clip(styledShape(12.dp)).background(palette.accentSoft),
             contentAlignment = Alignment.Center
         ) {
             Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
@@ -336,7 +337,7 @@ private fun StorageErrorBanner() {
     Row(
         Modifier.fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(styledShape(14.dp))
             .background(palette.warningSurface)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -358,7 +359,7 @@ private fun CollectionCard(title: String, count: Int, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Column(
         Modifier.size(width = 150.dp, height = 96.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(styledShape(16.dp))
             .background(palette.accentSoft)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(14.dp),

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.bgmusic
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -167,7 +168,7 @@ private fun BgMusicPlaylistCard(
     Column(
         Modifier
             .width(244.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(styledShape(12.dp))
             .semantics { role = Role.Button }
             .combinedClickable(
                 onClickLabel = openLabel,
@@ -201,7 +202,7 @@ private fun BgMusicPlaylistCard(
         // Not clickable of its own: the card takes the tap and the long press, so both reach it from the whole card.
         Box(
             Modifier
-                .clip(RoundedCornerShape(10.dp))
+                .clip(styledShape(10.dp))
                 .background(palette.accentSoft)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
@@ -219,7 +220,7 @@ private fun BgMusicPlaylistCard(
 @Composable
 private fun CollectionCover(coverPath: String?) {
     val palette = beyGramPalette()
-    val shape = RoundedCornerShape(8.dp)
+    val shape = styledShape(8.dp)
     // The cache file goes with its cache entry, so a cover file that is gone shows the icon instead.
     val cover = remember(coverPath) { coverPath?.takeIf { File(it).isFile } }
     if (cover != null) {
@@ -259,7 +260,7 @@ private fun BgMusicPendingCard(
     Column(
         Modifier
             .width(244.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(styledShape(12.dp))
             .combinedClickable(
                 onClickLabel = downloadLabel,
                 onLongClickLabel = longPressLabel,

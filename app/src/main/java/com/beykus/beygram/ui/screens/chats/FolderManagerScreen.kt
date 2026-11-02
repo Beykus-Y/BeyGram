@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chats
 
 import android.os.Bundle
+import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -213,7 +214,7 @@ internal fun FolderManagerScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(snapshot.folders, key = { it.id }) { folder ->
-                        Surface(shape = RoundedCornerShape(16.dp), color = palette.surface) {
+                        Surface(shape = styledShape(16.dp), color = palette.surface) {
                             Row(
                                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically

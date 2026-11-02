@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.compose.animation.AnimatedVisibility
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -226,7 +227,7 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> 
                 Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(styledShape(12.dp))
                     .clickable(role = Role.Button, onClickLabel = openLabel, onClick = onOpen)
                     .padding(start = 2.dp, end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -476,7 +477,7 @@ private fun SpeedChip(speed: Float, selected: Boolean, enabled: Boolean, colors:
         color = if (selected) colors.accentInk else colors.primary,
         fontSize = 13.sp,
         fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.clip(RoundedCornerShape(16.dp))
+        modifier = Modifier.clip(styledShape(16.dp))
             .background(if (selected) colors.accent else colors.accentSoft)
             .clickable(enabled = enabled, onClick = onSelect)
             .padding(horizontal = 12.dp, vertical = 6.dp)

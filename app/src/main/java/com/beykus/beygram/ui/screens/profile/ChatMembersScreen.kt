@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -84,7 +85,7 @@ fun ChatMembersScreen(
             }
         }
         LazyColumn(
-            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface),
+            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(styledShape(20.dp)).background(palette.surface),
             state = listState, contentPadding = PaddingValues(vertical = 4.dp)
         ) {
             itemsIndexed(members) { index, member ->

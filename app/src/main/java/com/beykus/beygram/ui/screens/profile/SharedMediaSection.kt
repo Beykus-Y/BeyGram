@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import android.widget.Toast
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -249,7 +250,7 @@ private fun SharedMediaTabBar(titles: List<String>, counts: List<String?>, selec
             val isSelected = index == selected
             val ink = if (isSelected) palette.accentInk else palette.textSecondary
             Column(
-                Modifier.widthIn(min = 84.dp).height(52.dp).clip(RoundedCornerShape(16.dp))
+                Modifier.widthIn(min = 84.dp).height(52.dp).clip(styledShape(16.dp))
                     .background(if (isSelected) palette.accentSoft else palette.surface2)
                     .selectable(selected = isSelected, role = Role.Tab) { onSelect(index) }.padding(horizontal = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -648,7 +649,7 @@ internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlo
         }
     }
     Box(
-        modifier.aspectRatio(1f).clip(RoundedCornerShape(4.dp)).background(palette.disabled)
+        modifier.aspectRatio(1f).clip(styledShape(4.dp)).background(palette.disabled)
             .clickable(onClick = { if (!revealed) revealed = true else onClick() }),
         contentAlignment = Alignment.Center
     ) {
@@ -659,7 +660,7 @@ internal fun SharedMediaCell(media: MessageMedia, observeFile: (Int) -> StateFlo
         if (media.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
         if (revealed && media.kind == MediaKind.Video && media.durationSeconds > 0) Text(
             duration(media.durationSeconds), color = Color.White, fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp)
+            modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Black.copy(alpha = 0.5f), styledShape(4.dp)).padding(horizontal = 4.dp)
         )
     }
 }

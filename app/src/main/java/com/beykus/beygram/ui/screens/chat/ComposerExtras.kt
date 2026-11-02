@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -245,7 +246,7 @@ internal fun ContactPickerDialog(
                     else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
                         items(shown, key = { it.userId }) { contact ->
                             Row(
-                                Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(10.dp))
+                                Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(styledShape(10.dp))
                                     .clickable(role = Role.Button) { onPick(contact) }.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -283,7 +284,7 @@ internal fun DicePickerDialog(onDismiss: () -> Unit, onPick: (String) -> Unit) {
                         row.forEach { emoji ->
                             val description = stringResource(R.string.dice_picker_description, emoji)
                             Box(
-                                Modifier.size(64.dp).clip(RoundedCornerShape(14.dp)).background(palette.accentSoft)
+                                Modifier.size(64.dp).clip(styledShape(14.dp)).background(palette.accentSoft)
                                     .clickable(role = Role.Button) { onPick(emoji) }
                                     .semantics { contentDescription = description },
                                 contentAlignment = Alignment.Center

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.bgmusic
 
 import android.content.Context
+import com.beykus.beygram.ui.design.styledShape
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -224,7 +225,7 @@ fun BgMusicPreviewScreen(
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f).padding(horizontal = 12.dp),
-            shape = RoundedCornerShape(20.dp),
+            shape = styledShape(20.dp),
             color = palette.surface,
         ) {
             Column(Modifier.fillMaxSize().padding(20.dp)) {
@@ -232,7 +233,7 @@ fun BgMusicPreviewScreen(
                     if (shownCover != null) {
                         LocalMediaImage(
                             path = shownCover,
-                            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)),
+                            modifier = Modifier.size(64.dp).clip(styledShape(10.dp)),
                             maxDimension = 256,
                         )
                         Spacer(Modifier.width(14.dp))

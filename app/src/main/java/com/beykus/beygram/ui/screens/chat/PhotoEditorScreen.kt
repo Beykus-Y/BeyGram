@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.graphics.Bitmap
+import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -363,7 +364,7 @@ private fun EditorAction(
     val palette = beyGramPalette()
     Row(
         Modifier.defaultMinSize(minHeight = 48.dp)
-            .background(palette.surface2, RoundedCornerShape(14.dp))
+            .background(palette.surface2, styledShape(14.dp))
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label }
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -380,7 +381,7 @@ private fun AspectChip(label: String, selected: Boolean, enabled: Boolean, onCli
     val palette = beyGramPalette()
     Box(
         Modifier.defaultMinSize(minHeight = 48.dp)
-            .background(if (selected) palette.accentSoft else palette.surface2, RoundedCornerShape(14.dp))
+            .background(if (selected) palette.accentSoft else palette.surface2, styledShape(14.dp))
             .toggleable(value = selected, enabled = enabled, role = Role.RadioButton) { onClick() }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
@@ -394,7 +395,7 @@ private fun QualityChip(label: String, selected: Boolean, enabled: Boolean, onCl
     val palette = beyGramPalette()
     Box(
         Modifier.defaultMinSize(minHeight = 48.dp)
-            .background(if (selected) palette.accentSoft else palette.surface2, RoundedCornerShape(14.dp))
+            .background(if (selected) palette.accentSoft else palette.surface2, styledShape(14.dp))
             .toggleable(value = selected, enabled = enabled, role = Role.RadioButton) { onClick() }
             .padding(horizontal = 10.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center

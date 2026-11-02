@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.widget.Toast
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -54,7 +55,7 @@ internal fun MessageLinkPreviewCard(
     val uriHandler = LocalUriHandler.current
     // Navigate to TDLib's original URL; displayUrl is a shortened human-readable form that may not be navigable.
     val target = safeLinkPreviewUrl(preview.url.ifBlank { preview.displayUrl })
-    val shape = RoundedCornerShape(8.dp)
+    val shape = styledShape(8.dp)
     Row(
         modifier.fillMaxWidth().padding(top = 6.dp)
             .clip(shape)
@@ -117,7 +118,7 @@ private fun LinkPreviewPhoto(
             if (autoDownload != null) autoDownload(request) else onDownloadFile(fileId)
         }
     }
-    Box(modifier.clip(RoundedCornerShape(6.dp)).background(palette.surface2), contentAlignment = Alignment.Center) {
+    Box(modifier.clip(styledShape(6.dp)).background(palette.surface2), contentAlignment = Alignment.Center) {
         val path = file.localPath
         if (path != null) LocalMediaImage(path, Modifier.fillMaxSize(), contentDescriptionText = stringResource(R.string.media_image_description))
         else if (file.isDownloading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
