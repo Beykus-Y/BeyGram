@@ -839,6 +839,7 @@ object PlaybackEngine {
         playbackOrder: List<Int>? = null
     ) {
         if (queue.isEmpty() || index !in queue.indices) return
+        if (bgMixActive()) stopBgMix()
         val target = exo ?: return
         transitionToken++
         clearDeferredSeek()
@@ -1010,6 +1011,8 @@ object PlaybackEngine {
         BgMixSettingsStore.load(context)
         if (!BgMixSettingsStore.enabled.value) return false
         if (queue.index !in queue.items.indices) return false
+        // Creates the shared player and appContext on first use, so the notification and queue paths work.
+        player(context)
         val driver = bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }
         if (!driver.start(queue.items, queue.index)) return false
         val item = queue.items[queue.index]
@@ -1033,6 +1036,9 @@ object PlaybackEngine {
             intentPlaying = true,
             speed = 1f
         )
+        _state.update {
+            it.copy(timelineHasNext = queue.index < queue.items.lastIndex, timelineHasPrevious = false)
+        }
         bgMixJob?.cancel()
         val statusFlow = driver.status
         if (statusFlow != null) {
@@ -1056,8 +1062,11 @@ object PlaybackEngine {
             status.queue.all { it.state == "played" || it.state == "failed" } &&
             !status.transitionActive && !deckPlaying
         val playing = !status.paused && deckPlaying && !finished
+        val hasNext = status.queue.any { (driver.indexOfNative(it.id) ?: -1) > index }
         _state.update { current ->
             current.copy(
+                timelineHasNext = hasNext,
+                timelineHasPrevious = false,
                 item = item,
                 queue = driver.queueItems,
                 queueIndex = index,
