@@ -23,7 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -174,7 +174,7 @@ internal fun TranslationSettingsSection(
                 Text(stringResource(R.string.translation_auto_title), color = palette.textPrimary)
                 Text(stringResource(R.string.translation_auto_hint), color = palette.textSecondary, fontSize = 12.sp)
             }
-            androidx.compose.material3.Switch(checked = autoTranslate, onCheckedChange = onAutoTranslateChange)
+            com.beykus.beygram.ui.components.Switch(checked = autoTranslate, onCheckedChange = onAutoTranslateChange)
         }
         Row(
             Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onChooseLanguage)

@@ -5,7 +5,7 @@ import androidx.compose.foundation.text.contextmenu.data.*
 import androidx.compose.foundation.text.contextmenu.provider.*
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect

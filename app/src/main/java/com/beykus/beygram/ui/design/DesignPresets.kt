@@ -56,9 +56,12 @@ val DefaultDesignSystem = DesignSystem(
 val Material2DesignSystem = DesignSystem(
     style = DesignStyle.Material2,
     shapes = DesignShapes(
-        extraSmall = 2.dp, small = 4.dp, medium = 4.dp, large = 8.dp, extraLarge = 12.dp,
+        // Material's own scale drives the widgets: 4dp text fields, menus, cards and buttons, 4dp dialogs and the
+        // almost square top of a modal sheet (extraLarge), 8dp for the few large containers.
+        extraSmall = 4.dp, small = 4.dp, medium = 4.dp, large = 8.dp, extraLarge = 4.dp,
         button = 4.dp, card = 4.dp, sheet = 0.dp, dialog = 4.dp, chip = 16.dp,
-        search = 2.dp, composer = 4.dp, navigationIndicator = 0.dp, groupCard = 4.dp, listGroup = 4.dp
+        search = 2.dp, composer = 4.dp, navigationIndicator = 0.dp, groupCard = 4.dp, listGroup = 4.dp,
+        cornerCap = 4.dp
     ),
     spacing = DesignSpacing(
         xxs = 2.dp, xs = 4.dp, sm = 8.dp, md = 12.dp, lg = 16.dp, xl = 20.dp, xxl = 24.dp,
