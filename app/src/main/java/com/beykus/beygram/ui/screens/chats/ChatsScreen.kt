@@ -1307,7 +1307,8 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                     // Чат без звука получает серый счётчик, как в Telegram. Ручная отметка без сообщений — точка.
                     val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
                     if (chat.unreadCount > 0) {
-                        Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(main.badgeRadius)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
+                        // A minimum, not a fixed height: at a large font scale the digits grow and must not be clipped.
+                        Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp, minHeight = 22.dp).clip(RoundedCornerShape(main.badgeRadius)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
                             Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     } else {

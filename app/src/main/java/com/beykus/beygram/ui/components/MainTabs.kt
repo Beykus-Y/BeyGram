@@ -68,6 +68,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -348,13 +349,24 @@ internal fun MainTabItem(
             Text(
                 text = tab.title,
                 color = labelTint,
-                fontSize = spec.labelSize,
+                fontSize = tabLabelSize(spec.labelSize, LocalDensity.current.fontScale),
                 fontWeight = if (selected) spec.selectedLabelWeight else spec.labelWeight,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
+
+/**
+ * Largest font scale a tab label follows. Four labels share a phone-wide bar, so beyond this a word like "Contacts" no
+ * longer fits its tab; the icon and the TalkBack name carry the tab at larger sizes. Up to 1.5x nothing changes.
+ */
+internal const val MaxTabLabelFontScale = 1.5f
+
+/** The label size in sp that renders no larger than [MaxTabLabelFontScale] times its nominal size. */
+internal fun tabLabelSize(nominal: TextUnit, fontScale: Float): TextUnit =
+    if (fontScale > MaxTabLabelFontScale) nominal * (MaxTabLabelFontScale / fontScale) else nominal
 
 /** How far above the icon box the Signature mark sits, so it reads as a tab marker near the top edge of the bar. */
 private fun markLift(spec: NavigationSpec): Dp = (spec.barTopPadding - 4.dp).coerceAtLeast(0.dp)
