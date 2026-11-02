@@ -18,4 +18,10 @@ class SearchFieldHeightPolicyTest {
         assertEquals(72f, searchFieldMinHeightDp(2.0f), 0f)
         assertEquals(72f, searchFieldMinHeightDp(3.0f), 0f)
     }
+
+    @Test fun material3SearchBarStartsAt56dpAndStillGrowsWithText() {
+        assertEquals(56f, searchFieldMinHeightDp(1f, 56f), 0f)
+        assertEquals(70f, searchFieldMinHeightDp(1.25f, 56f), 0f)
+        assertEquals(72f, searchFieldMinHeightDp(2f, 56f), 0f)
+    }
 }

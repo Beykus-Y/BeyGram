@@ -83,8 +83,9 @@ class DesignSystemTest {
         assertTrue(byStyle.getValue(DesignStyle.Material2).sectionLabelUppercase)
         assertEquals(ArchiveTreatment.Card, byStyle.getValue(DesignStyle.Material2).archive)
 
-        // Material 3 uses a tonal filter chip instead of the accent fill.
-        assertEquals(ChipSelectionTone.Tonal, byStyle.getValue(DesignStyle.Material3).chipSelection)
+        // Material 3 uses its outlined filter chip instead of the accent fill; Glass keeps its tonal chip.
+        assertEquals(ChipSelectionTone.Filter, byStyle.getValue(DesignStyle.Material3).chipSelection)
+        assertEquals(ChipSelectionTone.Tonal, byStyle.getValue(DesignStyle.LiquidGlass).chipSelection)
         assertEquals(8.dp, byStyle.getValue(DesignStyle.Material3).badgeRadius)
 
         // Signature drops the archive card entirely and keeps the largest hierarchy.
@@ -97,6 +98,24 @@ class DesignSystemTest {
         // Glass keeps a card, but with its own softer radius.
         assertEquals(ArchiveTreatment.Card, byStyle.getValue(DesignStyle.LiquidGlass).archive)
         assertEquals(20.dp, byStyle.getValue(DesignStyle.LiquidGlass).archiveRadius)
+    }
+
+    @Test fun material3MainScreenUsesOneTitleTheSearchBarAndATonalFab() {
+        val m3 = designFor(DesignStyle.Material3)
+        assertFalse("Material 3 drops the brand label above the title", m3.mainScreen.showBrandOverline)
+        assertEquals(56.dp, m3.mainScreen.searchHeight)
+        assertEquals(FontWeight.Normal, m3.mainScreen.titleWeight)
+        assertTrue(m3.fab.tonal)
+        assertEquals(16.dp, m3.fab.cornerRadius)
+    }
+
+    @Test fun otherStylesKeepTheirHeaderSearchAndFab() {
+        DesignStyle.entries.filter { it != DesignStyle.Material3 }.forEach { style ->
+            val design = designFor(style)
+            assertTrue("$style keeps the brand label", design.mainScreen.showBrandOverline)
+            assertEquals("$style search height", 48.dp, design.mainScreen.searchHeight)
+            assertFalse("$style keeps the accent FAB", design.fab.tonal)
+        }
     }
 
     @Test fun settingsCardsFollowTheStyleWithoutMovingDefault() {

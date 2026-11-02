@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.components
 
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.appearance.DesignStyle
@@ -49,6 +50,27 @@ class NavigationSpecTest {
         assertTrue(
             byStyle.getValue(DesignStyle.LiquidGlass) != byStyle.getValue(DesignStyle.Signature)
         )
+    }
+
+    @Test fun material3BarFollowsTheNavigationBarSpecification() {
+        val m3 = navigationSpecFor(designFor(DesignStyle.Material3))
+        assertEquals(64.dp, m3.pillWidth)
+        assertEquals(32.dp, m3.pillHeight)
+        assertEquals(16.dp, m3.pillRadius)
+        assertEquals(12.dp, m3.barTopPadding)
+        assertEquals(16.dp, m3.barBottomPadding)
+        // The selection is the indicator: the label keeps its weight and reads in the on-surface role.
+        assertEquals(FontWeight.Medium, m3.labelWeight)
+        assertEquals(FontWeight.Medium, m3.selectedLabelWeight)
+        assertTrue(m3.selectedLabelOnSurface)
+    }
+
+    @Test fun otherStylesKeepTheirSelectedLabel() {
+        DesignStyle.entries.filter { it != DesignStyle.Material3 }.forEach { style ->
+            val spec = navigationSpecFor(designFor(style))
+            assertEquals("$style label weight", FontWeight.SemiBold, spec.selectedLabelWeight)
+            assertFalse("$style label colour", spec.selectedLabelOnSurface)
+        }
     }
 
     @Test fun followTheStyleKeepsThePlacementEveryStyleHasAlwaysHad() {

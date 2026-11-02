@@ -41,8 +41,8 @@ import com.beykus.beygram.ui.design.SearchFieldVariant
  * Allow taller text at increased Android font scales without bloating the standard 48dp search pill.
  * The cap keeps searches usable on short phones while remaining tall enough for 2x body text.
  */
-internal fun searchFieldMinHeightDp(fontScale: Float): Float =
-    (48f * fontScale.coerceAtLeast(1f)).coerceAtMost(72f)
+internal fun searchFieldMinHeightDp(fontScale: Float, baseHeightDp: Float = 48f): Float =
+    (baseHeightDp * fontScale.coerceAtLeast(1f)).coerceAtMost(maxOf(72f, baseHeightDp))
 
 /** Поле поиска в виде пилюли. [placeholder] показывается, пока поле пустое. */
 @Composable
@@ -55,7 +55,7 @@ internal fun SearchField(
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val keyboard = LocalSoftwareKeyboardController.current
-    val minHeight = searchFieldMinHeightDp(LocalDensity.current.fontScale).dp
+    val minHeight = searchFieldMinHeightDp(LocalDensity.current.fontScale, design.mainScreen.searchHeight.value).dp
     val shape = RoundedCornerShape(design.shapes.search)
     val fill = when (design.components.search) {
         SearchFieldVariant.Filled -> if (design.style == DesignStyle.Material3) {

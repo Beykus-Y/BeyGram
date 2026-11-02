@@ -126,7 +126,12 @@ val DesignSystem.squareSendButton: Boolean get() = style == DesignStyle.Material
 data class DesignFab(
     val cornerRadius: Dp,
     /** Shadow under the button. Signature keeps almost none; the depth there comes from the layers behind it. */
-    val elevation: Dp
+    val elevation: Dp,
+    /**
+     * Material 3 fills the button with the primary container and its on-colour instead of the solid accent, so the
+     * main action stays tonal like the rest of the screen. The other styles keep the accent fill.
+     */
+    val tonal: Boolean = false
 )
 
 /** How the archive row meets the list: a raised card, a flat tonal row or a plain navigation line. */
@@ -139,7 +144,12 @@ enum class ChipSelectionTone {
     /** Muted container with accent label, the Material 3 tonal filter chip. */
     Tonal,
     /** No container change, an accent label over a bottom rule, the classic Material 2 tab. */
-    Underlined
+    Underlined,
+    /**
+     * The Material 3 filter chip: a 32dp outlined chip when off, the secondary container with a leading check when on.
+     * The touch target stays 48dp around the smaller visual chip.
+     */
+    Filter
 }
 
 /**
@@ -165,7 +175,14 @@ data class DesignMainScreen(
     /** Corner radius of the unread counter; Material 2 keeps it square, the others are pills. */
     val badgeRadius: Dp,
     /** Space between the header block and the search field. */
-    val headerGap: Dp
+    val headerGap: Dp,
+    /**
+     * The small accent app name above the screen title. Material 3 keeps one title line in its top app bar, so the
+     * header does not stack a brand label, a title, the search bar and the folders on top of each other.
+     */
+    val showBrandOverline: Boolean = true,
+    /** Visual height of the search field at the standard font scale. Material 3 uses its 56dp search bar. */
+    val searchHeight: Dp = 48.dp
 )
 
 /** Elevation, translucency and the optional glass treatment of a style. */

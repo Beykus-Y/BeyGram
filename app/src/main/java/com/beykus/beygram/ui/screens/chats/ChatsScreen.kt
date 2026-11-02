@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Close
@@ -416,7 +418,7 @@ fun ChatsScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     AnimatedVisibility(
-                        visible = !headerCollapsed,
+                        visible = !headerCollapsed && design.mainScreen.showBrandOverline,
                         enter = if (headerMotion.isInstant) EnterTransition.None else
                             headerMotion.fadeEnter() + expandVertically(animationSpec = headerMotion.animationSpec()),
                         exit = if (headerMotion.isInstant) ExitTransition.None else
@@ -688,8 +690,9 @@ fun ChatsScreen(
           onClick = onNewChat,
           modifier = Modifier.align(Alignment.BottomEnd)
               .padding(end = fabPlacement.endPadding, bottom = fabPlacement.bottomPadding),
-          containerColor = palette.accent,
-          contentColor = palette.onAccent,
+          // Material 3 keeps the main action tonal (primary container); the other styles keep the accent fill.
+          containerColor = if (design.fab.tonal) palette.accentSoft else palette.accent,
+          contentColor = if (design.fab.tonal) palette.accentInk else palette.onAccent,
           shape = fabShape,
           elevation = FloatingActionButtonDefaults.elevation(defaultElevation = design.fab.elevation)
       ) {
@@ -913,6 +916,10 @@ private fun ArchivePullHint(heightDp: Dp) {
 /** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
 @Composable
 internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+    if (LocalDesignSystem.current.mainScreen.chipSelection == ChipSelectionTone.Filter) {
+        Material3FolderChip(title, selected, unreadCount, onClick)
+        return
+    }
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val main = design.mainScreen
@@ -976,6 +983,55 @@ internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int
                 Modifier.padding(top = 2.dp).height(2.dp).width(if (selected) 28.dp else 0.dp)
                     .background(if (selected) palette.accent else Color.Transparent)
             )
+        }
+    }
+}
+
+/**
+ * The Material 3 filter chip: a 32dp chip with an outline when off, the secondary container with a leading check when
+ * on. It sits in a 48dp touch target, so the row of folders looks lighter without a smaller tap area.
+ */
+@Composable
+private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val main = LocalDesignSystem.current.mainScreen
+    val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
+    val containerColor by animateColorAsState(if (selected) palette.accentSoft else Color.Transparent, tabSpec)
+    val outlineColor by animateColorAsState(if (selected) Color.Transparent else palette.divider, tabSpec)
+    val labelColor = if (selected) palette.accentInk else palette.textSecondary
+    val chipShape = RoundedCornerShape(main.chipRadius)
+    Box(
+        Modifier.heightIn(min = 48.dp)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            Modifier.heightIn(min = 32.dp).clip(chipShape)
+                .background(containerColor)
+                .border(1.dp, outlineColor, chipShape)
+                .padding(start = if (selected) 8.dp else 16.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (selected) {
+                Icon(Icons.Rounded.Check, contentDescription = null, tint = labelColor, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                title,
+                color = labelColor,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.widthIn(max = 144.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (unreadCount != null && unreadCount > 0) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    unreadCount.toString(),
+                    color = if (selected) palette.accentInk else palette.accent,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
         }
     }
 }
