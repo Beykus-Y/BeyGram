@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.music
 
+import com.beykus.beygram.ui.components.settingsIconTint
 import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -192,6 +193,6 @@ private fun SheetRow(
             Text(title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle != null) Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1)
         }
-        if (checked) Icon(Icons.Rounded.Check, stringResource(R.string.music_already_in_playlist), tint = palette.accent)
+        if (checked) Icon(Icons.Rounded.Check, stringResource(R.string.music_already_in_playlist), tint = settingsIconTint())
     }
 }

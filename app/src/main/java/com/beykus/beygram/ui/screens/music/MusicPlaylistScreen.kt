@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.music
 
+import com.beykus.beygram.ui.components.settingsIconTint
 import android.content.Context
 import com.beykus.beygram.ui.components.topAppBarSurface
 import android.net.Uri
@@ -202,17 +203,17 @@ internal fun MusicPlaylistScreen(
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             if (!stored.isFavorites) DropdownMenuItem(
                                 text = { Text(stringResource(R.string.music_rename)) },
-                                leadingIcon = { Icon(Icons.Rounded.Edit, null, tint = palette.accent) },
+                                leadingIcon = { Icon(Icons.Rounded.Edit, null, tint = settingsIconTint()) },
                                 onClick = { menuOpen = false; dialog = PlaylistDialog.Rename }
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.music_edit_description)) },
-                                leadingIcon = { Icon(Icons.Rounded.Info, null, tint = palette.accent) },
+                                leadingIcon = { Icon(Icons.Rounded.Info, null, tint = settingsIconTint()) },
                                 onClick = { menuOpen = false; dialog = PlaylistDialog.Description }
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.music_change_cover)) },
-                                leadingIcon = { Icon(Icons.Rounded.Image, null, tint = palette.accent) },
+                                leadingIcon = { Icon(Icons.Rounded.Image, null, tint = settingsIconTint()) },
                                 onClick = {
                                     menuOpen = false
                                     coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -220,17 +221,17 @@ internal fun MusicPlaylistScreen(
                             )
                             if (stored.coverPath != null) DropdownMenuItem(
                                 text = { Text(stringResource(R.string.music_remove_cover)) },
-                                leadingIcon = { Icon(Icons.Rounded.Close, null, tint = palette.accent) },
+                                leadingIcon = { Icon(Icons.Rounded.Close, null, tint = settingsIconTint()) },
                                 onClick = { menuOpen = false; runEdit { repository.setCover(playlistId, null) } }
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.music_sort)) },
-                                leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = palette.accent) },
+                                leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = settingsIconTint()) },
                                 onClick = { menuOpen = false; dialog = PlaylistDialog.Sort }
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.music_duplicate)) },
-                                leadingIcon = { Icon(Icons.Rounded.ContentCopy, null, tint = palette.accent) },
+                                leadingIcon = { Icon(Icons.Rounded.ContentCopy, null, tint = settingsIconTint()) },
                                 onClick = {
                                     menuOpen = false
                                     scope.launch {
@@ -245,7 +246,7 @@ internal fun MusicPlaylistScreen(
                             )
                             if (stored.tracks.isNotEmpty()) DropdownMenuItem(
                                 text = { Text(stringResource(R.string.bgmusic_menu_share_collection)) },
-                                leadingIcon = { Icon(Icons.Rounded.Share, null, tint = palette.accent) },
+                                leadingIcon = { Icon(Icons.Rounded.Share, null, tint = settingsIconTint()) },
                                 onClick = { menuOpen = false; exportOpen = true }
                             )
                             if (!stored.isFavorites) DropdownMenuItem(
@@ -320,7 +321,7 @@ internal fun MusicPlaylistScreen(
                                 ) {
                                     if (canMoveUp(index)) DropdownMenuItem(
                                         text = { Text(stringResource(R.string.music_move_up)) },
-                                        leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null, tint = palette.accent) },
+                                        leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null, tint = settingsIconTint()) },
                                         onClick = {
                                             trackMenu = null
                                             runEdit { repository.moveTrack(playlistId, index, index - 1) }
@@ -328,7 +329,7 @@ internal fun MusicPlaylistScreen(
                                     )
                                     if (canMoveDown(index, tracks.size)) DropdownMenuItem(
                                         text = { Text(stringResource(R.string.music_move_down)) },
-                                        leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null, tint = palette.accent) },
+                                        leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null, tint = settingsIconTint()) },
                                         onClick = {
                                             trackMenu = null
                                             runEdit { repository.moveTrack(playlistId, index, index + 1) }
@@ -337,7 +338,7 @@ internal fun MusicPlaylistScreen(
                                     if (isUnavailable) {
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.music_find_replacement)) },
-                                            leadingIcon = { Icon(Icons.Rounded.Search, null, tint = palette.accent) },
+                                            leadingIcon = { Icon(Icons.Rounded.Search, null, tint = settingsIconTint()) },
                                             onClick = {
                                                 trackMenu = null
                                                 replacing = track
@@ -529,7 +530,7 @@ private fun SortOption(label: String, selected: Boolean, onClick: () -> Unit) {
             color = if (selected) palette.accent else palette.textPrimary,
             modifier = Modifier.weight(1f)
         )
-        if (selected) Icon(Icons.Rounded.Check, null, tint = palette.accent)
+        if (selected) Icon(Icons.Rounded.Check, null, tint = settingsIconTint())
     }
 }
 

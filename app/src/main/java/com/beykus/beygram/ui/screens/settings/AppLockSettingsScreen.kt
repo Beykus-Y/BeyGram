@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.settings
 
+import com.beykus.beygram.ui.components.settingsIconTint
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -550,7 +551,7 @@ private fun ConfirmIdentityDialog(
                         },
                         modifier = Modifier.heightIn(min = 48.dp),
                     ) {
-                        Icon(Icons.Rounded.Fingerprint, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Rounded.Fingerprint, contentDescription = null, tint = settingsIconTint(), modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.app_lock_biometric_button), color = palette.accent)
                     }
