@@ -36,6 +36,8 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
      */
     fun start(items: List<PlaybackItem>, startIndex: Int): Boolean {
         stop()
+        // The tapped track must play itself; starting a different track would be silent substitution.
+        if (items.getOrNull(startIndex)?.let { isEligible(it) } != true) return false
         val accepted = items.withIndex().filter { it.index >= startIndex && isEligible(it.value) }
         if (accepted.isEmpty()) return false
         val created = BgMixPlayer(cacheDir)

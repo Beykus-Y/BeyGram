@@ -125,7 +125,9 @@ class BgMixPlayer(private val cacheDir: File) {
             // Never free the native session under a render call that is still running: leak it instead.
             Log.w(TAG, "render thread did not stop; native session kept alive")
         } else {
-            BgMixNative.nativeDestroy(target.handle)
+            // Destroying the session waits for a running analysis to finish, so it must not block the caller.
+            val handle = target.handle
+            Thread({ BgMixNative.nativeDestroy(handle) }, "bgmix-destroy").start()
         }
         runCatching { target.track.release() }
         _status.value = null
