@@ -52,7 +52,7 @@ class DesignSystemTest {
         assertEquals(NavigationVariant.ClassicTabs, designFor(DesignStyle.Material2).components.navigation)
         assertEquals(NavigationVariant.NavigationBar, designFor(DesignStyle.Material3).components.navigation)
         assertEquals(NavigationVariant.FloatingGlass, designFor(DesignStyle.LiquidGlass).components.navigation)
-        assertEquals(NavigationVariant.SignatureDock, designFor(DesignStyle.Signature).components.navigation)
+        assertEquals(NavigationVariant.SignatureMark, designFor(DesignStyle.Signature).components.navigation)
     }
 
     @Test fun defaultChatListKeepsTheNumbersItAlwaysHad() {
@@ -210,5 +210,25 @@ class DesignSystemTest {
         assertTrue(high.shadowElevation <= 6.dp)
         assertTrue(lite.shadowElevation < balanced.shadowElevation && balanced.shadowElevation < high.shadowElevation)
         assertTrue(high.tintAlpha < balanced.tintAlpha && balanced.tintAlpha < lite.tintAlpha)
+    }
+
+    @Test fun signatureSelectsInInkAndDrawsRowsAsTiles() {
+        val signature = designFor(DesignStyle.Signature)
+        assertEquals(ChipSelectionTone.Ink, signature.mainScreen.chipSelection)
+        assertTrue(signature.mainScreen.rowInset > 0.dp)
+        assertTrue(signature.mainScreen.rowRadius > 0.dp)
+        assertTrue(signature.mainScreen.unreadPreviewEmphasis)
+        // The dock is not part of Signature: Auto pins the bar, the user may still float it.
+        assertFalse(signature.navigationFloating)
+        assertTrue(designFor(DesignStyle.Signature, navigationPlacement = com.beykus.beygram.data.appearance.NavigationPlacement.Floating).navigationFloating)
+    }
+
+    @Test fun signatureRowAndChipTokensDoNotLeakIntoOtherStyles() {
+        DesignStyle.entries.filter { it != DesignStyle.Signature }.forEach { style ->
+            val main = designFor(style).mainScreen
+            assertNotEquals("$style must not use ink chips", ChipSelectionTone.Ink, main.chipSelection)
+            assertEquals("$style keeps full-width rows", 0.dp, main.rowInset)
+            assertFalse("$style keeps the quiet preview", main.unreadPreviewEmphasis)
+        }
     }
 }

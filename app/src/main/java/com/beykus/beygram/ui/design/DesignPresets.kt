@@ -218,16 +218,16 @@ fun liquidGlassDesign(quality: GlassQuality): DesignSystem {
 }
 
 /**
- * BeyGram Signature: chat-first hierarchy with a floating dock, a composer that belongs to the conversation and
- * quiet layered depth instead of hard shadows. It has its own geometry, type emphasis and motion profile rather
- * than mixing the other four styles.
+ * BeyGram Signature, "ink and mark" (docs/beygram-signature.md): content is the loudest layer, chrome sits on the same
+ * canvas behind one hairline, selection is drawn in ink (the text colour) and the accent is kept for what needs
+ * attention or an action. The navigation is pinned by default and keeps the same tabs when the user floats it.
  */
 val SignatureDesignSystem = DesignSystem(
     style = DesignStyle.Signature,
     shapes = DesignShapes(
-        extraSmall = 6.dp, small = 10.dp, medium = 14.dp, large = 20.dp, extraLarge = 28.dp,
-        button = 16.dp, card = 18.dp, sheet = 26.dp, dialog = 22.dp, chip = 14.dp,
-        search = 18.dp, composer = 16.dp, navigationIndicator = 12.dp, groupCard = 18.dp, listGroup = 16.dp
+        extraSmall = 6.dp, small = 10.dp, medium = 14.dp, large = 20.dp, extraLarge = 26.dp,
+        button = 14.dp, card = 16.dp, sheet = 26.dp, dialog = 22.dp, chip = 12.dp,
+        search = 14.dp, composer = 22.dp, navigationIndicator = 2.dp, groupCard = 18.dp, listGroup = 16.dp
     ),
     spacing = DesignSpacing(
         xxs = 2.dp, xs = 4.dp, sm = 8.dp, md = 12.dp, lg = 16.dp, xl = 22.dp, xxl = 28.dp,
@@ -235,28 +235,33 @@ val SignatureDesignSystem = DesignSystem(
     ),
     surfaces = DesignSurfaces(
         treatment = SurfaceTreatment.Layered,
-        cardElevation = 1.dp, barElevation = 2.dp, sheetElevation = 8.dp, buttonElevation = 0.dp,
+        cardElevation = 0.dp, barElevation = 0.dp, sheetElevation = 8.dp, buttonElevation = 0.dp,
         tintAlpha = 0.08f, surfaceAlpha = 1f, containerTonalStep = 0.45f, glass = null
     ),
     motion = DesignMotionProfile(speedScale = 0.9f, intensityScale = 1.15f),
     components = DesignComponents(
-        navigation = NavigationVariant.SignatureDock,
+        navigation = NavigationVariant.SignatureMark,
         search = SearchFieldVariant.Filled,
         topBar = TopBarVariant.Signature,
         composer = ComposerVariant.Signature,
         showListDividers = false,
-        floatingNavigation = true
+        // Chat-first: nothing floats over the messages unless the user asks for the capsule.
+        floatingNavigation = false
     ),
-    // Quiet depth: the button sits almost on the surface instead of casting a hard Material shadow.
+    // Accent is for actions, so the create button keeps it, with almost no shadow: depth comes from the layers.
     fab = DesignFab(cornerRadius = 18.dp, elevation = 2.dp),
-    // Editorial hierarchy: the largest title, tight tracking, a plain archive line instead of a card.
+    // Editorial hierarchy: the largest title, tight tracking, a plain archive line, ink folder chips and rows drawn as
+    // rounded tiles inside the list.
     mainScreen = DesignMainScreen(
         titleSize = 32.sp, titleWeight = FontWeight.Bold, titleTracking = (-0.6).sp,
         sectionLabelUppercase = true, sectionLabelTracking = 0.8.sp,
-        chipRadius = 14.dp, chipSelection = ChipSelectionTone.Filled,
+        chipRadius = 12.dp, chipSelection = ChipSelectionTone.Ink,
         archive = ArchiveTreatment.Flat, archiveRadius = 0.dp, archiveElevation = 0.dp,
         avatarSize = 56.dp, rowTitleWeight = FontWeight.Bold, badgeRadius = 10.dp,
-        headerGap = 16.dp
+        headerGap = 16.dp,
+        rowInset = 8.dp,
+        rowRadius = 16.dp,
+        unreadPreviewEmphasis = true
     ),
     bubbles = DesignBubbleGeometry(
         cornerRadius = 18.dp, tailRadius = 6.dp, replyRadius = 12.dp, textInset = 12.dp, textTopInset = 8.dp
