@@ -149,7 +149,14 @@ internal data class NavigationSpec(
     /** Opacity multiplier of the selection pill: a quieter dock leaves the content as the loudest thing on screen. */
     val indicatorAlpha: Float,
     /** The resolved placement, read by both the bar and the scaffold; it is not the style's own stance. */
-    val floating: Boolean
+    val floating: Boolean,
+    /** Weight of the selected label. Material 3 keeps the label weight and marks the selection with the indicator. */
+    val selectedLabelWeight: FontWeight = FontWeight.SemiBold,
+    /**
+     * Colour role of the selected label. Material 3 draws it in the on-surface role while the icon takes the
+     * on-indicator role; the other styles keep the accent ink for both.
+     */
+    val selectedLabelOnSurface: Boolean = false
 ) {
     /** The elevation that applies to the current placement. */
     val elevation: Dp get() = if (floating) floatingElevation else pinnedElevation
@@ -176,15 +183,19 @@ internal fun navigationSpecFor(design: DesignSystem): NavigationSpec = when (des
         horizontalMargin = 12.dp, bottomMargin = 8.dp, dockRadius = 2.dp, indicatorAlpha = 1f,
         floating = design.navigationFloating
     )
-    // Material 3: the navigation bar with a tonal container and a wider indicator pill.
+    // Material 3 navigation bar: an 80dp surface-container bar, a 64x32 full-radius indicator 12dp from the top,
+    // a 4dp gap to a Medium 12sp label and 16dp below it. The label keeps its weight when selected and reads in the
+    // on-surface role; the icon takes the on-indicator role.
     NavigationVariant.NavigationBar -> NavigationSpec(
         pillWidth = 64.dp, pillHeight = 32.dp, pillRadius = 16.dp,
         showSelectionPill = true, showLabels = true, labelSize = 12.sp,
         labelWeight = FontWeight.Medium, iconSize = 24.dp,
-        barTopPadding = 12.dp, barBottomPadding = 12.dp, pinnedElevation = 0.dp, floatingElevation = 6.dp,
+        barTopPadding = 12.dp, barBottomPadding = 16.dp, pinnedElevation = 0.dp, floatingElevation = 6.dp,
         divider = false,
         horizontalMargin = 12.dp, bottomMargin = 8.dp, dockRadius = 20.dp, indicatorAlpha = 1f,
-        floating = design.navigationFloating
+        floating = design.navigationFloating,
+        selectedLabelWeight = FontWeight.Medium,
+        selectedLabelOnSurface = true
     )
     // Liquid Glass: the widest air around the capsule, a soft lens-radius and a lighter selection wash, so the panel
     // reads as a layer of material rather than a second full-width bar.
@@ -241,6 +252,7 @@ internal fun MainTabItem(
         label = "mainTabPress"
     )
     val tint = if (selected) palette.accentInk else palette.textSecondary
+    val labelTint = if (selected && spec.selectedLabelOnSurface) palette.textPrimary else tint
     val itemModifier = if (interactive) {
         modifier.selectable(
             selected = selected,
@@ -304,9 +316,9 @@ internal fun MainTabItem(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = tab.title,
-                color = tint,
+                color = labelTint,
                 fontSize = spec.labelSize,
-                fontWeight = if (selected) FontWeight.SemiBold else spec.labelWeight,
+                fontWeight = if (selected) spec.selectedLabelWeight else spec.labelWeight,
                 maxLines = 1
             )
         }

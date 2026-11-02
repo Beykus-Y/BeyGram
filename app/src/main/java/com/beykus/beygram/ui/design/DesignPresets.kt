@@ -127,15 +127,19 @@ val Material3DesignSystem = DesignSystem(
         showListDividers = false,
         floatingNavigation = false
     ),
-    fab = DesignFab(cornerRadius = 16.dp, elevation = 6.dp),
-    // Material You: a lighter title, tonal chips without a hard accent fill and an 8dp badge.
+    // The Material 3 FAB: 16dp corners, the primary container fill and the level-3 (6dp) elevation.
+    fab = DesignFab(cornerRadius = 16.dp, elevation = 6.dp, tonal = true),
+    // Material You: one headline-small title in the regular weight (no brand label above it), the 56dp search bar,
+    // outlined filter chips that turn tonal with a check when selected, and an 8dp badge.
     mainScreen = DesignMainScreen(
-        titleSize = 26.sp, titleWeight = FontWeight.SemiBold, titleTracking = 0.sp,
+        titleSize = 24.sp, titleWeight = FontWeight.Normal, titleTracking = 0.sp,
         sectionLabelUppercase = false, sectionLabelTracking = 0.4.sp,
-        chipRadius = 8.dp, chipSelection = ChipSelectionTone.Tonal,
+        chipRadius = 8.dp, chipSelection = ChipSelectionTone.Filter,
         archive = ArchiveTreatment.Tonal, archiveRadius = 12.dp, archiveElevation = 0.dp,
         avatarSize = 52.dp, rowTitleWeight = FontWeight.Medium, badgeRadius = 8.dp,
-        headerGap = 12.dp
+        headerGap = 12.dp,
+        showBrandOverline = false,
+        searchHeight = 56.dp
     ),
     bubbles = DesignBubbleGeometry(
         cornerRadius = 18.dp, tailRadius = 4.dp, replyRadius = 12.dp, textInset = 12.dp, textTopInset = 8.dp
