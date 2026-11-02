@@ -46,9 +46,11 @@ Robolectric запускается на SDK 34: для SDK 35+ он требуе
 - Артефакт `screenshots-<sha>` в каждом прогоне `Android release` содержит эталоны и, при расхождении, картинки
   `*_actual.png` и `*_compare.png` из `app/build/outputs/roborazzi/`.
 
-Намеренное изменение вида: перезаписать эталоны (`./gradlew :app:testDevDebugUnitTest -Pscreenshots=record` локально или
-взять PNG из артефакта CI), посмотреть разницу в PR и закоммитить. Эталон не правят ради зелёного CI без проверки, что
-изменение задумано.
+Намеренное изменение вида: повесить на PR метку `record-screenshots`. Workflow `Record screenshot goldens` перезапишет
+эталоны с `-Pscreenshots=record`, закоммитит их в ветку PR и снимет метку (работает только для веток этого репозитория).
+Коммит токеном workflow не запускает CI, поэтому после него нужен ещё один push или перезапуск `Android release`.
+Локально то же: `./gradlew :app:testDevDebugUnitTest -Pscreenshots=record`. Разницу смотреть в PR; эталон не правят
+ради зелёного CI без проверки, что изменение задумано.
 
 ## Чего эти тесты не ловят
 
