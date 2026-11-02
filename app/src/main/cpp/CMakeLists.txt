@@ -12,8 +12,8 @@ set(BGMEDIA_BUILD_MINIAUDIO ON CACHE BOOL "" FORCE)
 set(BGMEDIA_BUILD_DESKTOP OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
-# Pinned commit of BG Media dev branch
-set(BGMEDIA_PINNED_COMMIT "a4d3821c11063684fae754581ba96128528747f1")
+# Pinned commit of BG Media main (BG Mix 0.3 MixSession + BG Beat). Bump deliberately.
+set(BGMEDIA_PINNED_COMMIT "73507c8d7b216da423f0bab26f0a3fca413b265d")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media/CMakeLists.txt")
     set(BGMEDIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media")
@@ -49,6 +49,7 @@ endif()
 
 add_library(bgbeat_jni SHARED
     bgbeat_jni.cpp
+    bgmix_jni.cpp
 )
 
 target_compile_features(bgbeat_jni PRIVATE cxx_std_20)
@@ -56,10 +57,9 @@ target_compile_options(bgbeat_jni PRIVATE -fexceptions -frtti -Wall -Wextra)
 
 if(HAVE_BGMEDIA)
     if(NOT TARGET bgmedia_core)
+        # bgmedia_miniaudio keeps miniaudio device IO enabled: MiniaudioMixDevice.cpp needs ma_device,
+        # which MA_NO_DEVICE_IO removes. bgbeat_jni.cpp still defines it for its own translation unit.
         add_subdirectory("${BGMEDIA_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/bgmedia" EXCLUDE_FROM_ALL)
-        if(TARGET bgmedia_miniaudio)
-            target_compile_definitions(bgmedia_miniaudio PRIVATE MA_NO_DEVICE_IO)
-        endif()
     endif()
 
     target_include_directories(bgbeat_jni PRIVATE
