@@ -188,7 +188,14 @@ private fun signatureSwitchColors(): SwitchColors {
         checkedIconColor = palette.textPrimary,
         uncheckedThumbColor = palette.textSecondary,
         uncheckedTrackColor = palette.surface2,
-        uncheckedBorderColor = palette.divider
+        // The rim takes the thumb's own ink, so the off control stays readable on a light surface2 track.
+        uncheckedBorderColor = palette.textSecondary,
+        disabledCheckedThumbColor = palette.screen,
+        disabledCheckedTrackColor = palette.textPrimary.copy(alpha = 0.38f),
+        disabledCheckedBorderColor = palette.textPrimary.copy(alpha = 0.0f),
+        disabledUncheckedThumbColor = palette.textSecondary.copy(alpha = 0.38f),
+        disabledUncheckedTrackColor = palette.surface2,
+        disabledUncheckedBorderColor = palette.textSecondary.copy(alpha = 0.38f)
     )
 }
 
