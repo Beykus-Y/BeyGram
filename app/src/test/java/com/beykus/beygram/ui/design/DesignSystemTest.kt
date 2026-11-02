@@ -109,6 +109,25 @@ class DesignSystemTest {
         assertTrue(designFor(DesignStyle.Signature).shapes.groupCard < designFor(DesignStyle.LiquidGlass).shapes.groupCard)
     }
 
+    @Test fun onlyMaterial2CapsTheCornersOfUnnamedSurfaces() {
+        // Default and the modern styles keep every radius a screen asks for, so their panels do not move.
+        listOf(DesignStyle.Default, DesignStyle.Material3, DesignStyle.LiquidGlass, DesignStyle.Signature).forEach { style ->
+            val shapes = designFor(style).shapes
+            assertNull("$style must not cap corners", shapes.cornerCap)
+            assertEquals(20.dp, shapes.corner(20.dp))
+            assertEquals(6.dp, shapes.corner(6.dp))
+        }
+        val classic = designFor(DesignStyle.Material2).shapes
+        // A 20dp panel becomes the classic 4dp surface, small radii stay as small as they were, nothing turns square.
+        assertEquals(4.dp, classic.corner(20.dp))
+        assertEquals(4.dp, classic.corner(4.dp))
+        assertEquals(2.dp, classic.corner(2.dp))
+        assertEquals(0.dp, classic.corner(0.dp))
+        // Dialogs and modal sheets read Material's extraLarge corner, which Material 2 keeps at its 4dp dialog radius.
+        assertEquals(classic.dialog, classic.extraLarge)
+        assertEquals(4.dp, classic.button)
+    }
+
     @Test fun everyStyleExceptDefaultOwnsItsBubbleGeometry() {
         DesignStyle.entries.filter { it != DesignStyle.Default }.forEach { style ->
             assertNotNull("$style must define its bubble geometry", designFor(style).bubbles)

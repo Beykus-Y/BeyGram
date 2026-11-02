@@ -30,10 +30,10 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue

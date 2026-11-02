@@ -9,9 +9,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect

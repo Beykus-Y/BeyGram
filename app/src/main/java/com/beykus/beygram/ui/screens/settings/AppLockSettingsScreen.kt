@@ -30,9 +30,9 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue

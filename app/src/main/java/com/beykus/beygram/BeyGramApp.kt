@@ -30,7 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -3061,7 +3061,7 @@ private fun BeyGramAppContent(
         )
     }
     if (!locked) noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
-        text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
+        text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { com.beykus.beygram.ui.components.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
     if (!locked) ProxyRestoreDialog(vpnBackend = vpnBackend)
     if (!locked) MarkReadConfirmationDialog(markReadConfirmation) { request ->
         markAllReadScope.launch {

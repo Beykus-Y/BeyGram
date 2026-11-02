@@ -56,6 +56,7 @@ import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier

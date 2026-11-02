@@ -1119,7 +1119,7 @@ internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modif
             modifier = Modifier.weight(1f)
         )
         if (recorder.locked) {
-            androidx.compose.material3.TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
+            com.beykus.beygram.ui.components.TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(stringResource(R.string.recorder_cancel), color = palette.warningText, fontSize = 13.sp)
             }
         }

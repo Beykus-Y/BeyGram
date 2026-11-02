@@ -60,8 +60,31 @@ data class DesignShapes(
     /** Settings group card. Default keeps its 20dp card, Material 2 turns it into a 4dp surface. */
     val groupCard: Dp,
     /** Slightly smaller settings card used on dense pages. Default keeps 18dp. */
-    val listGroup: Dp
+    val listGroup: Dp,
+    /**
+     * Largest corner any other surface may have in this style: panels, popups, media frames and buttons that are not
+     * named above keep their own radius up to this value. Null keeps every radius as it was drawn, which is what
+     * Default and the modern styles do; Material 2 caps them at its 4dp component corner.
+     */
+    val cornerCap: Dp? = null
 )
+
+/** The corner a surface drawn with [radius] gets in this style. Without a cap the radius is returned unchanged. */
+fun DesignShapes.corner(radius: Dp): Dp = cornerCap?.let { minOf(radius, it) } ?: radius
+
+/**
+ * A rounded shape whose radius follows the style in effect. Screens pass the radius they have always used, so Default
+ * draws exactly what it drew before and Material 2 turns large rounded panels into its classic 4dp surfaces.
+ */
+@Composable
+fun styledShape(radius: Dp): RoundedCornerShape = RoundedCornerShape(LocalDesignSystem.current.shapes.corner(radius))
+
+/** The same shape with only the top corners rounded, for sheets and panels attached to the bottom edge. */
+@Composable
+fun styledTopShape(radius: Dp): RoundedCornerShape {
+    val corner = LocalDesignSystem.current.shapes.corner(radius)
+    return RoundedCornerShape(topStart = corner, topEnd = corner)
+}
 
 /** Shape of a settings group card, read from the style in effect. */
 @Composable
