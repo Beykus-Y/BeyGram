@@ -2239,16 +2239,6 @@
     <string name="settings_bgbeat_desc">Анализ ритма, BPM и структуры на C++20 ядре BG Media</string>
     <string name="settings_bgmix_title">BG Mix (переходы между треками)</string>
     <string name="settings_bgmix_desc">Плавные переходы между музыкальными треками на C++ ядре BG Media. Экспериментально, голосовые и видеосообщения не затрагиваются.</string>
-    <string name="bgmix_open">Открыть BG Mix</string>
-    <string name="bgmix_sheet_title">BG Mix — переходы</string>
-    <string name="bgmix_add">Добавить треки</string>
-    <string name="bgmix_play">Играть</string>
-    <string name="bgmix_pause">Пауза</string>
-    <string name="bgmix_next">Переход дальше</string>
-    <string name="bgmix_stop">Стоп</string>
-    <string name="bgmix_empty_queue">Очередь пуста. Добавьте треки WAV, MP3 или FLAC.</string>
-    <string name="bgmix_unsupported_files">Некоторые файлы не поддерживаются: нужны WAV, MP3 или FLAC.</string>
-    <string name="bgmix_unavailable">BG Mix недоступен на этом устройстве.</string>
     <string name="chat_settings_scope_note">Меняет обои только в этом чате</string>
     <string name="media_spoiler_title">Спойлер</string>
     <string name="media_spoiler_reveal">Нажмите, чтобы открыть</string>
