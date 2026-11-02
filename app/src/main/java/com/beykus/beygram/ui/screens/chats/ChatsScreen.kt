@@ -160,6 +160,7 @@ import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.GlassEdge
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
 import com.beykus.beygram.ui.motion.MotionToken
@@ -721,7 +722,10 @@ fun ChatsScreen(
                   rim = palette.textSecondary,
                   shape = RectangleShape,
                   edge = GlassEdge.BottomHairline,
+                  // The pane is hit-tested as a whole: a tap on the title or a gap must not reach a chat row
+                  // scrolled underneath. Its own buttons and the search field still receive input first.
                   modifier = Modifier.fillMaxWidth().onSizeChanged { glassHeaderHeightPx = it.height }
+                      .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
               ) {
                   chatsHeader(Modifier)
               }
