@@ -118,14 +118,6 @@ internal fun growingAudioSource(
 private data class DeferredGrowingSeek(val key: String, val positionMs: Long, val resume: Boolean)
 
 /**
- * Общий плеер приложения. Музыка, голосовые и кружки играют через один ExoPlayer, поэтому звук не обрывается
- * при переходе между экранами. Плеер живёт в процессе, а [PlaybackService] держит его на переднем плане,
- * пока он играет: уведомление, экран блокировки и гарнитура работают через систему.
- *
- * The ExoPlayer playlist and [PlaybackState.queue] are kept in lockstep: the queue is the single public source
- * of truth and Media3/MediaSession sees the same items, modes and commands.
- */
-/**
  * Passes ExoPlayer events to a session listener, except while BG Mix owns playback. The BG Mix values
  * reach the session through the callbacks the engine calls directly.
  */
@@ -166,6 +158,14 @@ private class BgMixAwareListener(
     }
 }
 
+/**
+ * Общий плеер приложения. Музыка, голосовые и кружки играют через один ExoPlayer, поэтому звук не обрывается
+ * при переходе между экранами. Плеер живёт в процессе, а [PlaybackService] держит его на переднем плане,
+ * пока он играет: уведомление, экран блокировки и гарнитура работают через систему.
+ *
+ * The ExoPlayer playlist and [PlaybackState.queue] are kept in lockstep: the queue is the single public source
+ * of truth and Media3/MediaSession sees the same items, modes and commands.
+ */
 object PlaybackEngine {
     private const val PROGRESS_INTERVAL_MS = 250L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -375,6 +375,7 @@ object PlaybackEngine {
 
             override fun addListener(listener: Player.Listener) {
                 bgMixListeners.add(listener)
+                bgMixFiltered.remove(listener)?.let { super.removeListener(it) }
                 val filtered = BgMixAwareListener(listener) { bgMixActive() }
                 bgMixFiltered[listener] = filtered
                 super.addListener(filtered)
@@ -1324,10 +1325,14 @@ object PlaybackEngine {
     }
 
     private fun stopBgMix() {
+        val before = _state.value
         bgMixJob?.cancel()
         bgMixJob = null
         bgMix?.stop()
         releaseBgFocus()
+        if (before.playing || before.intentPlaying) {
+            notifyChanges(before, before.copy(playing = false, intentPlaying = false))
+        }
     }
 
     private fun haltPlayer() {
