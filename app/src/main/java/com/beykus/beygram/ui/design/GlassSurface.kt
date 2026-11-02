@@ -135,42 +135,40 @@ fun GlassPanel(
                 Modifier.matchParentSize()
                     .graphicsLayerWithBlur(blurPx, shape)
                     .drawBehind {
-                        val source = backdrop?.layer ?: return@drawBehind
+                        val sampled = backdrop
+                        val source = sampled?.layer
                         // Sampling the layer that is being recorded right now would draw it into itself, which kills
-                        // the render thread; an unfinished first frame simply shows the tint instead.
-                        if (backdrop == null || !backdrop.hasContent || backdrop.recording) return@drawBehind
-                        val delta = backdrop.originInWindow - originInWindow
+                        // the render thread; a frame without a finished sample gets a dense mask instead, so the
+                        // lighter tint of real glass never leaves sharp content showing through the panel.
+                        if (sampled == null || source == null || !sampled.hasContent || sampled.recording) {
+                            drawRect(tint.copy(alpha = GlassUnsampledMaskAlpha))
+                            return@drawBehind
+                        }
+                        val delta = sampled.originInWindow - originInWindow
                         withTransform({ translate(delta.x, delta.y) }) { drawLayer(source) }
                     }
             )
         }
-        // The tint is what makes glass readable: it is always drawn, blurred or not. The base alpha keeps the content
-        // behind the panel muted even on hardware that cannot blur, so the labels never fight the list underneath.
+        // The tint is what makes glass readable: it is always drawn, blurred or not. Over a real blurred sample the
+        // style's own tint is enough; without one the panel stays dense, so labels never fight sharp content below.
         val tintAlpha = glass?.tintAlpha?.coerceIn(0f, 1f) ?: 0f
-        val baseAlpha = if (glass != null && glass.samplesBackdrop) {
-            maxOf(tintAlpha, 0.88f)
-        } else {
-            maxOf(tintAlpha, 0.93f)
-        }
+        val baseAlpha = if (samplesBackdrop) tintAlpha else maxOf(tintAlpha, 0.93f)
         Box(Modifier.matchParentSize().background(tint.copy(alpha = baseAlpha)))
         if (glass != null) {
+            // One light edge, brightest where the light falls and fading towards the bottom. A uniform frame plus a
+            // heavy shadow read as a plastic tray rather than a pane of glass.
             Box(
                 Modifier.matchParentSize()
-                    .border(1.dp, rim.copy(alpha = glass.rimAlpha), shape)
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(
+                            listOf(rim.copy(alpha = glass.rimAlpha), rim.copy(alpha = glass.rimAlpha * 0.25f))
+                        ),
+                        shape = shape
+                    )
             )
             if (glass.highlightAlpha > 0f) {
-                Box(
-                    Modifier.matchParentSize().drawWithCache {
-                        val brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = glass.highlightAlpha),
-                                Color.Transparent
-                            ),
-                            endY = size.height * 0.62f
-                        )
-                        onDrawBehind { drawRect(brush) }
-                    }
-                )
+                Box(Modifier.matchParentSize().glassHighlight(glass.highlightAlpha))
             }
         }
         // Content sizes the panel; the decorative layers above match whatever height it ends up with.
@@ -191,6 +189,28 @@ private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: RoundedCorner
     } else {
         this
     }
+
+/**
+ * The specular highlight of the glass: a soft white wash across the top that fades out before the middle. Shared by the
+ * floating panel and the full-width chrome so both read as the same material.
+ */
+fun Modifier.glassHighlight(alpha: Float): Modifier = drawWithCache {
+    val brush = Brush.verticalGradient(
+        colors = listOf(Color.White.copy(alpha = alpha), Color.Transparent),
+        endY = size.height * 0.62f
+    )
+    onDrawBehind { drawRect(brush) }
+}
+
+/** Mask used for a frame in which the panel has no finished backdrop sample yet. */
+private const val GlassUnsampledMaskAlpha = 0.65f
+
+/**
+ * True when glass panels on this device really sample a backdrop. Only then is recording the content worth its cost:
+ * Balanced, Lite, other styles and Android versions without render effects never record anything.
+ */
+val DesignSystem.recordsGlassBackdrop: Boolean
+    get() = usesGlass && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 /** True when the style draws glass at all (any quality), which decides whether a panel is framed like glass. */
 val DesignSystem.usesGlassPanels: Boolean get() = style == DesignStyle.LiquidGlass && surfaces.glass != null

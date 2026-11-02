@@ -11,6 +11,7 @@
     <string name="appearance_style_quality_auto_detail">Nach Gerät und Systemeinstellungen</string>
     <string name="appearance_style_quality_high">Maximum</string>
     <string name="appearance_style_quality_high_detail">Echte Hintergrundunschärfe hinter den Panels</string>
+    <string name="appearance_style_quality_high_unavailable">Unschärfe ist auf diesem Gerät nicht verfügbar, die Panels werden wie bei „Ausgeglichen“ gezeichnet</string>
     <string name="appearance_style_quality_balanced">Ausgeglichen</string>
     <string name="appearance_style_quality_balanced_detail">Tönung und Lichtkanten ohne Unschärfe</string>
     <string name="appearance_style_quality_lite">Sparsam</string>

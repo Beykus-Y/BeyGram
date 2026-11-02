@@ -11,6 +11,7 @@
     <string name="appearance_style_quality_auto_detail">Selon l\'appareil et le système</string>
     <string name="appearance_style_quality_high">Maximale</string>
     <string name="appearance_style_quality_high_detail">Flou réel de l\'arrière-plan derrière les panneaux</string>
+    <string name="appearance_style_quality_high_unavailable">Le flou n\'est pas disponible sur cet appareil : les panneaux sont dessinés comme en mode « Équilibrée »</string>
     <string name="appearance_style_quality_balanced">Équilibrée</string>
     <string name="appearance_style_quality_balanced_detail">Teinte et bords lumineux sans flou</string>
     <string name="appearance_style_quality_lite">Économe</string>

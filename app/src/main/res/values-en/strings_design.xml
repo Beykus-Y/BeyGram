@@ -11,6 +11,7 @@
     <string name="appearance_style_quality_auto_detail">Chosen from the device and the system settings</string>
     <string name="appearance_style_quality_high">Maximum</string>
     <string name="appearance_style_quality_high_detail">Real backdrop blur behind the panels</string>
+    <string name="appearance_style_quality_high_unavailable">Blur is not available on this device, so panels are drawn as in Balanced</string>
     <string name="appearance_style_quality_balanced">Balanced</string>
     <string name="appearance_style_quality_balanced_detail">Tint and light rims without the blur pass</string>
     <string name="appearance_style_quality_lite">Economy</string>

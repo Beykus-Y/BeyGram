@@ -11,6 +11,7 @@
     <string name="appearance_style_quality_auto_detail">По возможностям устройства и настройкам системы</string>
     <string name="appearance_style_quality_high">Максимум</string>
     <string name="appearance_style_quality_high_detail">Настоящее размытие фона за панелями</string>
+    <string name="appearance_style_quality_high_unavailable">Размытие на этом устройстве недоступно, панели рисуются как в режиме «Сбалансированно»</string>
     <string name="appearance_style_quality_balanced">Сбалансированно</string>
     <string name="appearance_style_quality_balanced_detail">Тонировка и световые кромки без размытия</string>
     <string name="appearance_style_quality_lite">Экономно</string>

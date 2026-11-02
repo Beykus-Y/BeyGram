@@ -26,3 +26,13 @@ fun autoGlassQuality(capabilities: GlassCapabilities): GlassQuality = when {
     capabilities.constrainedPerformance -> GlassQuality.Balanced
     else -> GlassQuality.High
 }
+
+/**
+ * The glass level the interface really draws for the user's [requested] choice. An explicit [GlassQuality.High] on a
+ * device that cannot blur a backdrop is shown as [GlassQuality.Balanced]: the material never claims a blur the device
+ * does not render, and the saved choice is kept, so the same setting turns into the real blur on a capable device.
+ */
+fun effectiveGlassQuality(requested: GlassQuality, capabilities: GlassCapabilities): GlassQuality {
+    val resolved = resolveGlassQuality(requested, autoGlassQuality(capabilities))
+    return if (resolved == GlassQuality.High && !capabilities.supportsBackdropBlur) GlassQuality.Balanced else resolved
+}

@@ -90,7 +90,7 @@ fun rememberDesign(config: AppearanceConfig): DesignSystem {
     return remember(config.designStyle, config.glassQuality, config.navigationPlacement, capabilities) {
         designFor(
             config.designStyle,
-            resolveGlassQuality(config.glassQuality, autoGlassQuality(capabilities)),
+            effectiveGlassQuality(config.glassQuality, capabilities),
             config.navigationPlacement
         )
     }
@@ -107,7 +107,7 @@ fun rememberDesign(
     return remember(style, glassQuality, navigationPlacement, capabilities) {
         designFor(
             style,
-            resolveGlassQuality(glassQuality, autoGlassQuality(capabilities)),
+            effectiveGlassQuality(glassQuality, capabilities),
             navigationPlacement
         )
     }

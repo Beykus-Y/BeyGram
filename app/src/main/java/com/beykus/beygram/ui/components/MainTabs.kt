@@ -78,6 +78,8 @@ import com.beykus.beygram.ui.design.DesignSystem
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.glassHighlight
+import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.NavigationVariant
 import com.beykus.beygram.ui.motion.MotionToken
@@ -395,9 +397,13 @@ internal fun MainTabBar(
                 if (spec.elevation > 0.dp) Modifier.shadow(spec.elevation, barShape) else Modifier
             ).background(barColor)
         ) {
+            // A pinned glass bar keeps the material within the ordinary full-width bar: the same specular wash as the
+            // dock under the tabs and the light edge as one hairline on top, instead of turning into a floating
+            // capsule. Nothing is faked as blur: the surface under a pinned bar is the window, not the content.
+            if (glass != null && glass.highlightAlpha > 0f) {
+                Box(Modifier.matchParentSize().glassHighlight(glass.highlightAlpha * 0.6f))
+            }
             content()
-            // A pinned glass bar keeps the material's light edge as one hairline on top instead of the full rim of the
-            // floating dock. Nothing is faked as blur: the surface under a pinned bar is the window, not the content.
             if (glass != null) {
                 Box(
                     Modifier.fillMaxWidth().height(1.dp)
@@ -530,10 +536,10 @@ internal fun MainTabsScaffold(
             // stays reachable instead of hiding under the panel.
             val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             val backdrop = LocalGlassBackdrop.current
-            val glass = design.surfaces.glass
             // Only the content is recorded. The bar sits outside this subtree, so the panel never samples a layer
             // that is being written in the same pass - that self-reference is a native crash in the render thread.
-            val recordContent = if (glass != null && backdrop != null) {
+            // Nothing is recorded unless the dock really blurs it: Balanced, Lite and old Android pay nothing.
+            val recordContent = if (design.recordsGlassBackdrop && backdrop != null) {
                 Modifier.glassBackdropSource(backdrop)
             } else {
                 Modifier
@@ -565,18 +571,10 @@ internal fun MainTabsScaffold(
                 )
             }
         } else {
-            // A pinned glass bar needs no backdrop (nothing but the window is behind it), but the rest of the glass
-            // chrome still samples the content: pinning the bar must not turn the top bar and the search into flat
-            // surfaces. Only the content is recorded and the bar stays outside it, so there is no self-reference.
-            val backdrop = LocalGlassBackdrop.current
-            val glass = design.surfaces.glass
-            val recordContent = if (glass != null && backdrop != null) {
-                Modifier.glassBackdropSource(backdrop)
-            } else {
-                Modifier
-            }
+            // A pinned bar has nothing but the window behind it, so the whole content is not recorded here. Glass
+            // chrome inside a screen (the chat list header) records only its own list, never this subtree.
             Column(Modifier.fillMaxSize()) {
-                Box(Modifier.weight(1f).fillMaxWidth().then(recordContent)) {
+                Box(Modifier.weight(1f).fillMaxWidth()) {
                     CompositionLocalProvider(LocalNavigationDock provides dock) {
                         stateHolder.SaveableStateProvider(key) { content() }
                     }
