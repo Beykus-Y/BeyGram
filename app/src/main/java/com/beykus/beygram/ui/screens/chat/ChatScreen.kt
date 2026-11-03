@@ -639,9 +639,11 @@ fun ChatScreen(
     }
     // Sender picker is built from the loaded history; no extra TDLib member request is needed in the search bar.
     val searchSenders = remember(messages) { chatSearchSenders(messages) }
+    // Album grouping reads only the messages, so a pending video note does not regroup the whole loaded history.
+    val albumItems = remember(messages) { groupTelegramMediaAlbums(messages) }
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
-    val rawMessageItems = remember(messages, pendingVideoNotes) {
-        pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + groupTelegramMediaAlbums(messages)
+    val rawMessageItems = remember(albumItems, pendingVideoNotes) {
+        pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + albumItems
     }
     val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
         scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
