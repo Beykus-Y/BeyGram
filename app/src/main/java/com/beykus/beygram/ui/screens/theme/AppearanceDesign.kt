@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -353,7 +354,8 @@ internal fun AppearanceApplyBar(
     hasChanges: Boolean,
     canApply: Boolean,
     blockedByContrast: Boolean,
-    onApply: () -> Unit
+    onApply: () -> Unit,
+    onCancel: () -> Unit
 ) {
     val palette = beyGramPalette()
     val compact = LocalConfiguration.current.screenHeightDp < 500
@@ -380,6 +382,9 @@ internal fun AppearanceApplyBar(
                     maxLines = 2,
                     modifier = Modifier.weight(1f)
                 )
+                TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 44.dp)) {
+                    Text(stringResource(R.string.theme_editor_cancel), fontSize = 14.sp)
+                }
                 Button(
                     onClick = onApply,
                     enabled = canApply,
@@ -397,13 +402,22 @@ internal fun AppearanceApplyBar(
                     fontSize = 12.sp,
                     lineHeight = 16.sp
                 )
-                Button(
-                    onClick = onApply,
-                    enabled = canApply,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
-                    shape = RoundedCornerShape(16.dp)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(stringResource(R.string.theme_apply), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 50.dp)) {
+                        Text(stringResource(R.string.theme_editor_cancel), fontSize = 15.sp)
+                    }
+                    Button(
+                        onClick = onApply,
+                        enabled = canApply,
+                        modifier = Modifier.weight(1f).heightIn(min = 50.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(stringResource(R.string.theme_apply), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
