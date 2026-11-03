@@ -1472,6 +1472,8 @@ fun ChatScreen(
         }
     }
 
+    // Reported by PinnedMessagesBar: while the preview sits under the header, Liquid Glass keeps one hairline for both.
+    var pinnedPreviewShown by remember(chat.id, forumTopicId) { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (selectionMode) SelectionActionBar(
@@ -1553,7 +1555,8 @@ fun ChatScreen(
             onChatSettings = { chatSettingsOpen = true },
             onStatistics = onStatistics,
             onExport = { exportOpen = true },
-            secretChat = secretChat
+            secretChat = secretChat,
+            pinnedBelow = pinnedPreviewShown
         )
         // Keep playback accessible below the chat header, not between messages and the composer.
         // The input/IME and reply controls should remain adjacent to the message list.
@@ -1595,7 +1598,8 @@ fun ChatScreen(
             }
         }
         PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected,
-            ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary, forumTopicId = forumTopicId)
+            ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary, forumTopicId = forumTopicId,
+            onPreviewShownChange = { pinnedPreviewShown = it })
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -2473,7 +2477,9 @@ private fun ChatTopBar(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
     hasUnread: Boolean = false, onSelectMessages: () -> Unit = {}, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
     onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onStatistics: (() -> Unit)? = null,
-    onExport: () -> Unit = {}, secretChat: SecretChatDetails? = null
+    onExport: () -> Unit = {}, secretChat: SecretChatDetails? = null,
+    /** The pinned preview is drawn directly under this header, so it closes the group with the one hairline. */
+    pinnedBelow: Boolean = false
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -2562,7 +2568,8 @@ private fun ChatTopBar(
                 }
             }
         }
-        HorizontalDivider(color = palette.divider)
+        // Liquid Glass with the pinned preview below: the preview's own hairline is the single edge of the group.
+        if (!(pinnedBelow && design.components.topBar == TopBarVariant.Glass)) HorizontalDivider(color = palette.divider)
     }
 }
 

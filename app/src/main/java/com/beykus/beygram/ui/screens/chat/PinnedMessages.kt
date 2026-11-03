@@ -24,6 +24,8 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.TopBarVariant
 import kotlinx.coroutines.launch
 
 /** Which pin is relevant to the message window currently visible in chat history. */
@@ -52,7 +54,9 @@ internal fun PinnedMessagesBar(
     connected: Boolean,
     onOpen: (ChatMessage) -> Unit,
     visibleOldestMessageId: Long? = null,
-    forumTopicId: Long = 0L
+    forumTopicId: Long = 0L,
+    /** Reports whether the preview row is drawn, so the header can give its bottom hairline to this row. */
+    onPreviewShownChange: (Boolean) -> Unit = {}
 ) {
     val version by remember(conversation, chatId) { conversation.observePinnedMessagesVersion(chatId) }.collectAsStateWithLifecycle()
     var pins by remember(chatId, forumTopicId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
@@ -66,6 +70,7 @@ internal fun PinnedMessagesBar(
     var generation by remember(chatId, forumTopicId) { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
 
     LaunchedEffect(chatId, forumTopicId, version, connected, retry) {
         generation++
@@ -104,10 +109,14 @@ internal fun PinnedMessagesBar(
     }
     val index = currentPinnedIndex(pins, visibleOldestMessageId)
     val shown = pins.getOrNull(index)
+    val showsPreview = shown != null && !(needsOlder && failed)
+    LaunchedEffect(showsPreview) { onPreviewShownChange(showsPreview) }
     if (needsOlder && failed) {
         TextButton(onClick = { scope.launch { loadMore() } }) { Text(stringResource(R.string.chat_pinned_failed) + " · " + stringResource(R.string.chat_pinned_retry)) }
     } else if (shown != null) {
-        Row(Modifier.fillMaxWidth().background(palette.surface), verticalAlignment = Alignment.CenterVertically) {
+        // Liquid Glass: the preview takes the header's translucent fill, so the two read as one block with no seam.
+        val rowFill = if (design.components.topBar == TopBarVariant.Glass) palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.78f)) else palette.surface
+        Row(Modifier.fillMaxWidth().background(rowFill), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).clickable { onOpen(shown) }.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.PushPin, null, tint = palette.accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(10.dp))
