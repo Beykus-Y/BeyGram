@@ -1820,40 +1820,31 @@ fun ChatScreen(
         val away by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
         val jumpMotion = rememberMotionSpec(MotionToken.BannerChange)
         // Qualify the top-level animation: the outer chat ColumnScope overload is not valid in this BoxScope.
+        // The list box ends above the composer and the keyboard, so a bottom-end control stays clear of both.
         androidx.compose.animation.AnimatedVisibility(
             visible = away || history.hasNewerMessages,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
             enter = if (jumpMotion.isInstant) EnterTransition.None else
                 jumpMotion.fadeEnter() + slideInVertically(jumpMotion.animationSpec()) { it / 2 },
             exit = if (jumpMotion.isInstant) ExitTransition.None else
                 jumpMotion.fadeExit() + slideOutVertically(jumpMotion.animationSpec()) { it / 2 }
         ) {
-            Row(
-                Modifier.clip(RoundedCornerShape(50)).background(palette.surface)
-                    .border(1.dp, palette.divider, RoundedCornerShape(50)).heightIn(min = 48.dp)
-                    .clickable(role = Role.Button) {
-                        val hasNewerMessages = history.hasNewerMessages
-                        if (hasNewerMessages) {
-                            if (forumTopicId > 0L) conversation.loadForumTopicHistory(chat.id, forumTopicId)
-                            else conversation.loadLatestMessages(chat.id)
-                        }
-                        scope.launch {
-                            // Honor Motion Off / system reduced motion for the scroll itself,
-                            // not only for the button's entrance and exit.
-                            if (shouldAnimateJumpToLatest(jumpMotion.isInstant, hasNewerMessages)) {
-                                listState.animateScrollToItem(0)
-                            } else {
-                                listState.scrollToItem(0)
-                            }
-                        }
+            JumpToLatestButton(unread = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount, onClick = {
+                val hasNewerMessages = history.hasNewerMessages
+                if (hasNewerMessages) {
+                    if (forumTopicId > 0L) conversation.loadForumTopicHistory(chat.id, forumTopicId)
+                    else conversation.loadLatestMessages(chat.id)
+                }
+                scope.launch {
+                    // Honor Motion Off / system reduced motion for the scroll itself,
+                    // not only for the button's entrance and exit.
+                    if (shouldAnimateJumpToLatest(jumpMotion.isInstant, hasNewerMessages)) {
+                        listState.animateScrollToItem(0)
+                    } else {
+                        listState.scrollToItem(0)
                     }
-                    .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Rounded.ArrowDownward, null, tint = palette.accent, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(R.string.chat_jump_to_latest), color = palette.accentInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            }
+                }
+            })
         }
         if (searching) ChatSearchResults(
             query = searchQuery,
@@ -2393,9 +2384,32 @@ fun ChatScreen(
 }
 
 /**
- * Box/Column are inline, so their content is compiled into the caller. ChatScreen is close to the
- * JVM method size limit; passing the content through these wrappers compiles it as a separate lambda.
+ * The return-to-latest control: a 48dp round floating button with an arrow and, when there are unread messages, the
+ * chat's unread count on its edge. It sits over the message list, so the composer and the keyboard never cover it.
  */
+@Composable
+private fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val label = stringResource(R.string.chat_jump_to_latest)
+    Box(
+        Modifier.size(48.dp).shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = label },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        if (unread > 0) Box(
+            Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)
+                .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                .clip(CircleShape).background(palette.accent).padding(horizontal = 4.dp)
+                .clearAndSetSemantics {},
+            contentAlignment = Alignment.Center
+        ) {
+            Text(if (unread > 99) "99+" else unread.toString(), color = palette.onAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
+    }
+}
+
 /**
  * The round send control: a checkmark while editing, a spinner while sending. Material 3 fills it with the tonal accent
  * container; the other styles keep the solid accent, and Material 2 keeps its rounded square.
@@ -2413,6 +2427,10 @@ private fun SendControlFace(busy: Boolean, canSend: Boolean, editing: Boolean) {
     }
 }
 
+/**
+ * Box/Column are inline, so their content is compiled into the caller. ChatScreen is close to the
+ * JVM method size limit; passing the content through these wrappers compiles it as a separate lambda.
+ */
 @Composable
 private fun ChatScreenBox(modifier: Modifier, content: @Composable BoxScope.() -> Unit) {
     Box(modifier, content = content)
