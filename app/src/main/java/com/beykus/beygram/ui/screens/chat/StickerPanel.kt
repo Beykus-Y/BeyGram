@@ -106,6 +106,7 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CoroutineScope
@@ -1314,7 +1315,8 @@ private fun StickerPanelArtwork(
     thumbnailOnly: Boolean = false
 ) {
     val palette = beyGramPalette()
-    val motion = systemMotionEnabled()
+    // Animated stickers play only after they have been on screen for the autoplay dwell time.
+    val autoplay = rememberAutoplayEligible(enabled = item.format != StickerFileFormat.Webm)
     val file by remember(item.fileId) { observeFile(item.fileId) }.collectAsStateWithLifecycle()
     val thumbnail = rememberPanelFile(item.thumbnailFileId, observeFile)
     LaunchedEffect(item.fileId, item.thumbnailFileId, item.format, thumbnailOnly) {
@@ -1325,16 +1327,19 @@ private fun StickerPanelArtwork(
     val emoji = item.emoji.ifBlank { "🙂" }
     val thumbnailPath = thumbnail.localPath.takeIf { item.thumbnailIsStatic }
     val fullPath = file.localPath
-    Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
+    Box(modifier.clipToBounds().then(autoplay.modifier), contentAlignment = Alignment.Center) {
         val fallback: @Composable () -> Unit = {
             if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension)
             else Text(emoji, fontSize = 24.sp, textAlign = TextAlign.Center)
         }
         when {
             fullPath != null && item.format == StickerFileFormat.Tgs ->
-                TgsSticker(fullPath, Modifier.fillMaxSize(), playing = motion, fallback = fallback)
+                TgsSticker(
+                    fullPath, Modifier.fillMaxSize(), playing = autoplay.eligible.value,
+                    poster = if (thumbnailPath != null) fallback else null, fallback = fallback
+                )
             fullPath != null && item.format != StickerFileFormat.Webm ->
-                LocalMediaImage(fullPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension)
+                LocalMediaImage(fullPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension, animate = autoplay.eligible.value)
             thumbnailPath != null ->
                 LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension)
             file.isDownloading || thumbnail.isDownloading ->
@@ -1440,13 +1445,16 @@ private fun GifPanelArtwork(
     val fullFile = rememberPanelFile(item.fileId, observeFile)
     LaunchedEffect(item.thumbnailFileId) { item.thumbnailFileId?.let(downloadFile) }
     val path = thumbnail.localPath ?: fullFile.localPath
-    Box(modifier, contentAlignment = Alignment.Center) {
+    // A GIF animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
+    val autoplay = rememberAutoplayEligible()
+    Box(modifier.then(autoplay.modifier), contentAlignment = Alignment.Center) {
         when {
             path != null -> LocalMediaImage(
                 path, Modifier.fillMaxSize(), fit = true, maxDimension = 320,
                 allowVideoFrame = true,
                 fallbackVideoPath = if (path != fullFile.localPath) fullFile.localPath else null,
-                fallbackMinithumbnail = item.minithumbnail
+                fallbackMinithumbnail = item.minithumbnail,
+                animate = autoplay.eligible.value
             )
             item.minithumbnail != null -> MinithumbnailImage(item.minithumbnail, Modifier.fillMaxSize())
             thumbnail.isDownloading -> CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)

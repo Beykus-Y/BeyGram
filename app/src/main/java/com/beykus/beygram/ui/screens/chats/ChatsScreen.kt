@@ -322,8 +322,16 @@ fun ChatsScreen(
     val pinnedChats = remember(filteredChats, selectedFilter, query) {
         if (selectedFilter == ChatFilter.All && query.isBlank()) filteredChats.filter { it.isPinned } else emptyList()
     }
-    val regularChats = remember(filteredChats, pinnedChats) { filteredChats.filterNot { it in pinnedChats } }
-    val unreadTotal = remember(displayedChats) { displayedChats.sumOf { it.unreadCount } }
+    // Pinned rows are the pinned rows of filteredChats whenever they are shown, so the split reads the flag
+    // instead of searching pinnedChats for every row.
+    val regularChats = remember(filteredChats, pinnedChats) {
+        if (pinnedChats.isEmpty()) filteredChats else filteredChats.filterNot { it.isPinned }
+    }
+    // The header reads these on every recomposition, so the scans over all chats run only when their lists change.
+    val hasUnreadChats = remember(displayedChats) { displayedChats.any { it.unreadCount > 0 || it.isMarkedAsUnread } }
+    val savedMessagesChat = remember(chats, archivedChats) {
+        chats.firstOrNull { it.isSavedMessages } ?: archivedChats.firstOrNull { it.isSavedMessages }
+    }
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
     val listState = state.listState
@@ -407,10 +415,13 @@ fun ChatsScreen(
 
     if (managingFolders) {
         val manager: @Composable () -> Unit = {
+            // Sorting every chat by title is only needed while the manager is open, and once per list change.
+            val knownChats = remember(chats, archivedChats, folderChats) {
+                (chats + archivedChats + folderChats.values.flatten()).distinctBy { it.id }.sortedBy { it.title.lowercase() }
+            }
             FolderManagerScreen(
                 snapshot = folderSnapshot,
-                knownChats = (chats + archivedChats + folderChats.values.flatten()).distinctBy { it.id }
-                    .sortedBy { it.title.lowercase() },
+                knownChats = knownChats,
                 loadFolder = onLoadFolder,
                 saveFolder = onSaveFolder,
                 deleteFolder = onDeleteFolder,
@@ -456,7 +467,7 @@ fun ChatsScreen(
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() })
                 }
-                if (displayedChats.any { it.unreadCount > 0 || it.isMarkedAsUnread }) {
+                if (hasUnreadChats) {
                     androidx.compose.material3.IconButton(
                         onClick = { confirmReadAll = true },
                         modifier = Modifier.semantics { contentDescription = context.getString(R.string.chats_read_all) }
@@ -464,7 +475,7 @@ fun ChatsScreen(
                         Icon(Icons.Rounded.DoneAll, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                     }
                 }
-                (chats + archivedChats).firstOrNull { it.isSavedMessages }?.let { saved ->
+                savedMessagesChat?.let { saved ->
                     androidx.compose.material3.IconButton(onClick = { openChat(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
                         Icon(Icons.Rounded.Bookmark, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                     }

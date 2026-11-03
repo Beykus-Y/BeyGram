@@ -136,6 +136,7 @@ import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.playback.playbackKey
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
@@ -237,24 +238,30 @@ internal fun LocalMediaImage(
     contentDescriptionText: String? = null,
     allowVideoFrame: Boolean = false,
     fallbackVideoPath: String? = null,
-    fallbackMinithumbnail: ByteArray? = null
+    fallbackMinithumbnail: ByteArray? = null,
+    /** False decodes only the first frame, so an animated image never starts an AnimatedImageDrawable. */
+    animate: Boolean = true
 ) {
     val context = LocalContext.current
-    val cacheKey = "$path#$maxDimension#$allowVideoFrame#$fallbackVideoPath"
+    // A still frame has its own cache key, so it can never be taken for the animated drawable.
+    val cacheKey = "$path#$maxDimension#$allowVideoFrame#$fallbackVideoPath" + (if (animate) "" else "#still")
     var failed by remember(cacheKey) { mutableStateOf(false) }
     val cacheable = maxDimension <= DecodedImageCache.MAX_CACHED_DIMENSION
     val cached = remember(cacheKey) { if (cacheable) DecodedImageCache.get(cacheKey)?.let { BitmapDrawable(context.resources, it) } else null }
-    val drawable by produceState<Drawable?>(cached, cacheKey) {
+    val loaded by produceState<Drawable?>(cached, cacheKey) {
         if (cached != null) { failed = false; value = cached; return@produceState }
         val result = withContext(Dispatchers.IO) {
             val still = runCatching {
-                ImageDecoder.decodeDrawable(ImageDecoder.createSource(File(path))) { decoder, info, _ ->
+                val source = ImageDecoder.createSource(File(path))
+                val sizeListener = ImageDecoder.OnHeaderDecodedListener { decoder, info, _ ->
                     val longest = maxOf(info.size.width, info.size.height)
                     if (longest > maxDimension) decoder.setTargetSize(
                         (info.size.width.toLong() * maxDimension / longest).toInt().coerceAtLeast(1),
                         (info.size.height.toLong() * maxDimension / longest).toInt().coerceAtLeast(1)
                     )
                 }
+                if (animate) ImageDecoder.decodeDrawable(source, sizeListener)
+                else BitmapDrawable(context.resources, ImageDecoder.decodeBitmap(source, sizeListener))
             }.getOrNull()
             still ?: if (allowVideoFrame) {
                 listOfNotNull(path, fallbackVideoPath).distinct().firstNotNullOfOrNull { candidate ->
@@ -266,9 +273,16 @@ internal fun LocalMediaImage(
         if (cacheable && result is BitmapDrawable) DecodedImageCache.put(cacheKey, result.bitmap)
         value = result
     }
-    DisposableEffect(drawable) {
-        (drawable as? AnimatedImageDrawable)?.start()
-        onDispose { (drawable as? AnimatedImageDrawable)?.stop() }
+    // The drawable on screen stays until its replacement, the animated or still version of the same file, is decoded, so the
+    // tile never goes blank in between. A tile that is reused for another file starts empty.
+    val held = remember(path) { mutableStateOf<Drawable?>(null) }
+    SideEffect { loaded?.let { held.value = it } }
+    val drawable = loaded ?: held.value
+    // An animated drawable runs only while it is shown as animated; leaving that state stops it at once.
+    DisposableEffect(drawable, animate) {
+        val animated = drawable as? AnimatedImageDrawable
+        if (animate) animated?.start()
+        onDispose { animated?.stop() }
     }
     Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
         when {
@@ -454,6 +468,8 @@ internal fun MediaPreview(
         }
     }
     val isVisual = media.kind in listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
+    // A GIF in the bubble animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
+    val autoplay = rememberAutoplayEligible(enabled = media.mimeType == "image/gif")
     // Секретное вложение в ленте не грузим и не показываем до открытия: превью иначе видно раньше просмотрщика.
     val concealed = media.isSecret || viewOnce
     val imageFile = if (concealed) null else if (media.mimeType.startsWith("image/")) file.localPath ?: thumb.localPath else if (thumbId != media.fileId) thumb.localPath else null
@@ -582,7 +598,7 @@ internal fun MediaPreview(
                     onLongClickLabel = longPressLabel,
                     onClick = { if (viewOnce || revealed) onOpen() else revealed = true },
                     onLongClick = onLongPress
-                ),
+                ).then(autoplay.modifier),
             contentAlignment = Alignment.Center
         ) {
             if (viewOnce) {
@@ -600,7 +616,8 @@ internal fun MediaPreview(
                 posterFile, Modifier.fillMaxSize(),
                 allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
                 fallbackVideoPath = if (posterFile != file.localPath) file.localPath else null,
-                fallbackMinithumbnail = media.minithumbnail
+                fallbackMinithumbnail = media.minithumbnail,
+                animate = autoplay.eligible.value
             )
             if (!viewOnce) {
                 if (!revealed) SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())

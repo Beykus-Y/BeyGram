@@ -129,7 +129,6 @@ import com.beykus.beygram.domain.model.FolderChatPosition
 import com.beykus.beygram.domain.model.TelegramChatFolders
 import com.beykus.beygram.domain.model.TelegramFolderDraft
 import com.beykus.beygram.domain.model.TelegramFolderLoadState
-import com.beykus.beygram.domain.model.orderedTelegramFolderChats
 import com.beykus.beygram.domain.model.GroupCreationState
 import com.beykus.beygram.domain.model.mayBeginGroupCreation
 import com.beykus.beygram.domain.model.ContactPreview
@@ -138,8 +137,6 @@ import com.beykus.beygram.domain.model.BlockedSendersPage
 import com.beykus.beygram.domain.model.PrivacyRules
 import com.beykus.beygram.domain.model.PrivacySetting
 import com.beykus.beygram.domain.model.PrivacySettingState
-import com.beykus.beygram.domain.model.orderedArchivedChats
-import com.beykus.beygram.domain.model.orderedMainChats
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.domain.model.InteractionPolicy
@@ -1815,13 +1812,15 @@ class TdLibTelegramRepository private constructor(
     private val analyticsAccountLock = Any()
     private var analyticsSessionGeneration = 0L
     private var analyticsProfileJob: Job? = null
+    /** Builds the Main, archive and folder lists from [chatCache]. Only [chatListPublisher] calls it, one run at a time. */
+    private val chatListProjection = ChatListProjection()
     private val chatListPublisher = CoalescedPublisher(chatListScope, CHAT_LIST_PUBLISH_DELAY_MS) {
         // Main-list ordering comes from Telegram, including pins and draft activity.
-        val previews = chatCache.values.map { it.withMute() }
-        _chats.value = orderedMainChats(previews)
-        _archivedChats.value = orderedArchivedChats(previews)
-        val activeIds = _chatFolders.value.folders.map { it.id }
-        _folderChats.value = activeIds.associateWith { id -> orderedTelegramFolderChats(previews, id) }
+        val lists = chatListProjection.update(chatCache, _chatFolders.value.folders.map { it.id }) { chatId -> muteState.isMuted(chatId) }
+        // An unchanged instance is not assigned, so its flow does not emit and the screen keeps its rows.
+        if (lists.main !== _chats.value) _chats.value = lists.main
+        if (lists.archive !== _archivedChats.value) _archivedChats.value = lists.archive
+        if (lists.folders !== _folderChats.value) _folderChats.value = lists.folders
     }
 
     /** Номер телефона, введённый пользователем — нужен для [WaitingForCode]. */
@@ -3081,6 +3080,8 @@ class TdLibTelegramRepository private constructor(
         _chats.value = emptyList()
         _archivedChats.value = emptyList()
         chatStates.values.forEach { it.value = null }
+        // A publish that read the cache before the clear could assign its lists after it: one more run replaces them.
+        chatListPublisher.request()
     }
 
     /** Переключатель возврата из архива показывает настройку аккаунта, поэтому читаем её при входе. */
