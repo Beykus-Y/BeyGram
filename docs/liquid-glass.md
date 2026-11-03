@@ -14,7 +14,7 @@ the crash guard live in [design-system-v2.md](design-system-v2.md#liquid-glass).
 | Search field inside glass chrome | inner glass (lighter fill on the pane) | one layer of glass, not a second pane |
 | Chat header and composer | tinted glass, no sample | the backdrop is private message content; it is never blurred into chrome |
 | Message bubbles, message text, photos, video | opaque | readability wins over decoration |
-| Chat rows, long lists | opaque | dense text, scrolled constantly |
+| Chat rows, long lists | opaque | dense text, scrolled constantly; rows are painted with the screen colour for swipe actions, so on the chat list the glow shows only around and below the rows |
 | Settings group cards, attachment tiles | translucent glass cards (0.55 fill, rim, highlight) over the ambient glow | the glow shows through the card, so it reads as glass |
 | Attachment menu | dense glass sheet (0.94 fill, lit top edge, highlight) | the messages behind the menu must not be readable through it |
 | Other sheets and dialogs | opaque Material surfaces | modal content needs full contrast |
