@@ -93,10 +93,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -183,6 +188,9 @@ private enum class ChatFilter(val title: Int) {
 
 /** Сколько протянуть список вниз, чтобы вернуть скрытый архив; подсказка занимает столько же. */
 private val archivePullThreshold = 104.dp
+
+/** Высота мягкого края списка: строки, уходящие под шапку, растворяются здесь, а не обрываются тонкой полосой. */
+private val chatListTopFade = 24.dp
 
 @Composable
 fun ChatsScreen(
@@ -380,6 +388,17 @@ fun ChatsScreen(
     LaunchedEffect(listState.isScrollInProgress) {
         if (!listState.isScrollInProgress) pullPx = 0f
     }
+    // The list's top edge is a viewport edge, not a boundary between rows: once it has moved, rows scrolled under the
+    // header are cut there. Their slice (a line of the archive summary, the edge of a tonal card) then sits in the 18 dp
+    // gap above the pinned label and reads as stray debris. The edge dissolves instead; at rest nothing is faded.
+    val listMoved by remember(listState) {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
+    }
+    val topEdgeFade by animateFloatAsState(
+        targetValue = if (listMoved) 1f else 0f,
+        animationSpec = headerMotion.animationSpec<Float>(),
+        label = "chatsListTopEdgeFade"
+    )
 
     if (managingFolders) {
         val manager: @Composable () -> Unit = {
@@ -555,7 +574,7 @@ fun ChatsScreen(
     val chatList: @Composable (Modifier, Dp) -> Unit = { modifier, topPadding ->
         LazyColumn(
             state = listState,
-            modifier = modifier.nestedScroll(pullConnection),
+            modifier = modifier.nestedScroll(pullConnection).chatListTopEdgeFade(topPadding) { topEdgeFade },
             // Keep the last conversation accessible above the overlay button, measured from the button itself. Under
             // glass chrome the list also starts below the header it scrolls beneath.
             contentPadding = PaddingValues(top = topPadding, bottom = fabPlacement.listClearance)
@@ -970,6 +989,31 @@ private fun ArchivePullHint(heightDp: Dp) {
         Text(stringResource(R.string.chats_archive_pull_hint), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
+
+/**
+ * Dissolves the list's top edge: from [topPadding] down, the list fades to transparent over [chatListTopFade]. The list is
+ * drawn into its own layer and masked there (DstIn), so the screen colour, the glows and the glass backdrop record behind
+ * it show through unchanged, and nothing is blurred. [progress] scales the fade: 0 leaves the list as it is.
+ */
+private fun Modifier.chatListTopEdgeFade(topPadding: Dp, progress: () -> Float): Modifier =
+    graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            val amount = progress().coerceIn(0f, 1f)
+            if (amount <= 0f) return@drawWithContent
+            val top = topPadding.toPx()
+            val fade = chatListTopFade.toPx()
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Black.copy(alpha = 1f - amount), Color.Black),
+                    startY = top,
+                    endY = top + fade
+                ),
+                topLeft = Offset(0f, top),
+                size = Size(size.width, fade),
+                blendMode = BlendMode.DstIn
+            )
+        }
 
 /** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
 @Composable
