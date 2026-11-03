@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,6 +45,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
@@ -58,6 +60,10 @@ import com.beykus.beygram.ui.design.rememberDesign
 private val StylePreviewHeight = 300.dp
 private val StyleCardWidth = 112.dp
 private val StyleCardPhoneHeight = 168.dp
+/** The selected mark is a circle of this size in its own strip above the picture. */
+private val StyleCardMarkSize = 20.dp
+/** Two caption lines at their 17sp line height (the caption text itself is 13sp). */
+private val StyleCardCaptionHeight = 34.dp
 
 /**
  * The style selector. The main preview draws one whole screen of the app (chats, a conversation or settings) in the
@@ -229,6 +235,17 @@ private fun StyleCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        // The selected mark has a strip of its own above the picture, at the end, so it never covers the thumbnail.
+        Box(Modifier.fillMaxWidth().height(StyleCardMarkSize), contentAlignment = Alignment.CenterEnd) {
+            if (selected) {
+                Box(
+                    Modifier.size(StyleCardMarkSize).clip(CircleShape).background(palette.accent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Rounded.Check, null, tint = palette.onAccent, modifier = Modifier.size(13.dp))
+                }
+            }
+        }
         Box(Modifier.fillMaxWidth().height(StyleCardPhoneHeight)) {
             StyleScenePreview(
                 config = config.copy(designStyle = style),
@@ -239,17 +256,8 @@ private fun StyleCard(
                     .border(1.dp, palette.divider, phoneShape)
                     .clearAndSetSemantics {}
             )
-            if (selected) {
-                Box(
-                    Modifier.align(Alignment.TopEnd).padding(4.dp).size(22.dp)
-                        .clip(CircleShape).background(palette.accent)
-                        .border(1.5.dp, palette.surface, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Rounded.Check, null, tint = palette.onAccent, modifier = Modifier.size(14.dp))
-                }
-            }
         }
+        // Two lines of caption are always reserved, so the card keeps its height; a longer name is cut with an ellipsis.
         Text(
             stringResource(style.labelRes()),
             color = if (selected) palette.accentInk else palette.textPrimary,
@@ -258,7 +266,8 @@ private fun StyleCard(
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             textAlign = TextAlign.Center,
             maxLines = 2,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().heightIn(min = StyleCardCaptionHeight).padding(bottom = 2.dp)
         )
     }
 }
