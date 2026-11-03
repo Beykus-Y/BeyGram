@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -90,6 +91,9 @@ internal fun StoryBarSection(
         }
     }
 }
+
+/** How far an unread story ring moves from the accent towards the text colour; keeps it recognisable but calmer. */
+private const val UnreadStoryRingToneShare = 0.22f
 
 /**
  * Only the system add-story label needs guaranteed readability. Keep the avatar at 66 dp,
@@ -152,6 +156,10 @@ private fun StoryCell(
         label
     )
     val captionInteraction = remember { MutableInteractionSource() }
+    // The ring marks one state only: a story that is still unread. That is the accent the unread badges use, toned
+    // towards the text colour, because a fully saturated accent (a blue theme in particular) reads as acid around the
+    // avatars. Read stories keep the neutral divider.
+    val ringColor = if (entry.hasUnread) lerp(palette.accent, palette.textPrimary, UnreadStoryRingToneShare) else palette.divider
     Column(
         modifier = Modifier.width(88.dp)
             .semantics(mergeDescendants = true) { contentDescription = description }
@@ -162,7 +170,7 @@ private fun StoryCell(
         Box(
             Modifier.size(66.dp).clip(CircleShape)
                 .clickable(role = Role.Button, onClick = onClick)
-                .border(2.dp, if (entry.hasUnread) palette.accent else palette.divider, CircleShape)
+                .border(2.dp, ringColor, CircleShape)
                 .padding(3.dp)
         ) {
             TelegramAvatar(
