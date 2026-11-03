@@ -87,7 +87,7 @@ fun AutoDownloadSettingsScreen(onBack: () -> Unit, accountId: String = "legacy")
         update { value -> value.withPolicy(network, transform(value.policyFor(network))) }
     }
 
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.settings_auto_download_title), onBack)
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),

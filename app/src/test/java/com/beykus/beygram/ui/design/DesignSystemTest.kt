@@ -95,9 +95,10 @@ class DesignSystemTest {
         )
         assertEquals(FontWeight.Bold, byStyle.getValue(DesignStyle.Signature).rowTitleWeight)
 
-        // Glass keeps a card, but with its own softer radius.
+        // Glass keeps a card, but as one compact line in the same radius family as its chips.
         assertEquals(ArchiveTreatment.Card, byStyle.getValue(DesignStyle.LiquidGlass).archive)
-        assertEquals(20.dp, byStyle.getValue(DesignStyle.LiquidGlass).archiveRadius)
+        assertEquals(14.dp, byStyle.getValue(DesignStyle.LiquidGlass).archiveRadius)
+        assertTrue(byStyle.getValue(DesignStyle.LiquidGlass).compactArchive)
     }
 
     @Test fun material3MainScreenUsesOneTitleTheSearchBarAndATonalFab() {
@@ -109,12 +110,25 @@ class DesignSystemTest {
         assertEquals(16.dp, m3.fab.cornerRadius)
     }
 
+    @Test fun glassMainScreenLeavesRoomForTheChats() {
+        val glass = designFor(DesignStyle.LiquidGlass)
+        assertFalse("Glass drops the accent brand label", glass.mainScreen.showBrandOverline)
+        assertTrue(glass.mainScreen.searchHeight < 48.dp)
+        assertTrue(glass.mainScreen.storyAvatarSize < 66.dp)
+        // The create button is calmer than the dock, but still a full touch target.
+        assertTrue(glass.fab.tonal)
+        assertTrue(glass.fab.size in 48.dp..55.dp)
+    }
+
     @Test fun otherStylesKeepTheirHeaderSearchAndFab() {
-        DesignStyle.entries.filter { it != DesignStyle.Material3 }.forEach { style ->
+        DesignStyle.entries.filter { it != DesignStyle.Material3 && it != DesignStyle.LiquidGlass }.forEach { style ->
             val design = designFor(style)
             assertTrue("$style keeps the brand label", design.mainScreen.showBrandOverline)
             assertEquals("$style search height", 48.dp, design.mainScreen.searchHeight)
             assertFalse("$style keeps the accent FAB", design.fab.tonal)
+            assertEquals("$style FAB size", 56.dp, design.fab.size)
+            assertEquals("$style story size", 66.dp, design.mainScreen.storyAvatarSize)
+            assertFalse("$style archive", design.mainScreen.compactArchive)
         }
     }
 

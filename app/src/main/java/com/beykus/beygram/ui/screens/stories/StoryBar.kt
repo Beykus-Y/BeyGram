@@ -46,6 +46,7 @@ import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -96,7 +97,7 @@ internal fun StoryBarSection(
 private const val UnreadStoryRingToneShare = 0.22f
 
 /**
- * Only the system add-story label needs guaranteed readability. Keep the avatar at 66 dp,
+ * Only the system add-story label needs guaranteed readability. Keep the circle at the style size,
  * but give its two-line caption enough space as the user increases the Android font scale.
  */
 internal fun addStoryCellWidthDp(fontScale: Float): Float =
@@ -116,7 +117,7 @@ private fun AddStoryCell(onClick: () -> Unit) {
     ) {
         // The press feedback is drawn by the circle. A ripple over the whole cell is a rectangle around the story.
         Box(
-            Modifier.size(66.dp).clip(CircleShape).background(palette.accentSoft)
+            Modifier.size(LocalDesignSystem.current.mainScreen.storyAvatarSize).clip(CircleShape).background(palette.accentSoft)
                 .clickable(role = Role.Button, onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
@@ -159,6 +160,7 @@ private fun StoryCell(
     // The ring marks one state only: a story that is still unread. That is the accent the unread badges use, toned
     // towards the text colour, because a fully saturated accent (a blue theme in particular) reads as acid around the
     // avatars. Read stories keep the neutral divider.
+    val circle = LocalDesignSystem.current.mainScreen.storyAvatarSize
     val ringColor = if (entry.hasUnread) lerp(palette.accent, palette.textPrimary, UnreadStoryRingToneShare) else palette.divider
     Column(
         modifier = Modifier.width(88.dp)
@@ -168,7 +170,7 @@ private fun StoryCell(
     ) {
         // The press feedback is drawn by the circle. A ripple over the whole 88 dp cell is a rectangle around the story.
         Box(
-            Modifier.size(66.dp).clip(CircleShape)
+            Modifier.size(circle).clip(CircleShape)
                 .clickable(role = Role.Button, onClick = onClick)
                 .border(2.dp, ringColor, CircleShape)
                 .padding(3.dp)
@@ -176,7 +178,7 @@ private fun StoryCell(
             TelegramAvatar(
                 initials = entry.initials,
                 color = androidx.compose.ui.graphics.Color(entry.avatarColorArgb),
-                size = 60.dp,
+                size = circle - 6.dp,
                 photo = entry.photo,
                 observeFile = observeFile,
                 downloadFile = downloadFile

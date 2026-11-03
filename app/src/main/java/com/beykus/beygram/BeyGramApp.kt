@@ -1695,7 +1695,7 @@ private fun BeyGramAppContent(
     }
     // Телефонный раздел чатов: тот же список под нижним меню. Широкий экран собирает две панели ниже.
     val chatsTab: @Composable () -> Unit = {
-        MainTabsScaffold("${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
+        MainTabsScaffold("${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
             chatsList(false, false)
         }
     }

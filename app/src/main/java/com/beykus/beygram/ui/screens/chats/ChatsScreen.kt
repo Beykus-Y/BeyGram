@@ -527,7 +527,7 @@ fun ChatsScreen(
                     onClick = { onGlobalSearch(query) }
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(design.mainScreen.folderGap))
             // Only one source of folder navigation: server-backed Telegram lists.
             // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
             if (folderSnapshot.initialized) {
@@ -574,7 +574,7 @@ fun ChatsScreen(
     val chatList: @Composable (Modifier, Dp) -> Unit = { modifier, topPadding ->
         LazyColumn(
             state = listState,
-            modifier = modifier.nestedScroll(pullConnection).chatListEdgeFade(topPadding, fadeBottom = dock.floating) { topEdgeFade },
+            modifier = modifier.nestedScroll(pullConnection).chatListEdgeFade(topPadding, fadeBottom = dock.floating && dock.contentInset == 0.dp) { topEdgeFade },
             // Keep the last conversation accessible above the overlay button, measured from the button itself. Under
             // glass chrome the list also starts below the header it scrolls beneath.
             contentPadding = PaddingValues(top = topPadding, bottom = fabPlacement.listClearance)
@@ -717,7 +717,7 @@ fun ChatsScreen(
     // The root Box is bounded by MainTabsScaffold: above the bottom navigation on phones,
     // beside the navigation rail on wide screens. Its FAB is never drawn under the system navigation bar.
     Box(
-        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent)
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(
                 WindowInsets.safeDrawing.only(
                     // In the two-pane layout the pane's right edge is in the middle of the window:
@@ -766,7 +766,8 @@ fun ChatsScreen(
       FloatingActionButton(
           onClick = onNewChat,
           modifier = Modifier.align(Alignment.BottomEnd)
-              .padding(end = fabPlacement.endPadding, bottom = fabPlacement.bottomPadding),
+              .padding(end = fabPlacement.endPadding, bottom = fabPlacement.bottomPadding)
+              .size(design.fab.size.coerceAtLeast(48.dp)),
           // Material 3 keeps the main action tonal (primary container); the other styles keep the accent fill.
           containerColor = if (design.fab.tonal) palette.accentSoft else palette.accent,
           contentColor = if (design.fab.tonal) palette.accentInk else palette.onAccent,
@@ -898,17 +899,18 @@ internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, o
     val main = LocalDesignSystem.current.mainScreen
     val context = LocalContext.current
     var actionsOpen by remember { mutableStateOf(false) }
-    val unread = archivedChats.sumOf { it.unreadCount }
+    // Chats with something unread, not the sum of their messages: a seven-digit message total is noise nobody can act
+    // on, while "3 chats need attention" is what the archive line is for.
+    val unreadChats = archivedChats.count { showsUnreadIndicator(it) }
     val title = stringResource(R.string.chats_archive_title)
     val locale = LocalConfiguration.current.locales[0]
     val language = locale.language
     // Digits are grouped for the interface language (3 132 938 in Russian, 3,132,938 in English), as any count is.
     val numbers = NumberFormat.getIntegerInstance(locale)
-    val summary = buildString {
-        append("${numbers.format(archivedChats.size.toLong())} ${pluralForm(language, archivedChats.size, context.getString(R.string.chats_archive_count_one), context.getString(R.string.chats_archive_count_few), context.getString(R.string.chats_archive_count_many))}")
-        if (unread > 0) append(" · ${numbers.format(unread.toLong())} ${pluralForm(language, unread, context.getString(R.string.chats_archive_unread_one), context.getString(R.string.chats_archive_unread_few), context.getString(R.string.chats_archive_unread_few))}")
-    }
-    // Archive is a navigation row, not a featured content card. Keep its touch target >= 56dp
+    val countLine = "${numbers.format(archivedChats.size.toLong())} ${pluralForm(language, archivedChats.size, context.getString(R.string.chats_archive_count_one), context.getString(R.string.chats_archive_count_few), context.getString(R.string.chats_archive_count_many))}"
+    val unreadLine = if (unreadChats > 0) "${numbers.format(unreadChats.toLong())} ${pluralForm(language, unreadChats, context.getString(R.string.chats_archive_unread_one), context.getString(R.string.chats_archive_unread_few), context.getString(R.string.chats_archive_unread_few))}" else null
+    val summary = if (unreadLine != null) "$countLine · $unreadLine" else countLine
+    // Archive is a navigation row, not a featured content card. Keep its touch target >= 48dp
     // while reducing the visual prominence that previously pushed conversations down.
     // Card is a raised surface, Tonal is today's quiet fill, Flat is just a navigation line inside the list.
     val archiveShape = RoundedCornerShape(main.archiveRadius)
@@ -917,10 +919,11 @@ internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, o
         ArchiveTreatment.Card, ArchiveTreatment.Tonal -> groupSurface
         ArchiveTreatment.Flat -> Color.Transparent
     }
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 3.dp)) {
+    val compact = main.compactArchive
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = if (compact) 2.dp else 3.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth()
-                .heightIn(min = 56.dp)
+                .heightIn(min = if (compact) 48.dp else 56.dp)
                 .then(
                     if (main.archiveElevation > 0.dp) Modifier.shadow(main.archiveElevation, archiveShape)
                     else Modifier
@@ -928,16 +931,35 @@ internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, o
                 .clip(archiveShape).background(archiveBackground)
                 .combinedClickable(onClick = onClick, onLongClick = { actionsOpen = true }, role = Role.Button)
                 .semantics(mergeDescendants = true) { contentDescription = accessibleDescription(title, summary) }
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = if (compact) 12.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.Archive, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(20.dp))
+            val iconBox = if (compact) 30.dp else 36.dp
+            Box(modifier = Modifier.size(iconBox).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Archive, contentDescription = null, tint = if (compact) palette.textSecondary else palette.accentInk, modifier = Modifier.size(if (compact) 18.dp else 20.dp))
             }
             Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text(summary, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (compact) {
+                // One line: the title and the chat count; unread chats become a small muted counter on the right.
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Spacer(Modifier.width(8.dp))
+                    Text(countLine, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (unreadChats > 0) {
+                    Box(
+                        Modifier.padding(start = 8.dp).heightIn(min = 20.dp).clip(RoundedCornerShape(main.badgeRadius))
+                            .background(palette.surface2).padding(horizontal = 7.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(if (unreadChats > 99) "99+" else unreadChats.toString(), color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            } else {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(summary, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
         }

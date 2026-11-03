@@ -240,7 +240,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     ))
     val goBack = { if (diagnosticsPage) diagnosticsPage = false else onBack() }
     BackHandler(onBack = goBack)
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(
             stringResource(if (diagnosticsPage) R.string.video_diagnostics_center_screen_title else R.string.settings_video_recording_title),
             goBack

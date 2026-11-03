@@ -118,7 +118,7 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
 
     Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
     ) {
         ProfileToolbar(stringResource(R.string.app_lock_title), onBack)

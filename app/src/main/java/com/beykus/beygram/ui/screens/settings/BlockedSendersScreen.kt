@@ -141,7 +141,7 @@ fun BlockedSendersScreen(
     }
     BackHandler(onBack = onBack)
 
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.blocked_title), onBack)
         Text(
             stringResource(R.string.blocked_intro),

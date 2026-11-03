@@ -225,7 +225,7 @@ fun PrivacySettingsScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.privacy_title), onBack)
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         Column(

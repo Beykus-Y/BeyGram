@@ -77,7 +77,7 @@ fun StealthSettingsScreen(
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.stealth_title), onBack)
         if (store == null) {
             Text(

@@ -158,7 +158,9 @@ data class DesignFab(
      * Material 3 fills the button with the primary container and its on-colour instead of the solid accent, so the
      * main action stays tonal like the rest of the screen. The other styles keep the accent fill.
      */
-    val tonal: Boolean = false
+    val tonal: Boolean = false,
+    /** Visual size of the button. Never below 48dp, the minimum touch target. */
+    val size: Dp = 56.dp
 )
 
 /** How the archive row meets the list: a raised card, a flat tonal row or a plain navigation line. */
@@ -223,7 +225,13 @@ data class DesignMainScreen(
     /** Corner of that tile. Only used together with [rowInset]. */
     val rowRadius: Dp = 0.dp,
     /** Unread rows draw their preview in the text colour, so new messages stand out without extra chrome. */
-    val unreadPreviewEmphasis: Boolean = false
+    val unreadPreviewEmphasis: Boolean = false,
+    /** Space between the search field and the folder row. */
+    val folderGap: Dp = 12.dp,
+    /** Outer size of a story circle (ring included); the avatar inside is 6dp smaller. */
+    val storyAvatarSize: Dp = 66.dp,
+    /** The archive is one navigation line (title and chat count) instead of a two-line card. */
+    val compactArchive: Boolean = false
 )
 
 /** Elevation, translucency and the optional glass treatment of a style. */

@@ -19,7 +19,13 @@ data class NavigationDockGeometry(
     val height: Dp = 0.dp,
     val horizontalMargin: Dp = 0.dp,
     val bottomMargin: Dp = 0.dp,
-    val contentGap: Dp = DefaultNavigationDockGap
+    val contentGap: Dp = DefaultNavigationDockGap,
+    /**
+     * How much of the bottom of the content the floating chrome covers: the mini-player, the capsule, its margin, the
+     * system navigation inset and [contentGap]. Only a screen that draws its list under the dock gets a value here; it
+     * pads its scrolling content and its own buttons by it. Everywhere else the content already ends above the dock.
+     */
+    val contentInset: Dp = 0.dp
 ) {
     /** Space a floating dock needs under the content; a pinned bar already occupies layout space and needs none. */
     val reservedHeight: Dp get() = if (floating) height + bottomMargin + contentGap else 0.dp
@@ -53,7 +59,7 @@ internal fun createButtonPlacement(dock: NavigationDockGeometry): CreateButtonPl
     if (dock.floating) {
         CreateButtonPlacement(
             endPadding = dock.horizontalMargin + 4.dp,
-            bottomPadding = dock.contentGap + 4.dp
+            bottomPadding = dock.contentInset + dock.contentGap + 4.dp
         )
     } else {
         CreateButtonPlacement(endPadding = 20.dp, bottomPadding = 16.dp)

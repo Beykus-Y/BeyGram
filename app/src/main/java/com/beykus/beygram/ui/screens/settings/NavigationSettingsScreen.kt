@@ -50,7 +50,7 @@ fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (Tab
     BackHandler(onBack = onBack)
     val optional = listOf(MainTab.Calls, MainTab.Contacts, MainTab.Settings)
     val hiddenCount = optional.count { !visibility.isVisible(it) }
-    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.nav_title), onBack)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Text(

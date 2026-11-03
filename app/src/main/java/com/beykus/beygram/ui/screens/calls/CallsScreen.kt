@@ -102,7 +102,7 @@ fun CallsScreen(
 
     // The same screen and group surfaces as Settings: the glass style gets its glow, the others the plain screen colour.
     Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
     ) {
         MainTabTitle(

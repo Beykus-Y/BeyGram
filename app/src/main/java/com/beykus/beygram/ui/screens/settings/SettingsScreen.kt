@@ -80,7 +80,7 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     Column(
-        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .verticalScroll(rememberScrollState())
     ) {
