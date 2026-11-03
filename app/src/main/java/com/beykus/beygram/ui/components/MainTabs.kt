@@ -82,6 +82,7 @@ import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.glassHighlight
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.NavigationVariant
 import com.beykus.beygram.ui.motion.MotionToken
@@ -424,11 +425,12 @@ internal fun MainTabBar(
     // Only the floating capsule is rounded: a pinned bar must keep square window edges even in Glass or Signature,
     // so no floating corner is left at the bottom of the screen.
     val barShape = RoundedCornerShape(if (floating) spec.dockRadius else 0.dp)
-    // A floating capsule keeps the system navigation inset outside its surface: the inset is air under the capsule,
-    // not extra height inside it. A pinned bar still extends its own background under the system bar.
+    // A floating glass capsule keeps the system navigation inset outside its surface: the inset is air under the
+    // capsule, not extra height inside it. Other floating styles and a pinned bar keep the inset inside, as before.
+    val insetOutside = floating && glass != null
     val outer = modifier.fillMaxWidth().then(
         if (floating) {
-            Modifier.navigationBarsPadding().padding(
+            Modifier.then(if (insetOutside) Modifier.navigationBarsPadding() else Modifier).padding(
                 start = spec.horizontalMargin,
                 end = spec.horizontalMargin,
                 bottom = spec.bottomMargin
@@ -445,7 +447,7 @@ internal fun MainTabBar(
         Modifier
     }
     val contentModifier = Modifier.fillMaxWidth().then(measurement)
-        .then(if (floating) Modifier else Modifier.navigationBarsPadding())
+        .then(if (insetOutside) Modifier else Modifier.navigationBarsPadding())
         .padding(start = 8.dp, top = spec.barTopPadding, end = 8.dp, bottom = spec.barBottomPadding)
     val content: @Composable () -> Unit = {
         NavigationBarContent(
@@ -647,19 +649,21 @@ internal fun MainTabsScaffold(
             } else {
                 Modifier
             }
+            // Only the glass dock blurs what is under it, so only there does the list run beneath the capsule.
+            val underDock = contentUnderDock && design.usesGlassPanels
             var overlayHeight by remember(design) { mutableStateOf(0.dp) }
             // Until the overlay has measured itself the token is a safe approximation; afterwards the real height is
-            // used, so a large font or a 3-button navigation inset cannot put a row under the dock.
-            val covered = overlayHeight.takeIf { it > 0.dp }
-                ?: (design.spacing.navigationHeight + navigationBarInset + spec.bottomMargin)
-            val reserve = covered + DefaultNavigationDockGap
+            // used, so a large font or a 3-button navigation inset cannot put a row under the dock. The measured
+            // overlay already holds the gap above the capsule (the mini-player slot's bottom padding).
+            val reserve = overlayHeight.takeIf { it > 0.dp }
+                ?: (design.spacing.navigationHeight + navigationBarInset + spec.bottomMargin + DefaultNavigationDockGap)
             Box(Modifier.fillMaxSize()) {
                 Box(
                     Modifier.fillMaxSize()
-                        .then(if (contentUnderDock) Modifier else Modifier.padding(bottom = reserve))
+                        .then(if (underDock) Modifier else Modifier.padding(bottom = reserve))
                         .then(recordContent)
                 ) {
-                    val screenDock = if (contentUnderDock) dock.copy(contentInset = reserve) else dock
+                    val screenDock = if (underDock) dock.copy(contentInset = reserve) else dock
                     CompositionLocalProvider(LocalNavigationDock provides screenDock) {
                         stateHolder.SaveableStateProvider(key) { content() }
                     }
