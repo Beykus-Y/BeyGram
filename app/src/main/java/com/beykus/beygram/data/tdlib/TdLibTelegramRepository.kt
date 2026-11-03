@@ -2198,7 +2198,7 @@ class TdLibTelegramRepository private constructor(
     private fun refreshFileState(fileId: Int) {
         if (fileId <= 0) return
         client.send(TdApi.GetFile(fileId), Client.ResultHandler { result ->
-            if (result is TdApi.File) mediaFiles.update(result.toMediaFileState())
+            if (result is TdApi.File) mediaFiles.refresh(result.toMediaFileState())
         })
     }
 

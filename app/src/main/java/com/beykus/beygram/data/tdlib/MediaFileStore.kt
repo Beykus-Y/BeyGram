@@ -92,6 +92,28 @@ internal class MediaFileStore(
         }
     }
 
+    /**
+     * Applies TDLib's answer to a GetFile that was sent when this store created the file's state again. TDLib produced
+     * that answer before any transfer that started after it, so an answer that carries nothing new must not clear a
+     * transfer in flight: the transfer's own update reports it.
+     */
+    fun refresh(file: MediaFileState) = synchronized(lock) {
+        verified += file.id
+        val current = states.stateLocked(file.id).value
+        val inFlight = current.isDownloading || current.isUploading
+        val idle = !file.isDownloading && !file.isUploading
+        if (inFlight && idle && addsNothing(file, current)) return@synchronized
+        update(file)
+    }
+
+    /** Whether [file] has no local copy and no bytes beyond what [current] already knows. */
+    private fun addsNothing(file: MediaFileState, current: MediaFileState): Boolean =
+        file.localPath == null &&
+            (file.downloadPath == null || file.downloadPath == current.downloadPath) &&
+            file.downloadedBytes <= current.downloadedBytes &&
+            file.downloadedPrefixBytes <= current.downloadedPrefixBytes &&
+            file.uploadedBytes <= current.uploadedBytes
+
     fun beginDownload(id: Int): Boolean = beginDownload(id, TrafficOrigin.Manual)
 
     /** Starts a transfer that the auto-download policy requested; the manual button never uses this. */

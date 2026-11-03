@@ -132,4 +132,41 @@ class MediaFileStoreEvictionTest {
         assertTrue(store.beginDownload(3))
         assertTrue(store.observe(3).value.isDownloading)
     }
+
+    @Test fun aRefreshThatSaysIdleDoesNotClearADownloadThatStartedBeforeIt() {
+        val traffic = TrafficUsageSession()
+        val store = store(traffic)
+        store.register(MediaFileState(7, size = 100))
+        flood(store, from = 100)
+        // Reading the dropped file again asks TDLib for its state; the download below starts before the answer.
+        assertEquals(0L, store.observe(7).value.size)
+        assertEquals(listOf(7), refreshed)
+        assertTrue(store.beginDownload(7))
+        // The answer was produced before the download began, so it describes an idle file without data.
+        store.refresh(MediaFileState(7, size = 100))
+        assertTrue(store.observe(7).value.isDownloading)
+        // The download's own update then reports progress, and the transfer is counted.
+        store.update(MediaFileState(7, size = 100, isDownloading = true, downloadedBytes = 10))
+        assertEquals(10L, store.observe(7).value.downloadedBytes)
+        assertTrue(traffic.snapshot.value.hasActiveDownloads)
+    }
+
+    @Test fun aRunningUploadIsNotClearedByAnIdleRefresh() {
+        val store = store()
+        store.update(MediaFileState(8, size = 100, isUploading = true, uploadedBytes = 40))
+        store.refresh(MediaFileState(8, size = 100))
+        assertTrue(store.observe(8).value.isUploading)
+        assertEquals(40L, store.observe(8).value.uploadedBytes)
+    }
+
+    @Test fun aRefreshThatBringsTheFileIsAppliedEvenWhileADownloadIsRequested() {
+        val store = store()
+        store.register(MediaFileState(9, size = 100))
+        flood(store, from = 100)
+        assertEquals(0L, store.observe(9).value.size)
+        assertTrue(store.beginDownload(9))
+        store.refresh(MediaFileState(9, size = 100, localPath = "/done.jpg", downloadedBytes = 100))
+        assertEquals("/done.jpg", store.observe(9).value.localPath)
+        assertFalse(store.observe(9).value.isDownloading)
+    }
 }
