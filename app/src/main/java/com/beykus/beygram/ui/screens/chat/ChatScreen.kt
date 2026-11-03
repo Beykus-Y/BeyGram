@@ -2392,12 +2392,17 @@ private fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
     val palette = beyGramPalette()
     val label = stringResource(R.string.chat_jump_to_latest)
     Box(
-        Modifier.size(48.dp).shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics(mergeDescendants = true) { contentDescription = label },
+        Modifier.size(48.dp).semantics(mergeDescendants = true) { contentDescription = label },
         contentAlignment = Alignment.Center
     ) {
-        Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Box(
+            Modifier.fillMaxSize().shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
+                .clickable(role = Role.Button, onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        }
+        // The badge sits outside the clipped circle so the corner offset does not crop it.
         if (unread > 0) Box(
             Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)
                 .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
