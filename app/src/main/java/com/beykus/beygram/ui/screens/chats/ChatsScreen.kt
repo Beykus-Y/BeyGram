@@ -97,6 +97,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -1172,12 +1173,17 @@ private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: I
  * The BeyGram Signature folder: a plain label when off, an ink-filled 36dp chip with the canvas colour as label when on.
  * Selection is ink, so the accent stays on the unread count; the 48dp touch target is kept around the smaller chip.
  */
+/** How much accent the Signature ink chip carries; enough to warm it, little enough to keep it ink. */
+private const val INK_ACCENT_SHARE = 0.18f
+
 @Composable
 private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
     val palette = beyGramPalette()
     val main = LocalDesignSystem.current.mainScreen
     val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
-    val containerColor by animateColorAsState(if (selected) palette.textPrimary else Color.Transparent, tabSpec)
+    // Ink still selects, but a pure white (or pure black) slab fought the warm accent of the palette (#670), so the
+    // ink takes a small share of the accent. The label stays the canvas colour, so the contrast barely moves.
+    val containerColor by animateColorAsState(if (selected) lerp(palette.textPrimary, palette.accent, INK_ACCENT_SHARE) else Color.Transparent, tabSpec)
     val labelColor by animateColorAsState(if (selected) palette.screen else palette.textSecondary, tabSpec)
     val chipShape = RoundedCornerShape(main.chipRadius)
     Box(
