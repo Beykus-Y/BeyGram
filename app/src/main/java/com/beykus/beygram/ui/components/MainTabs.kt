@@ -82,6 +82,7 @@ import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.glassHighlight
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.NavigationVariant
 import com.beykus.beygram.ui.motion.MotionToken
@@ -424,9 +425,12 @@ internal fun MainTabBar(
     // Only the floating capsule is rounded: a pinned bar must keep square window edges even in Glass or Signature,
     // so no floating corner is left at the bottom of the screen.
     val barShape = RoundedCornerShape(if (floating) spec.dockRadius else 0.dp)
+    // A floating glass capsule keeps the system navigation inset outside its surface: the inset is air under the
+    // capsule, not extra height inside it. Other floating styles and a pinned bar keep the inset inside, as before.
+    val insetOutside = floating && glass != null
     val outer = modifier.fillMaxWidth().then(
         if (floating) {
-            Modifier.padding(
+            Modifier.then(if (insetOutside) Modifier.navigationBarsPadding() else Modifier).padding(
                 start = spec.horizontalMargin,
                 end = spec.horizontalMargin,
                 bottom = spec.bottomMargin
@@ -442,7 +446,8 @@ internal fun MainTabBar(
     } else {
         Modifier
     }
-    val contentModifier = Modifier.fillMaxWidth().then(measurement).navigationBarsPadding()
+    val contentModifier = Modifier.fillMaxWidth().then(measurement)
+        .then(if (insetOutside) Modifier else Modifier.navigationBarsPadding())
         .padding(start = 8.dp, top = spec.barTopPadding, end = 8.dp, bottom = spec.barBottomPadding)
     val content: @Composable () -> Unit = {
         NavigationBarContent(
@@ -579,6 +584,12 @@ internal fun MainTabsScaffold(
     visibility: TabVisibility,
     onSelect: (MainTab) -> Unit,
     stateHolder: SaveableStateHolder,
+    /**
+     * The screen draws its scrolling content under a floating dock and pads it by [NavigationDockGeometry.contentInset]
+     * itself, so the glass samples real rows instead of an empty reserved strip. Screens that do not opt in keep their
+     * content above the dock.
+     */
+    contentUnderDock: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val tabs = MainTab.entries.filter { visibility.isVisible(it) }
@@ -589,6 +600,7 @@ internal fun MainTabsScaffold(
     // token: a larger label, a bigger font scale or a taller system inset then moves the last row instead of hiding it.
     // Reset with the design: a bar measured in another placement or style must not reserve space for the old one.
     var measuredBarHeight by remember(design) { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val isRail = usesMainNavigationRail(maxWidth.value)
         // One description of the navigation for every screen below, so the create button and the mini-player can line up
@@ -624,8 +636,9 @@ internal fun MainTabsScaffold(
             }
         } else if (floating) {
             // The floating placement puts the bar on top of the content, so the translucent material has something to
-            // float above. The reserved gap covers the measured bar and the system navigation inset, so the last row
-            // stays reachable instead of hiding under the panel.
+            // float above. Everything that floats at the bottom (mini-player, capsule, margins, system inset) is
+            // measured as one block; a screen that draws under the dock pads its list by that height, every other
+            // screen simply ends above it.
             val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             val backdrop = LocalGlassBackdrop.current
             // Only the content is recorded. The bar sits outside this subtree, so the panel never samples a layer
@@ -636,31 +649,40 @@ internal fun MainTabsScaffold(
             } else {
                 Modifier
             }
+            // Only the glass dock blurs what is under it, so only there does the list run beneath the capsule.
+            val underDock = contentUnderDock && design.usesGlassPanels
+            var overlayHeight by remember(design) { mutableStateOf(0.dp) }
+            // Until the overlay has measured itself the token is a safe approximation; afterwards the real height is
+            // used, so a large font or a 3-button navigation inset cannot put a row under the dock. The measured
+            // overlay already holds the gap above the capsule (the mini-player slot's bottom padding).
+            val reserve = overlayHeight.takeIf { it > 0.dp }
+                ?: (design.spacing.navigationHeight + navigationBarInset + spec.bottomMargin + DefaultNavigationDockGap)
             Box(Modifier.fillMaxSize()) {
-                Column(Modifier.fillMaxSize()) {
-                    // Only the screen content is recorded: the mini-player keeps sampling it, and the bar itself stays
-                    // outside the recorded subtree, so a panel can never sample the layer it is being drawn into.
-                    Box(Modifier.weight(1f).fillMaxWidth().then(recordContent)) {
-                        CompositionLocalProvider(LocalNavigationDock provides dock) {
-                            stateHolder.SaveableStateProvider(key) { content() }
-                        }
+                Box(
+                    Modifier.fillMaxSize()
+                        .then(if (underDock) Modifier else Modifier.padding(bottom = reserve))
+                        .then(recordContent)
+                ) {
+                    val screenDock = if (underDock) dock.copy(contentInset = reserve) else dock
+                    CompositionLocalProvider(LocalNavigationDock provides screenDock) {
+                        stateHolder.SaveableStateProvider(key) { content() }
                     }
-                    NowPlayingBar(hideWhenImeVisible = true)
-                    // Until the bar has measured itself the token is a safe approximation; afterwards the real height
-                    // is used, so a large font or a 3-button navigation inset cannot put a row under the dock. The gap
-                    // between the mini-player and the capsule is the same one the list gets.
-                    val reserve = measuredBarHeight.takeIf { it > 0.dp }?.let {
-                        it + spec.bottomMargin + DefaultNavigationDockGap
-                    } ?: (design.spacing.navigationHeight + navigationBarInset + spec.bottomMargin + DefaultNavigationDockGap)
-                    Spacer(Modifier.height(reserve))
                 }
-                MainTabBar(
-                    tabs = tabs,
-                    selected = selected,
-                    onSelect = onSelect,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    onPanelHeightChange = { measuredBarHeight = it }
-                )
+                Column(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .onSizeChanged { overlayHeight = with(density) { it.height.toDp() } }
+                ) {
+                    // The mini-player floats with the dock and keeps the same gap above the capsule the list gets.
+                    Box(Modifier.padding(bottom = DefaultNavigationDockGap)) {
+                        NowPlayingBar(hideWhenImeVisible = true)
+                    }
+                    MainTabBar(
+                        tabs = tabs,
+                        selected = selected,
+                        onSelect = onSelect,
+                        onPanelHeightChange = { measuredBarHeight = it }
+                    )
+                }
             }
         } else {
             // A pinned bar has nothing but the window behind it, so the whole content is not recorded here. Glass

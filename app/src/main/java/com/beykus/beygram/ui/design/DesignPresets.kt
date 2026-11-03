@@ -154,9 +154,11 @@ val Material3DesignSystem = DesignSystem(
 fun liquidGlassDesign(quality: GlassQuality): DesignSystem {
     val resolved = if (quality == GlassQuality.Auto) GlassQuality.High else quality
     val glass = when (resolved) {
+        // Real glass: a lighter tint over a saturated blur lets the content behind the pane carry the colour, while the
+        // rim and the specular wash stay quiet so the panel reads as material rather than a painted plastic tray.
         GlassQuality.High -> GlassStyle(
-            quality = resolved, blurRadiusDp = 40.dp, tintAlpha = 0.62f,
-            rimAlpha = 0.65f, highlightAlpha = 0.24f, shadowElevation = 6.dp
+            quality = resolved, blurRadiusDp = 30.dp, tintAlpha = 0.48f,
+            rimAlpha = 0.50f, highlightAlpha = 0.14f, shadowElevation = 5.dp
         )
         GlassQuality.Balanced -> GlassStyle(
             quality = resolved, blurRadiusDp = 0.dp, tintAlpha = 0.90f,
@@ -173,7 +175,7 @@ fun liquidGlassDesign(quality: GlassQuality): DesignSystem {
         shapes = DesignShapes(
             extraSmall = 10.dp, small = 14.dp, medium = 18.dp, large = 24.dp, extraLarge = 32.dp,
             button = 22.dp, card = 24.dp, sheet = 32.dp, dialog = 28.dp, chip = 18.dp,
-            search = 24.dp, composer = 24.dp, navigationIndicator = 26.dp, groupCard = 24.dp, listGroup = 20.dp
+            search = 20.dp, composer = 24.dp, navigationIndicator = 26.dp, groupCard = 24.dp, listGroup = 20.dp
         ),
         spacing = DesignSpacing(
             xxs = 2.dp, xs = 4.dp, sm = 8.dp, md = 12.dp, lg = 16.dp, xl = 22.dp, xxl = 28.dp,
@@ -200,16 +202,24 @@ fun liquidGlassDesign(quality: GlassQuality): DesignSystem {
             showListDividers = false,
             floatingNavigation = true
         ),
-        // A lens, not a second pane of glass: the button carries a light shadow and its own round edge.
-        fab = DesignFab(cornerRadius = 26.dp, elevation = 4.dp),
-        // Glass reads through the chrome: soft round chips, a larger archive card and a quiet title weight.
+        // The create button must not compete with the dock: a smaller tonal lens with a light shadow, the same 48dp
+        // touch target as every other control.
+        fab = DesignFab(cornerRadius = 18.dp, elevation = 2.dp, tonal = true, size = 52.dp),
+        // Content first: one quiet title line without the brand overline, a compact search field and folder row, smaller
+        // story circles and a one-line archive, so the first conversation is not pushed halfway down the screen. Chips,
+        // search and archive share one 14-20dp radius family; only the floating dock is a full capsule.
         mainScreen = DesignMainScreen(
-            titleSize = 28.sp, titleWeight = FontWeight.SemiBold, titleTracking = (-0.2).sp,
+            titleSize = 26.sp, titleWeight = FontWeight.SemiBold, titleTracking = (-0.2).sp,
             sectionLabelUppercase = false, sectionLabelTracking = 0.3.sp,
-            chipRadius = 18.dp, chipSelection = ChipSelectionTone.Tonal,
-            archive = ArchiveTreatment.Card, archiveRadius = 20.dp, archiveElevation = 0.dp,
+            chipRadius = 14.dp, chipSelection = ChipSelectionTone.Tonal,
+            archive = ArchiveTreatment.Card, archiveRadius = 14.dp, archiveElevation = 0.dp,
             avatarSize = 54.dp, rowTitleWeight = FontWeight.SemiBold, badgeRadius = 11.dp,
-            headerGap = 14.dp
+            headerGap = 8.dp,
+            showBrandOverline = false,
+            searchHeight = 44.dp,
+            folderGap = 8.dp,
+            storyAvatarSize = 56.dp,
+            compactArchive = true
         ),
         bubbles = DesignBubbleGeometry(
             cornerRadius = 20.dp, tailRadius = 8.dp, replyRadius = 14.dp, textInset = 12.dp, textTopInset = 8.dp

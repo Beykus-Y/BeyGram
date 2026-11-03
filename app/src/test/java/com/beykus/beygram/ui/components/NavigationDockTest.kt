@@ -59,4 +59,15 @@ class NavigationDockTest {
         val dock = NavigationDockGeometry(floating = true, height = 0.dp, bottomMargin = 8.dp)
         assertEquals(DefaultNavigationDockGap + 8.dp, dock.reservedHeight)
     }
+
+    @Test fun aListUnderTheDockLiftsTheButtonAndItsClearanceByTheCoveredHeight() {
+        val above = createButtonPlacement(NavigationDockGeometry(floating = true, horizontalMargin = 16.dp))
+        val under = createButtonPlacement(
+            NavigationDockGeometry(floating = true, horizontalMargin = 16.dp, contentInset = 120.dp)
+        )
+
+        assertEquals(above.bottomPadding + 120.dp, under.bottomPadding)
+        assertEquals(above.listClearance + 120.dp, under.listClearance)
+        assertEquals(above.endPadding, under.endPadding)
+    }
 }

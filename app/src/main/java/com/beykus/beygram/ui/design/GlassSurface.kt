@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.design
 
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
@@ -205,9 +207,14 @@ private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape): Modif
         graphicsLayer {
             clip = true
             this.shape = shape
-            renderEffect = RenderEffect
-                .createBlurEffect(radiusPx, radiusPx, Shader.TileMode.CLAMP)
-                .asComposeRenderEffect()
+            // Blur first, then lift the saturation of what was sampled: the colours behind the pane stay alive
+            // instead of turning into grey mush, which is most of what makes the material read as glass and not as
+            // a dark translucent card.
+            val blur = RenderEffect.createBlurEffect(radiusPx, radiusPx, Shader.TileMode.CLAMP)
+            val vibrancy = RenderEffect.createColorFilterEffect(
+                ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(GlassSampleSaturation) })
+            )
+            renderEffect = RenderEffect.createChainEffect(vibrancy, blur).asComposeRenderEffect()
         }
     } else {
         this
@@ -226,31 +233,17 @@ fun Modifier.glassHighlight(alpha: Float): Modifier = drawWithCache {
 }
 
 /**
- * Background of a screen in the Liquid Glass style: the screen colour with two large soft glows of the accent, so
- * translucent cards and chrome above it read as glass. Other styles get the plain screen colour.
+ * Background of a screen. Every style, Liquid Glass included, uses the plain screen colour: the accent belongs to
+ * selected items, states and actions, not to large empty areas. A coloured wash behind the screen was visible around
+ * the stories and the archive and ended in a hard edge where the opaque chat rows began, so glass depth
+ * comes from the panels sampling the real content instead.
  */
-fun Modifier.glassScreenBackground(design: DesignSystem, screen: Color, accent: Color): Modifier =
-    if (!design.usesGlassPanels) background(screen) else drawWithCache {
-        val glowA = Brush.radialGradient(
-            colors = listOf(accent.copy(alpha = 0.30f), accent.copy(alpha = 0f)),
-            center = Offset(size.width * 0.12f, size.height * 0.10f),
-            radius = size.maxDimension * 0.55f
-        )
-        val glowB = Brush.radialGradient(
-            colors = listOf(accent.copy(alpha = 0.20f), accent.copy(alpha = 0f)),
-            center = Offset(size.width * 0.95f, size.height * 0.62f),
-            radius = size.maxDimension * 0.50f
-        )
-        onDrawBehind {
-            drawRect(screen)
-            drawRect(glowA)
-            drawRect(glowB)
-        }
-    }
+@Suppress("UNUSED_PARAMETER")
+fun Modifier.glassScreenBackground(design: DesignSystem, screen: Color): Modifier = background(screen)
 
 /**
  * Fill and edge of a grouped card (settings group, archive row) or tile in the Liquid Glass style. A list card is a
- * subtle tint over the ambient glow with one thin outer stroke. It has no specular gloss and no bold rim: a gradient
+ * subtle tint over the screen with one thin outer stroke. It has no specular gloss and no bold rim: a gradient
  * inside a card on black reads as glossy plastic, and the rows inside keep their own fill without strokes.
  */
 fun Modifier.glassCard(design: DesignSystem, fill: Color, rim: Color, shape: Shape): Modifier {
@@ -270,7 +263,7 @@ private fun glassOutlineBrush(glass: GlassStyle, rim: Color): Brush = Brush.vert
     listOf(rim.copy(alpha = glass.outlineTopAlpha), rim.copy(alpha = glass.outlineBottomAlpha))
 )
 
-/** How much of the surface colour a glass card keeps: the ambient glow behind it must show through. */
+/** How much of the surface colour a glass card keeps, so the card reads lighter than the screen without a solid fill. */
 private const val GlassCardFillAlpha = 0.55f
 
 /**
@@ -292,6 +285,9 @@ fun Modifier.glassSheet(design: DesignSystem, fill: Color, rim: Color): Modifier
             )
         }
 }
+
+/** Saturation applied to the blurred sample (1 keeps the colours as they are). */
+private const val GlassSampleSaturation = 1.35f
 
 /** Mask used for a frame in which the panel has no finished backdrop sample yet. */
 private const val GlassUnsampledMaskAlpha = 0.65f

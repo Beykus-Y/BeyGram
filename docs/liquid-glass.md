@@ -8,33 +8,33 @@ the crash guard live in [design-system-v2.md](design-system-v2.md#liquid-glass).
 
 | Surface | Material | Why |
 | --- | --- | --- |
-| Floating navigation dock | glass, samples the screen content | overlay above scrolling content |
+| Floating navigation dock | glass, samples the screen content | overlay above scrolling content; the chat list runs under it (padded by `NavigationDockGeometry.contentInset`), other tabs end above it; the system navigation inset is air below the capsule, not height inside it |
 | Pinned (full-width) navigation | glass tint, specular wash, top hairline; no sample | nothing but the window is behind it, so a blur would be fake |
 | Chat list top chrome (title, search, folders) | glass, samples its own chat list | the list scrolls under it |
 | Search field inside glass chrome | inner glass (lighter fill on the pane) | one layer of glass, not a second pane |
 | Chat header and composer | tinted glass, no sample | the backdrop is private message content; it is never blurred into chrome |
 | Message bubbles, message text, photos, video | opaque | readability wins over decoration |
-| Chat rows, long lists | opaque | dense text, scrolled constantly; rows are painted with the screen colour for swipe actions, so on the chat list the glow shows only around and below the rows |
-| Settings group cards, attachment tiles | subtle glass tint (0.55 fill) and one thin outer stroke over the ambient glow, no highlight | the glow shows through the card; a gloss inside a list card reads as plastic |
+| Chat rows, long lists | opaque | dense text, scrolled constantly; rows are painted with the screen colour for swipe actions, which is also the background around them, so the list is one surface |
+| Settings group cards, attachment tiles | subtle glass tint (0.55 fill) and one thin outer stroke, no highlight | a gloss inside a list card reads as plastic |
 | Attachment menu | dense glass sheet (0.94 fill, lit top edge, highlight) | the messages behind the menu must not be readable through it |
 | Other sheets and dialogs | opaque Material surfaces | modal content needs full contrast |
-| Screen background (chat list, settings) | screen colour with two soft accent glows | translucent glass reads as glass only over colour |
+| Screen background (chat list, settings) | plain screen colour, no accent glows | the accent marks selection, states and actions; a coloured wash behind the stories ended in a hard edge at the opaque rows |
 
 ## How the material is built
 
 One pane of glass is, from back to front:
 
 1. **Sample** (High only): the content behind the pane, recorded by `glassBackdropSource` and blurred by a real
-   `RenderEffect` (Android 12+). The sample is drawn over an opaque base (`backdropBase` of `GlassPanel`, the screen
+   `RenderEffect` (Android 12+) with a 1.35 saturation lift, so colours behind the pane stay alive. The sample is drawn over an opaque base (`backdropBase` of `GlassPanel`, the screen
    colour on the chat list and the dock), so a list without its own background never shows sharp content through the
    pane. A frame without a finished sample draws a dense mask instead, so the light tint of real glass never shows sharp
    text through the pane.
-2. **Tint**: the surface colour at the style's `tintAlpha` over a sample (0.62 at High), at least 0.93 without one.
+2. **Tint**: the surface colour at the style's `tintAlpha` over a sample (0.48 at High), at least 0.93 without one.
 3. **Outline**: one 1dp stroke around a floating pane or a list card, low contrast: the caller's edge colour at
    `outlineTopAlpha` 0.18 at the top, fading to `outlineBottomAlpha` 0.04 at the bottom. It is the only border of
    that layer. Rows and content inside never add a stroke of their own; fill, light and depth carry them.
 4. **Specular highlight**: a white wash across the top 60% (`Modifier.glassHighlight`).
-5. **Depth**: a small lift (6dp High, 4dp Balanced, 2dp Lite). Heavy shadow plus a full rim read as a plastic tray.
+5. **Depth**: a small lift (5dp High, 4dp Balanced, 2dp Lite). Heavy shadow plus a full rim read as a plastic tray.
 
 Full-width chrome (pinned bar, chat list header) uses the same layers with square window edges and a single hairline on
 the edge that meets the content.
@@ -53,7 +53,7 @@ the edge that meets the content.
 
 | Level | Sample + blur | Tint | Rim | Highlight | Shadow |
 | --- | --- | --- | --- | --- | --- |
-| High | 40dp, Android 12+ | 0.62 | 0.65 | 0.24 | 6dp |
+| High | 30dp + saturation 1.35, Android 12+ | 0.48 | 0.50 | 0.14 | 5dp |
 | Balanced | no | 0.93 | 0.55 | 0.18 | 4dp |
 | Lite | no | 0.96 | 0.40 | 0.08 | 2dp |
 
