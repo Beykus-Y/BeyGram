@@ -67,6 +67,7 @@ import com.beykus.beygram.domain.model.reactionMessage
 import com.beykus.beygram.domain.model.showSenderHeader
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
 
@@ -277,6 +278,8 @@ private fun AlbumMediaTile(
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val visual = media.kind in setOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
     val autoDownload = onAutoDownloadFile ?: LocalAutoDownloadFile.current
+    // A GIF in an album animates only after it has been on screen for the autoplay dwell time, as it does in the bubble.
+    val autoplay = rememberAutoplayEligible(enabled = media.mimeType == "image/gif")
     // Секретное вложение в альбоме не грузим и не показываем до открытия, как в ленте.
     val imagePath = if (media.isSecret) null else if (media.mimeType.startsWith("image/") && file.size <= 300_000) file.localPath ?: thumb.localPath else thumb.localPath
     LaunchedEffect(thumbId, revealed, thumb.size, media.isSecret, media.isSecretChat, media.hasSpoiler, policySettings, policyNetwork) {
@@ -300,9 +303,10 @@ private fun AlbumMediaTile(
             onClick = { if (selectionMode) onToggleSelection() else if (!revealed) revealed = true else onOpen() },
             onLongClick = { if (selectionMode) onToggleSelection() else onLongPress() }
         )
-        .semantics { if (revealed) contentDescription = mediaLabel },
+        .semantics { if (revealed) contentDescription = mediaLabel }
+        .then(autoplay.modifier),
         contentAlignment = Alignment.Center) {
-        if (revealed && imagePath != null) LocalMediaImage(imagePath, Modifier.fillMaxSize())
+        if (revealed && imagePath != null) LocalMediaImage(imagePath, Modifier.fillMaxSize(), animate = autoplay.eligible.value)
         when {
             !revealed -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
             imagePath == null && (file.isDownloading || thumb.isDownloading) -> CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
