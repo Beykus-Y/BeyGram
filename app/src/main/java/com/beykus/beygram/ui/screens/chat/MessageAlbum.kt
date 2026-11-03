@@ -83,15 +83,26 @@ internal data class ChatMessageListItem(
 
 /** Combines messages only when TDLib supplied the same nonzero mediaAlbumId. */
 internal fun groupTelegramMediaAlbums(messages: List<ChatMessage>): List<ChatMessageListItem> {
-    val albumMembers = messages.asSequence().filter { it.mediaAlbumId != 0L && it.media != null }.groupBy { it.mediaAlbumId }
-    val emittedAlbums = mutableSetOf<Long>()
-    return messages.asReversed().mapNotNull { message ->
+    val albumMembers = HashMap<Long, MutableList<ChatMessage>>()
+    for (message in messages) {
+        if (message.mediaAlbumId != 0L && message.media != null) albumMembers.getOrPut(message.mediaAlbumId) { mutableListOf() }.add(message)
+    }
+    val items = ArrayList<ChatMessageListItem>(messages.size)
+    for (index in messages.lastIndex downTo 0) {
+        val message = messages[index]
         val albumId = message.mediaAlbumId
         if (albumId != 0L && message.media != null) {
-            if (emittedAlbums.add(albumId)) ChatMessageListItem("album:$albumId", albumMembers[albumId].orEmpty(), albumId) else null
-        } else ChatMessageListItem("message:${message.id}", listOf(message))
+            // The newest member emits the album with all its members; the older ones find it already taken.
+            val members = albumMembers.remove(albumId) ?: continue
+            items.add(ChatMessageListItem("album:$albumId", members, albumId))
+        } else {
+            items.add(ChatMessageListItem("message:${message.id}", listOf(message)))
+        }
     }
+    return items
 }
+
+private val chronologicalMessages = compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.id }
 
 /**
  * Sender headers for the newest-first feed. The list is walked chronologically so consecutive messages from one author
@@ -102,7 +113,8 @@ internal fun senderHeaderVisibility(chat: ChatPreview, items: List<ChatMessageLi
     val headers = HashMap<String, Boolean>(items.size)
     var previous: ChatMessage? = null
     for (item in items.asReversed()) {
-        val chronological = item.messages.sortedWith(compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.id })
+        // A row with one message, which is nearly every row, is already in order.
+        val chronological = if (item.messages.size > 1) item.messages.sortedWith(chronologicalMessages) else item.messages
         if (chronological.isEmpty()) {
             previous = null
             continue

@@ -9,8 +9,13 @@ import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageSpecialContent
 import kotlinx.coroutines.flow.StateFlow
 
-/** One identity per TDLib message, including temporary -> server ID replacement. */
-internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStates: Int = MAX_STATES) {
+/**
+ * One identity per TDLib message, including temporary -> server ID replacement.
+ *
+ * [fastMerge] false sorts every merge in full. The fast path gives the same lists; the flag lets the tests run both on the
+ * same calls.
+ */
+internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStates: Int = MAX_STATES, private val fastMerge: Boolean = true) {
     private val lock = Any()
     private val retiredIds = mutableMapOf<Long, MutableSet<Long>>()
     private var revision = 0L
@@ -290,10 +295,63 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
         lastReadOutboxMessageId = history.lastReadOutboxMessageId
     )
 
+    /**
+     * [current] with [incoming] merged in: one copy per ID, the newer copy wins, and retired IDs are left out. The result is
+     * in [compareMessageOrder] order. A small batch into a list that is already in that order takes the fast path.
+     */
     private fun merge(chatId: Long, current: List<ChatMessage>, incoming: List<ChatMessage>): List<ChatMessage> {
         val retired = retiredIds[chatId].orEmpty()
-        return (current + incoming).filterNot { it.id in retired }.associateBy { it.id }.values
+        return if (fastMerge && incoming.size <= MAX_SPLICED_BATCH && isInOrder(current)) {
+            spliceBatch(current, incoming, retired)
+        } else {
+            mergeAll(current, incoming, retired)
+        }
+    }
+
+    /**
+     * Sorts the whole list. Big batches take this path, and so does a list that an update has left out of order, since
+     * [update] does not sort. This is the reference that [spliceBatch] has to equal.
+     */
+    private fun mergeAll(current: List<ChatMessage>, incoming: List<ChatMessage>, retired: Set<Long>): List<ChatMessage> =
+        (current + incoming).filterNot { it.id in retired }.associateBy { it.id }.values
             .sortedWith(compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.sendState == MessageSendState.Sending }.thenBy { it.id })
+
+    /**
+     * [mergeAll] without the sort, for a small batch: each incoming message replaces its older copy and is inserted at its
+     * place by binary search, so [current] is copied and not sorted again. [current] must be in order with one copy per ID.
+     */
+    private fun spliceBatch(current: List<ChatMessage>, incoming: List<ChatMessage>, retired: Set<Long>): List<ChatMessage> {
+        val merged = ArrayList<ChatMessage>(current.size + incoming.size)
+        if (retired.isEmpty()) merged.addAll(current) else current.filterNotTo(merged) { it.id in retired }
+        for (message in incoming) {
+            if (message.id in retired) continue
+            val older = indexOfId(merged, message.id)
+            if (older >= 0) merged.removeAt(older)
+            merged.add(insertionIndex(merged, message), message)
+        }
+        return merged
+    }
+
+    private fun indexOfId(list: List<ChatMessage>, id: Long): Int {
+        for (index in list.indices) if (list[index].id == id) return index
+        return -1
+    }
+
+    /** The position of [message] in [list], which is in order and holds no equal message: right after every message ordered before it. */
+    private fun insertionIndex(list: List<ChatMessage>, message: ChatMessage): Int {
+        var low = 0
+        var high = list.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (compareMessageOrder(list[middle], message) < 0) low = middle + 1 else high = middle
+        }
+        return low
+    }
+
+    /** Whether [list] is strictly in [compareMessageOrder] order, which [spliceBatch] needs. */
+    private fun isInOrder(list: List<ChatMessage>): Boolean {
+        for (index in 1 until list.size) if (compareMessageOrder(list[index - 1], list[index]) >= 0) return false
+        return true
     }
 
     private companion object {
@@ -304,8 +362,24 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
         const val MAX_LIVE_ARRIVALS = 64
         /** Composer Launch follows an id across its temporary-to-server confirmation. */
         const val MAX_ID_REPLACEMENTS = 64
+        /** Single messages and small bursts are spliced in; a history page is sorted in one pass, which is cheaper. */
+        const val MAX_SPLICED_BATCH = 16
     }
 }
 
 /** The last read positions of a chat, kept while its state is not held. */
 private class ReadMarks(val inbox: Long, val outbox: Long)
+
+/**
+ * The order of a chat's loaded messages: by date, then the messages still being sent after the others, then by ID. Among
+ * messages with distinct IDs it is a total order, so a list in this order has one possible shape. [MessageHistoryStore]'s
+ * full sort uses the same order, and a test compares the two.
+ */
+internal fun compareMessageOrder(a: ChatMessage, b: ChatMessage): Int {
+    val byDate = a.dateSeconds.compareTo(b.dateSeconds)
+    if (byDate != 0) return byDate
+    val aSending = a.sendState == MessageSendState.Sending
+    val bSending = b.sendState == MessageSendState.Sending
+    if (aSending != bSending) return if (aSending) 1 else -1
+    return a.id.compareTo(b.id)
+}
