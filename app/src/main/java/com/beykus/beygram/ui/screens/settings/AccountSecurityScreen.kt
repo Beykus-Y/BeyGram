@@ -2,7 +2,6 @@ package com.beykus.beygram.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -36,7 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -61,6 +59,9 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
@@ -95,6 +96,7 @@ fun AccountSecurityScreen(
     requestAccountDeletion: (password: String, onResult: (Result<Unit>) -> Unit) -> Unit,
     onBack: () -> Unit
 ) {    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var state by remember(accountId) { mutableStateOf<CloudPasswordState?>(null) }
@@ -358,7 +360,7 @@ fun AccountSecurityScreen(
     }
 
     Column(
-        Modifier.fillMaxSize().background(palette.screen)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent)
             .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
     ) {
         ProfileToolbar(stringResource(R.string.account_security_title), onBack = {
@@ -561,6 +563,7 @@ fun AccountSecurityScreen(
 @Composable
 private fun SecurityCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             title,
@@ -570,7 +573,7 @@ private fun SecurityCard(title: String, content: @Composable ColumnScope.() -> U
             modifier = Modifier.padding(horizontal = 6.dp).semantics { heading() }
         )
         Column(
-            Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor())
+            Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             content = content

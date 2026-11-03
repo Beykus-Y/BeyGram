@@ -161,6 +161,7 @@ import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.glassScreenBackground
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
@@ -697,7 +698,7 @@ fun ChatsScreen(
     // The root Box is bounded by MainTabsScaffold: above the bottom navigation on phones,
     // beside the navigation rail on wide screens. Its FAB is never drawn under the system navigation bar.
     Box(
-        modifier = Modifier.fillMaxSize().background(palette.screen)
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent)
             .windowInsetsPadding(
                 WindowInsets.safeDrawing.only(
                     // In the two-pane layout the pane's right edge is in the middle of the window:
@@ -723,6 +724,8 @@ fun ChatsScreen(
                   design = design,
                   tint = palette.surface,
                   rim = palette.textSecondary,
+                  // The recorded list has no background of its own, so the pane starts from the screen colour.
+                  backdropBase = palette.screen,
                   shape = RectangleShape,
                   edge = GlassEdge.BottomHairline,
                   // The pane is hit-tested as a whole: a tap on the title or a gap must not reach a chat row

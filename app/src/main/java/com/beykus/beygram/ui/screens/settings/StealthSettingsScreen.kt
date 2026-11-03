@@ -1,7 +1,6 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -37,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -58,6 +56,9 @@ import com.beykus.beygram.data.settings.stealthDelayUsesServer
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -74,8 +75,9 @@ fun StealthSettingsScreen(
     delayStore: DelayedSendSettingsStore? = null
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.stealth_title), onBack)
         if (store == null) {
             Text(
@@ -100,6 +102,7 @@ internal fun rememberStealthSettings(store: StealthSettingsStore?): State<Stealt
 @Composable
 private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServerPrivacy: () -> Unit, delayStore: DelayedSendSettingsStore?) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val settings by store.state.collectAsStateWithLifecycle()
     var saveFailed by remember { mutableStateOf(false) }
     fun update(transform: (StealthSettings) -> StealthSettings) {
@@ -115,7 +118,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         StatusCard(settings = settings, saveFailed = saveFailed)
 
         GroupTitle(stringResource(R.string.stealth_group_presets))
-        Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(vertical = 4.dp)) {
             ChoiceRow(stringResource(R.string.stealth_preset_normal), selected = preset == StealthPresetKind.Normal) {
                 update { stealthPreset(StealthPresetKind.Normal, it) }
             }
@@ -134,7 +137,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         }
 
         GroupTitle(stringResource(R.string.stealth_group_switches))
-        Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(vertical = 4.dp)) {
             SwitchRow(
                 title = stringResource(R.string.stealth_hide_typing_title),
                 detail = stringResource(R.string.stealth_hide_typing_detail),
@@ -175,7 +178,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         ScheduledSendSection(settings = settings, update = ::update)
 
         Column(
-            Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(16.dp),
+            Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(stringResource(R.string.stealth_limits_title), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -185,7 +188,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         }
 
         Row(
-            Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor())
+            Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
                 .clickable(role = Role.Button, onClick = onServerPrivacy)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -198,7 +201,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
         }
 
         Column(
-            Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(16.dp),
+            Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (exceptions > 0) {
@@ -219,9 +222,10 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
 @Composable
 private fun ScheduledSendSection(settings: StealthSettings, update: ((StealthSettings) -> StealthSettings) -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     var editingCustom by remember { mutableStateOf(false) }
     GroupTitle(stringResource(R.string.stealth_schedule_group_title))
-    Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
+    Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(vertical = 4.dp)) {
         SwitchRow(
             title = stringResource(R.string.stealth_schedule_title),
             detail = stringResource(R.string.stealth_schedule_detail),
@@ -254,7 +258,7 @@ private fun ScheduledSendSection(settings: StealthSettings, update: ((StealthSet
         )
     }
     Column(
-        Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(16.dp),
+        Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (settings.serverScheduledSend && !stealthDelayUsesServer(settings.scheduledSendDelaySeconds)) {
@@ -312,17 +316,18 @@ private fun scheduleDelayLabel(seconds: Int): String = when {
 @Composable
 private fun DelayedSendSection(store: DelayedSendSettingsStore) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val selectedDelay by store.delaySeconds.collectAsStateWithLifecycle()
     var saveFailed by remember { mutableStateOf(false) }
     GroupTitle(stringResource(R.string.delayed_send_group_title))
-    Column(Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
+    Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(vertical = 4.dp)) {
         DelayedSendChoices.forEachIndexed { index, seconds ->
             if (index > 0) SettingsRowDivider(startInset = SettingsRowInset)
             ChoiceRow(delayChoiceLabel(seconds), selected = selectedDelay == seconds) { saveFailed = !store.update(seconds) }
         }
     }
     Column(
-        Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(16.dp),
+        Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(stringResource(R.string.delayed_send_footnote), color = palette.textSecondary, fontSize = 13.sp)
@@ -340,8 +345,9 @@ private fun delayChoiceLabel(seconds: Int): String = when (seconds) {
 @Composable
 private fun StatusCard(settings: StealthSettings, saveFailed: Boolean) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     Column(
-        Modifier.fillMaxWidth().clip(groupCardShape()).background(groupSurfaceColor()).padding(16.dp),
+        Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(stringResource(R.string.stealth_title), color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)

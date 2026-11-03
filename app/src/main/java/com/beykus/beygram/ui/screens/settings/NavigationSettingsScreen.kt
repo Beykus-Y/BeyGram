@@ -2,7 +2,6 @@ package com.beykus.beygram.ui.screens.settings
 
 import com.beykus.beygram.ui.components.settingsIconTint
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,7 +24,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -37,6 +35,9 @@ import com.beykus.beygram.ui.components.MainTabItem
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.components.icon
 import com.beykus.beygram.ui.components.title
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
@@ -45,10 +46,11 @@ import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 @Composable
 fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (TabVisibility) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     BackHandler(onBack = onBack)
     val optional = listOf(MainTab.Calls, MainTab.Contacts, MainTab.Settings)
     val hiddenCount = optional.count { !visibility.isVisible(it) }
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.nav_title), onBack)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Text(
@@ -56,7 +58,7 @@ fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (Tab
                 color = palette.textSecondary, fontSize = 14.sp,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)
             )
-            Column(Modifier.padding(horizontal = 16.dp).clip(groupCardShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp).glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(vertical = 4.dp)) {
                 ChatsLockedRow()
                 optional.forEach { tab ->
                     SettingsRowDivider()
@@ -67,7 +69,7 @@ fun NavigationSettingsScreen(visibility: TabVisibility, onVisibilityChange: (Tab
             }
             Column(
                 Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth()
-                    .clip(groupCardShape()).background(groupSurfaceColor()).padding(horizontal = 16.dp, vertical = 12.dp),
+                    .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(stringResource(R.string.nav_preview_caption), color = palette.textSecondary, fontSize = 12.sp)
