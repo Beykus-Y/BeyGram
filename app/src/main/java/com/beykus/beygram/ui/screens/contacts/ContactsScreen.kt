@@ -124,8 +124,11 @@ fun ContactsScreen(
         contacts.filter { contactMatchesQuery(it, query) }
     }
     val contactGroups = remember(visible) {
-        visible.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+        val groups = visible.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
             .groupBy { contactAlphabetGroup(it.title) }
+        // Names that start with a digit or a symbol go last, under #, as in the system address books. Sorted first they
+        // put a lone # right under the hint at the top of the list.
+        groups.filterKeys { it != CONTACT_SYMBOL_GROUP } + groups.filterKeys { it == CONTACT_SYMBOL_GROUP }
     }
     val shareChats = remember(chats) {
         chats.filter { it.canPost }.distinctBy { it.id }.sortedBy { it.title.lowercase() }
@@ -214,8 +217,9 @@ fun ContactsScreen(
                         Text(
                             stringResource(R.string.contacts_actions_hint),
                             color = palette.textSecondary,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 2.dp)
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
                         )
                     }
                     contactGroups.forEach { (initial, group) ->
@@ -303,9 +307,12 @@ internal fun contactMatchesQuery(contact: ContactPreview, query: String): Boolea
         contact.phone.filter { it.isDigit() }.contains(digits)
 }
 
-/** Stable alphabet heading for local and non-Latin contact names; symbols go into #. */
+/** Heading of the names that do not start with a letter. It goes last in the list. */
+internal const val CONTACT_SYMBOL_GROUP = "#"
+
+/** Stable alphabet heading for local and non-Latin contact names; symbols go into [CONTACT_SYMBOL_GROUP]. */
 internal fun contactAlphabetGroup(title: String): String =
-    title.trim().firstOrNull()?.takeIf { it.isLetter() }?.uppercaseChar()?.toString() ?: "#"
+    title.trim().firstOrNull()?.takeIf { it.isLetter() }?.uppercaseChar()?.toString() ?: CONTACT_SYMBOL_GROUP
 
 @Composable
 private fun ContactRow(
