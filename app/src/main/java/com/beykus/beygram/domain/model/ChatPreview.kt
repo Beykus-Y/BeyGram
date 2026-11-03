@@ -49,12 +49,26 @@ data class ChatPreview(
     val folderPositions: Map<Int, FolderChatPosition> = emptyMap()
 )
 
+/**
+ * Telegram's list order for the Main list and for server folders: pinned chats first, then TDLib's position.
+ * Chat IDs are unique, so no two different chats compare equal and the order is total.
+ */
+val telegramListOrder: Comparator<ChatPreview> = compareByDescending<ChatPreview> { it.isPinned }
+    .thenByDescending { it.order }
+    .thenByDescending { it.id }
+
+/** The archive is ordered by its own TDLib position alone. */
+val archiveChatOrder: Comparator<ChatPreview> = compareByDescending<ChatPreview> { it.archiveOrder }
+    .thenByDescending { it.id }
+
+/** A zero TDLib position means the chat is outside the Main list. */
+fun ChatPreview.isInMainList(): Boolean = order > 0L
+
+/** A zero archive position means the chat is not archived. */
+fun ChatPreview.isInArchive(): Boolean = archiveOrder > 0L
+
 fun orderedMainChats(chats: Collection<ChatPreview>): List<ChatPreview> =
-    chats.filter { it.order > 0L }.sortedWith(
-        compareByDescending<ChatPreview> { it.isPinned }.thenByDescending { it.order }.thenByDescending { it.id }
-    )
+    chats.filter { it.isInMainList() }.sortedWith(telegramListOrder)
 
 fun orderedArchivedChats(chats: Collection<ChatPreview>): List<ChatPreview> =
-    chats.filter { it.archiveOrder > 0L }.sortedWith(
-        compareByDescending<ChatPreview> { it.archiveOrder }.thenByDescending { it.id }
-    )
+    chats.filter { it.isInArchive() }.sortedWith(archiveChatOrder)
