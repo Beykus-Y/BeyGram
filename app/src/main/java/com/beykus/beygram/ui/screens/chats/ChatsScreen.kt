@@ -2,11 +2,6 @@ package com.beykus.beygram.ui.screens.chats
 
 import androidx.compose.animation.animateColorAsState
 import com.beykus.beygram.ui.design.styledShape
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
@@ -93,10 +88,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -132,6 +132,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.pluralForm
+import java.text.NumberFormat
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -169,8 +170,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
-import com.beykus.beygram.ui.motion.fadeEnter
-import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.screens.stories.StoryBarSection
 
 /** Ignore tiny scroll offsets; collapse after passing the story/archive area. */
@@ -183,6 +182,12 @@ private enum class ChatFilter(val title: Int) {
 
 /** Сколько протянуть список вниз, чтобы вернуть скрытый архив; подсказка занимает столько же. */
 private val archivePullThreshold = 104.dp
+
+/**
+ * Высота мягкого края списка: строки, которые уходят под шапку или подходят к плавающему доку, растворяются здесь,
+ * а не обрываются тонкой полосой.
+ */
+private val chatListEdgeFadeHeight = 24.dp
 
 @Composable
 fun ChatsScreen(
@@ -340,7 +345,14 @@ fun ChatsScreen(
         label = "chatsHeaderTitleSize"
     )
     val titleSize = headerTitleSize.sp
-    val titleLineHeight = (headerTitleSize + 3f).sp
+    // The line box stays at the expanded size: the title shrinks inside it, so collapsing never changes the header height
+    // and the list below it does not move. The overline does the same: it fades out and keeps its line.
+    val titleLineHeight = (headerSize + 3f).sp
+    val overlineAlpha by animateFloatAsState(
+        targetValue = if (headerCollapsed) 0f else 1f,
+        animationSpec = headerMotion.animationSpec<Float>(),
+        label = "chatsOverlineAlpha"
+    )
     val archivePullThresholdPx = with(density) { archivePullThreshold.toPx() }
     // Сколько протянуто вниз, пока архив скрыт. Подсказка растёт до порога, а за порогом архив возвращается при отпускании.
     var pullPx by remember { mutableFloatStateOf(0f) }
@@ -380,6 +392,17 @@ fun ChatsScreen(
     LaunchedEffect(listState.isScrollInProgress) {
         if (!listState.isScrollInProgress) pullPx = 0f
     }
+    // The list's top edge is a viewport edge, not a boundary between rows: once it has moved, rows scrolled under the
+    // header are cut there. Their slice (a line of the archive summary, the edge of a tonal card) then sits in the 18 dp
+    // gap above the pinned label and reads as stray debris. The edge dissolves instead; at rest nothing is faded.
+    val listMoved by remember(listState) {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
+    }
+    val topEdgeFade by animateFloatAsState(
+        targetValue = if (listMoved) 1f else 0f,
+        animationSpec = headerMotion.animationSpec<Float>(),
+        label = "chatsListTopEdgeFade"
+    )
 
     if (managingFolders) {
         val manager: @Composable () -> Unit = {
@@ -419,15 +442,10 @@ fun ChatsScreen(
         Column(modifier = modifier.fillMaxWidth().padding(start = headerPadding, end = headerPadding, top = 8.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    AnimatedVisibility(
-                        visible = !headerCollapsed && design.mainScreen.showBrandOverline,
-                        enter = if (headerMotion.isInstant) EnterTransition.None else
-                            headerMotion.fadeEnter() + expandVertically(animationSpec = headerMotion.animationSpec()),
-                        exit = if (headerMotion.isInstant) ExitTransition.None else
-                            headerMotion.fadeExit() + shrinkVertically(animationSpec = headerMotion.animationSpec())
-                    ) {
+                    if (design.mainScreen.showBrandOverline) {
                         Text(
                             stringResource(R.string.app_name).uppercase(),
+                            modifier = Modifier.graphicsLayer { alpha = overlineAlpha },
                             color = palette.accent,
                             style = MaterialTheme.typography.labelMedium,
                             letterSpacing = 0.8.sp
@@ -555,7 +573,7 @@ fun ChatsScreen(
     val chatList: @Composable (Modifier, Dp) -> Unit = { modifier, topPadding ->
         LazyColumn(
             state = listState,
-            modifier = modifier.nestedScroll(pullConnection),
+            modifier = modifier.nestedScroll(pullConnection).chatListEdgeFade(topPadding, fadeBottom = dock.floating) { topEdgeFade },
             // Keep the last conversation accessible above the overlay button, measured from the button itself. Under
             // glass chrome the list also starts below the header it scrolls beneath.
             contentPadding = PaddingValues(top = topPadding, bottom = fabPlacement.listClearance)
@@ -881,10 +899,13 @@ internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, o
     var actionsOpen by remember { mutableStateOf(false) }
     val unread = archivedChats.sumOf { it.unreadCount }
     val title = stringResource(R.string.chats_archive_title)
-    val language = LocalConfiguration.current.locales[0].language
+    val locale = LocalConfiguration.current.locales[0]
+    val language = locale.language
+    // Digits are grouped for the interface language (3 132 938 in Russian, 3,132,938 in English), as any count is.
+    val numbers = NumberFormat.getIntegerInstance(locale)
     val summary = buildString {
-        append("${archivedChats.size} ${pluralForm(language, archivedChats.size, context.getString(R.string.chats_archive_count_one), context.getString(R.string.chats_archive_count_few), context.getString(R.string.chats_archive_count_many))}")
-        if (unread > 0) append(" · $unread ${pluralForm(language, unread, context.getString(R.string.chats_archive_unread_one), context.getString(R.string.chats_archive_unread_few), context.getString(R.string.chats_archive_unread_few))}")
+        append("${numbers.format(archivedChats.size.toLong())} ${pluralForm(language, archivedChats.size, context.getString(R.string.chats_archive_count_one), context.getString(R.string.chats_archive_count_few), context.getString(R.string.chats_archive_count_many))}")
+        if (unread > 0) append(" · ${numbers.format(unread.toLong())} ${pluralForm(language, unread, context.getString(R.string.chats_archive_unread_one), context.getString(R.string.chats_archive_unread_few), context.getString(R.string.chats_archive_unread_few))}")
     }
     // Archive is a navigation row, not a featured content card. Keep its touch target >= 56dp
     // while reducing the visual prominence that previously pushed conversations down.
@@ -970,6 +991,52 @@ private fun ArchivePullHint(heightDp: Dp) {
         Text(stringResource(R.string.chats_archive_pull_hint), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
+
+/**
+ * Soft edges of the chat list. The top edge dissolves under the header once the list has moved: [topProgress] scales it
+ * (0 at rest, so the first row is never dimmed) and [topPadding] is where the header ends. With a floating dock
+ * ([fadeBottom]) the bottom edge dissolves before the gap above the capsule, so a row cut there does not end in a
+ * sliver. The list is drawn into its own layer and masked there (DstIn): the screen colour, the glows and the glass
+ * backdrop record show through unchanged, and nothing is blurred.
+ */
+private fun Modifier.chatListEdgeFade(topPadding: Dp, fadeBottom: Boolean, topProgress: () -> Float): Modifier =
+    graphicsLayer {
+        compositingStrategy = if (fadeBottom || topProgress() > 0f) {
+            CompositingStrategy.Offscreen
+        } else {
+            CompositingStrategy.Auto
+        }
+    }.drawWithContent {
+        drawContent()
+        val fade = chatListEdgeFadeHeight.toPx()
+        val amount = topProgress().coerceIn(0f, 1f)
+        if (amount > 0f) {
+            val top = topPadding.toPx()
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Black.copy(alpha = 1f - amount), Color.Black),
+                    startY = top,
+                    endY = top + fade
+                ),
+                topLeft = Offset(0f, top),
+                size = Size(size.width, fade),
+                blendMode = BlendMode.DstIn
+            )
+        }
+        if (fadeBottom) {
+            val bottom = size.height
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Black, Color.Transparent),
+                    startY = bottom - fade,
+                    endY = bottom
+                ),
+                topLeft = Offset(0f, bottom - fade),
+                size = Size(size.width, fade),
+                blendMode = BlendMode.DstIn
+            )
+        }
+    }
 
 /** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
 @Composable
@@ -1222,7 +1289,8 @@ private fun sendStatusLabel(chat: ChatPreview): String? {
 private fun SendStatusIcon(chat: ChatPreview) {
     val palette = beyGramPalette()
     if (!chat.lastMessageOutgoing) return
-    val modifier = Modifier.padding(start = 6.dp).size(16.dp)
+    // The gap to the neighbouring marker comes from the trailing group, not from the glyph.
+    val modifier = Modifier.size(16.dp)
     // The row speaks one merged description (see ChatListItem), so the glyph itself stays decorative.
     when (chat.lastMessageSendState) {
         MessageSendState.Sending -> Icon(Icons.Rounded.Schedule, null, tint = palette.textSecondary, modifier = modifier)
@@ -1252,6 +1320,10 @@ internal fun chatListDensityFor(density: ListDensity): ChatListDensity = when (d
 
 /** Telegram shows a chat as unread either because of a server unread count or an explicit manual marker. */
 internal fun showsUnreadIndicator(chat: ChatPreview): Boolean = chat.unreadCount > 0 || chat.isMarkedAsUnread
+
+/** Air between the preview text and the trailing markers of a chat row, and between the markers themselves. */
+private val TrailingIndicatorStart = 10.dp
+private val TrailingIndicatorGap = 6.dp
 
 @Composable
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
@@ -1304,22 +1376,31 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (chat.isMuted) Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
                 Text(preview, color = if (unread && main.unreadPreviewEmphasis && !chat.isMuted) palette.textPrimary else palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                SendStatusIcon(chat)
-                if (unread) {
-                    Spacer(Modifier.width(8.dp))
-                    // Чат без звука получает серый счётчик, как в Telegram. Ручная отметка без сообщений — точка.
-                    val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
-                    if (chat.unreadCount > 0) {
-                        // The 22dp pill grows with the system font scale, so large digits are not clipped; at 1x and
-                        // below every style keeps exactly the pill it had (its text line is taller than 22dp in some
-                        // styles, so a plain minimum height would change them).
-                        val badgeScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
-                        val badgeSize = 22.dp * badgeScale
-                        Box(modifier = Modifier.defaultMinSize(minWidth = badgeSize).height(badgeSize).clip(RoundedCornerShape(main.badgeRadius * badgeScale)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
-                            Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                // The send status and the unread marker share one trailing group. The group keeps its own air from the
+                // preview text and a fixed gap from its neighbour, so a preview that ends in a symbol never runs into a count.
+                if (chat.lastMessageOutgoing || unread) {
+                    Row(
+                        modifier = Modifier.padding(start = TrailingIndicatorStart),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(TrailingIndicatorGap)
+                    ) {
+                        SendStatusIcon(chat)
+                        if (unread) {
+                            // Чат без звука получает серый счётчик, как в Telegram. Ручная отметка без сообщений — точка.
+                            val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
+                            if (chat.unreadCount > 0) {
+                                // The 22dp pill grows with the system font scale, so large digits are not clipped; at 1x and
+                                // below every style keeps exactly the pill it had (its text line is taller than 22dp in some
+                                // styles, so a plain minimum height would change them).
+                                val badgeScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+                                val badgeSize = 22.dp * badgeScale
+                                Box(modifier = Modifier.defaultMinSize(minWidth = badgeSize).height(badgeSize).clip(RoundedCornerShape(main.badgeRadius * badgeScale)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
+                                    Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Box(Modifier.size(10.dp).clip(CircleShape).background(badgeColor))
+                            }
                         }
-                    } else {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(badgeColor))
                     }
                 }
             }

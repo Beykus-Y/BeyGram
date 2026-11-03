@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.stories
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -90,6 +92,9 @@ internal fun StoryBarSection(
     }
 }
 
+/** How far an unread story ring moves from the accent towards the text colour; keeps it recognisable but calmer. */
+private const val UnreadStoryRingToneShare = 0.22f
+
 /**
  * Only the system add-story label needs guaranteed readability. Keep the avatar at 66 dp,
  * but give its two-line caption enough space as the user increases the Android font scale.
@@ -102,15 +107,17 @@ private fun AddStoryCell(onClick: () -> Unit) {
     val palette = beyGramPalette()
     val description = stringResource(R.string.stories_a11y_add)
     val width = addStoryCellWidthDp(LocalDensity.current.fontScale).dp
+    val captionInteraction = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier.width(width)
-            .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = description }
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // The press feedback is drawn by the circle. A ripple over the whole cell is a rectangle around the story.
         Box(
-            Modifier.size(66.dp).clip(CircleShape).background(palette.accentSoft),
+            Modifier.size(66.dp).clip(CircleShape).background(palette.accentSoft)
+                .clickable(role = Role.Button, onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
             Icon(Icons.Rounded.Add, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(28.dp))
@@ -124,7 +131,12 @@ private fun AddStoryCell(onClick: () -> Unit) {
             maxLines = 2,
             textAlign = TextAlign.Center,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.heightIn(min = 30.dp)
+            modifier = Modifier.heightIn(min = 30.dp).clickable(
+                interactionSource = captionInteraction,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            )
         )
     }
 }
@@ -143,16 +155,22 @@ private fun StoryCell(
         if (entry.hasUnread) R.string.stories_a11y_author_unread else R.string.stories_a11y_author,
         label
     )
+    val captionInteraction = remember { MutableInteractionSource() }
+    // The ring marks one state only: a story that is still unread. That is the accent the unread badges use, toned
+    // towards the text colour, because a fully saturated accent (a blue theme in particular) reads as acid around the
+    // avatars. Read stories keep the neutral divider.
+    val ringColor = if (entry.hasUnread) lerp(palette.accent, palette.textPrimary, UnreadStoryRingToneShare) else palette.divider
     Column(
         modifier = Modifier.width(88.dp)
-            .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = description }
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // The press feedback is drawn by the circle. A ripple over the whole 88 dp cell is a rectangle around the story.
         Box(
             Modifier.size(66.dp).clip(CircleShape)
-                .border(2.dp, if (entry.hasUnread) palette.accent else palette.divider, CircleShape)
+                .clickable(role = Role.Button, onClick = onClick)
+                .border(2.dp, ringColor, CircleShape)
                 .padding(3.dp)
         ) {
             TelegramAvatar(
@@ -172,7 +190,12 @@ private fun StoryCell(
             maxLines = 1,
             textAlign = TextAlign.Center,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.heightIn(min = 30.dp)
+            modifier = Modifier.heightIn(min = 30.dp).clickable(
+                interactionSource = captionInteraction,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            )
         )
     }
 }
