@@ -134,7 +134,7 @@ and composer, with the **backdrop** sampled:
 
 Which surfaces are glass, the layers of the material and the measurement protocol: [liquid-glass.md](liquid-glass.md).
 
-Quality levels: `High` (sampled blur, 28dp), `Balanced` (tint and rim, no blur pass), `Lite` (dense matte). `Auto`
+Quality levels: `High` (sampled blur, 40dp), `Balanced` (tint and rim, no blur pass), `Lite` (dense matte). `Auto`
 picks `Balanced` without API 31 blur support, `Lite` under reduced transparency, `Balanced` in power saving or on low-RAM
 devices. Message bubbles and body content stay opaque: readability wins over decoration, and translucent surfaces never
 expose content hidden by `FLAG_SECURE` because nothing is drawn outside the app window.

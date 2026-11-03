@@ -61,6 +61,9 @@ import com.beykus.beygram.domain.repository.StorageRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.listGroupShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.storageSizeText
@@ -80,6 +83,7 @@ fun StorageSettingsScreen(
         initializer { StorageSettingsViewModel(repository, StorageSettingsStore.getInstance(context.applicationContext)) }
     })
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val settings by model.settings.collectAsStateWithLifecycle()
     val usage = model.usage
     val cleaningProgress = model.cleaningProgress
@@ -87,7 +91,7 @@ fun StorageSettingsScreen(
     var pendingClear by remember { mutableStateOf<ClearScope?>(null) }
     LaunchedEffect(Unit) { model.refresh() }
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.settings_storage_title), onBack)
         if (model.applying) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = palette.accent)
         Column(
@@ -105,7 +109,7 @@ fun StorageSettingsScreen(
                 onClearSelected = { pendingClear = ClearScope.Selected },
                 onClearAll = { pendingClear = ClearScope.All }
             )
-            Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.storage_limit_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_limit_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageSizeLimit.entries.forEach { limit ->
@@ -114,7 +118,7 @@ fun StorageSettingsScreen(
                     }
                 }
             }
-            Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.storage_retention_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_retention_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageRetention.entries.forEach { retention ->
@@ -146,7 +150,8 @@ fun StorageSettingsScreen(
 @Composable
 private fun UsageCard(usage: StorageUsage?, loading: Boolean, selected: Set<StorageCategory>, busy: Boolean, onToggle: (StorageCategory) -> Unit) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val design = LocalDesignSystem.current
+    Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.storage_usage_title), color = palette.textSecondary, fontSize = 13.sp)
         if (usage == null) {
             if (loading) {
@@ -224,9 +229,10 @@ private fun ClearCard(
     onClearAll: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val selectedBytes = usage?.let { current -> selected.sumOf { current.bytes(it) } } ?: 0L
     val filesBytes = usage?.filesBytes ?: 0L
-    Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(stringResource(R.string.storage_selected_size, storageSizeText(selectedBytes)), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onClearSelected, enabled = !busy && selectedBytes > 0L, modifier = Modifier.weight(1f)) {

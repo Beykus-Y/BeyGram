@@ -119,6 +119,11 @@ fun GlassPanel(
     design: DesignSystem,
     tint: Color,
     rim: Color,
+    /**
+     * The colour under the blurred sample, drawn opaque first. Unspecified means the tint at full opacity. A screen whose
+     * list has no background of its own passes its screen colour here, so no sharp content shows through the pane.
+     */
+    backdropBase: Color = Color.Unspecified,
     shape: Shape,
     modifier: Modifier = Modifier,
     edge: GlassEdge = GlassEdge.Rim,
@@ -141,10 +146,14 @@ fun GlassPanel(
     ) {
         if (samplesBackdrop) {
             val blurPx = with(density) { glass!!.blurRadiusDp.toPx() }
+            // The opaque floor of the sampled pane: a list without its own background records transparent gaps, and
+            // those must show this colour, not the sharp content drawn underneath.
+            val base = if (backdropBase != Color.Unspecified) backdropBase else tint.copy(alpha = 1f)
             Box(
                 Modifier.matchParentSize()
                     .graphicsLayerWithBlur(blurPx, shape)
                     .drawBehind {
+                        drawRect(base)
                         val sampled = backdrop
                         val source = sampled?.layer
                         // Sampling the layer that is being recorded right now would draw it into itself, which kills
@@ -219,6 +228,66 @@ fun Modifier.glassHighlight(alpha: Float): Modifier = drawWithCache {
         endY = size.height * 0.62f
     )
     onDrawBehind { drawRect(brush) }
+}
+
+/**
+ * Background of a screen in the Liquid Glass style: the screen colour with two large soft glows of the accent, so
+ * translucent cards and chrome above it read as glass. Other styles get the plain screen colour.
+ */
+fun Modifier.glassScreenBackground(design: DesignSystem, screen: Color, accent: Color): Modifier =
+    if (!design.usesGlassPanels) background(screen) else drawWithCache {
+        val glowA = Brush.radialGradient(
+            colors = listOf(accent.copy(alpha = 0.30f), accent.copy(alpha = 0f)),
+            center = Offset(size.width * 0.12f, size.height * 0.10f),
+            radius = size.maxDimension * 0.55f
+        )
+        val glowB = Brush.radialGradient(
+            colors = listOf(accent.copy(alpha = 0.20f), accent.copy(alpha = 0f)),
+            center = Offset(size.width * 0.95f, size.height * 0.62f),
+            radius = size.maxDimension * 0.50f
+        )
+        onDrawBehind {
+            drawRect(screen)
+            drawRect(glowA)
+            drawRect(glowB)
+        }
+    }
+
+/** Fill and edge of a grouped card (settings group, archive row) or tile in the Liquid Glass style. */
+fun Modifier.glassCard(design: DesignSystem, fill: Color, rim: Color, shape: Shape): Modifier {
+    val glass = design.surfaces.glass
+    if (!design.usesGlassPanels || glass == null) return clip(shape).background(fill)
+    return clip(shape)
+        .background(fill.copy(alpha = GlassCardFillAlpha))
+        .glassHighlight(glass.highlightAlpha * 0.8f)
+        .border(
+            width = 1.dp,
+            brush = Brush.verticalGradient(listOf(rim.copy(alpha = glass.rimAlpha), rim.copy(alpha = glass.rimAlpha * 0.2f))),
+            shape = shape
+        )
+}
+
+/** How much of the surface colour a glass card keeps: the ambient glow behind it must show through. */
+private const val GlassCardFillAlpha = 0.55f
+
+/**
+ * A panel that slides up from the bottom (attachment menu, sheets) in the Liquid Glass style: a lit top edge and a
+ * highlight. The fill stays dense, because the messages behind a menu must not be readable through it.
+ */
+fun Modifier.glassSheet(design: DesignSystem, fill: Color, rim: Color): Modifier {
+    val glass = design.surfaces.glass
+    if (!design.usesGlassPanels || glass == null) return background(fill)
+    return background(fill.copy(alpha = 0.94f))
+        .glassHighlight(glass.highlightAlpha)
+        .drawBehind {
+            val stroke = 1.dp.toPx()
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    listOf(rim.copy(alpha = 0f), rim.copy(alpha = glass.rimAlpha), rim.copy(alpha = 0f))
+                ),
+                size = Size(size.width, stroke)
+            )
+        }
 }
 
 /** Mask used for a frame in which the panel has no finished backdrop sample yet. */

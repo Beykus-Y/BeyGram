@@ -1,7 +1,6 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,7 +19,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -30,18 +28,22 @@ import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.listGroupShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
 /** Только формат времени последнего визита. Кто видит это время, настраивается в «Приватности и безопасности» и хранится в TDLib. */
 @Composable
 fun LastSeenSettingsScreen(style: LastSeenStyle, onStyleChange: (LastSeenStyle) -> Unit, onBack: () -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.settings_last_seen_title), onBack)
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.settings_last_seen_intro), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
-            Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
+            Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(vertical = 4.dp)) {
                 StyleRow(LastSeenStyle.Relative, style, stringResource(R.string.settings_last_seen_relative_title), stringResource(R.string.settings_last_seen_relative_detail)) { onStyleChange(LastSeenStyle.Relative) }
                 SettingsRowDivider(startInset = SettingsRowInset)
                 StyleRow(LastSeenStyle.Exact, style, stringResource(R.string.settings_last_seen_exact_title), stringResource(R.string.settings_last_seen_exact_detail)) { onStyleChange(LastSeenStyle.Exact) }

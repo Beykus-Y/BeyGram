@@ -1,7 +1,6 @@
 package com.beykus.beygram.ui.screens.settings
 
 import com.beykus.beygram.ui.components.settingsIconTint
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -56,7 +55,6 @@ import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -70,6 +68,8 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.MainTabTitle
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.glassScreenBackground
 
 /** Settings grouped by purpose. Routes remain owned by the caller. */
 @Composable
@@ -78,8 +78,9 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
     onDiagnostics: () -> Unit, onUpdates: () -> Unit, onLanguage: () -> Unit, onSessions: () -> Unit,
     onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicLibrary: () -> Unit = {}) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     Column(
-        Modifier.fillMaxSize().background(palette.screen)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .verticalScroll(rememberScrollState())
     ) {
@@ -179,9 +180,9 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
         )
         Column(
             modifier = Modifier.padding(horizontal = 16.dp)
-                .clip(groupShape)
-                // Material 3 groups its settings on the tonal container instead of the plain surface.
-                .background(groupSurfaceColor())
+                // Material 3 groups its settings on the tonal container instead of the plain surface. The glass style
+                // draws the group as a translucent card over the ambient glow instead.
+                .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupShape)
                 .padding(vertical = 4.dp),
             content = content
         )

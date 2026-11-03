@@ -14,17 +14,22 @@ the crash guard live in [design-system-v2.md](design-system-v2.md#liquid-glass).
 | Search field inside glass chrome | inner glass (lighter fill on the pane) | one layer of glass, not a second pane |
 | Chat header and composer | tinted glass, no sample | the backdrop is private message content; it is never blurred into chrome |
 | Message bubbles, message text, photos, video | opaque | readability wins over decoration |
-| Chat rows, long lists, settings cards | opaque | dense text, scrolled constantly |
-| Sheets and dialogs | opaque Material surfaces | modal content needs full contrast |
+| Chat rows, long lists | opaque | dense text, scrolled constantly |
+| Settings group cards, attachment tiles | translucent glass cards (0.55 fill, rim, highlight) over the ambient glow | the glow shows through the card, so it reads as glass |
+| Attachment menu | dense glass sheet (0.94 fill, lit top edge, highlight) | the messages behind the menu must not be readable through it |
+| Other sheets and dialogs | opaque Material surfaces | modal content needs full contrast |
+| Screen background (chat list, settings) | screen colour with two soft accent glows | translucent glass reads as glass only over colour |
 
 ## How the material is built
 
 One pane of glass is, from back to front:
 
 1. **Sample** (High only): the content behind the pane, recorded by `glassBackdropSource` and blurred by a real
-   `RenderEffect` (Android 12+). A frame without a finished sample draws a dense mask instead, so the light tint of real
-   glass never shows sharp text through the pane.
-2. **Tint**: the surface colour at the style's `tintAlpha` over a sample (0.72 at High), at least 0.93 without one.
+   `RenderEffect` (Android 12+). The sample is drawn over an opaque base (`backdropBase` of `GlassPanel`, the screen
+   colour on the chat list and the dock), so a list without its own background never shows sharp content through the
+   pane. A frame without a finished sample draws a dense mask instead, so the light tint of real glass never shows sharp
+   text through the pane.
+2. **Tint**: the surface colour at the style's `tintAlpha` over a sample (0.62 at High), at least 0.93 without one.
 3. **Rim**: one 1dp edge, lit from the top and fading to a quarter towards the bottom. There is no second frame.
 4. **Specular highlight**: a white wash across the top 60% (`Modifier.glassHighlight`).
 5. **Depth**: a small lift (6dp High, 4dp Balanced, 2dp Lite). Heavy shadow plus a full rim read as a plastic tray.
@@ -46,9 +51,9 @@ the edge that meets the content.
 
 | Level | Sample + blur | Tint | Rim | Highlight | Shadow |
 | --- | --- | --- | --- | --- | --- |
-| High | 28dp, Android 12+ | 0.72 | 0.50 | 0.16 | 6dp |
-| Balanced | no | 0.93 | 0.40 | 0.10 | 4dp |
-| Lite | no | 0.96 | 0.30 | none | 2dp |
+| High | 40dp, Android 12+ | 0.62 | 0.65 | 0.24 | 6dp |
+| Balanced | no | 0.93 | 0.55 | 0.18 | 4dp |
+| Lite | no | 0.96 | 0.40 | 0.08 | 2dp |
 
 `Auto` picks Balanced without render effects, Lite under reduced transparency (animations off), Balanced in battery
 saver or on a low-RAM device, otherwise High. An explicit High on Android below 12 is drawn as Balanced

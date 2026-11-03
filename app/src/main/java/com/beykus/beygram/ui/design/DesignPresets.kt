@@ -155,17 +155,17 @@ fun liquidGlassDesign(quality: GlassQuality): DesignSystem {
     val resolved = if (quality == GlassQuality.Auto) GlassQuality.High else quality
     val glass = when (resolved) {
         GlassQuality.High -> GlassStyle(
-            quality = resolved, blurRadiusDp = 28.dp, tintAlpha = 0.72f,
-            rimAlpha = 0.50f, highlightAlpha = 0.16f, shadowElevation = 6.dp
+            quality = resolved, blurRadiusDp = 40.dp, tintAlpha = 0.62f,
+            rimAlpha = 0.65f, highlightAlpha = 0.24f, shadowElevation = 6.dp
         )
         GlassQuality.Balanced -> GlassStyle(
             quality = resolved, blurRadiusDp = 0.dp, tintAlpha = 0.90f,
-            rimAlpha = 0.40f, highlightAlpha = 0.10f, shadowElevation = 4.dp
+            rimAlpha = 0.55f, highlightAlpha = 0.18f, shadowElevation = 4.dp
         )
         // Lite is the matte fallback: no translucency at all, but the layout and the rim stay recognisably glass.
         GlassQuality.Lite, GlassQuality.Auto -> GlassStyle(
             quality = GlassQuality.Lite, blurRadiusDp = 0.dp, tintAlpha = 0.96f,
-            rimAlpha = 0.30f, highlightAlpha = 0f, shadowElevation = 2.dp
+            rimAlpha = 0.40f, highlightAlpha = 0.08f, shadowElevation = 2.dp
         )
     }
     return DesignSystem(

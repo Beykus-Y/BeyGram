@@ -2,7 +2,9 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.annotation.StringRes
 import com.beykus.beygram.ui.design.styledShape
-import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.glassSheet
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -38,7 +40,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -105,6 +106,7 @@ internal fun AttachmentMenu(
     onClose: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val actions = remember(allowsPolls, allowsMusic) { attachmentActions(allowsPolls, allowsMusic) }
     val configuration = LocalConfiguration.current
     val maxHeight = (configuration.screenHeightDp * 0.5f).dp.coerceIn(160.dp, 380.dp)
@@ -112,7 +114,7 @@ internal fun AttachmentMenu(
         Modifier
             .fillMaxWidth()
             .motionEntrance(MotionToken.SheetEnter, EntranceRise)
-            .background(palette.surface)
+            .glassSheet(design, palette.surface, palette.textSecondary)
     ) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 16.dp, end = 4.dp),
@@ -176,6 +178,7 @@ private fun SectionTitle(text: String) {
 @Composable
 private fun AttachmentActionTile(action: AttachmentAction, enabled: Boolean, onAction: (AttachmentAction) -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val icon = when (action) {
         AttachmentAction.Camera -> Icons.Rounded.PhotoCamera
         AttachmentAction.PhotoVideo -> Icons.Rounded.Image
@@ -192,8 +195,7 @@ private fun AttachmentActionTile(action: AttachmentAction, enabled: Boolean, onA
         Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 76.dp)
-            .clip(styledShape(16.dp))
-            .background(palette.surface2)
+            .glassCard(design, palette.surface2, palette.textSecondary, styledShape(16.dp))
             .clickable(enabled = enabled, role = Role.Button) { onAction(action) }
             .padding(horizontal = 6.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

@@ -7,7 +7,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -83,6 +82,9 @@ import com.beykus.beygram.data.media.yesNoUnknown
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.listGroupShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.security.AppLockManager
 import android.content.ClipData
@@ -102,6 +104,7 @@ import java.util.Date
 @Composable
 fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: TelegramRepository, accountId: String = "legacy", onBack: () -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val diagnostics = remember(context) { VideoNoteDiagnostics.also { it.initialize(context) } }
     val reports by diagnostics.reports.collectAsStateWithLifecycle()
@@ -237,7 +240,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     ))
     val goBack = { if (diagnosticsPage) diagnosticsPage = false else onBack() }
     BackHandler(onBack = goBack)
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(
             stringResource(if (diagnosticsPage) R.string.video_diagnostics_center_screen_title else R.string.settings_video_recording_title),
             goBack
@@ -246,7 +249,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             if (!diagnosticsPage) {
             Text(stringResource(R.string.settings_autosave_note), color = palette.textSecondary, fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 4.dp))
-            Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(vertical = 4.dp)) {
+            Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(vertical = 4.dp)) {
                 Text(stringResource(R.string.settings_video_quality), color = palette.textSecondary, fontSize = 13.sp,
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp))
                 PresetRow(VideoQualityPreset.Standard, settings.preset, stringResource(R.string.settings_video_standard), stringResource(R.string.settings_video_standard_detail)) { store.updateSettings { it.copy(preset = VideoQualityPreset.Standard) } }
@@ -259,7 +262,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
             }
 
             if (settings.preset == VideoQualityPreset.Custom) {
-                Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     ChoiceSection(stringResource(R.string.settings_video_resolution), listOf(384, 480, 640), settings.customSide,
                         { stringResource(R.string.settings_video_side, it) }) { value -> store.updateSettings { it.copy(customSide = value) } }
                     ChoiceSection(stringResource(R.string.settings_video_fps), listOf(24, 30, 60), settings.customFps,
@@ -276,7 +279,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
 
             if (settings.preset == VideoQualityPreset.Maximum || settings.preset == VideoQualityPreset.Custom) {
                 val fpsLimit = if (settings.preset == VideoQualityPreset.Maximum) 60 else settings.customFps
-                Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.settings_video_fps_priority), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                     FpsPriorityRow(VideoFrameRatePriority.MaximumQuality, settings.frameRatePriority,
                         stringResource(R.string.settings_video_fps_priority_quality), fpsLimit
@@ -291,7 +294,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 }
             }
 
-            Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp)) {
                 Row(Modifier.fillMaxWidth().toggleable(settings.longRecordingEnabled, role = Role.Switch) { checked ->
                     store.updateSettings { current -> current.copy(longRecordingEnabled = checked) }
                 }, verticalAlignment = Alignment.CenterVertically) {
@@ -305,7 +308,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
 
             // До API 33 CameraX не отражает превью по setMirrorMode, поэтому переключатель там не нужен.
             if (videoMirrorToggleSupported()) {
-                Column(Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp)) {
+                Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp)) {
                     Row(Modifier.fillMaxWidth().toggleable(settings.mirrorFrontCamera, role = Role.Switch) { checked ->
                         store.updateSettings { current -> current.copy(mirrorFrontCamera = checked) }
                     }, verticalAlignment = Alignment.CenterVertically) {
@@ -331,7 +334,7 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                 modifier = Modifier.padding(horizontal = 4.dp)
             )
             Column(
-                Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp),
+                Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
@@ -710,12 +713,13 @@ private fun AdaptiveQualityCard(
     reports: List<VideoNoteDiagnosticReport>
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val requested = settings.requestedFrameRateRange()
     val requestedFps = requested.last
     val sourceSide = videoNoteSettingsSide(settings)
     Column(
-        Modifier.fillMaxWidth().clip(listGroupShape()).background(groupSurfaceColor()).padding(16.dp),
+        Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(stringResource(R.string.settings_video_adaptive_title), color = palette.textPrimary,

@@ -2,7 +2,6 @@ package com.beykus.beygram.ui.screens.settings
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,7 +41,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +56,9 @@ import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.groupCardShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
@@ -82,6 +83,7 @@ fun BlockedSendersScreen(
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -139,7 +141,7 @@ fun BlockedSendersScreen(
     }
     BackHandler(onBack = onBack)
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.blocked_title), onBack)
         Text(
             stringResource(R.string.blocked_intro),
@@ -170,7 +172,7 @@ fun BlockedSendersScreen(
         } else {
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clip(groupCardShape()).background(groupSurfaceColor()),
+                    .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()),
                 state = listState, contentPadding = PaddingValues(vertical = 4.dp)
             ) {
                 itemsIndexed(senders, key = { _, sender -> "${sender.kind}:${sender.senderId}" }) { index, sender ->

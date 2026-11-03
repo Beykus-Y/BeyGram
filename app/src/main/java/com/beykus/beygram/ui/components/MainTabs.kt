@@ -451,6 +451,8 @@ internal fun MainTabBar(
             design = design,
             tint = barColor,
             rim = palette.textSecondary,
+            // Gaps in the sampled content show the screen colour, never the sharp content under the dock.
+            backdropBase = palette.screen,
             shape = barShape,
             modifier = outer.shadow(glass.shadowElevation, barShape)
         ) {
