@@ -37,6 +37,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
@@ -91,10 +92,13 @@ internal fun StickerPreview(
             if (autoDownload != null) autoDownload(stickerRequest) else downloadFile(media.fileId)
         }
     }
+    // An animated sticker plays only after it has been on screen for the autoplay dwell time. WebM is never drawn here.
+    val autoplay = rememberAutoplayEligible(enabled = !webm)
     Box(
         Modifier.size(STICKER_SIZE)
             .semantics { contentDescription = description }
-            .combinedClickable(onClick = onOpen, onLongClick = onLongPress),
+            .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
+            .then(autoplay.modifier),
         contentAlignment = Alignment.Center
     ) {
         val path = file.localPath
@@ -105,8 +109,12 @@ internal fun StickerPreview(
             if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true) else label()
         }
         when {
-            path != null && media.mimeType == TGS_MIME -> TgsSticker(path, Modifier.fillMaxSize(), fallback = tgsFallback)
-            path != null && !webm -> LocalMediaImage(path, Modifier.fillMaxSize(), fit = true)
+            // While the sticker is not allowed to animate, its thumbnail stands in and the Lottie composition is not parsed.
+            path != null && media.mimeType == TGS_MIME -> TgsSticker(
+                path, Modifier.fillMaxSize(), playing = autoplay.eligible.value,
+                poster = if (thumbnailPath != null) tgsFallback else null, fallback = tgsFallback
+            )
+            path != null && !webm -> LocalMediaImage(path, Modifier.fillMaxSize(), fit = true, animate = autoplay.eligible.value)
             thumbnailPath != null -> LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true)
             file.isDownloading || thumbnail.isDownloading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             // WebM без миниатюры показать нечем, а после ошибки загрузки ждать больше нечего: подписываем стикер, чтобы место не выглядело пустым.
@@ -118,6 +126,8 @@ internal fun StickerPreview(
 /**
  * Анимация TGS из локального файла. Пока файл читается, ничего не рисуется. Если TGS не открылся (битый архив или JSON,
  * который Lottie не разобрал), вместо анимации показывается [fallback]. Вне экрана композиция уходит и анимация останавливается.
+ * Когда анимация не играет, вместо неё показывается [poster], если он передан: тогда TGS вообще не разбирается. Без постера
+ * показывается первый кадр анимации.
  */
 @Composable
 internal fun TgsSticker(
@@ -125,26 +135,61 @@ internal fun TgsSticker(
     modifier: Modifier = Modifier,
     playing: Boolean = true,
     iterations: Int = LottieConstants.IterateForever,
+    poster: (@Composable () -> Unit)? = null,
+    fallback: @Composable () -> Unit
+) {
+    if (!playing && poster != null) {
+        Box(modifier, contentAlignment = Alignment.Center) { poster() }
+    } else {
+        TgsAnimation(path, modifier, playing, iterations, poster, fallback)
+    }
+}
+
+@Composable
+private fun TgsAnimation(
+    path: String,
+    modifier: Modifier,
+    playing: Boolean,
+    iterations: Int,
+    poster: (@Composable () -> Unit)?,
     fallback: @Composable () -> Unit
 ) {
     val decoded by produceState<Result<String>?>(null, path) {
         value = withContext(Dispatchers.IO) { runCatching { readTgsJson(File(path)) } }
     }
-    val result = decoded ?: return
+    val result = decoded
+    if (result == null) {
+        if (poster != null) Box(modifier, contentAlignment = Alignment.Center) { poster() }
+        return
+    }
     val json = result.getOrNull()
-    if (json != null) LottieSticker(json, modifier, playing, iterations, fallback) else fallback()
+    if (json != null) LottieSticker(json, modifier, playing, iterations, poster, fallback) else fallback()
 }
 
 @Composable
-private fun LottieSticker(json: String, modifier: Modifier, playing: Boolean, iterations: Int, fallback: @Composable () -> Unit) {
+private fun LottieSticker(
+    json: String,
+    modifier: Modifier,
+    playing: Boolean,
+    iterations: Int,
+    poster: (@Composable () -> Unit)?,
+    fallback: @Composable () -> Unit
+) {
     val spec = remember(json) { LottieCompositionSpec.JsonString(json) }
     val result = rememberLottieComposition(spec)
     if (result.isFailure) {
         fallback()
         return
     }
-    val progress by animateLottieCompositionAsState(result.value, isPlaying = playing, iterations = iterations)
-    LottieAnimation(composition = result.value, progress = { progress }, modifier = modifier)
+    val composition = result.value
+    if (composition == null) {
+        // The composition is still being parsed; the poster keeps the place instead of an empty box.
+        if (poster != null) Box(modifier, contentAlignment = Alignment.Center) { poster() }
+        return
+    }
+    val progress by animateLottieCompositionAsState(composition, isPlaying = playing, restartOnPlay = true, iterations = iterations)
+    // Not playing means the first frame, so a paused sticker never keeps the frame it had when it left the screen.
+    LottieAnimation(composition = composition, progress = { if (playing) progress else 0f }, modifier = modifier)
 }
 
 /**
@@ -168,11 +213,13 @@ internal fun CustomEmojiImage(emoji: CustomEmoji, size: Dp, observeFile: (Int) -
             if (autoDownload != null) autoDownload(request) else downloadFile(emoji.fileId)
         }
     }
+    // A custom emoji animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
+    val autoplay = rememberAutoplayEligible(enabled = emoji.mimeType == TGS_MIME || emoji.mimeType == WEBP_MIME)
     val path = file.localPath
-    val modifier = Modifier.size(size)
+    val modifier = Modifier.size(size).then(autoplay.modifier)
     when {
-        path != null && emoji.mimeType == TGS_MIME -> TgsSticker(path, modifier, fallback = fallback)
-        path != null && emoji.mimeType == WEBP_MIME -> LocalMediaImage(path, modifier, fit = true)
+        path != null && emoji.mimeType == TGS_MIME -> TgsSticker(path, modifier, playing = autoplay.eligible.value, fallback = fallback)
+        path != null && emoji.mimeType == WEBP_MIME -> LocalMediaImage(path, modifier, fit = true, animate = autoplay.eligible.value)
         else -> fallback()
     }
 }

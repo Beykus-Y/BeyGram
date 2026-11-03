@@ -42,6 +42,7 @@ import com.beykus.beygram.domain.model.StickerFileFormat
 import com.beykus.beygram.domain.model.StickerItem
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -120,7 +121,8 @@ internal fun StickerArtwork(
     downloadFile: (Int) -> Unit
 ) {
     val palette = beyGramPalette()
-    val motion = systemMotionEnabled()
+    // Animated stickers play only after they have been on screen for the autoplay dwell time.
+    val autoplay = rememberAutoplayEligible(enabled = item.format != StickerFileFormat.Webm)
     val file by remember(item.fileId) { observeFile(item.fileId) }.collectAsStateWithLifecycle()
     val thumbnail = rememberOptionalFile(item.thumbnailFileId, observeFile)
     LaunchedEffect(item.fileId, item.thumbnailFileId, item.format) {
@@ -132,16 +134,19 @@ internal fun StickerArtwork(
     // A WebM/TGS thumbnail is not an image an ImageDecoder can open; only static thumbnails are drawn.
     val thumbnailPath = thumbnail.localPath.takeIf { item.thumbnailIsStatic }
     val fullPath = file.localPath
-    Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
+    Box(modifier.clipToBounds().then(autoplay.modifier), contentAlignment = Alignment.Center) {
         val fallback: @Composable () -> Unit = {
             if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true, maxDimension = 256)
             else Text(emoji, fontSize = 24.sp, textAlign = TextAlign.Center)
         }
         when {
             fullPath != null && item.format == StickerFileFormat.Tgs ->
-                TgsSticker(fullPath, Modifier.fillMaxSize(), playing = motion, fallback = fallback)
+                TgsSticker(
+                    fullPath, Modifier.fillMaxSize(), playing = autoplay.eligible.value,
+                    poster = if (thumbnailPath != null) fallback else null, fallback = fallback
+                )
             fullPath != null && item.format != StickerFileFormat.Webm ->
-                LocalMediaImage(fullPath, Modifier.fillMaxSize(), fit = true, maxDimension = 256)
+                LocalMediaImage(fullPath, Modifier.fillMaxSize(), fit = true, maxDimension = 256, animate = autoplay.eligible.value)
             thumbnailPath != null ->
                 LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true, maxDimension = 256)
             file.isDownloading || thumbnail.isDownloading ->
