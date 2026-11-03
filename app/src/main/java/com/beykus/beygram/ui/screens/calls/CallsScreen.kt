@@ -50,6 +50,7 @@ import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.CallRecord
 import com.beykus.beygram.domain.model.CallStatus
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
@@ -150,7 +151,7 @@ fun CallsScreen(
 private fun CallRow(call: CallRecord, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
     val palette = beyGramPalette()
     val missed = call.status == CallStatus.Missed
-    val statusTint = if (missed) palette.danger else palette.textSecondary
+    val tone = call.statusTone(palette)
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         TelegramAvatar(call.initials, Color(call.avatarColorArgb), 48.dp, call.photo, observeFile, downloadFile)
         Spacer(Modifier.width(14.dp))
@@ -160,9 +161,9 @@ private fun CallRow(call: CallRecord, observeFile: (Int) -> StateFlow<MediaFileS
                 fontWeight = listRowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(call.directionIcon(), null, tint = statusTint, modifier = Modifier.size(16.dp))
+                Icon(call.directionIcon(), null, tint = tone, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text(call.summary(), color = statusTint, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(call.summary(), color = tone, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         Text(
@@ -189,6 +190,16 @@ private fun CallRecord.directionIcon(): ImageVector = when (status) {
     CallStatus.Missed -> Icons.Rounded.CallMissed
     CallStatus.Declined -> Icons.Rounded.CallEnd
     CallStatus.NoAnswer -> if (isOutgoing) Icons.Rounded.CallMade else Icons.Rounded.CallReceived
+}
+
+/**
+ * The semantic colour of a call's status: a missed or declined call is an error, an answered incoming call is positive
+ * and the rest is neutral. The direction icon and the summary of a row share it, and the words say the same without it.
+ */
+private fun CallRecord.statusTone(palette: BeyGramPalette): Color = when (status) {
+    CallStatus.Missed, CallStatus.Declined -> palette.danger
+    CallStatus.NoAnswer -> if (isOutgoing) palette.textSecondary else palette.danger
+    CallStatus.Answered -> if (isOutgoing) palette.textSecondary else palette.successText
 }
 
 private fun formatDuration(seconds: Int): String {
