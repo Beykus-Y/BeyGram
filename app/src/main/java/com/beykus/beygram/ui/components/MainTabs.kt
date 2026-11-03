@@ -174,7 +174,12 @@ internal data class NavigationSpec(
      * One hairline separates the bar from the content: on top of a pinned bar, around a floating capsule. The bar then
      * sits on the canvas colour when pinned, so the chrome reads as part of the screen and not as a second surface.
      */
-    val hairline: Boolean = false
+    val hairline: Boolean = false,
+    /**
+     * Air between a tab label and the edges of its cell. Liquid Glass keeps some, so a long label does not run into the
+     * curve of the capsule; the other styles keep their labels exactly as they were.
+     */
+    val labelSidePadding: Dp = 0.dp
 ) {
     /** The elevation that applies to the current placement. */
     val elevation: Dp get() = if (floating) floatingElevation else pinnedElevation
@@ -226,7 +231,8 @@ internal fun navigationSpecFor(design: DesignSystem): NavigationSpec = when (des
         floatingElevation = design.surfaces.glass?.shadowElevation ?: 12.dp,
         divider = false,
         horizontalMargin = 16.dp, bottomMargin = 10.dp, dockRadius = 24.dp, indicatorAlpha = 0.82f,
-        floating = design.navigationFloating
+        floating = design.navigationFloating,
+        labelSidePadding = 4.dp
     )
     // Signature: no pill. The selected tab is drawn in ink with a short mark above it; pinned, the bar sits on the
     // canvas behind one hairline, floating, the same tabs sit in a calm capsule with a hairline rim and little shadow.
@@ -348,6 +354,7 @@ internal fun MainTabItem(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = tab.title,
+                modifier = Modifier.padding(horizontal = spec.labelSidePadding),
                 color = labelTint,
                 fontSize = tabLabelSize(spec.labelSize, LocalDensity.current.fontScale),
                 fontWeight = if (selected) spec.selectedLabelWeight else spec.labelWeight,
