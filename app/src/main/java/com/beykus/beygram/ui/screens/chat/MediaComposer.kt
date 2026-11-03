@@ -117,6 +117,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
@@ -1790,23 +1791,26 @@ private fun PendingAttachmentPreview(
     downloadFile: (Int) -> Unit,
     modifier: Modifier = Modifier.size(40.dp).clip(styledShape(9.dp))
 ) {
+    // A GIF preview animates only after the dwell time on screen, as in the message list; until then its first frame shows.
+    val autoplay = rememberAutoplayEligible(enabled = item.mimeType == "image/gif")
+    val gatedModifier = modifier.then(autoplay.modifier)
     when {
-        item.thumbnailPath != null -> LocalMediaImage(item.thumbnailPath, modifier, maxDimension = 320)
+        item.thumbnailPath != null -> LocalMediaImage(item.thumbnailPath, gatedModifier, maxDimension = 320, animate = autoplay.eligible.value)
         item.thumbnailRemoteFileId > 0 ->
-            RemoteAttachmentThumbnail(item.thumbnailRemoteFileId, observeFile, downloadFile, modifier)
+            RemoteAttachmentThumbnail(item.thumbnailRemoteFileId, observeFile, downloadFile, gatedModifier, autoplay.eligible.value)
         item.path.isNotBlank() && (item.kind == MediaKind.Photo || item.kind == MediaKind.Video || item.kind == MediaKind.Animation) ->
-            LocalMediaImage(item.path, modifier, maxDimension = 320, allowVideoFrame = item.kind != MediaKind.Photo)
+            LocalMediaImage(item.path, gatedModifier, maxDimension = 320, allowVideoFrame = item.kind != MediaKind.Photo, animate = autoplay.eligible.value)
         else -> Icon(Icons.Rounded.Description, null, tint = beyGramPalette().accentInk,
             modifier = modifier.background(beyGramPalette().accentSoft).padding(9.dp))
     }
 }
 
 @Composable
-private fun RemoteAttachmentThumbnail(fileId: Int, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, modifier: Modifier) {
+private fun RemoteAttachmentThumbnail(fileId: Int, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, modifier: Modifier, animate: Boolean) {
     val file by remember(fileId) { observeFile(fileId) }.collectAsStateWithLifecycle()
     LaunchedEffect(fileId) { downloadFile(fileId) }
     val path = file.localPath
-    if (path != null) LocalMediaImage(path, modifier, fit = true, maxDimension = 320)
+    if (path != null) LocalMediaImage(path, modifier, fit = true, maxDimension = 320, animate = animate)
     else if (file.isDownloading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
     else Icon(Icons.Rounded.Animation, null, tint = beyGramPalette().accentInk, modifier = modifier.background(beyGramPalette().accentSoft).padding(8.dp))
 }

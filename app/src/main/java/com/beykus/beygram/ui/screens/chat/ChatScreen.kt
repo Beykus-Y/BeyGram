@@ -1093,19 +1093,21 @@ fun ChatScreen(
         audioNote.stopForRecovery()
     }
 
+    // The sent-message ids are rebuilt only when the history changes, not on every scroll frame of the receipt check.
+    val sentMessageIds = remember(messages) { messages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id } }
+    val currentSentMessageIds by rememberUpdatedState(sentMessageIds)
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
     LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             snapshotFlow {
                 if (!window.isWindowFocused || searching || threadOpen || attachments.cameraOpen || attachments.editor != null || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
-                    val eligible = currentMessages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id }
                     layout.visibleItemsInfo.filter { item ->
                         val visible = minOf(item.offset + item.size, layout.viewportEndOffset) - maxOf(item.offset, layout.viewportStartOffset)
                         visible >= minOf(item.size / 2, minimumVisible).coerceAtLeast(1)
                     }.flatMap { visibleItem ->
                         currentMessageItemsByKey[visibleItem.key as? String]?.messages.orEmpty().map { it.id }
-                    }.filter { it in eligible }.distinct().sorted()
+                    }.filter { it in currentSentMessageIds }.distinct().sorted()
                 }
             }.debounce(350).distinctUntilChanged().collect { ids -> if (ids.isNotEmpty()) conversation.messagesVisible(chat.id, ids) }
         }
