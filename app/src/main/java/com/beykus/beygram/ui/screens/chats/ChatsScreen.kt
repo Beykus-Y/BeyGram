@@ -132,6 +132,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.pluralForm
+import java.text.NumberFormat
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -898,10 +899,13 @@ internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, o
     var actionsOpen by remember { mutableStateOf(false) }
     val unread = archivedChats.sumOf { it.unreadCount }
     val title = stringResource(R.string.chats_archive_title)
-    val language = LocalConfiguration.current.locales[0].language
+    val locale = LocalConfiguration.current.locales[0]
+    val language = locale.language
+    // Digits are grouped for the interface language (3 132 938 in Russian, 3,132,938 in English), as any count is.
+    val numbers = NumberFormat.getIntegerInstance(locale)
     val summary = buildString {
-        append("${archivedChats.size} ${pluralForm(language, archivedChats.size, context.getString(R.string.chats_archive_count_one), context.getString(R.string.chats_archive_count_few), context.getString(R.string.chats_archive_count_many))}")
-        if (unread > 0) append(" · $unread ${pluralForm(language, unread, context.getString(R.string.chats_archive_unread_one), context.getString(R.string.chats_archive_unread_few), context.getString(R.string.chats_archive_unread_few))}")
+        append("${numbers.format(archivedChats.size.toLong())} ${pluralForm(language, archivedChats.size, context.getString(R.string.chats_archive_count_one), context.getString(R.string.chats_archive_count_few), context.getString(R.string.chats_archive_count_many))}")
+        if (unread > 0) append(" · ${numbers.format(unread.toLong())} ${pluralForm(language, unread, context.getString(R.string.chats_archive_unread_one), context.getString(R.string.chats_archive_unread_few), context.getString(R.string.chats_archive_unread_few))}")
     }
     // Archive is a navigation row, not a featured content card. Keep its touch target >= 56dp
     // while reducing the visual prominence that previously pushed conversations down.
