@@ -1289,7 +1289,8 @@ private fun sendStatusLabel(chat: ChatPreview): String? {
 private fun SendStatusIcon(chat: ChatPreview) {
     val palette = beyGramPalette()
     if (!chat.lastMessageOutgoing) return
-    val modifier = Modifier.padding(start = 6.dp).size(16.dp)
+    // The gap to the neighbouring marker comes from the trailing group, not from the glyph.
+    val modifier = Modifier.size(16.dp)
     // The row speaks one merged description (see ChatListItem), so the glyph itself stays decorative.
     when (chat.lastMessageSendState) {
         MessageSendState.Sending -> Icon(Icons.Rounded.Schedule, null, tint = palette.textSecondary, modifier = modifier)
@@ -1319,6 +1320,10 @@ internal fun chatListDensityFor(density: ListDensity): ChatListDensity = when (d
 
 /** Telegram shows a chat as unread either because of a server unread count or an explicit manual marker. */
 internal fun showsUnreadIndicator(chat: ChatPreview): Boolean = chat.unreadCount > 0 || chat.isMarkedAsUnread
+
+/** Air between the preview text and the trailing markers of a chat row, and between the markers themselves. */
+private val TrailingIndicatorStart = 10.dp
+private val TrailingIndicatorGap = 6.dp
 
 @Composable
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
@@ -1371,22 +1376,31 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (chat.isMuted) Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
                 Text(preview, color = if (unread && main.unreadPreviewEmphasis && !chat.isMuted) palette.textPrimary else palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                SendStatusIcon(chat)
-                if (unread) {
-                    Spacer(Modifier.width(8.dp))
-                    // Чат без звука получает серый счётчик, как в Telegram. Ручная отметка без сообщений — точка.
-                    val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
-                    if (chat.unreadCount > 0) {
-                        // The 22dp pill grows with the system font scale, so large digits are not clipped; at 1x and
-                        // below every style keeps exactly the pill it had (its text line is taller than 22dp in some
-                        // styles, so a plain minimum height would change them).
-                        val badgeScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
-                        val badgeSize = 22.dp * badgeScale
-                        Box(modifier = Modifier.defaultMinSize(minWidth = badgeSize).height(badgeSize).clip(RoundedCornerShape(main.badgeRadius * badgeScale)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
-                            Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                // The send status and the unread marker share one trailing group. The group keeps its own air from the
+                // preview text and a fixed gap from its neighbour, so a preview that ends in a symbol never runs into a count.
+                if (chat.lastMessageOutgoing || unread) {
+                    Row(
+                        modifier = Modifier.padding(start = TrailingIndicatorStart),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(TrailingIndicatorGap)
+                    ) {
+                        SendStatusIcon(chat)
+                        if (unread) {
+                            // Чат без звука получает серый счётчик, как в Telegram. Ручная отметка без сообщений — точка.
+                            val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
+                            if (chat.unreadCount > 0) {
+                                // The 22dp pill grows with the system font scale, so large digits are not clipped; at 1x and
+                                // below every style keeps exactly the pill it had (its text line is taller than 22dp in some
+                                // styles, so a plain minimum height would change them).
+                                val badgeScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+                                val badgeSize = 22.dp * badgeScale
+                                Box(modifier = Modifier.defaultMinSize(minWidth = badgeSize).height(badgeSize).clip(RoundedCornerShape(main.badgeRadius * badgeScale)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
+                                    Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Box(Modifier.size(10.dp).clip(CircleShape).background(badgeColor))
+                            }
                         }
-                    } else {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(badgeColor))
                     }
                 }
             }
