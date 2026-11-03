@@ -312,6 +312,7 @@
     <string name="theme_swatch_peach">Melocotón</string>
     <string name="theme_swatch_blush">Rosa rubor</string>
     <string name="theme_swatch_dark_violet">Violeta oscuro</string>
+    <string name="theme_swatch_wine">Vino</string>
     <string name="proxy_list_loading_saved">Cargando proxies guardados…</string>
     <string name="proxy_list_delete_confirm_title">¿Eliminar el proxy?</string>
     <string name="proxy_list_delete_confirm_detail">¿Eliminar %1$s (%2$s:%3$d)?</string>

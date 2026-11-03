@@ -298,6 +298,7 @@
     <string name="theme_swatch_peach">Pfirsich</string>
     <string name="theme_swatch_blush">Zartrosa</string>
     <string name="theme_swatch_dark_violet">Dunkelviolett</string>
+    <string name="theme_swatch_wine">Weinrot</string>
     <string name="proxy_list_loading_saved">Gespeicherte Proxys werden geladen…</string>
     <string name="proxy_list_delete_confirm_title">Proxy löschen?</string>
     <string name="proxy_list_delete_confirm_detail">%1$s löschen (%2$s:%3$d)?</string>
