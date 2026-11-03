@@ -58,11 +58,10 @@ class AutoplayVisibilityTest {
 
     @Test
     fun everyConditionIsRequiredBeforeTheDwellStarts() {
-        assertTrue(AutoplayVisibility.canAutoplay(motionAllowed = true, lifecycleStarted = true, windowFocused = true, visibleEnough = true))
-        assertFalse(AutoplayVisibility.canAutoplay(motionAllowed = false, lifecycleStarted = true, windowFocused = true, visibleEnough = true))
-        assertFalse(AutoplayVisibility.canAutoplay(motionAllowed = true, lifecycleStarted = false, windowFocused = true, visibleEnough = true))
-        assertFalse(AutoplayVisibility.canAutoplay(motionAllowed = true, lifecycleStarted = true, windowFocused = false, visibleEnough = true))
-        assertFalse(AutoplayVisibility.canAutoplay(motionAllowed = true, lifecycleStarted = true, windowFocused = true, visibleEnough = false))
+        assertTrue(AutoplayVisibility.canAutoplay(motionAllowed = true, lifecycleStarted = true, visibleEnough = true))
+        assertFalse(AutoplayVisibility.canAutoplay(motionAllowed = false, lifecycleStarted = true, visibleEnough = true))
+        assertFalse(AutoplayVisibility.canAutoplay(motionAllowed = true, lifecycleStarted = false, visibleEnough = true))
+        assertFalse(AutoplayVisibility.canAutoplay(motionAllowed = true, lifecycleStarted = true, visibleEnough = false))
     }
 
     @Test

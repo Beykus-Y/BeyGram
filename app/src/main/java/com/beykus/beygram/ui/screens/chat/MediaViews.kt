@@ -248,7 +248,7 @@ internal fun LocalMediaImage(
     var failed by remember(cacheKey) { mutableStateOf(false) }
     val cacheable = maxDimension <= DecodedImageCache.MAX_CACHED_DIMENSION
     val cached = remember(cacheKey) { if (cacheable) DecodedImageCache.get(cacheKey)?.let { BitmapDrawable(context.resources, it) } else null }
-    val drawable by produceState<Drawable?>(cached, cacheKey) {
+    val loaded by produceState<Drawable?>(cached, cacheKey) {
         if (cached != null) { failed = false; value = cached; return@produceState }
         val result = withContext(Dispatchers.IO) {
             val still = runCatching {
@@ -273,6 +273,11 @@ internal fun LocalMediaImage(
         if (cacheable && result is BitmapDrawable) DecodedImageCache.put(cacheKey, result.bitmap)
         value = result
     }
+    // The drawable on screen stays until its replacement, the animated or still version of the same file, is decoded, so the
+    // tile never goes blank in between. A tile that is reused for another file starts empty.
+    val held = remember(path) { mutableStateOf<Drawable?>(null) }
+    SideEffect { loaded?.let { held.value = it } }
+    val drawable = loaded ?: held.value
     // An animated drawable runs only while it is shown as animated; leaving that state stops it at once.
     DisposableEffect(drawable, animate) {
         val animated = drawable as? AnimatedImageDrawable
@@ -1080,18 +1085,6 @@ private fun MediaViewerPage(
     val spoilerHidden = media.hasSpoiler && !media.isSecret && !revealed
     // Соседняя секретная страница при свайпе не грузится и ничего не показывает, даже если файл уже на диске.
     val concealed = MediaViewerPolicy.concealed(media, active) || (item.viewOnce && !active) || spoilerHidden
-    // The still that stands in for an auto-looping animation until it may play: its thumbnail, else the file's first frame.
-    val animationPoster: @Composable () -> Unit = {
-        val posterPath = thumb.localPath ?: file.localPath
-        if (posterPath != null) {
-            LocalMediaImage(
-                posterPath, Modifier.fillMaxSize(), fit = true, allowVideoFrame = true,
-                fallbackVideoPath = file.localPath, fallbackMinithumbnail = media.minithumbnail, animate = false
-            )
-        } else {
-            media.minithumbnail?.let { MinithumbnailImage(it, Modifier.fillMaxSize()) }
-        }
-    }
     val currentOnViewed by rememberUpdatedState(onViewed)
     // A spoiler page counts as opened only once the user reveals it, even when its file is already on disk.
     LaunchedEffect(media.fileId, file.localPath, active, spoilerHidden) {
@@ -1194,8 +1187,6 @@ private fun MediaViewerPage(
             }
             concealed -> Unit
             tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // The sticker animates only after the page has been on screen for the autoplay dwell time.
-                val autoplay = rememberAutoplayEligible()
                 val preview: @Composable () -> Unit = {
                     if (previewId != null) {
                         val previewFile by remember(previewId) { observeFile(previewId) }.collectAsStateWithLifecycle()
@@ -1204,7 +1195,7 @@ private fun MediaViewerPage(
                 }
                 if (path != null) {
                     // Если TGS не открылся, показываем превью и подпись, а не пустое место.
-                    TgsSticker(path, Modifier.size(240.dp).then(autoplay.modifier), playing = active && autoplay.eligible.value) {
+                    TgsSticker(path, Modifier.size(240.dp), playing = active) {
                         preview()
                         Text(stringResource(R.string.media_animated_sticker_failed), color = Color.LightGray, modifier = Modifier.padding(16.dp))
                     }
@@ -1215,19 +1206,11 @@ private fun MediaViewerPage(
                     if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
                 }
             }
-            streamSource != null -> if (media.kind == MediaKind.Animation) {
-                AutoLoopVideo(
-                    streamSource.path, active = active, poster = animationPoster,
-                    onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
-                    onManualDownload = { downloadFile(media.fileId) }
-                )
-            } else {
-                LocalVideo(
-                    streamSource.path, loop = false, active = active,
-                    onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
-                    onManualDownload = { downloadFile(media.fileId) }
-                )
-            }
+            streamSource != null -> LocalVideo(
+                streamSource.path, loop = media.kind == MediaKind.Animation, active = active,
+                onStarted = { currentOnViewed(item.messageId) }, progressive = streamSource,
+                onManualDownload = { downloadFile(media.fileId) }
+            )
             path == null && media.mimeType.startsWith("image/") -> PhotoPreview(file, thumb.localPath) { downloadFile(media.fileId) }
             path == null && media.mimeType.startsWith("video/") && thumb.localPath != null -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()
@@ -1261,11 +1244,7 @@ private fun MediaViewerPage(
             media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = controlsVisible && active,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
-                if (media.kind == MediaKind.Animation) {
-                    AutoLoopVideo(path, active = active, poster = animationPoster, onStarted = { currentOnViewed(item.messageId) })
-                } else {
-                    LocalVideo(path, loop = false, active = active, onStarted = { currentOnViewed(item.messageId) })
-                }
+                LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) })
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatMediaSize(file.size), color = Color.LightGray)
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
@@ -1486,9 +1465,7 @@ private fun LocalVideo(
     active: Boolean,
     onStarted: () -> Unit,
     progressive: ProgressiveVideoSource? = null,
-    onManualDownload: (() -> Unit)? = null,
-    /** Covers the player until its first frame plays, so the switch from the still leaves no empty surface. */
-    poster: (@Composable () -> Unit)? = null
+    onManualDownload: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -1505,12 +1482,10 @@ private fun LocalVideo(
     var video by remember(path, loop, sourceKey) { mutableStateOf(VideoPlayerState()) }
     // Просмотр отмечается, когда файл начинает играть после нажатия или открытия. Возврат из буферизации отметку не повторяет.
     var startRequested by remember(path, loop) { mutableStateOf(false) }
-    var playedOnce by remember(player) { mutableStateOf(false) }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 video = video.copy(playing = isPlaying)
-                if (isPlaying) playedOnce = true
                 if (isPlaying && startRequested) {
                     startRequested = false
                     currentOnStarted()
@@ -1612,7 +1587,6 @@ private fun LocalVideo(
             onRelease = { it.player = null },
             modifier = Modifier.fillMaxSize()
         )
-        if (poster != null && !playedOnce) poster()
         if (video.buffering) CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
         // Анимация играет по кругу без панели управления; обычное видео получает кнопку и ползунок.
         if (!loop) VideoControls(
@@ -1621,32 +1595,6 @@ private fun LocalVideo(
             onSeek = ::seek,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
-    }
-}
-
-/**
- * An auto-looping animation in the viewer. It plays only after the autoplay dwell time, and only while its page is active.
- * Until then the poster stands in and no player is created, so an animation that is not on screen costs no decoder.
- */
-@Composable
-private fun AutoLoopVideo(
-    path: String,
-    active: Boolean,
-    poster: @Composable () -> Unit,
-    onStarted: () -> Unit,
-    progressive: ProgressiveVideoSource? = null,
-    onManualDownload: (() -> Unit)? = null
-) {
-    val autoplay = rememberAutoplayEligible()
-    Box(Modifier.fillMaxSize().then(autoplay.modifier), contentAlignment = Alignment.Center) {
-        if (active && autoplay.eligible.value) {
-            LocalVideo(
-                path, loop = true, active = active, onStarted = onStarted,
-                progressive = progressive, onManualDownload = onManualDownload, poster = poster
-            )
-        } else {
-            poster()
-        }
     }
 }
 

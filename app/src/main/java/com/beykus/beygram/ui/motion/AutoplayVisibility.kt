@@ -14,7 +14,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -48,8 +47,8 @@ object AutoplayVisibility {
         settings.enabled && !reducedMotion && category !in settings.disabledCategories
 
     /** Every condition except the dwell time, which [rememberAutoplayEligible] waits out after these hold. */
-    fun canAutoplay(motionAllowed: Boolean, lifecycleStarted: Boolean, windowFocused: Boolean, visibleEnough: Boolean): Boolean =
-        motionAllowed && lifecycleStarted && windowFocused && visibleEnough
+    fun canAutoplay(motionAllowed: Boolean, lifecycleStarted: Boolean, visibleEnough: Boolean): Boolean =
+        motionAllowed && lifecycleStarted && visibleEnough
 }
 
 /**
@@ -64,7 +63,7 @@ class AutoplayEligibility internal constructor(
 /**
  * Tracks whether a decorative animation may run for the element that carries [AutoplayEligibility.modifier]. The element must
  * be at least half inside the window, measured when it is placed, so composition and lazy prefetch do not count. Its lifecycle
- * must be at least STARTED, the window must be focused and the motion settings must allow it. Then it waits
+ * must be at least STARTED and the motion settings must allow it. A popup, menu or dialog drawn above does not stop it. Then it waits
  * [AutoplayVisibility.REQUIRED_VISIBLE_MILLIS]. Any gap cancels that wait, so the countdown starts over.
  *
  * With [enabled] false the element never animates on its own and [AutoplayEligibility.eligible] stays true, so content that
@@ -74,7 +73,6 @@ class AutoplayEligibility internal constructor(
 fun rememberAutoplayEligible(enabled: Boolean = true, category: MotionCategory = MotionCategory.Media): AutoplayEligibility {
     val motion = LocalMotionSettings.current
     val reducedMotion = LocalSystemReducedMotion.current
-    val windowFocused = LocalWindowInfo.current.isWindowFocused
     val view = LocalView.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var lifecycleStarted by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
@@ -90,7 +88,6 @@ fun rememberAutoplayEligible(enabled: Boolean = true, category: MotionCategory =
     val running = AutoplayVisibility.canAutoplay(
         motionAllowed = enabled && AutoplayVisibility.motionAllows(motion, reducedMotion, category),
         lifecycleStarted = lifecycleStarted,
-        windowFocused = windowFocused,
         visibleEnough = visibleEnough.value
     )
     val eligible = remember { mutableStateOf(!enabled) }
