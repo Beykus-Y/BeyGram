@@ -15,7 +15,7 @@ the crash guard live in [design-system-v2.md](design-system-v2.md#liquid-glass).
 | Chat header and composer | tinted glass, no sample | the backdrop is private message content; it is never blurred into chrome |
 | Message bubbles, message text, photos, video | opaque | readability wins over decoration |
 | Chat rows, long lists | opaque | dense text, scrolled constantly; rows are painted with the screen colour for swipe actions, so on the chat list the glow shows only around and below the rows |
-| Settings group cards, attachment tiles | translucent glass cards (0.55 fill, rim, highlight) over the ambient glow | the glow shows through the card, so it reads as glass |
+| Settings group cards, attachment tiles | subtle glass tint (0.55 fill) and one thin outer stroke over the ambient glow, no highlight | the glow shows through the card; a gloss inside a list card reads as plastic |
 | Attachment menu | dense glass sheet (0.94 fill, lit top edge, highlight) | the messages behind the menu must not be readable through it |
 | Other sheets and dialogs | opaque Material surfaces | modal content needs full contrast |
 | Screen background (chat list, settings) | screen colour with two soft accent glows | translucent glass reads as glass only over colour |
@@ -30,7 +30,9 @@ One pane of glass is, from back to front:
    pane. A frame without a finished sample draws a dense mask instead, so the light tint of real glass never shows sharp
    text through the pane.
 2. **Tint**: the surface colour at the style's `tintAlpha` over a sample (0.62 at High), at least 0.93 without one.
-3. **Rim**: one 1dp edge, lit from the top and fading to a quarter towards the bottom. There is no second frame.
+3. **Outline**: one 1dp stroke around a floating pane or a list card, low contrast: the caller's edge colour at
+   `outlineTopAlpha` 0.18 at the top, fading to `outlineBottomAlpha` 0.04 at the bottom. It is the only border of
+   that layer. Rows and content inside never add a stroke of their own; fill, light and depth carry them.
 4. **Specular highlight**: a white wash across the top 60% (`Modifier.glassHighlight`).
 5. **Depth**: a small lift (6dp High, 4dp Balanced, 2dp Lite). Heavy shadow plus a full rim read as a plastic tray.
 

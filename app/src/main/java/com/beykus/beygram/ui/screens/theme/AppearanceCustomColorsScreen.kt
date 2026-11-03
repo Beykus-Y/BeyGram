@@ -50,7 +50,9 @@ private val AccentChoices = listOf(
 ).map { it.toInt() }
 private val BubbleChoices = listOf(
     0xFFE6DEFD, 0xFFDCE4F8, 0xFFD3EFFA, 0xFFD5F2E6,
-    0xFFDDF3C9, 0xFFFFE8C2, 0xFFFAD9E6, 0xFF2E2952
+    0xFFDDF3C9, 0xFFFFE8C2, 0xFFFAD9E6, 0xFF2E2952,
+    // Deep wine for a crimson or pink accent: a warm bubble instead of the cold violet one. Offered as a choice only.
+    0xFF42182C
 ).map { it.toInt() }
 
 private val AccentNames = listOf(
@@ -61,7 +63,7 @@ private val AccentNames = listOf(
 private val BubbleNames = listOf(
     R.string.theme_swatch_lavender, R.string.theme_swatch_ice_blue, R.string.theme_swatch_cyan,
     R.string.theme_swatch_mint, R.string.theme_swatch_pale_green, R.string.theme_swatch_peach,
-    R.string.theme_swatch_blush, R.string.theme_swatch_dark_violet
+    R.string.theme_swatch_blush, R.string.theme_swatch_dark_violet, R.string.theme_swatch_wine
 )
 private val LightTextChoices = listOf(0xFF1A1714, 0xFF4B33B5).map { it.toInt() }
 private val LightTextNames = listOf(R.string.theme_editor_colour_ink, R.string.theme_editor_colour_indigo)

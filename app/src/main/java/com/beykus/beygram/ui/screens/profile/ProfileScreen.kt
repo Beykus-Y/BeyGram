@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.WorkspacePremium
@@ -177,13 +178,15 @@ fun ProfileScreen(
                         val photoDescription = stringResource(R.string.profile_action_change_photo)
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             val horizontal = maxWidth >= 320.dp && LocalDensity.current.fontScale < 1.3f
+                            // Edit is the primary action (accent fill); the photo change is the secondary one (neutral tonal).
+                            // Both used to be accent-tinted, and a crimson accent made the tonal pair read as a destructive wine.
                             val editButton: @Composable (Modifier) -> Unit = { actionModifier ->
-                                FilledTonalButton(
+                                Button(
                                     onClick = onEdit,
                                     enabled = !state.isLoading && state.error == null && !saving && !preparing,
                                     shape = styledShape(14.dp),
                                     modifier = actionModifier.heightIn(min = 48.dp).semantics { contentDescription = editDescription },
-                                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)
+                                    colors = ButtonDefaults.buttonColors(containerColor = palette.accent, contentColor = palette.onAccent)
                                 ) {
                                     Text(
                                         if (horizontal) stringResource(R.string.profile_action_edit_short) else editDescription,
@@ -192,10 +195,12 @@ fun ProfileScreen(
                                 }
                             }
                             val changePhotoButton: @Composable (Modifier) -> Unit = { actionModifier ->
-                                TextButton(
+                                FilledTonalButton(
                                     onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                     enabled = !saving && !preparing,
-                                    modifier = actionModifier.heightIn(min = 48.dp).semantics { contentDescription = photoDescription }
+                                    shape = styledShape(14.dp),
+                                    modifier = actionModifier.heightIn(min = 48.dp).semantics { contentDescription = photoDescription },
+                                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.surface2, contentColor = palette.textPrimary)
                                 ) {
                                     Text(
                                         if (preparing) stringResource(R.string.profile_photo_preparing)
@@ -278,7 +283,10 @@ fun ProfileScreen(
                 chatLibrary?.let { link -> ChatLibraryMusicRow(info.id, link.accountId) { link.onOpen(info.id) } }
                 if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile, protectedContent = protectedContent)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
-                if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                // A settings-style row in its own card, not a bare accent link that reads as a section header.
+                if (isOwnProfile) Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {
+                    ProfileLinkRow(Icons.Rounded.Notifications, stringResource(R.string.profile_notifications), onNotifications)
+                }
             }
             if (state.info == null && !state.isLoading && state.error == null) Text(stringResource(R.string.profile_info_not_loaded), color = palette.textSecondary, modifier = Modifier.padding(24.dp))
             photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp).errorAnnouncement()) }
@@ -469,41 +477,54 @@ internal fun ProfileBadges(info: ProfileInfo) {
     )
 }
 
+/** One header style for every profile section: small semibold capitals in the secondary text colour. */
+@Composable
+internal fun ProfileSectionHeader(title: String) {
+    Text(
+        title.uppercase(),
+        color = beyGramPalette().textSecondary,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.4.sp,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() }
+    )
+}
+
 /** Points of entry to the read-only monetization screens; they never buy anything by themselves. */
 @Composable
 private fun ProfileMonetizationLinks(onPremium: () -> Unit, onStars: () -> Unit, onGifts: () -> Unit) {
     val palette = beyGramPalette()
-    Text(
-        stringResource(R.string.profile_monetization_header),
-        color = palette.textSecondary,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp)
-            .semantics { heading() }
-    )
+    ProfileSectionHeader(stringResource(R.string.profile_monetization_header))
     Column(
         Modifier.profileCardSurface()
             .padding(vertical = 4.dp)
     ) {
-        MonetizationLinkRow(Icons.Rounded.WorkspacePremium, stringResource(R.string.profile_monetization_premium), onPremium)
-        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 54.dp))
-        MonetizationLinkRow(Icons.Rounded.Star, stringResource(R.string.profile_monetization_stars), onStars)
-        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 54.dp))
-        MonetizationLinkRow(Icons.Rounded.CardGiftcard, stringResource(R.string.profile_monetization_gifts_own), onGifts)
+        ProfileLinkRow(Icons.Rounded.WorkspacePremium, stringResource(R.string.profile_monetization_premium), onPremium)
+        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = ProfileLinkDividerInset))
+        ProfileLinkRow(Icons.Rounded.Star, stringResource(R.string.profile_monetization_stars), onStars)
+        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = ProfileLinkDividerInset))
+        ProfileLinkRow(Icons.Rounded.CardGiftcard, stringResource(R.string.profile_monetization_gifts_own), onGifts)
     }
 }
 
+/** Where a divider of a profile link card starts: under the label, past the icon. */
+private val ProfileLinkDividerInset = 52.dp
+
+/**
+ * A tappable row of a profile card, drawn like a settings row: the icon takes [settingsIconTint], so the profile and
+ * the settings lists use one rule for their icons, and the label takes the primary text colour.
+ */
 @Composable
-private fun MonetizationLinkRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun ProfileLinkRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
-        Text(label, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f).padding(start = 12.dp))
-        Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
+        Icon(icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
+        Text(label, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
+        Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -520,8 +541,7 @@ internal fun InfoRow(label: String, value: String) {
 @Composable
 internal fun AdministratorsSection(administrators: List<ProfileAdmin>, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
-    Text(stringResource(R.string.profile_admins_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
+    ProfileSectionHeader(stringResource(R.string.profile_admins_header))
     Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {
         administrators.forEachIndexed { index, admin ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
@@ -535,8 +555,7 @@ internal fun AdministratorsSection(administrators: List<ProfileAdmin>, onOpenUse
 @Composable
 private fun MembersSection(info: ProfileInfo, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onMembers: () -> Unit, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
-    Text(stringResource(R.string.profile_members_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
+    ProfileSectionHeader(stringResource(R.string.profile_members_header))
     Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {
         info.memberPreview.forEachIndexed { index, member ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 82.dp))
@@ -558,8 +577,7 @@ private fun MembersSection(info: ProfileInfo, observeFile: (Int) -> StateFlow<Me
 @Composable
 private fun HiddenTabsSection(hiddenTabs: List<MainTab>, onOpenTab: (MainTab) -> Unit) {
     val palette = beyGramPalette()
-    Text(stringResource(R.string.profile_hidden_tabs_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
+    ProfileSectionHeader(stringResource(R.string.profile_hidden_tabs_header))
     Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {
         hiddenTabs.forEachIndexed { index, tab ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))

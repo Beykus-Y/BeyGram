@@ -186,14 +186,9 @@ fun GlassPanel(
                     )
                 }
             ) else Box(
-                Modifier.matchParentSize()
-                    .border(
-                        width = 1.dp,
-                        brush = Brush.verticalGradient(
-                            listOf(rim.copy(alpha = glass.rimAlpha), rim.copy(alpha = glass.rimAlpha * 0.25f))
-                        ),
-                        shape = shape
-                    )
+                // The one outer stroke of a floating pane: thin and low contrast, so the pane reads as glass without a
+                // bold frame. The light inside (the highlight above) is the second layer and carries no stroke of its own.
+                Modifier.matchParentSize().border(width = 1.dp, brush = glassOutlineBrush(glass, rim), shape = shape)
             )
             if (glass.highlightAlpha > 0f) {
                 Box(Modifier.matchParentSize().glassHighlight(glass.highlightAlpha))
@@ -253,19 +248,27 @@ fun Modifier.glassScreenBackground(design: DesignSystem, screen: Color, accent: 
         }
     }
 
-/** Fill and edge of a grouped card (settings group, archive row) or tile in the Liquid Glass style. */
+/**
+ * Fill and edge of a grouped card (settings group, archive row) or tile in the Liquid Glass style. A list card is a
+ * subtle tint over the ambient glow with one thin outer stroke. It has no specular gloss and no bold rim: a gradient
+ * inside a card on black reads as glossy plastic, and the rows inside keep their own fill without strokes.
+ */
 fun Modifier.glassCard(design: DesignSystem, fill: Color, rim: Color, shape: Shape): Modifier {
     val glass = design.surfaces.glass
     if (!design.usesGlassPanels || glass == null) return clip(shape).background(fill)
     return clip(shape)
         .background(fill.copy(alpha = GlassCardFillAlpha))
-        .glassHighlight(glass.highlightAlpha * 0.8f)
-        .border(
-            width = 1.dp,
-            brush = Brush.verticalGradient(listOf(rim.copy(alpha = glass.rimAlpha), rim.copy(alpha = glass.rimAlpha * 0.2f))),
-            shape = shape
-        )
+        .border(width = 1.dp, brush = glassOutlineBrush(glass, rim), shape = shape)
 }
+
+/**
+ * The outer stroke of a floating pane or a list card: [rim] at the style's top alpha, fading to its bottom alpha. The
+ * caller passes the palette's secondary text colour, which is light on dark themes (white-ish on AMOLED) and dark on
+ * light ones, so the stroke stays low contrast on both.
+ */
+private fun glassOutlineBrush(glass: GlassStyle, rim: Color): Brush = Brush.verticalGradient(
+    listOf(rim.copy(alpha = glass.outlineTopAlpha), rim.copy(alpha = glass.outlineBottomAlpha))
+)
 
 /** How much of the surface colour a glass card keeps: the ambient glow behind it must show through. */
 private const val GlassCardFillAlpha = 0.55f

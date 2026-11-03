@@ -1,6 +1,5 @@
 package com.beykus.beygram.ui.screens.calls
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,8 +50,14 @@ import com.beykus.beygram.domain.model.CallHistoryPage
 import com.beykus.beygram.domain.model.CallRecord
 import com.beykus.beygram.domain.model.CallStatus
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.components.listRowTitleWeight
 import com.beykus.beygram.ui.components.StyledListDivider
 import com.beykus.beygram.ui.components.MainTabTitle
@@ -72,6 +77,7 @@ fun CallsScreen(
     accountId: String = "legacy"
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state: CallsScreenState = viewModel(key = "calls:$accountId")
@@ -94,8 +100,9 @@ fun CallsScreen(
     }
     LaunchedEffect(Unit) { load("") }
 
+    // The same screen and group surfaces as Settings: the glass style gets its glow, the others the plain screen colour.
     Column(
-        Modifier.fillMaxSize().background(palette.screen)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
     ) {
         MainTabTitle(
@@ -116,18 +123,24 @@ fun CallsScreen(
             calls.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.calls_empty), color = palette.textSecondary)
             }
-            else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
-                items(calls, key = { "${it.chatId}:${it.messageId}" }) { call ->
-                    CallRow(call, observeFile, downloadFile)
-                    StyledListDivider()
-                }
-                if (nextOffset.isNotEmpty()) item {
-                    TextButton(onClick = { load(nextOffset) }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (loading) stringResource(R.string.calls_loading) else stringResource(R.string.calls_show_more))
+            else -> Box(
+                // The history is one group card, as a settings list is; the rows inside carry no glass of their own.
+                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                    .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
+            ) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
+                    items(calls, key = { "${it.chatId}:${it.messageId}" }) { call ->
+                        CallRow(call, observeFile, downloadFile)
+                        StyledListDivider()
                     }
-                }
-                error?.let { message ->
-                    item { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+                    if (nextOffset.isNotEmpty()) item {
+                        TextButton(onClick = { load(nextOffset) }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (loading) stringResource(R.string.calls_loading) else stringResource(R.string.calls_show_more))
+                        }
+                    }
+                    error?.let { message ->
+                        item { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+                    }
                 }
             }
         }
@@ -138,7 +151,7 @@ fun CallsScreen(
 private fun CallRow(call: CallRecord, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit) {
     val palette = beyGramPalette()
     val missed = call.status == CallStatus.Missed
-    val statusTint = if (missed) palette.danger else palette.textSecondary
+    val tone = call.statusTone(palette)
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         TelegramAvatar(call.initials, Color(call.avatarColorArgb), 48.dp, call.photo, observeFile, downloadFile)
         Spacer(Modifier.width(14.dp))
@@ -148,9 +161,9 @@ private fun CallRow(call: CallRecord, observeFile: (Int) -> StateFlow<MediaFileS
                 fontWeight = listRowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(call.directionIcon(), null, tint = statusTint, modifier = Modifier.size(16.dp))
+                Icon(call.directionIcon(), null, tint = tone, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text(call.summary(), color = statusTint, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(call.summary(), color = tone, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         Text(
@@ -177,6 +190,16 @@ private fun CallRecord.directionIcon(): ImageVector = when (status) {
     CallStatus.Missed -> Icons.Rounded.CallMissed
     CallStatus.Declined -> Icons.Rounded.CallEnd
     CallStatus.NoAnswer -> if (isOutgoing) Icons.Rounded.CallMade else Icons.Rounded.CallReceived
+}
+
+/**
+ * The semantic colour of a call's status: a missed or declined call is an error, an answered incoming call is positive
+ * and the rest is neutral. The direction icon and the summary of a row share it, and the words say the same without it.
+ */
+private fun CallRecord.statusTone(palette: BeyGramPalette): Color = when (status) {
+    CallStatus.Missed, CallStatus.Declined -> palette.danger
+    CallStatus.NoAnswer -> if (isOutgoing) palette.textSecondary else palette.danger
+    CallStatus.Answered -> if (isOutgoing) palette.textSecondary else palette.successText
 }
 
 private fun formatDuration(seconds: Int): String {
