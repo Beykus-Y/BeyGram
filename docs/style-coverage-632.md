@@ -36,6 +36,7 @@
 | Контакты | style-aware | style-aware | style-aware | style-aware | style-aware | #660 |
 | Звонки | style-aware | style-aware | style-aware | style-aware | style-aware | #660 |
 | Настройки (корень и ~35 вложенных страниц) | style-aware | style-aware | style-aware | style-aware | style-aware | #638, #640, #655, #660, `ProfileToolbar` |
+| Звонки, Контакты (корень вкладок) | style-aware | style-aware | style-aware | style-aware | style-aware | #670: список в одной групповой карточке `groupCardShape`/`groupSurfaceColor`, без стекла на строках; цвет статуса звонка по роли (danger/success/нейтральный) |
 | Обновления, маршрут прокси второго аккаунта | style-aware | style-aware | style-aware | style-aware | style-aware | #662 |
 | Прокси | style-aware | style-aware | style-aware | style-aware | style-aware | `ProxyTopBar` |
 | Профиль пользователя, группы | style-aware | style-aware | style-aware | style-aware | style-aware | `ProfileToolbar`, #660 |
