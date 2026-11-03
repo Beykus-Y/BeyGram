@@ -2,6 +2,7 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -561,14 +562,17 @@ internal fun MessageThreadScreen(
                             focusRequest = focusRequest
                         )
                         Spacer(Modifier.width(8.dp))
+                        // Material 3 sends with the tonal accent container, as the chat composer does.
+                        val tonalSend = LocalDesignSystem.current.composerTonal
                         Box(
                             Modifier.size(40.dp).clip(CircleShape)
-                                .background(palette.accent.copy(alpha = if (text.isNotBlank() && !sending) 1f else 0.4f))
+                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank() && !sending) 1f else 0.4f))
                                 .clickable(enabled = text.isNotBlank() && !sending) { send() },
                             contentAlignment = Alignment.Center
                         ) {
-                            if (sending) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
-                            else Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = palette.onAccent, modifier = Modifier.size(21.dp))
+                            val sendInk = if (tonalSend) palette.accentInk else palette.onAccent
+                            if (sending) CircularProgressIndicator(Modifier.size(20.dp), color = sendInk, strokeWidth = 2.dp)
+                            else Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = sendInk, modifier = Modifier.size(21.dp))
                         }
                     }
                 }

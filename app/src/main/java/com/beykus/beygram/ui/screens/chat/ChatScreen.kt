@@ -2131,11 +2131,7 @@ fun ChatScreen(
                     sendState?.let { stateDescription = it }
                 },
                 contentAlignment = Alignment.Center) {
-                Box(Modifier.size(40.dp).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f)), contentAlignment = Alignment.Center) {
-                    if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
-                    else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
-                        tint = palette.onAccent.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
-                }
+                SendControlFace(busy = busy, canSend = canSend, editing = editing)
             }
         }
         if (!recordingActive && overLimit) Text(
@@ -2400,6 +2396,23 @@ fun ChatScreen(
  * Box/Column are inline, so their content is compiled into the caller. ChatScreen is close to the
  * JVM method size limit; passing the content through these wrappers compiles it as a separate lambda.
  */
+/**
+ * The round send control: a checkmark while editing, a spinner while sending. Material 3 fills it with the tonal accent
+ * container; the other styles keep the solid accent, and Material 2 keeps its rounded square.
+ */
+@Composable
+private fun SendControlFace(busy: Boolean, canSend: Boolean, editing: Boolean) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val fill = if (design.composerTonal) palette.accentSoft else palette.accent
+    val ink = if (design.composerTonal) palette.accentInk else palette.onAccent
+    Box(Modifier.size(40.dp).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(fill.copy(alpha = if (canSend || busy) 1f else 0.4f)), contentAlignment = Alignment.Center) {
+        if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = ink, strokeWidth = 2.dp)
+        else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
+            tint = ink.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
+    }
+}
+
 @Composable
 private fun ChatScreenBox(modifier: Modifier, content: @Composable BoxScope.() -> Unit) {
     Box(modifier, content = content)
