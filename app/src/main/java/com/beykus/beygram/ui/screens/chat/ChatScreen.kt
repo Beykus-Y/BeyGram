@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.SurfaceTreatment
 import com.beykus.beygram.ui.design.TopBarVariant
 import com.beykus.beygram.ui.design.squareSendButton
 import androidx.compose.ui.focus.focusProperties
@@ -2648,6 +2649,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
+    val glassBubbles = LocalDesignSystem.current.surfaces.treatment == SurfaceTreatment.Glass
     val shape = bubbleShape(message.isOutgoing, metrics)
     val hasText = message.text.isNotBlank()
     val special = message.special
@@ -2768,8 +2770,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (showText || renderedSpecial != null || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
-                                Column(Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(metrics.replyRadius))
-                                    .border(1.dp, palette.accent, RoundedCornerShape(metrics.replyRadius))
+                                // Liquid Glass: the quote is a tint of its own bubble, not a second outline inside it.
+                                val quoteShape = RoundedCornerShape(metrics.replyRadius)
+                                Column(Modifier.padding(vertical = 4.dp).clip(quoteShape)
+                                    .then(if (glassBubbles) Modifier.background(palette.accent.copy(alpha = 0.12f)) else Modifier.border(1.dp, palette.accent, quoteShape))
                                     .clickable { if (selectionMode) onToggleSelection() else onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                     Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                     Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
