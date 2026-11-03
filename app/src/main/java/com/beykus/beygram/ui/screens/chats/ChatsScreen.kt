@@ -2,11 +2,6 @@ package com.beykus.beygram.ui.screens.chats
 
 import androidx.compose.animation.animateColorAsState
 import com.beykus.beygram.ui.design.styledShape
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
@@ -174,8 +169,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
-import com.beykus.beygram.ui.motion.fadeEnter
-import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.screens.stories.StoryBarSection
 
 /** Ignore tiny scroll offsets; collapse after passing the story/archive area. */
@@ -351,7 +344,14 @@ fun ChatsScreen(
         label = "chatsHeaderTitleSize"
     )
     val titleSize = headerTitleSize.sp
-    val titleLineHeight = (headerTitleSize + 3f).sp
+    // The line box stays at the expanded size: the title shrinks inside it, so collapsing never changes the header height
+    // and the list below it does not move. The overline does the same: it fades out and keeps its line.
+    val titleLineHeight = (headerSize + 3f).sp
+    val overlineAlpha by animateFloatAsState(
+        targetValue = if (headerCollapsed) 0f else 1f,
+        animationSpec = headerMotion.animationSpec<Float>(),
+        label = "chatsOverlineAlpha"
+    )
     val archivePullThresholdPx = with(density) { archivePullThreshold.toPx() }
     // Сколько протянуто вниз, пока архив скрыт. Подсказка растёт до порога, а за порогом архив возвращается при отпускании.
     var pullPx by remember { mutableFloatStateOf(0f) }
@@ -441,15 +441,10 @@ fun ChatsScreen(
         Column(modifier = modifier.fillMaxWidth().padding(start = headerPadding, end = headerPadding, top = 8.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    AnimatedVisibility(
-                        visible = !headerCollapsed && design.mainScreen.showBrandOverline,
-                        enter = if (headerMotion.isInstant) EnterTransition.None else
-                            headerMotion.fadeEnter() + expandVertically(animationSpec = headerMotion.animationSpec()),
-                        exit = if (headerMotion.isInstant) ExitTransition.None else
-                            headerMotion.fadeExit() + shrinkVertically(animationSpec = headerMotion.animationSpec())
-                    ) {
+                    if (design.mainScreen.showBrandOverline) {
                         Text(
                             stringResource(R.string.app_name).uppercase(),
+                            modifier = Modifier.graphicsLayer { alpha = overlineAlpha },
                             color = palette.accent,
                             style = MaterialTheme.typography.labelMedium,
                             letterSpacing = 0.8.sp
