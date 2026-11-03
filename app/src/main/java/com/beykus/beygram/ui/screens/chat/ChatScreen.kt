@@ -241,8 +241,8 @@ fun ChatScreen(
     var capabilitiesError by remember { mutableStateOf<String?>(null) }
     var capabilitiesAttempt by remember { mutableIntStateOf(0) }
     var selectedMediaId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
-    // Window bounds of media bubbles, read once when the viewer opens. A plain map: it must not recompose on scroll.
-    val mediaOrigins = remember { HashMap<Long, Rect>() }
+    // Window bounds of the newest media bubbles, read when the viewer opens. A plain map: it must not recompose on scroll.
+    val mediaOrigins = remember { BoundedLruMap<Long, Rect>(MEDIA_ORIGIN_LIMIT) }
     // Sticker messages open their set instead of the generic media viewer. Zero means "not in a set" and gets a
     // friendly placeholder from StickerSetSheet rather than a failed TDLib request.
     var openStickerSetId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }

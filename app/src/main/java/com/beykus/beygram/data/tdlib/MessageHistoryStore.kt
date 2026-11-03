@@ -7,16 +7,12 @@ import com.beykus.beygram.domain.model.LiveMessageArrival
 import com.beykus.beygram.domain.model.MessageIdReplacement
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageSpecialContent
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import java.util.concurrent.ConcurrentHashMap
 
 /** One identity per TDLib message, including temporary -> server ID replacement. */
-internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
-    private val states = ConcurrentHashMap<Long, MutableStateFlow<ChatHistory>>()
-    private val retiredIds = mutableMapOf<Long, MutableSet<Long>>()
+internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStates: Int = MAX_STATES) {
     private val lock = Any()
+    private val retiredIds = mutableMapOf<Long, MutableSet<Long>>()
     private var revision = 0L
     private var liveArrivalSequence = 0L
     // Only messages changed while their chat loads are recorded, so an older snapshot cannot overwrite them.
@@ -24,13 +20,34 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     private val openedChats = mutableSetOf<Long>()
     // Chats that keep their messages, least recently used first.
     private val cachedChats = LinkedHashSet<Long>()
+    // Read markers outlive a chat's state, which is dropped while the chat is idle; see [states].
+    private val readMarks = HashMap<Long, ReadMarks>()
     // Bumped whenever the loaded window is replaced, so responses to loads started before it are dropped.
     private val windowEpochs = mutableMapOf<Long, Long>()
+    /**
+     * Chat states. An idle chat is dropped when it leaves the message cache or its screen closes, and the least recently
+     * used idle ones go once the map is full. Its read markers stay in [readMarks], so reading the chat again rebuilds
+     * exactly the state that was dropped.
+     */
+    private val states = EvictableStateMap<Long, ChatHistory>(
+        lock = lock,
+        maxEntries = maxStates,
+        seed = { chatId ->
+            readMarks[chatId]?.let { ChatHistory(lastReadInboxMessageId = it.inbox, lastReadOutboxMessageId = it.outbox) } ?: ChatHistory()
+        },
+        isIdle = { chatId, history -> chatId !in openedChats && isBare(history) }
+    )
     fun version(): Long = synchronized(lock) { revision }
+
+    /** Number of chat states held now; bounded by the store's limit. */
+    internal fun stateCount(): Int = states.size()
+
+    /** Whether the state of [chatId] is held now, for tests and diagnostics. */
+    internal fun stateHeld(chatId: Long): Boolean = states.contains(chatId)
 
     /** Файлы медиа, которые показывают сообщения открытых и загруженных чатов: их локальные копии нужны ленте и просмотрщику. */
     fun mediaFileIds(): Set<Int> = synchronized(lock) {
-        (cachedChats + openedChats).flatMap { chatId -> states[chatId]?.value?.let { it.messages + it.outsideWindowMessages }.orEmpty() }
+        (cachedChats + openedChats).flatMap { chatId -> states.peekLocked(chatId)?.let { it.messages + it.outsideWindowMessages }.orEmpty() }
             .flatMap { message ->
                 buildList {
                     message.media?.fileId?.let { add(it) }
@@ -46,8 +63,9 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
             .filter { it != 0 }.toSet()
     }
 
-    private fun flow(chatId: Long) = states.computeIfAbsent(chatId) { MutableStateFlow(ChatHistory()) }
-    fun observe(chatId: Long): StateFlow<ChatHistory> = flow(chatId).asStateFlow()
+    /** The state of [chatId] for a writer; the caller holds [lock]. */
+    private fun flow(chatId: Long) = states.stateLocked(chatId)
+    fun observe(chatId: Long): StateFlow<ChatHistory> = states.observe(chatId)
 
     fun opened(chatId: Long) = synchronized(lock) {
         openedChats += chatId
@@ -57,6 +75,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     fun closed(chatId: Long) = synchronized(lock) {
         openedChats -= chatId
         keepCached(chatId)
+        // A chat that holds nothing is not cached, so its state would otherwise wait for the limit.
+        states.removeIfIdleLocked(chatId)
     }
 
     fun put(message: ChatMessage, replaces: Long? = null) = synchronized(lock) {
@@ -187,11 +207,19 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     fun readInbox(chatId: Long, messageId: Long) = synchronized(lock) {
         val state = flow(chatId)
         state.value = state.value.copy(lastReadInboxMessageId = maxOf(state.value.lastReadInboxMessageId, messageId))
+        rememberReadMarks(chatId, state.value)
     }
 
     fun readOutbox(chatId: Long, messageId: Long) = synchronized(lock) {
         val state = flow(chatId)
         state.value = state.value.copy(lastReadOutboxMessageId = maxOf(state.value.lastReadOutboxMessageId, messageId))
+        rememberReadMarks(chatId, state.value)
+    }
+
+    /** Keeps the read markers of a chat, so they survive the chat's state being dropped. */
+    private fun rememberReadMarks(chatId: Long, history: ChatHistory) {
+        val marks = ReadMarks(history.lastReadInboxMessageId, history.lastReadOutboxMessageId)
+        if (marks.inbox == 0L && marks.outbox == 0L) readMarks.remove(chatId) else readMarks[chatId] = marks
     }
 
     fun fail(chatId: Long, error: UiText, endLoading: Boolean = true, epoch: Long? = null) = synchronized(lock) {
@@ -251,8 +279,16 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
                 lastReadInboxMessageId = state.value.lastReadInboxMessageId,
                 lastReadOutboxMessageId = state.value.lastReadOutboxMessageId
             )
+            // The chat now holds only its read markers, which [readMarks] keeps: its state goes at once unless collected.
+            states.removeIfIdleLocked(candidate)
         }
     }
+
+    /** A state that holds nothing but read markers is rebuilt from [readMarks] without any loss. */
+    private fun isBare(history: ChatHistory): Boolean = history == ChatHistory(
+        lastReadInboxMessageId = history.lastReadInboxMessageId,
+        lastReadOutboxMessageId = history.lastReadOutboxMessageId
+    )
 
     private fun merge(chatId: Long, current: List<ChatMessage>, incoming: List<ChatMessage>): List<ChatMessage> {
         val retired = retiredIds[chatId].orEmpty()
@@ -261,6 +297,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     }
 
     private companion object {
+        /** Idle chat states kept beyond the chats that hold messages; each one is a small flow. */
+        const val MAX_STATES = 512
         const val MAX_RETIRED_IDS_PER_CHAT = 256
         /** Enough to cover a burst of messages delivered while the chat is composing, without growing without bound. */
         const val MAX_LIVE_ARRIVALS = 64
@@ -268,3 +306,6 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         const val MAX_ID_REPLACEMENTS = 64
     }
 }
+
+/** The last read positions of a chat, kept while its state is not held. */
+private class ReadMarks(val inbox: Long, val outbox: Long)

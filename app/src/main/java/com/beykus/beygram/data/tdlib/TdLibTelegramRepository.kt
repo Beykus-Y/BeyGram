@@ -445,7 +445,7 @@ class TdLibTelegramRepository private constructor(
     private fun updateForumMessage(chatId: Long, messageId: Long, transform: (ChatMessage) -> ChatMessage) {
         topicStores.filterKeys { it.first == chatId }.values.forEach { it.update(chatId, messageId, transform) }
     }
-    private val mediaFiles = MediaFileStore(TrafficUsageStore.session(accountId))
+    private val mediaFiles = MediaFileStore(TrafficUsageStore.session(accountId), refreshFile = { fileId -> refreshFileState(fileId) })
     private val autoDownloadSettingsStore = AutoDownloadSettingsStore.getInstance(appContext, accountId)
     /** Files this repository started automatically; a network or settings change may cancel them. */
     private val autoDownloads = ConcurrentHashMap<Int, AutoDownloadRequest>()
@@ -2188,6 +2188,17 @@ class TdLibTelegramRepository private constructor(
         if (!mediaFiles.beginAutoDownload(request.fileId)) return
         autoDownloads[request.fileId] = request
         sendDownload(request.fileId)
+    }
+
+    /**
+     * Reads the state of a file that [MediaFileStore] has just created again, after dropping it while idle.
+     * GetFile is answered from TDLib's own database, so it costs no network traffic.
+     */
+    private fun refreshFileState(fileId: Int) {
+        if (fileId <= 0) return
+        client.send(TdApi.GetFile(fileId), Client.ResultHandler { result ->
+            if (result is TdApi.File) mediaFiles.refresh(result.toMediaFileState())
+        })
     }
 
     private fun sendDownload(fileId: Int) {
