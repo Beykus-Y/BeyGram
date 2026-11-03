@@ -314,6 +314,7 @@
     <string name="theme_swatch_peach">Pêche</string>
     <string name="theme_swatch_blush">Rose poudré</string>
     <string name="theme_swatch_dark_violet">Violet foncé</string>
+    <string name="theme_swatch_wine">Bordeaux</string>
     <string name="proxy_list_loading_saved">Chargement des proxys enregistrés…</string>
     <string name="proxy_list_delete_confirm_title">Supprimer le proxy ?</string>
     <string name="proxy_list_delete_confirm_detail">Supprimer %1$s (%2$s:%3$d) ?</string>

@@ -257,11 +257,18 @@ data class GlassStyle(
     val blurRadiusDp: Dp,
     /** Tint laid over the sampled backdrop; keeps text readable over any photo. */
     val tintAlpha: Float,
-    /** Opacity of the one-pixel light rim that marks the edge of the glass. */
+    /** Opacity of the light edge of full-width chrome, sheets and the pinned bar's hairline; panels use [outlineTopAlpha]. */
     val rimAlpha: Float,
     /** Opacity of the specular highlight across the top of the glass. */
     val highlightAlpha: Float,
-    val shadowElevation: Dp
+    val shadowElevation: Dp,
+    /**
+     * Opacity of the thin outer stroke of a large floating container or a list card, at its top edge. The stroke fades to
+     * [outlineBottomAlpha] at the bottom. It is the only border of that layer: the fill and the light carry the rest.
+     */
+    val outlineTopAlpha: Float = 0.18f,
+    /** Opacity of the outer stroke at its bottom edge, see [outlineTopAlpha]. */
+    val outlineBottomAlpha: Float = 0.04f
 ) {
     /** The backdrop is sampled and blurred only at the full level; lower levels keep the layout and the tint. */
     val samplesBackdrop: Boolean get() = quality == GlassQuality.High && blurRadiusDp > 0.dp

@@ -3,10 +3,12 @@ package com.beykus.beygram.ui.screens.contacts
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.groupCardShape
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +75,7 @@ import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.components.listRowTitleWeight
 import com.beykus.beygram.ui.components.StyledListDivider
 import com.beykus.beygram.ui.components.MainTabTitle
@@ -100,6 +103,7 @@ fun ContactsScreen(
     accountId: String = "legacy"
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state: ContactsScreenState = viewModel(key = "contacts:$accountId")
@@ -120,8 +124,11 @@ fun ContactsScreen(
         contacts.filter { contactMatchesQuery(it, query) }
     }
     val contactGroups = remember(visible) {
-        visible.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+        val groups = visible.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
             .groupBy { contactAlphabetGroup(it.title) }
+        // Names that start with a digit or a symbol go last, under #, as in the system address books. Sorted first they
+        // put a lone # right under the hint at the top of the list.
+        groups.filterKeys { it != CONTACT_SYMBOL_GROUP } + groups.filterKeys { it == CONTACT_SYMBOL_GROUP }
     }
     val shareChats = remember(chats) {
         chats.filter { it.canPost }.distinctBy { it.id }.sortedBy { it.title.lowercase() }
@@ -172,8 +179,9 @@ fun ContactsScreen(
     }
     LaunchedEffect(accountId) { reload() }
 
+    // The same screen surface as Settings: the glass style draws its glow, the others the plain screen colour.
     Column(
-        Modifier.fillMaxSize().background(palette.screen)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen, palette.accent)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .imePadding()
     ) {
@@ -199,39 +207,46 @@ fun ContactsScreen(
             }
             contacts.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_none), Modifier.weight(1f))
             visible.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_no_results), Modifier.weight(1f))
-            else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
-                item(key = "contacts_actions_hint") {
-                    Text(
-                        stringResource(R.string.contacts_actions_hint),
-                        color = palette.textSecondary,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 2.dp)
-                    )
-                }
-                contactGroups.forEach { (initial, group) ->
-                    item(key = "contacts_group_$initial") {
+            else -> Box(
+                // The list is one group card, as a settings list is; the hint, the headings and the rows inside carry no glass.
+                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                    .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
+            ) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
+                    item(key = "contacts_actions_hint") {
                         Text(
-                            initial,
-                            color = palette.accent,
+                            stringResource(R.string.contacts_actions_hint),
+                            color = palette.textSecondary,
                             fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
+                            lineHeight = 18.sp,
+                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
                         )
                     }
-                    items(group, key = { it.userId }) { contact ->
-                        ContactRow(
-                        contact = contact,
-                        observeFile = observeFile,
-                        downloadFile = downloadFile,
-                        enabled = openingUserId == null,
-                        onClick = { openChat(contact) },
-                        onEdit = { editingContact = contact },
-                        onDelete = { deletingContact = contact },
-                        onShare = { sharingContact = contact },
-                        onCopy = { copyNumber(contact) },
-                        onCopyUsername = { copyUsername(contact) }
-                        )
-                        StyledListDivider()
+                    contactGroups.forEach { (initial, group) ->
+                        item(key = "contacts_group_$initial") {
+                            Text(
+                                initial,
+                                color = palette.accent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
+                            )
+                        }
+                        items(group, key = { it.userId }) { contact ->
+                            ContactRow(
+                                contact = contact,
+                                observeFile = observeFile,
+                                downloadFile = downloadFile,
+                                enabled = openingUserId == null,
+                                onClick = { openChat(contact) },
+                                onEdit = { editingContact = contact },
+                                onDelete = { deletingContact = contact },
+                                onShare = { sharingContact = contact },
+                                onCopy = { copyNumber(contact) },
+                                onCopyUsername = { copyUsername(contact) }
+                            )
+                            StyledListDivider()
+                        }
                     }
                 }
             }
@@ -292,9 +307,12 @@ internal fun contactMatchesQuery(contact: ContactPreview, query: String): Boolea
         contact.phone.filter { it.isDigit() }.contains(digits)
 }
 
-/** Stable alphabet heading for local and non-Latin contact names; symbols go into #. */
+/** Heading of the names that do not start with a letter. It goes last in the list. */
+internal const val CONTACT_SYMBOL_GROUP = "#"
+
+/** Stable alphabet heading for local and non-Latin contact names; symbols go into [CONTACT_SYMBOL_GROUP]. */
 internal fun contactAlphabetGroup(title: String): String =
-    title.trim().firstOrNull()?.takeIf { it.isLetter() }?.uppercaseChar()?.toString() ?: "#"
+    title.trim().firstOrNull()?.takeIf { it.isLetter() }?.uppercaseChar()?.toString() ?: CONTACT_SYMBOL_GROUP
 
 @Composable
 private fun ContactRow(
