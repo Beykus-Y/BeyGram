@@ -52,6 +52,8 @@ import com.beykus.beygram.domain.model.MessageReaction
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.emojiPresentation
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.SurfaceTreatment
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -78,6 +80,14 @@ private fun ReactionChip(
 ) {
     val palette = beyGramPalette()
     val shape = RoundedCornerShape(50)
+    // Liquid Glass: a chip is a tint of the bubble it sits in and carries no outline, so the bubble keeps the only stroke.
+    val glass = LocalDesignSystem.current.surfaces.treatment == SurfaceTreatment.Glass
+    val fill = when {
+        glass && reaction.isChosen -> palette.accent.copy(alpha = 0.2f)
+        glass -> palette.messageText.copy(alpha = 0.08f)
+        reaction.isChosen -> palette.accentSoft
+        else -> palette.surface2
+    }
     val description = when {
         reaction.isPaid -> stringResource(R.string.chat_reaction_paid_description, reaction.count)
         reaction.customEmojiId == 0L -> stringResource(R.string.chat_reaction_description, reaction.emoji, reaction.count)
@@ -92,8 +102,8 @@ private fun ReactionChip(
     ) {
         Row(
             Modifier.clip(shape)
-                .background(if (reaction.isChosen) palette.accentSoft else palette.surface2)
-                .then(if (reaction.isChosen) Modifier.border(1.dp, palette.accent, shape) else Modifier)
+                .background(fill)
+                .then(if (reaction.isChosen && !glass) Modifier.border(1.dp, palette.accent, shape) else Modifier)
                 .padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
