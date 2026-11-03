@@ -189,8 +189,11 @@ private enum class ChatFilter(val title: Int) {
 /** Сколько протянуть список вниз, чтобы вернуть скрытый архив; подсказка занимает столько же. */
 private val archivePullThreshold = 104.dp
 
-/** Высота мягкого края списка: строки, уходящие под шапку, растворяются здесь, а не обрываются тонкой полосой. */
-private val chatListTopFade = 24.dp
+/**
+ * Высота мягкого края списка: строки, которые уходят под шапку или подходят к плавающему доку, растворяются здесь,
+ * а не обрываются тонкой полосой.
+ */
+private val chatListEdgeFadeHeight = 24.dp
 
 @Composable
 fun ChatsScreen(
@@ -574,7 +577,7 @@ fun ChatsScreen(
     val chatList: @Composable (Modifier, Dp) -> Unit = { modifier, topPadding ->
         LazyColumn(
             state = listState,
-            modifier = modifier.nestedScroll(pullConnection).chatListTopEdgeFade(topPadding) { topEdgeFade },
+            modifier = modifier.nestedScroll(pullConnection).chatListEdgeFade(topPadding, fadeBottom = dock.floating) { topEdgeFade },
             // Keep the last conversation accessible above the overlay button, measured from the button itself. Under
             // glass chrome the list also starts below the header it scrolls beneath.
             contentPadding = PaddingValues(top = topPadding, bottom = fabPlacement.listClearance)
@@ -991,18 +994,25 @@ private fun ArchivePullHint(heightDp: Dp) {
 }
 
 /**
- * Dissolves the list's top edge: from [topPadding] down, the list fades to transparent over [chatListTopFade]. The list is
- * drawn into its own layer and masked there (DstIn), so the screen colour, the glows and the glass backdrop record behind
- * it show through unchanged, and nothing is blurred. [progress] scales the fade: 0 leaves the list as it is.
+ * Soft edges of the chat list. The top edge dissolves under the header once the list has moved: [topProgress] scales it
+ * (0 at rest, so the first row is never dimmed) and [topPadding] is where the header ends. With a floating dock
+ * ([fadeBottom]) the bottom edge dissolves before the gap above the capsule, so a row cut there does not end in a
+ * sliver. The list is drawn into its own layer and masked there (DstIn): the screen colour, the glows and the glass
+ * backdrop record show through unchanged, and nothing is blurred.
  */
-private fun Modifier.chatListTopEdgeFade(topPadding: Dp, progress: () -> Float): Modifier =
-    graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-        .drawWithContent {
-            drawContent()
-            val amount = progress().coerceIn(0f, 1f)
-            if (amount <= 0f) return@drawWithContent
+private fun Modifier.chatListEdgeFade(topPadding: Dp, fadeBottom: Boolean, topProgress: () -> Float): Modifier =
+    graphicsLayer {
+        compositingStrategy = if (fadeBottom || topProgress() > 0f) {
+            CompositingStrategy.Offscreen
+        } else {
+            CompositingStrategy.Auto
+        }
+    }.drawWithContent {
+        drawContent()
+        val fade = chatListEdgeFadeHeight.toPx()
+        val amount = topProgress().coerceIn(0f, 1f)
+        if (amount > 0f) {
             val top = topPadding.toPx()
-            val fade = chatListTopFade.toPx()
             drawRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(Color.Black.copy(alpha = 1f - amount), Color.Black),
@@ -1014,6 +1024,20 @@ private fun Modifier.chatListTopEdgeFade(topPadding: Dp, progress: () -> Float):
                 blendMode = BlendMode.DstIn
             )
         }
+        if (fadeBottom) {
+            val bottom = size.height
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Black, Color.Transparent),
+                    startY = bottom - fade,
+                    endY = bottom
+                ),
+                topLeft = Offset(0f, bottom - fade),
+                size = Size(size.width, fade),
+                blendMode = BlendMode.DstIn
+            )
+        }
+    }
 
 /** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
 @Composable
