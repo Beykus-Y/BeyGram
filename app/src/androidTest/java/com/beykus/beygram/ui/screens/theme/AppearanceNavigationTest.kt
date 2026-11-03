@@ -68,7 +68,8 @@ class AppearanceNavigationTest {
 
         composeRule.onNodeWithContentDescription(context.getString(R.string.common_back)).performClick()
         composeRule.onNodeWithText(context.getString(R.string.theme_title)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.appearance_applied)).assertIsDisplayed()
+        // Clean state: the Apply footer is removed, not shown as a disabled button.
+        composeRule.onNodeWithText(context.getString(R.string.theme_apply)).assertDoesNotExist()
     }
 
     @Test fun bottomBarPlacementIsEditedInTheStylePageAndAppliedWithTheSharedDraft() {
