@@ -160,12 +160,8 @@ private val QUEUE_ROW_HEIGHT = 76.dp
 
 private enum class PlayerPanel { Player, Queue }
 
-/**
- * Large now-playing surface. The same composable owns the queue panel so the sheet is not recreated when the user
- * moves between the player and the queue, and the source title/artwork are resolved from the same account origin.
- */
-@OptIn(ExperimentalMaterial3Api::class)
 /** The full player sheet. Its tokens come from the cover, so every row inside follows the tint. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CoverPlayerSheet(
     cover: CoverTokens,
@@ -186,6 +182,11 @@ private fun CoverPlayerSheet(
     }
 }
 
+/**
+ * Large now-playing surface. The same composable owns the queue panel so the sheet is not recreated when the user
+ * moves between the player and the queue, and the source title/artwork are resolved from the same account origin.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MusicPlayerSheet(
     onDismiss: () -> Unit,
