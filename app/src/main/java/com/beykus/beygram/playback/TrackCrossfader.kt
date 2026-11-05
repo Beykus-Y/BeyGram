@@ -102,6 +102,7 @@ internal class TrackCrossfader(
     private suspend fun run(primary: ExoPlayer, watch: Watch): Outcome {
         var lockedSwitch: Long? = null
         var lockedNext: CrossfadeNext? = null
+        var lastPosition: Long? = null
         while (true) {
             if (!enabled() || busy()) return Outcome.Interrupted
             if (!primary.playWhenReady || primary.playerError != null) return Outcome.Interrupted
@@ -112,6 +113,15 @@ internal class TrackCrossfader(
                 continue
             }
             val position = primary.currentPosition
+            // A seek back shows as a drop in position between two checks. Forward playback never does.
+            if (isBackwardSeek(lastPosition, position)) {
+                // The prepared tail is out of step with the new position, so it is prepared again later.
+                watch.tail?.release()
+                watch.tail = null
+                lockedSwitch = null
+                lockedNext = null
+            }
+            lastPosition = position
             val switchAt = lockedSwitch
                 ?: crossfadeSwitchMs(duration, knownTrailing(watch))
                 ?: return Outcome.GaveUp
@@ -130,12 +140,6 @@ internal class TrackCrossfader(
                 prepareTail(player, primary, switchAt)
                 lockedSwitch = switchAt
                 lockedNext = next
-            } else if (position < switchAt - CROSSFADE_TOLERANCE_MS) {
-                // Moved back before the switch point: the prepared tail is out of step, so it is prepared again later.
-                tail.release()
-                watch.tail = null
-                lockedSwitch = null
-                lockedNext = null
             } else if (position >= switchAt && tail.playbackState == Player.STATE_READY) {
                 val next = lockedNext ?: return Outcome.GaveUp
                 return fire(primary, watch, tail, next)
@@ -170,16 +174,18 @@ internal class TrackCrossfader(
         if (target == null || target.mediaId != locked.mediaId) return Outcome.GaveUp
         primary.volume = 0f
         watch.volumeTouched = true
+        // The overlap is CROSSFADE_MS of media, so at another playback speed the same audio takes a different wall time.
+        val speed = primary.playbackParameters.speed.coerceIn(0.25f, 4f)
         primary.seekTo(target.index, target.startMs)
         tail.volume = 1f
         tail.play()
         val startedAt = System.nanoTime()
         while (true) {
-            val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L
-            if (elapsedMs >= CROSSFADE_MS) return Outcome.Finished
+            val mediaElapsedMs = ((System.nanoTime() - startedAt) / 1_000_000L * speed).toLong()
+            if (mediaElapsedMs >= CROSSFADE_MS) return Outcome.Finished
             if (primary.playerError != null || !primary.playWhenReady) return Outcome.Interrupted
             if (primary.currentMediaItem?.mediaId != target.mediaId) return Outcome.Interrupted
-            val progress = crossfadeProgress(elapsedMs)
+            val progress = crossfadeProgress(mediaElapsedMs)
             primary.volume = incomingGain(progress)
             tail.volume = outgoingGain(progress)
             delay(CROSSFADE_STEP_MS)

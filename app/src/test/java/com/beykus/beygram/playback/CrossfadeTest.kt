@@ -1,7 +1,9 @@
 package com.beykus.beygram.playback
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CrossfadeTest {
@@ -56,5 +58,13 @@ class CrossfadeTest {
         assertEquals(CROSSFADE_IDLE_STEP_MS, crossfadeWaitMs(60_000L))
         assertEquals(CROSSFADE_ARM_STEP_MS, crossfadeWaitMs(CROSSFADE_PREPARE_LEAD_MS))
         assertEquals(CROSSFADE_ARM_STEP_MS, crossfadeWaitMs(0L))
+    }
+
+    @Test
+    fun onlyAJumpBackIsASeek() {
+        assertFalse(isBackwardSeek(null, 5_000L))
+        assertFalse(isBackwardSeek(3_000L, 3_020L))
+        assertFalse(isBackwardSeek(3_000L, 2_900L))
+        assertTrue(isBackwardSeek(5_000L, 1_000L))
     }
 }

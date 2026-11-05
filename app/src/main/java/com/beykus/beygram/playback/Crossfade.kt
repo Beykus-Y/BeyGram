@@ -40,6 +40,13 @@ internal fun crossfadeSwitchMs(durationMs: Long, trailingMs: Long): Long? {
 internal fun crossfadeWaitMs(remainingMs: Long): Long =
     if (remainingMs > CROSSFADE_PREPARE_LEAD_MS) CROSSFADE_IDLE_STEP_MS else CROSSFADE_ARM_STEP_MS
 
+/**
+ * True when the position went back by more than the tolerance since the last check: a seek back. Forward playback,
+ * including small jitter, never does. The first check has nothing to compare with.
+ */
+internal fun isBackwardSeek(previousMs: Long?, positionMs: Long): Boolean =
+    previousMs != null && positionMs < previousMs - CROSSFADE_TOLERANCE_MS
+
 /** 0..1 progress of the overlap after [elapsedMs] have passed. */
 internal fun crossfadeProgress(elapsedMs: Long): Float = (elapsedMs.toFloat() / CROSSFADE_MS).coerceIn(0f, 1f)
 
