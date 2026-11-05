@@ -49,6 +49,27 @@ class ChatMemoryStoreTest {
     )
 
     @Test
+    fun trimRemovesOnlyWhatTheLimitNeeds() {
+        // One message with a long edit history, then many short deleted messages. A little space must not cost the
+        // deleted messages, which are the cheapest part of the store.
+        val longText = "x".repeat(4000)
+        store.observe(listOf(observation(1, longText)), nowMillis = 1)
+        for (edit in 1..100) {
+            store.observe(listOf(observation(1, longText + edit)), nowMillis = 1L + edit)
+        }
+        val deletedIds = (100L until 300L).toList()
+        store.observe(deletedIds.map { observation(it, "m") }, nowMillis = 1_000)
+        store.markDeleted(CHAT, deletedIds, fallback = emptyMap(), nowMillis = 2_000)
+        val before = store.usage().bytes
+
+        val removed = store.trim(limitBytes = before - 60_000L)
+
+        assertEquals(1, removed)
+        assertEquals(200, store.usage().deletedMessages)
+        assertTrue(store.usage().bytes <= before - 60_000L)
+    }
+
+    @Test
     fun newMessageIsKeptWithoutVersions() {
         store.observe(listOf(observation(1, "hello")), nowMillis = 100)
 

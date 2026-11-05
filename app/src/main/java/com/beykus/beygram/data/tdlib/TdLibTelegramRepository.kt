@@ -439,6 +439,9 @@ class TdLibTelegramRepository private constructor(
     /** The Chat Memory switches of this account. The settings screens read and change the same store. */
     val chatMemorySettings: ChatMemorySettingsStore = ChatMemorySettingsStore.forAccount(appContext, accountId)
 
+    /** The auto-delete timer of each chat as TDLib last announced it. The profile cache does not take that update. */
+    private val chatAutoDeleteTimers = ConcurrentHashMap<Long, Int>()
+
     /** Chat Memory of this account: kept deletions and earlier versions. Its writes run on their own thread. */
     private val chatMemory = ChatMemoryRecorder(
         context = appContext,
@@ -2692,6 +2695,7 @@ class TdLibTelegramRepository private constructor(
                 }
             }
             is TdApi.UpdateChatMessageAutoDeleteTime -> {
+                chatAutoDeleteTimers[update.chatId] = update.messageAutoDeleteTime
                 if (_authState.value == AuthState.Ready) secretChatDirectory.applyTtl(update.chatId, update.messageAutoDeleteTime)
             }
             is TdApi.UpdateChatPhoto -> {
@@ -3409,7 +3413,8 @@ class TdLibTelegramRepository private constructor(
     private fun chatMemoryFacts(chatId: Long): ChatMemoryChatFacts = ChatMemoryChatFacts(
         isSecret = isSecretChat(chatId),
         hasProtectedContent = chatCache[chatId]?.hasProtectedContent == true,
-        hasAutoDeleteTimer = (profiles.chat(chatId)?.messageAutoDeleteTime?.toLong() ?: 0L) > 0L
+        // The last timer TDLib announced wins. The profile cache does not take that update, so it can hold an older one.
+        hasAutoDeleteTimer = (chatAutoDeleteTimers[chatId] ?: profiles.chat(chatId)?.messageAutoDeleteTime ?: 0) > 0
     )
 
     /** Chat Memory's view of a message as TDLib sent it; null for a service event, which is never kept. */

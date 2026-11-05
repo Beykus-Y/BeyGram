@@ -28,6 +28,13 @@ class ChatMemoryContentTest {
     }
 
     @Test
+    fun animatedEmojiKeepsItsEmojiAsText() {
+        val content = TdApi.MessageAnimatedEmoji().apply { emoji = "🙂" }
+
+        assertEquals(MemorySnapshot("🙂", hasAttachment = false), memorySnapshotOf(content, isService = false))
+    }
+
+    @Test
     fun serviceEventsAreNotKept() {
         val content = TdApi.MessageText().apply { text = formatted("joined the group") }
 
