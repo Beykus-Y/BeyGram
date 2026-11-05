@@ -1984,6 +1984,8 @@ object PlaybackEngine {
         if (duration - position > SILENCE_SCAN_MS) return
         val state = _state.value
         val current = state.item ?: return
+        // The engine's item lags the player by one callback; act only when the player is on the same track.
+        if (target.currentMediaItem?.mediaId != current.systemMediaId) return
         if (state.queue.size < 2 || current.key == trailingSkippedKey) return
         val edges = SilenceAnalyzer.cachedEdges(withResolvedSource(current)) ?: return
         if (!trailingSkipDue(position, duration, edges.trailingMs)) return
