@@ -164,7 +164,10 @@ import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
 import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationRuntime
+import com.beykus.beygram.notifications.TriggerWordsStore
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
+import com.beykus.beygram.ui.screens.notifications.TriggerMentionsScreen
+import com.beykus.beygram.ui.screens.notifications.TriggerWordsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.motion.MotionSettingsStore
@@ -2507,7 +2510,17 @@ private fun BeyGramAppContent(
                     accountId = selectedAccountId,
                     connectionState = connectionState,
                     onBack = { routeName = notificationsReturnRouteName },
-                    onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name }
+                    onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name },
+                    onTriggers = { routeName = AppRoute.TriggerWords.name }
+                )
+                AppRoute.TriggerWords -> TriggerWordsScreen(
+                    store = TriggerWordsStore.get(context),
+                    onBack = { routeName = AppRoute.Notifications.name },
+                    onOpenMentions = { routeName = AppRoute.TriggerMentions.name }
+                )
+                AppRoute.TriggerMentions -> TriggerMentionsScreen(
+                    store = TriggerWordsStore.get(context),
+                    onBack = { routeName = AppRoute.TriggerWords.name }
                 )
                 AppRoute.ConnectionDiagnostics -> ConnectionDiagnosticsScreen(
                     repository = repository,

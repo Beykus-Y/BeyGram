@@ -208,6 +208,7 @@ dependencies {
     implementation(fileTree("libs") { include("*.jar") })
     implementation(files(mihomoAndroidAar).builtBy(downloadMihomoAndroid))
     implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.re2j)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.core)

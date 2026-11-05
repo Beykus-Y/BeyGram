@@ -25,6 +25,7 @@ robolectric = "4.17"
 roborazzi = "1.75.0"
 
 [libraries]
+re2j = { group = "com.google.re2j", name = "re2j", version = "1.7" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

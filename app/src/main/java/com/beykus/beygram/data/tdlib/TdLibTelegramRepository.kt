@@ -2,6 +2,9 @@ package com.beykus.beygram.data.tdlib
 
 import android.content.Context
 import android.os.Build
+import com.beykus.beygram.notifications.TriggerIncoming
+import com.beykus.beygram.notifications.TriggerAlerts
+import com.beykus.beygram.notifications.TriggerWordsStore
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
 import com.beykus.beygram.playback.MusicBotCache
@@ -2683,13 +2686,19 @@ class TdLibTelegramRepository private constructor(
                 publishChat(update.chatId)
             }
             is TdApi.UpdateChatNotificationSettings -> {
+                val previewWasAllowed = muteState.isPreviewAllowed(update.chatId)
                 muteState.updateChat(update.chatId, update.notificationSettings)
+                // Trigger alerts of this chat still show their text after its previews went off, so they leave the tray.
+                if (previewWasAllowed && !muteState.isPreviewAllowed(update.chatId)) {
+                    TriggerAlerts.cancelChats(appContext, accountId, setOf(update.chatId))
+                }
                 publishChat(update.chatId)
             }
             is TdApi.UpdateScopeNotificationSettings -> handleScopeNotificationSettings(NotificationScope.ofScope(update.scope), update.notificationSettings)
             is TdApi.UpdateNewMessage         -> {
                 reportBotChannel.onNewMessage(update.message)
                 handleNewMessage(update.message)
+                offerToTriggerWords(update.message)
                 conversationEffects.uploadStarted(update.message)
                 if (update.message.isOutgoing && update.message.content is TdApi.MessageVideoNote &&
                     update.message.sendingState is TdApi.MessageSendingStatePending) {
@@ -2974,6 +2983,9 @@ class TdLibTelegramRepository private constructor(
                     stealthSettings.update { it.copy(chats = emptyMap()) }
                     // Queued messages were typed for the account that is leaving, so they are not sent after a later sign-in.
                     DelayedSendQueue.forAccount(appContext, accountId).clear()
+                    // Trigger alerts and mentions show chat titles and senders of the account that left. The shared rules stay.
+                    TriggerAlerts.cancelAccount(appContext, accountId)
+                    TriggerWordsStore.get(appContext).forgetAccount(accountId)
                 }
             }
             is TdApi.AuthorizationStateClosed -> {
@@ -3069,7 +3081,11 @@ class TdLibTelegramRepository private constructor(
 
     /** Общая настройка меняет только звук: списки пересобираются с ним при публикации, а наблюдатели одного чата звук не показывают. */
     private fun handleScopeNotificationSettings(scope: NotificationScope, settings: TdApi.ScopeNotificationSettings) {
-        if (muteState.updateScope(scope, settings).isNotEmpty()) chatListPublisher.request()
+        val previewsBefore = muteState.previewAllowedChats()
+        val changed = muteState.updateScope(scope, settings)
+        // Chats that use this scope's preview setting may stop allowing text; their trigger alerts leave the tray.
+        TriggerAlerts.cancelChats(appContext, accountId, previewsBefore - muteState.previewAllowedChats())
+        if (changed.isNotEmpty()) chatListPublisher.request()
     }
 
     /** TDLib gives the same order as other clients. IDs aren't local categories. */
@@ -3245,6 +3261,38 @@ class TdLibTelegramRepository private constructor(
         // Название «Избранного» задаёт приложение на языке интерфейса, поэтому присланное TDLib не перезаписывает его.
         chatCache[chatId] = existing.copy(title = if (existing.isSavedMessages) existing.title else title)
         publishChat(chatId)
+    }
+
+    /**
+     * Trigger words look at every incoming message, including muted chats that TDLib never alerts for.
+     * Runs in the update handler, so it only reads cached chat state and hands the text to the store.
+     */
+    private fun offerToTriggerWords(message: TdApi.Message) {
+        if (message.isOutgoing) return
+        val text = triggerWordText(message.content) ?: return
+        val chat = profiles.chat(message.chatId) ?: return
+        if (chat.type is TdApi.ChatTypeSecret) return
+        val presentation = notificationPresentation.value
+        try {
+            TriggerWordsStore.get(appContext).onIncoming(
+                TriggerIncoming(
+                    accountId = accountId,
+                    chatId = message.chatId,
+                    messageId = message.id,
+                    dateSeconds = message.date.toLong(),
+                    chatTitle = chat.title,
+                    senderName = profiles.senderName(message.senderId),
+                    text = text,
+                    muted = muteState.isMuted(message.chatId),
+                    protectedContent = chat.hasProtectedContent,
+                    previewAllowed = muteState.isPreviewAllowed(message.chatId),
+                    foreground = presentation.foreground,
+                    chatOnScreen = presentation.foreground && message.chatId in presentation.openedChats
+                )
+            )
+        } catch (_: Exception) {
+            // A trigger failure must never interrupt the update stream that the chat list depends on.
+        }
     }
 
     private fun handleNewMessage(message: TdApi.Message) {

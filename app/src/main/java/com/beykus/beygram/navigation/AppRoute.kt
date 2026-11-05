@@ -55,7 +55,9 @@ enum class AppRoute {
     Stories,
     StoryPublisher,
     MyMusic,
-    MusicPlaylist
+    MusicPlaylist,
+    TriggerWords,
+    TriggerMentions
 }
 
 /**

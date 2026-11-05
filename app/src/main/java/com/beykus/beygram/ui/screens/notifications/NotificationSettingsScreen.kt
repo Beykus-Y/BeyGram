@@ -72,6 +72,7 @@ fun NotificationSettingsScreen(
     connectionState: TelegramConnectionState,
     onBack: () -> Unit,
     onDiagnostics: () -> Unit,
+    onTriggers: () -> Unit = {},
     accountPreferences: NotificationPreferencesStore = runtime.preferences,
     accountId: String = "legacy"
 ) {
@@ -157,6 +158,14 @@ fun NotificationSettingsScreen(
             }) { Text(stringResource(R.string.notif_allow_background_work)) }
             Text(stringResource(R.string.notif_battery_note), color = palette.textSecondary, fontSize = 13.sp)
             error?.let { Text(it.resolve(), color = palette.danger) }
+            HorizontalDivider(color = palette.divider)
+            Row(Modifier.fillMaxWidth().clickable(onClick = onTriggers), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.trigger_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.trigger_row_hint), color = palette.textSecondary)
+                }
+                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary)
+            }
             HorizontalDivider(color = palette.divider)
             Row(Modifier.fillMaxWidth().clickable(onClick = onDiagnostics), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

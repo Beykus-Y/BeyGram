@@ -36,3 +36,7 @@ Settings are under the bell in the chat list and My Profile → Notifications an
 Build with `assembleDevDebug` / `assembleProdRelease`, then use `scripts/update-dev.ps1` for a replacement update. Do not run connected tests on the user's installed package or reset app data.
 
 The `BeyGramNotify` Dev log contains only update class names and active-group counts. Do not dump notification payloads, sender names, message text or intent tokens into diagnostics. Lifecycle and failure events go to the diagnostics journal (`recordAppEvent`, kind `notification`): service start with its source and stop with its reason, time to the first connected state, changes in whether Messages notifications are allowed, notify and dismiss failures, and direct replies sent or failed. They carry states, counts and error class names only. The proxy's readiness and start failure go to the problem report as `proxy_ready` and `proxy_failed` (kind `vpn`), with no addresses, ports or credentials. Validate actual delivery with a message supplied by the user; do not send messages to their contacts for testing. Deep-idle, OEM restart behavior and reboot delivery require separate user-approved device checks and are not established by compilation.
+
+## Trigger words
+
+Trigger words flag messages in muted chats by a word, a phrase or a regular expression, using their own alert channel and a mentions feed. The matcher, scope and feed are documented in [trigger-words.md](trigger-words.md).
