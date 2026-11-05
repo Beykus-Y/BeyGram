@@ -3,6 +3,7 @@ package com.beykus.beygram.data.tdlib
 import android.content.Context
 import android.os.Build
 import com.beykus.beygram.notifications.TriggerIncoming
+import com.beykus.beygram.notifications.TriggerAlerts
 import com.beykus.beygram.notifications.TriggerWordsStore
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
@@ -2937,6 +2938,9 @@ class TdLibTelegramRepository private constructor(
                     stealthSettings.update { it.copy(chats = emptyMap()) }
                     // Queued messages were typed for the account that is leaving, so they are not sent after a later sign-in.
                     DelayedSendQueue.forAccount(appContext, accountId).clear()
+                    // Trigger alerts and mentions show chat titles and senders of the account that left. The shared rules stay.
+                    TriggerAlerts.cancelAccount(appContext, accountId)
+                    TriggerWordsStore.get(appContext).forgetAccount(accountId)
                 }
             }
             is TdApi.AuthorizationStateClosed -> {

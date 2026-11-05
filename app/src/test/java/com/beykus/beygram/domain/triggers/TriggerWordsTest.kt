@@ -180,6 +180,27 @@ class TriggerWordsTest {
         assertTrue(TriggerWordsCodec.decodeRules(null).isEmpty())
     }
 
+    private fun mention(messageId: Long, dateSeconds: Long) =
+        TriggerMention("legacy:1:$messageId", "legacy", 1L, messageId, dateSeconds, "Чат", "Анна", null, listOf("срочно"), muted = true)
+
+    @Test
+    fun lateCatchUpOfOlderMessagesDoesNotEvictNewerMentions() {
+        // The feed holds the newest mention first; a reconnect then delivers an older message.
+        val existing = (TriggerWordLimits.MAX_MENTIONS downTo 1).map { mention(it.toLong(), 1_000L + it) }
+        val late = mention(0L, 500L)
+        assertEquals(existing.map { it.id }, keepNewestMentions(late, existing).map { it.id })
+    }
+
+    @Test
+    fun newestArrivalEvictsTheOldestMentionWhenFull() {
+        val existing = (TriggerWordLimits.MAX_MENTIONS downTo 1).map { mention(it.toLong(), 1_000L + it) }
+        val fresh = mention(999L, 9_000L)
+        val kept = keepNewestMentions(fresh, existing)
+        assertEquals(TriggerWordLimits.MAX_MENTIONS, kept.size)
+        assertEquals(fresh.id, kept.first().id)
+        assertFalse(kept.any { it.id == "legacy:1:1" })
+    }
+
     @Test
     fun mentionsRoundTripWithAndWithoutSnippet() {
         val mentions = listOf(

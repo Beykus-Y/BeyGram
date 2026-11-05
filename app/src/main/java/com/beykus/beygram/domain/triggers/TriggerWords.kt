@@ -215,6 +215,14 @@ private fun isWordCodePoint(codePoint: Int): Boolean {
     }
 }
 
+/**
+ * The feed keeps the newest [TriggerWordLimits.MAX_MENTIONS] matches by message date. Arrival order is not enough:
+ * a catch-up after a reconnect delivers older messages late, and they must not push newer matches out.
+ * The sort is stable, so an arrival with the same date as an existing entry stays in front of it.
+ */
+fun keepNewestMentions(arrived: TriggerMention, existing: List<TriggerMention>): List<TriggerMention> =
+    (listOf(arrived) + existing).sortedByDescending { it.dateSeconds }.take(TriggerWordLimits.MAX_MENTIONS)
+
 /** Shortens a message for the mentions feed. Whitespace runs collapse, so multi-line texts stay on one line. */
 fun triggerSnippet(text: String): String {
     val collapsed = WHITESPACE.replace(stripFormatting(text), " ").trim()

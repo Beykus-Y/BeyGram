@@ -9,6 +9,7 @@ import com.beykus.beygram.domain.triggers.TriggerRule
 import com.beykus.beygram.domain.triggers.TriggerScope
 import com.beykus.beygram.domain.triggers.TriggerWordLimits
 import com.beykus.beygram.domain.triggers.TriggerWordsCodec
+import com.beykus.beygram.domain.triggers.keepNewestMentions
 import com.beykus.beygram.domain.triggers.triggerSnippet
 import com.beykus.beygram.domain.triggers.validateTriggerRule
 import com.beykus.beygram.security.NotificationPreviewPolicy
@@ -50,7 +51,7 @@ class TriggerWordsStore private constructor(context: Context) {
 
     val rules: StateFlow<List<TriggerRule>> = _rules.asStateFlow()
     val scope: StateFlow<TriggerScope> = _scope.asStateFlow()
-    /** Newest first. */
+    /** Newest first, by message date. */
     val mentions: StateFlow<List<TriggerMention>> = _mentions.asStateFlow()
 
     /** Saves a rule, replacing the one with the same id. Returns the problem, or null when the rule was saved. */
@@ -143,7 +144,7 @@ class TriggerWordsStore private constructor(context: Context) {
         )
         // TDLib can deliver the same update again after a reconnect; one message is recorded and alerted once.
         if (_mentions.value.any { it.id == mention.id }) return
-        val kept = (listOf(mention) + _mentions.value).take(TriggerWordLimits.MAX_MENTIONS)
+        val kept = keepNewestMentions(mention, _mentions.value)
         _mentions.value = kept
         prefs.edit().putString(KEY_MENTIONS, TriggerWordsCodec.encodeMentions(kept)).apply()
         // Alerts follow the delivery rule of other notifications: background switch on, or the app in the foreground.

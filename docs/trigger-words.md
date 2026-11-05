@@ -45,11 +45,11 @@ The scope is set in the trigger words screen:
 - Previews on: the alert shows the sender and the message text, and the feed keeps the text. Previews off, in the account's settings or in the chat's own notification settings: the alert names only the trigger word, and no text is kept for the match. Previews off for the account also hides the text of older entries in the feed. Protected content (chats where saving is forbidden) keeps no text either.
 - An alert follows the account's notification switch, its background switch and the Android notification permission, as other notifications do. No alert is posted for a chat that is open on screen, or for a message older than 10 minutes, so a catch-up after a reconnect does not ring for old matches. A mention is still recorded when no alert is posted.
 - A mention is identified by account, chat and message. A repeated update for the same message does not add a second entry or alert.
-- The feed keeps the newest 200 mentions. "Clear feed" removes the records from this device only; Telegram messages are not changed.
+- The feed keeps the newest 200 mentions by message date, so a catch-up of older messages cannot push out newer matches. "Clear feed" removes the records from this device only; Telegram messages are not changed.
 
 ## Storage
 
-Everything is in SharedPreferences `trigger_words`, as JSON: the rules, the scope and the mentions. The rules are shared by all accounts. Each mention records its account, so a match from a secondary account keeps that account's identity. Signing a secondary account out removes its alerts and its mentions from this device. The rules and the scope stay.
+Everything is in SharedPreferences `trigger_words`, as JSON: the rules, the scope and the mentions. The rules are shared by all accounts. Each mention records its account, so a match from a secondary account keeps that account's identity. Signing an account out, the first one included, removes its alerts and its mentions from this device. The rules and the scope stay.
 
 ## Limits
 
@@ -68,3 +68,4 @@ These need a real account and a muted group. They are not established by compila
 5. Put a message in a secret chat that contains a rule's word. Expect no mention.
 6. Turn off background notifications for the account, then send a matching message to a muted group while the app is in the background. Expect no alert, and the feed still records the match.
 7. Sign out of a secondary account that has an alert in the tray. Expect the alert and its feed entries to disappear.
+8. Sign out of the first account with an alert in the tray, then sign in again. Expect the alert and the old feed entries to be gone, and the rules to remain.
