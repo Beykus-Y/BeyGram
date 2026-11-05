@@ -47,6 +47,7 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import com.beykus.beygram.ui.design.LocalDesignSystem
@@ -1740,6 +1741,7 @@ fun ChatScreen(
                                 onLoadPollVoters = { messageId, optionIndex, offset ->
                                     conversation.pollVoters(chat.id, messageId, optionIndex, offset)
                                 },
+                                onLoadVersions = { chatId, messageId -> conversation.messageVersions(chatId, messageId) },
                                 onAddPollOption = { messageId, text ->
                                     conversation.addPollOption(chat.id, messageId, text)
                                 },
@@ -2685,11 +2687,18 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     animateSpecial: Boolean = false,
     diceAnimationId: Long = 0L,
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
-    paidContent: PaidContentActions? = null
+    paidContent: PaidContentActions? = null,
+    /** Loads the earlier texts that Chat Memory kept for this message; without it a bubble shows no versions link. */
+    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
     val glassBubbles = LocalDesignSystem.current.surfaces.treatment == SurfaceTreatment.Glass
+    // The versions sheet belongs to the bubble that opened it, and is composed only while it is open.
+    var showVersions by remember(message.id) { mutableStateOf(false) }
+    val loadVersions = onLoadVersions
+    if (showVersions && loadVersions != null) ChatMemoryVersionsSheet(message, loadVersions, onDismiss = { showVersions = false })
+    val openVersions: () -> Unit = { showVersions = true }
     val shape = bubbleShape(message.isOutgoing, metrics)
     val hasText = message.text.isNotBlank()
     val special = message.special
@@ -2734,6 +2743,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .then(if (message.media != null && !circle && !sticker)
                              Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
+                        .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                         .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
                         .then(if (onMediaBounds != null && message.media != null) Modifier.onGloballyPositioned { onMediaBounds(it.boundsInWindow()) } else Modifier)
@@ -2856,7 +2866,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 },
                 meta = {
                     if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
-                        overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta)
+                        overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta,
+                        onShowVersions = if (onLoadVersions != null) openVersions else null)
                 },
                 footer = {
                     // Inline keyboards and reactions must stack, never paint over one another.

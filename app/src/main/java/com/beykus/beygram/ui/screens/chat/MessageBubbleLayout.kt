@@ -218,7 +218,9 @@ internal fun BubbleMeta(
     retryAvailable: Boolean,
     overlay: Boolean,
     onRetry: () -> Unit,
-    inline: Boolean = false
+    inline: Boolean = false,
+    /** Opens the earlier texts that Chat Memory kept; the versions link shows only when the message has some and this is set. */
+    onShowVersions: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val failed = message.sendState == MessageSendState.Failed
@@ -234,9 +236,19 @@ internal fun BubbleMeta(
         inline -> Modifier.padding(start = 4.dp, end = 8.dp, bottom = 4.dp)
         else -> Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
     }
+    // Chat Memory marks: a kept deletion and a lost attachment. Empty for every message that Chat Memory did not keep.
+    val memory = message.memory
+    val memoryLabels = listOfNotNull(
+        if (memory?.deletedAtMillis != null) stringResource(R.string.chat_memory_deleted) else null,
+        if (memory?.attachmentNotKept == true) stringResource(R.string.chat_memory_attachment_not_kept) else null
+    )
+    val memoryPrefix = if (memoryLabels.isEmpty()) "" else memoryLabels.joinToString(" · ") + " · "
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Text((if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
+        Text(memoryPrefix + (if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
             color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        val versions = memory?.versionCount ?: 0
+        if (versions > 0 && onShowVersions != null) Text(" · " + stringResource(R.string.chat_memory_versions_count, versions),
+            color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.clickable(onClick = onShowVersions))
         if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText, fontSize = 12.sp,
             modifier = Modifier.clickable(onClick = onRetry))
         if (message.isOutgoing && message.sendState == MessageSendState.Sending) {

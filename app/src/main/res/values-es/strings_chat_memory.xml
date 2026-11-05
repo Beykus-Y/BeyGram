@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_memory_deleted">eliminado</string>
+    <string name="chat_memory_attachment_not_kept">adjunto no guardado</string>
+    <string name="chat_memory_versions_count">versiones: %1$d</string>
+    <string name="chat_memory_versions_title">Versiones anteriores</string>
+    <string name="chat_memory_versions_empty">No hay versiones anteriores</string>
+    <string name="chat_memory_version_replaced">reemplazado %1$s</string>
+</resources>
