@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.model.ChatMemoryMark
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.DiceStickerAsset
 import com.beykus.beygram.domain.model.MediaKind
@@ -86,6 +87,37 @@ class MessageHistoryStoreTest {
         val messages = store.observe(1L).value.messages
         assertEquals(listOf(50L, 100L), messages.map { it.id })
         assertEquals(listOf(MessageSendState.Sent, MessageSendState.Sent), messages.map { it.sendState })
+    }
+
+    @Test fun dropChatMemoryRemovesKeptMessagesAndOtherMarks() {
+        val store = MessageHistoryStore()
+        store.put(message(1L, 1L))
+        store.put(message(2L, 2L))
+        store.put(message(3L, 3L))
+        store.markDeleted(1L, listOf(2L), deletedAtMillis = 5L)
+        store.update(1L, 3L) { it.copy(memory = ChatMemoryMark(versionCount = 2)) }
+        store.dropChatMemory(1L)
+        val history = store.observe(1L).value
+        assertEquals(listOf(1L, 3L), history.messages.map { it.id })
+        assertEquals(listOf<ChatMemoryMark?>(null, null), history.messages.map { it.memory })
+    }
+
+    @Test fun droppedKeptMessageComesBackWhenChatMemoryKeepsTheChatAgain() {
+        val store = MessageHistoryStore()
+        store.put(message(2L, 2L))
+        store.markDeleted(1L, listOf(2L), deletedAtMillis = 5L)
+        store.dropChatMemory(1L)
+        assertEquals(emptyList<ChatMessage>(), store.observe(1L).value.messages)
+        store.finishLoad(1L, listOf(message(2L, 2L).copy(memory = ChatMemoryMark(deletedAtMillis = 5L))), false)
+        assertEquals(listOf(2L), store.observe(1L).value.messages.map { it.id })
+    }
+
+    @Test fun chatsWithChatMemoryMarksListsOnlyChatsThatHoldThem() {
+        val store = MessageHistoryStore()
+        store.put(message(1L, 1L, chatId = 1L))
+        store.put(message(2L, 2L, chatId = 2L))
+        store.markDeleted(2L, listOf(2L), deletedAtMillis = 5L)
+        assertEquals(listOf(2L), store.chatsWithChatMemoryMarks())
     }
 
     @Test fun loadStartedBeforeJumpWindowCannotMergeIntoIt() {
