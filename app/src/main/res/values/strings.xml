@@ -2239,6 +2239,8 @@
     <string name="settings_bgbeat_title">BG Beat (анализ музыки)</string>
     <string name="settings_bgbeat_desc">Анализ ритма, BPM и структуры на C++20 ядре BG Media</string>
     <string name="settings_skip_silence_title">Пропускать тишину между треками</string>
+    <string name="settings_crossfade_title">Плавный переход между треками</string>
+    <string name="settings_crossfade_desc">Последние 4 секунды трека накладываются на начало следующего. Только для музыки, по умолчанию выключено.</string>
     <string name="settings_skip_silence_desc">Тишина в конце трека и в начале следующего. Замер идёт в фоне, только на Wi-Fi или при зарядке.</string>
     <string name="settings_bgmix_title">BG Mix (переходы между треками)</string>
     <string name="settings_bgmix_desc">Плавные переходы между музыкальными треками на C++ ядре BG Media. Экспериментально, голосовые и видеосообщения не затрагиваются.</string>

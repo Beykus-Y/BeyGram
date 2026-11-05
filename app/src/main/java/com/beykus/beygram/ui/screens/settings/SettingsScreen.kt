@@ -105,6 +105,7 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
         val transitionContext = LocalContext.current
         remember(transitionContext) { TrackTransitionSettings.load(transitionContext) }
         val skipSilence by TrackTransitionSettings.skipSilence.collectAsStateWithLifecycle()
+        val crossfade by TrackTransitionSettings.crossfade.collectAsStateWithLifecycle()
         SettingsGroup(stringResource(R.string.settings_group_sound_playback)) {
             SettingsLink(Icons.Rounded.GraphicEq, stringResource(R.string.settings_equalizer_title), onEqualizer)
             SettingsRowDivider()
@@ -116,6 +117,14 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
                 subtitle = stringResource(R.string.settings_skip_silence_desc),
                 checked = skipSilence,
                 onCheckedChange = { TrackTransitionSettings.setSkipSilence(transitionContext, it) }
+            )
+            SettingsRowDivider()
+            SettingsToggle(
+                icon = Icons.Rounded.SwapHoriz,
+                title = stringResource(R.string.settings_crossfade_title),
+                subtitle = stringResource(R.string.settings_crossfade_desc),
+                checked = crossfade,
+                onCheckedChange = { TrackTransitionSettings.setCrossfade(transitionContext, it) }
             )
         }
         SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {

@@ -253,6 +253,16 @@ object PlaybackEngine {
     /** Key of the track that was moved past early for trailing silence. Cleared by the next media item transition. */
     private var trailingSkippedKey: String? = null
 
+    /** Overlaps the end of a music track with the start of the next one, when the crossfade setting is on. */
+    private val crossfader = TrackCrossfader(
+        scope = scope,
+        enabled = { TrackTransitionSettings.crossfade.value },
+        busy = { bgMixActive() || deferredSeek != null },
+        newPlayer = { newCrossfadePlayer() },
+        trailingMs = { mediaId -> crossfadeTrailingMs(mediaId) },
+        nextAfter = { primary, mediaId -> crossfadeNextAfter(primary, mediaId) },
+    )
+
     /**
      * A cover thumbnail may finish downloading after playback has already started. The key carries account/origin,
      * so another account's file with the same numeric id is never updated.
@@ -1356,6 +1366,7 @@ object PlaybackEngine {
         prefetchPolicyAccount = null
         PlaybackSources.clear()
         exo?.let {
+            crossfader.cancel(it)
             it.stop()
             it.clearMediaItems()
         }
@@ -1891,6 +1902,7 @@ object PlaybackEngine {
             while (true) {
                 syncPosition()
                 val target = exo ?: break
+                crossfader.watch(target)
                 skipTrailingSilence(target)
                 if (!target.isPlaying && target.playbackState != Player.STATE_BUFFERING) break
                 delay(PROGRESS_INTERVAL_MS)
@@ -1953,7 +1965,7 @@ object PlaybackEngine {
      * The work runs on a background thread, so playback never waits for it.
      */
     private fun requestSilenceMeasurement() {
-        if (!TrackTransitionSettings.skipSilence.value) return
+        if (!TrackTransitionSettings.skipSilence.value && !TrackTransitionSettings.crossfade.value) return
         val context = appContext ?: return
         val state = _state.value
         val target = exo ?: return
@@ -1986,6 +1998,8 @@ object PlaybackEngine {
         val current = state.item ?: return
         // The engine's item lags the player by one callback; act only when the player is on the same track.
         if (target.currentMediaItem?.mediaId != current.systemMediaId) return
+        // A crossfade that is watching this track owns its end; the silence skip must not move the track early.
+        if (crossfader.isWatching(current.systemMediaId)) return
         if (state.queue.size < 2 || current.key == trailingSkippedKey) return
         val edges = SilenceAnalyzer.cachedEdges(withResolvedSource(current)) ?: return
         if (!trailingSkipDue(position, duration, edges.trailingMs)) return
@@ -2006,6 +2020,55 @@ object PlaybackEngine {
         if (target.repeatMode == Player.REPEAT_MODE_ONE) return
         val startMs = SilenceAnalyzer.cachedEdges(item)?.let { leadingSkipStartMs(it.leadingMs) } ?: 0L
         if (startMs > 0L) target.seekTo(startMs)
+    }
+
+    /** The second player of a crossfade. It plays the outgoing tail and never takes audio focus, because the primary holds it. */
+    @OptIn(UnstableApi::class)
+    private fun newCrossfadePlayer(): ExoPlayer? {
+        val context = appContext ?: return null
+        return ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(PlaybackDataSourceFactory(context)))
+            .setAudioAttributes(
+                AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
+                /* handleAudioFocus = */ false
+            )
+            .setHandleAudioBecomingNoisy(false)
+            .build()
+    }
+
+    /** Measured trailing silence of a queue item, once it is known. */
+    private fun crossfadeTrailingMs(mediaId: String): Long? {
+        val item = _state.value.queue.firstOrNull { it.systemMediaId == mediaId } ?: return null
+        return SilenceAnalyzer.cachedEdges(withResolvedSource(item))?.trailingMs
+    }
+
+    /**
+     * The track ExoPlayer plays after [mediaId], when that transition can be a crossfade: music from the queue, both as
+     * complete local files. Null keeps the transition a plain cut.
+     */
+    private fun crossfadeNextAfter(primary: ExoPlayer, mediaId: String): CrossfadeNext? {
+        val state = _state.value
+        if (state.queue.size < 2 || primary.repeatMode == Player.REPEAT_MODE_ONE || !primary.hasNextMediaItem()) return null
+        val current = state.queue.firstOrNull { it.systemMediaId == mediaId } ?: return null
+        if (!isCrossfadeMusic(current)) return null
+        val index = primary.nextMediaItemIndex
+        if (index == C.INDEX_UNSET) return null
+        val nextId = primary.getMediaItemAt(index).mediaId
+        val next = state.queue.firstOrNull { it.systemMediaId == nextId } ?: return null
+        if (!isCrossfadeMusic(next)) return null
+        val startMs = if (TrackTransitionSettings.skipSilence.value) {
+            SilenceAnalyzer.cachedEdges(withResolvedSource(next))?.let { leadingSkipStartMs(it.leadingMs) } ?: 0L
+        } else {
+            0L
+        }
+        return CrossfadeNext(index, nextId, startMs)
+    }
+
+    /** Music from a complete local file: never a voice message, a video note, secret media or a file that is still downloading. */
+    private fun isCrossfadeMusic(item: PlaybackItem): Boolean {
+        if (!item.isMusic || item.systemPrivate) return false
+        val resolved = withResolvedSource(item)
+        return resolved.growing == null && resolved.path.isNotBlank()
     }
 
     /**
