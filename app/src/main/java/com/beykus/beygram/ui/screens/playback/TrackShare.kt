@@ -17,6 +17,12 @@ import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
 import com.beykus.beygram.ui.screens.chat.ForwardTarget
 import java.io.File
 
+/**
+ * A share picked from the player. The track, the timecode and the chat source are fixed when the button is tapped, so
+ * a track change in the player neither drops the picker nor sends a different track.
+ */
+internal data class PendingTrackShare(val item: PlaybackItem, val caption: String, val source: PlaybackRepositorySource)
+
 /** A playback position as the caption of a shared track: m:ss, or h:mm:ss from one hour on. */
 internal fun shareTimecode(positionMs: Long): String {
     val total = positionMs.coerceAtLeast(0L) / 1000L
@@ -39,6 +45,10 @@ internal fun canShareTrack(item: PlaybackItem, originUnprotected: Boolean): Bool
 internal fun shareTargetChats(chats: List<ChatPreview>): List<ChatPreview> =
     chats.filter { it.canPost && !it.isSecret && !it.hasProtectedContent }.distinctBy { it.id }
 
+/** The chat a track came from as it is now; null when the track is not from a chat or that chat is not loaded. */
+internal fun originChatNow(repository: TelegramRepository, item: PlaybackItem): ChatPreview? =
+    item.origin?.let { repository.observeChat(it.chatId).value }
+
 /** The track as an ordinary audio message, sent from the local file the player already plays. */
 internal fun trackOutgoingMedia(item: PlaybackItem): OutgoingMedia {
     val file = File(item.path)
@@ -58,6 +68,9 @@ internal fun trackOutgoingMedia(item: PlaybackItem): OutgoingMedia {
  * Picks chats of [repository], the account the player's chat source belongs to, and sends the track as an audio file
  * with [caption], the timecode. The forward picker runs in copy mode, so the recipient gets a new message rather than a
  * forward. A chat that refuses the file stays selected for a retry.
+ *
+ * Protection and the chat list can change while the picker is open, so the track and every chosen chat are checked
+ * again right before the upload. A chosen chat that no longer qualifies stays selected and counts as failed.
  */
 @Composable
 internal fun ShareTrackDialog(repository: TelegramRepository, item: PlaybackItem, caption: String, onClose: () -> Unit) {
@@ -78,12 +91,19 @@ internal fun ShareTrackDialog(repository: TelegramRepository, item: PlaybackItem
         onSend = { targets, _ ->
             sending = true
             failure = null
-            val media = trackOutgoingMedia(item)
+            val trackAllowed = canShareTrack(
+                item,
+                originUnprotected = item.origin == null || originChatNow(repository, item)?.hasProtectedContent == false
+            )
+            val allowedChats = shareTargetChats(repository.chats.value + repository.archivedChats.value)
+                .map { it.id }
+                .toSet()
+            val media = if (trackAllowed) trackOutgoingMedia(item) else null
             val failed = mutableListOf<ForwardTarget>()
             for (target in targets) {
-                if (repository.sendMedia(target.chatId, media, caption, forumTopicId = target.topicId).isFailure) {
-                    failed += target
-                }
+                val sent = media != null && target.chatId in allowedChats &&
+                    repository.sendMedia(target.chatId, media, caption, forumTopicId = target.topicId).isSuccess
+                if (!sent) failed += target
             }
             sending = false
             if (failed.isNotEmpty()) failure = failedText
