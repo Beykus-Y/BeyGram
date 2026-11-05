@@ -2,6 +2,7 @@ package com.beykus.beygram.ui.screens.playback
 
 import com.beykus.beygram.ui.design.signatureChrome
 import com.beykus.beygram.ui.design.HairlineEdge
+import com.beykus.beygram.ui.design.GlassPanel
 import androidx.compose.animation.AnimatedVisibility
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.Crossfade
@@ -11,6 +12,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -89,6 +91,8 @@ import com.beykus.beygram.playback.playbackSpeedFor
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.components.navigationBarColor
+import com.beykus.beygram.ui.components.navigationSpecFor
 import com.beykus.beygram.ui.design.TopBarVariant
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.fadeEnter
@@ -140,7 +144,9 @@ val LocalOpenMyMusic = compositionLocalOf<(() -> Unit)?> { null }
 fun NowPlayingBar(
     bottomInset: Boolean = false,
     hideWhenImeVisible: Boolean = bottomInset,
-    onOpenEqualizer: (() -> Unit)? = null
+    onOpenEqualizer: (() -> Unit)? = null,
+    /** True above the floating navigation capsule: the bar takes the capsule's margins, corners and material. */
+    floatingDock: Boolean = false
 ) {
     val providedOpenEqualizer = LocalOpenEqualizer.current
     val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
@@ -180,6 +186,7 @@ fun NowPlayingBar(
             MiniPlayerBar(
                 ui = shown,
                 bottomInset = bottomInset,
+                floatingDock = floatingDock,
                 onOpen = { fullPlayerOpen = true }
             )
         }
@@ -200,7 +207,7 @@ fun NowPlayingBar(
 }
 
 @Composable
-private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> Unit) {
+private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, onOpen: () -> Unit) {
     // Music takes its tint from the cover, or from the theme accent without one. Voice and circles keep the theme.
     val cover = rememberCoverTokens(
         artworkPath = ui.artworkPath,
@@ -209,23 +216,64 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> 
         maxAmount = MINI_COVER_TINT
     )
     CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
-        MiniPlayerBarContent(ui, bottomInset, onOpen)
+        if (floatingDock) {
+            MiniDockCard { MiniPlayerBarContent(ui, bottomInset, floatingDock = true, onOpen = onOpen) }
+        } else {
+            MiniPlayerBarContent(ui, bottomInset, floatingDock = false, onOpen = onOpen)
+        }
+    }
+}
+
+/**
+ * The mini-player over a floating navigation capsule. It takes the capsule's side margins, corner radius, shadow and
+ * material, so the two read as one dock. A pinned bar keeps its full-width strip instead.
+ */
+@Composable
+private fun MiniDockCard(content: @Composable () -> Unit) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val spec = remember(design) { navigationSpecFor(design) }
+    val glass = design.surfaces.glass
+    val shape = RoundedCornerShape(spec.dockRadius)
+    val tint = navigationBarColor(design, palette.surface, palette.screen)
+    val outer = Modifier.fillMaxWidth().padding(horizontal = spec.horizontalMargin)
+    if (glass != null) {
+        GlassPanel(
+            design = design,
+            tint = tint,
+            rim = palette.textSecondary,
+            // Gaps in the sampled content show the screen colour, never the sharp content under the card.
+            backdropBase = palette.screen,
+            shape = shape,
+            modifier = outer.shadow(glass.shadowElevation, shape)
+        ) {
+            content()
+        }
+    } else {
+        Box(
+            outer.shadow(spec.elevation, shape).clip(shape).background(tint)
+                .then(if (spec.hairline) Modifier.border(1.dp, palette.divider, shape) else Modifier)
+        ) {
+            content()
+        }
     }
 }
 
 @Composable
-private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> Unit) {
+private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, onOpen: () -> Unit) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val openLabel = stringResource(R.string.player_mini_open)
     val textSpec = rememberMotionSpec(MotionToken.BannerChange)
     val playSpec = rememberMotionSpec(MotionToken.MicroFeedback)
     val subtitle = miniSubtitle(ui)
+    // Above a rounded dock the top edge is clipped by the corners, so the track is inset by the radius to stay visible.
+    val progressInset = if (floatingDock) navigationSpecFor(design).dockRadius else 0.dp
     Column(
         Modifier
             .fillMaxWidth()
             .then(
-                when (design.components.topBar) {
+                if (floatingDock) Modifier else when (design.components.topBar) {
                     TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
                     TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.86f)))
                     TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
@@ -237,7 +285,7 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, onOpen:
                 else Modifier
             )
     ) {
-        MiniPlayerProgress()
+        MiniPlayerProgress(Modifier.padding(horizontal = progressInset))
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -363,10 +411,10 @@ private data class MiniPlayerText(val title: String, val subtitle: String)
 
 /** Real playback progress, not buffering. Buffered data is a faint underlay so the two are distinguishable. */
 @Composable
-private fun MiniPlayerProgress() {
+private fun MiniPlayerProgress(modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     val position = rememberPlaybackPositionUi()
-    Canvas(Modifier.fillMaxWidth().height(2.dp)) {
+    Canvas(modifier.fillMaxWidth().height(2.dp)) {
         drawLine(palette.divider, start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f), end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f), strokeWidth = size.height, cap = StrokeCap.Butt)
         if (position.bufferedFraction > 0f) {
             drawLine(

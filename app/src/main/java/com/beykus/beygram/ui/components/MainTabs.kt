@@ -394,7 +394,7 @@ private fun SelectionMark(spec: NavigationSpec, color: Color, modifier: Modifier
  * floating styles. A pinned Signature bar sits on the canvas, so the content and the chrome share one plane.
  */
 @Composable
-private fun navigationBarColor(design: DesignSystem, fallback: Color, canvas: Color): Color = when (design.components.navigation) {
+internal fun navigationBarColor(design: DesignSystem, fallback: Color, canvas: Color): Color = when (design.components.navigation) {
     NavigationVariant.NavigationBar -> MaterialTheme.colorScheme.surfaceContainer
     NavigationVariant.SignatureMark -> if (design.navigationFloating) fallback else canvas
     else -> fallback
@@ -674,7 +674,7 @@ internal fun MainTabsScaffold(
                 ) {
                     // The mini-player floats with the dock and keeps the same gap above the capsule the list gets.
                     Box(Modifier.padding(bottom = DefaultNavigationDockGap)) {
-                        NowPlayingBar(hideWhenImeVisible = true)
+                        NowPlayingBar(hideWhenImeVisible = true, floatingDock = true)
                     }
                     MainTabBar(
                         tabs = tabs,
