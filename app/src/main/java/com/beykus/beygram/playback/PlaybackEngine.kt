@@ -798,6 +798,16 @@ object PlaybackEngine {
         PlaybackSources.update(resolved.systemMediaId, resolved)
     }
 
+    /**
+     * A growing track whose download has finished becomes a complete file. Until this runs, the track keeps its
+     * "still loading" flag, so BG Beat says so and the silence and crossfade rules never measure it.
+     */
+    private fun settleFinishedDownload() {
+        val item = _state.value.item ?: return
+        val settled = settledGrowingItem(item) ?: return
+        publishResolvedSource(settled)
+    }
+
     private fun resolvedItem(item: PlaybackItem): PlaybackItem {
         val handle = PlaybackSources.handle(item.systemMediaId) ?: return item
         val resolved = handle.resolve() ?: return handle.item
@@ -1901,6 +1911,7 @@ object PlaybackEngine {
         progress = scope.launch {
             while (true) {
                 syncPosition()
+                settleFinishedDownload()
                 val target = exo ?: break
                 crossfader.watch(target)
                 skipTrailingSilence(target)
@@ -1979,6 +1990,7 @@ object PlaybackEngine {
 
     /** The local path of a queue item, for measuring only. Nothing is published and TDLib is not asked for a download. */
     private fun withResolvedSource(item: PlaybackItem): PlaybackItem {
+        settledGrowingItem(item)?.let { return it }
         val resolved = PlaybackSources.handle(item.systemMediaId)?.resolve() ?: return item
         return if (resolved.growing == null) item.copy(path = resolved.path) else item
     }
@@ -2018,7 +2030,7 @@ object PlaybackEngine {
     private fun skipLeadingSilence(target: ExoPlayer, item: PlaybackItem) {
         if (bgMixActive() || !TrackTransitionSettings.skipSilence.value) return
         if (target.repeatMode == Player.REPEAT_MODE_ONE) return
-        val startMs = SilenceAnalyzer.cachedEdges(item)?.let { leadingSkipStartMs(it.leadingMs) } ?: 0L
+        val startMs = SilenceAnalyzer.cachedEdges(withResolvedSource(item))?.let { leadingSkipStartMs(it.leadingMs) } ?: 0L
         if (startMs > 0L) target.seekTo(startMs)
     }
 

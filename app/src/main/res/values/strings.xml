@@ -2238,6 +2238,11 @@
     <string name="settings_group_experiments">Эксперименты</string>
     <string name="settings_bgbeat_title">BG Beat (анализ музыки)</string>
     <string name="settings_bgbeat_desc">Анализ ритма, BPM и структуры на C++20 ядре BG Media</string>
+    <string name="bgbeat_reason_not_music">BG Beat: только для музыки</string>
+    <string name="bgbeat_reason_private_media">BG Beat: приватное медиа исключено</string>
+    <string name="bgbeat_reason_still_downloading">BG Beat: анализ начнётся после загрузки файла</string>
+    <string name="bgbeat_reason_not_downloaded">BG Beat: файл ещё не загружен</string>
+    <string name="bgbeat_reason_unsupported_format">BG Beat: формат аудио не поддерживается</string>
     <string name="settings_skip_silence_title">Пропускать тишину между треками</string>
     <string name="settings_crossfade_title">Плавный переход между треками</string>
     <string name="settings_crossfade_desc">Последние 4 секунды трека накладываются на начало следующего. Только для музыки, по умолчанию выключено.</string>

@@ -9,6 +9,9 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.TransferListener
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import java.io.File
@@ -44,6 +47,62 @@ class PlaybackQueueSource(
 }
 
 internal data class ResolvedPlaybackSource(val path: String, val growing: GrowingPlaybackSource?)
+
+/** Without a transfer, a read that waits this long gives up; each read also asks TDLib to start the file again. */
+internal const val GROWING_NO_TRANSFER_TIMEOUT_MS = 10_000L
+
+/**
+ * Longest wait for the next bytes while TDLib still reports the transfer as active. On a slow or switching network
+ * TDLib keeps retrying for a long time before the bytes return, and a shorter limit turned that wait into an error.
+ */
+internal const val GROWING_ACTIVE_STALL_TIMEOUT_MS = 90_000L
+
+/** Why a read that waits for the next bytes of a growing file gives up. */
+internal enum class GrowingWaitFailure(val diagnosticCode: String, val message: String) {
+    /** TDLib is not transferring the file, and the repeated requests did not start it. */
+    NoTransfer("no_transfer", "Audio download was cancelled"),
+
+    /** TDLib reports a transfer, but no bytes arrived within [GROWING_ACTIVE_STALL_TIMEOUT_MS]. */
+    Stalled("stalled", "Timed out waiting for the next audio chunk"),
+}
+
+/** Null while a read should keep waiting for bytes. [waitedMs] is the time the current read call has waited. */
+internal fun growingWaitFailure(transferActive: Boolean, waitedMs: Long): GrowingWaitFailure? = when {
+    !transferActive && waitedMs >= GROWING_NO_TRANSFER_TIMEOUT_MS -> GrowingWaitFailure.NoTransfer
+    transferActive && waitedMs >= GROWING_ACTIVE_STALL_TIMEOUT_MS -> GrowingWaitFailure.Stalled
+    else -> null
+}
+
+/**
+ * The item as a complete file once TDLib has finished its download; null while the download runs or when TDLib has
+ * not named the final path yet. The engine publishes this, so the BG Beat notice and the silence and crossfade rules
+ * treat a finished track as a file instead of a stream.
+ */
+internal fun settledGrowingItem(item: PlaybackItem): PlaybackItem? {
+    val growing = item.growing ?: return null
+    // An Ogg/Opus source opened without a length can only seek after the engine rebuilds it on the completed file,
+    // and that rebuild is keyed on the growing flag. Such a track keeps the flag.
+    if (!growing.advertiseLength) return null
+    if (!growing.isComplete()) return null
+    val completed = growing.completedPath()?.takeIf { it.isNotBlank() } ?: return null
+    return item.copy(path = completed, growing = null)
+}
+
+/** Records a stalled growing read with states only (no names or paths), so a report shows why playback stopped. */
+private fun recordGrowingStall(failure: GrowingWaitFailure, source: GrowingPlaybackSource, transferActive: Boolean, waitedMs: Long) {
+    recordAppEvent(
+        kind = EventKind.TDLIB,
+        code = "growing_audio_${failure.diagnosticCode}",
+        text = "Музыка: загрузка файла не продолжилась, воспроизведение остановлено",
+        severity = Severity.WARNING,
+        attrs = mapOf(
+            "transfer_active" to transferActive.toString(),
+            "waited_s" to (waitedMs / 1_000L).toString(),
+            "prefix_bytes" to source.readablePrefix().toString(),
+            "size_bytes" to source.totalSize.toString(),
+        )
+    )
+}
 
 /**
  * Live pointer to one PlaybackItem. It can be registered before the file is downloaded; [resolve] then returns null
@@ -220,15 +279,14 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
             // A completed file with no remaining bytes is a normal end of input.
             if (source == null || source.isComplete()) return C.RESULT_END_OF_INPUT
             val now = SystemClock.elapsedRealtime()
-            if (!source.isDownloading() && now - startedAt >= NO_TRANSFER_TIMEOUT_MS) {
-                throw IOException("Audio download was cancelled")
+            val transferActive = source.isDownloading()
+            growingWaitFailure(transferActive, now - startedAt)?.let { failure ->
+                recordGrowingStall(failure, source, transferActive, now - startedAt)
+                throw IOException(failure.message)
             }
             if (now - requestedAt >= REQUEST_INTERVAL_MS) {
                 requestedAt = now
                 source.onNeedMore()
-            }
-            if (now - startedAt >= STALL_TIMEOUT_MS) {
-                throw IOException("Timed out waiting for the next audio chunk")
             }
             sleep()
         }
@@ -280,8 +338,6 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
     private companion object {
         const val POLL_INTERVAL_MS = 50L
         const val REQUEST_INTERVAL_MS = 1_000L
-        const val NO_TRANSFER_TIMEOUT_MS = 10_000L
-        const val STALL_TIMEOUT_MS = 45_000L
         const val OPEN_TIMEOUT_MS = 60_000L
     }
 }

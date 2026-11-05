@@ -29,10 +29,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.R
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -40,6 +42,15 @@ import com.beykus.beygram.ui.screens.playback.NowPlayingColors
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+
+/** The text for a reason BG Beat cannot analyse the current item. Every reason has its own string resource. */
+private fun BgBeatIneligibleReason.labelRes(): Int = when (this) {
+    BgBeatIneligibleReason.NotMusic -> R.string.bgbeat_reason_not_music
+    BgBeatIneligibleReason.PrivateMedia -> R.string.bgbeat_reason_private_media
+    BgBeatIneligibleReason.StillDownloading -> R.string.bgbeat_reason_still_downloading
+    BgBeatIneligibleReason.NotDownloaded -> R.string.bgbeat_reason_not_downloaded
+    BgBeatIneligibleReason.UnsupportedFormat -> R.string.bgbeat_reason_unsupported_format
+}
 
 /**
  * Experimental BG Beat music analysis card shown in the music player.
@@ -145,7 +156,7 @@ internal fun BgBeatSection(
             }
             is BgBeatUiState.Ineligible -> {
                 Text(
-                    text = s.reason,
+                    text = stringResource(s.reason.labelRes()),
                     color = secondaryColor,
                     fontSize = 12.sp
                 )

@@ -21,13 +21,16 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
+/** Why BG Beat cannot analyse the current item. The screen turns each reason into its own string resource. */
+enum class BgBeatIneligibleReason { NotMusic, PrivateMedia, StillDownloading, NotDownloaded, UnsupportedFormat }
+
 sealed interface BgBeatUiState {
     val itemKey: String? get() = null
     val accountId: String? get() = null
 
     data object Disabled : BgBeatUiState
     data class Idle(override val itemKey: String? = null, override val accountId: String? = null) : BgBeatUiState
-    data class Ineligible(val reason: String, override val itemKey: String? = null, override val accountId: String? = null) : BgBeatUiState
+    data class Ineligible(val reason: BgBeatIneligibleReason, override val itemKey: String? = null, override val accountId: String? = null) : BgBeatUiState
     data class Analyzing(val fraction: Float, val stage: String, override val itemKey: String, override val accountId: String) : BgBeatUiState
     data class Ready(val analysis: BgBeatAnalysis, override val itemKey: String, override val accountId: String) : BgBeatUiState
     data class Error(val message: String, override val itemKey: String? = null, override val accountId: String? = null) : BgBeatUiState
@@ -132,7 +135,7 @@ class BgBeatManager(
             cancelCurrentAnalysis()
             activeIdentity = null
             completedIdentity = null
-            _uiState.value = BgBeatUiState.Ineligible("BG Beat: только для музыки", item.key, accountId)
+            _uiState.value = BgBeatUiState.Ineligible(BgBeatIneligibleReason.NotMusic, item.key, accountId)
             return
         }
 
@@ -141,7 +144,7 @@ class BgBeatManager(
             cancelCurrentAnalysis()
             activeIdentity = null
             completedIdentity = null
-            _uiState.value = BgBeatUiState.Ineligible("BG Beat: приватное медиа исключено", item.key, accountId)
+            _uiState.value = BgBeatUiState.Ineligible(BgBeatIneligibleReason.PrivateMedia, item.key, accountId)
             return
         }
 
@@ -150,7 +153,7 @@ class BgBeatManager(
             cancelCurrentAnalysis()
             activeIdentity = null
             completedIdentity = null
-            _uiState.value = BgBeatUiState.Ineligible("BG Beat: файл ещё загружается", item.key, accountId)
+            _uiState.value = BgBeatUiState.Ineligible(BgBeatIneligibleReason.StillDownloading, item.key, accountId)
             return
         }
 
@@ -160,7 +163,7 @@ class BgBeatManager(
             cancelCurrentAnalysis()
             activeIdentity = null
             completedIdentity = null
-            _uiState.value = BgBeatUiState.Ineligible("BG Beat: файл ещё не загружен", item.key, accountId)
+            _uiState.value = BgBeatUiState.Ineligible(BgBeatIneligibleReason.NotDownloaded, item.key, accountId)
             return
         }
 
@@ -303,11 +306,7 @@ class BgBeatManager(
                         _uiState.value = BgBeatUiState.Idle(itemKey, accountId)
                     }
                     BgBeatStatus.UNSUPPORTED -> {
-                        _uiState.value = BgBeatUiState.Ineligible(
-                            result.message.ifBlank { "Формат аудио не поддерживается" },
-                            itemKey,
-                            accountId
-                        )
+                        _uiState.value = BgBeatUiState.Ineligible(BgBeatIneligibleReason.UnsupportedFormat, itemKey, accountId)
                     }
                     BgBeatStatus.ERROR -> {
                         _uiState.value = BgBeatUiState.Error(
