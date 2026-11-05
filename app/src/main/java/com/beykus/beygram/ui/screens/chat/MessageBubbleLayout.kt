@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -218,7 +219,11 @@ internal fun BubbleMeta(
     retryAvailable: Boolean,
     overlay: Boolean,
     onRetry: () -> Unit,
-    inline: Boolean = false
+    inline: Boolean = false,
+    /** Opens the earlier texts that Chat Memory kept; the versions link shows only when the message has some and this is set. */
+    onShowVersions: (() -> Unit)? = null,
+    /** How many earlier texts the link counts; an album passes the member that kept them. */
+    versionCount: Int = message.memory?.versionCount ?: 0
 ) {
     val palette = beyGramPalette()
     val failed = message.sendState == MessageSendState.Failed
@@ -234,21 +239,33 @@ internal fun BubbleMeta(
         inline -> Modifier.padding(start = 4.dp, end = 8.dp, bottom = 4.dp)
         else -> Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
     }
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Text((if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
-            color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-        if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText, fontSize = 12.sp,
-            modifier = Modifier.clickable(onClick = onRetry))
-        if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
-            Spacer(Modifier.width(3.dp))
-            Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = if (overlay) Color.White else palette.messageTime,
-                modifier = Modifier.size(14.dp))
+    // Chat Memory marks: a kept deletion and a lost attachment. Empty for every message that Chat Memory did not keep.
+    val memory = message.memory
+    val memoryLabels = listOfNotNull(
+        if (memory?.deletedAtMillis != null) stringResource(R.string.chat_memory_deleted) else null,
+        if (memory?.attachmentNotKept == true) stringResource(R.string.chat_memory_attachment_not_kept) else null
+    )
+    val memoryPrefix = if (memoryLabels.isEmpty()) "" else memoryLabels.joinToString(" · ") + " · "
+    Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(memoryPrefix + (if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
+                color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText, fontSize = 12.sp,
+                modifier = Modifier.clickable(onClick = onRetry))
+            if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
+                Spacer(Modifier.width(3.dp))
+                Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = if (overlay) Color.White else palette.messageTime,
+                    modifier = Modifier.size(14.dp))
+            }
+            if (message.isOutgoing && message.sendState == MessageSendState.Sent) {
+                Spacer(Modifier.width(3.dp))
+                Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done,
+                    if (isRead) stringResource(R.string.chat_read_description) else stringResource(R.string.chat_sent_description),
+                    tint = if (overlay) Color.White else palette.accent, modifier = Modifier.size(16.dp))
+            }
         }
-        if (message.isOutgoing && message.sendState == MessageSendState.Sent) {
-            Spacer(Modifier.width(3.dp))
-            Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done,
-                if (isRead) stringResource(R.string.chat_read_description) else stringResource(R.string.chat_sent_description),
-                tint = if (overlay) Color.White else palette.accent, modifier = Modifier.size(16.dp))
-        }
+        // The link has a line of its own, so a long time or label can never squeeze it out at a large font size.
+        if (versionCount > 0 && onShowVersions != null) Text(stringResource(R.string.chat_memory_versions_count, versionCount),
+            color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.clickable(onClick = onShowVersions))
     }
 }

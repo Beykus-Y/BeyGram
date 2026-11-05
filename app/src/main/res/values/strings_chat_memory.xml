@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_memory_deleted">удалено</string>
+    <string name="chat_memory_attachment_not_kept">вложение не сохранено</string>
+    <string name="chat_memory_versions_count">версии: %1$d</string>
+    <string name="chat_memory_versions_title">Прежние версии</string>
+    <string name="chat_memory_versions_empty">Прежних версий нет</string>
+    <string name="chat_memory_version_replaced">заменено %1$s</string>
+</resources>
