@@ -18,6 +18,9 @@ import com.beykus.beygram.domain.triggers.TriggerMention
  */
 internal object TriggerAlerts {
     const val CHANNEL_ID = "trigger_words_v1"
+    private const val TAG_PREFIX = "trigger_"
+    /** Trigger alerts kept in the tray at once. Android refuses new posts from an app that has too many outstanding. */
+    private const val MAX_OUTSTANDING = 10
 
     fun post(context: Context, mention: TriggerMention, preferences: NotificationPreferences) {
         if (!preferences.enabled || !AndroidNotificationRenderer.canNotify(context)) return
@@ -49,6 +52,7 @@ internal object TriggerAlerts {
             .setAutoCancel(true)
             .setContentIntent(openApp(context))
             .build()
+        dropOldest(manager)
         try {
             NotificationManagerCompat.from(context).notify(tag(mention), 0, notification)
         } catch (_: SecurityException) {
@@ -63,10 +67,23 @@ internal object TriggerAlerts {
         manager.activeNotifications.filter { it.tag?.startsWith(prefix) == true }.forEach { manager.cancel(it.tag, it.id) }
     }
 
+    /**
+     * Keeps the newest [MAX_OUTSTANDING] - 1 alerts, so the one about to be posted still fits. Android counts all of the
+     * app's notifications against one limit, so unbounded alerts would also block ordinary message notifications.
+     * Older matches stay in the feed.
+     */
+    private fun dropOldest(manager: NotificationManager) {
+        manager.activeNotifications
+            .filter { it.tag?.startsWith(TAG_PREFIX) == true }
+            .sortedByDescending { it.postTime }
+            .drop(MAX_OUTSTANDING - 1)
+            .forEach { manager.cancel(it.tag, it.id) }
+    }
+
     /** One tag per message, so a later alert never replaces an earlier one. */
     private fun tag(mention: TriggerMention): String = accountTagPrefix(mention.accountId) + "${mention.chatId}_${mention.messageId}"
 
-    private fun accountTagPrefix(accountId: String): String = "trigger_${accountId}_"
+    private fun accountTagPrefix(accountId: String): String = "$TAG_PREFIX${accountId}_"
 
     private fun openApp(context: Context): PendingIntent = PendingIntent.getActivity(
         context,
