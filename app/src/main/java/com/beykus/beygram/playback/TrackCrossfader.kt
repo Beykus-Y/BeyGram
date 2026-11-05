@@ -63,6 +63,8 @@ internal class TrackCrossfader(
         }
         val mediaId = primary.currentMediaItem?.mediaId ?: return
         if (mediaId == givenUpMediaId) return
+        // The give-up applies to one track only: a different track starts with a clean slate.
+        givenUpMediaId = null
         val watch = Watch(mediaId)
         current = watch
         watch.job = scope.launch {
