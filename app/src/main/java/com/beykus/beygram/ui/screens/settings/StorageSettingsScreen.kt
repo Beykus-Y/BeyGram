@@ -285,7 +285,8 @@ private fun ChatMemoryCard(repository: StorageRepository, accountId: String) {
     var stats by remember { mutableStateOf<ChatMemoryStats?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
-    LaunchedEffect(accountId) { stats = repository.chatMemoryStats() }
+    // Usage is read again when the switch changes, so the counts and the clear button follow it.
+    LaunchedEffect(accountId, settings.enabled) { stats = repository.chatMemoryStats() }
 
     fun runThenRefresh(work: suspend () -> Unit) {
         scope.launch {
@@ -345,7 +346,8 @@ private fun ChatMemoryCard(repository: StorageRepository, accountId: String) {
         }
         OutlinedButton(
             onClick = { confirmClear = true },
-            enabled = !busy && (stats?.bytes ?: 0L) > 0L,
+            // While Chat Memory is on, writes can land after the last read, so clearing stays possible.
+            enabled = !busy && (settings.enabled || (stats?.bytes ?: 0L) > 0L),
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(stringResource(R.string.chat_memory_clear))
