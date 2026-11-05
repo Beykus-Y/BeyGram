@@ -253,6 +253,35 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
         )
     }
 
+    /** The loaded chats that hold Chat Memory marks now, so the marks can go once Chat Memory stops keeping them. */
+    fun chatsWithChatMemoryMarks(): List<Long> = synchronized(lock) {
+        (cachedChats + openedChats).filter { chatId ->
+            val held = states.peekLocked(chatId) ?: return@filter false
+            held.messages.any { it.memory != null } || held.outsideWindowMessages.any { it.memory != null }
+        }
+    }
+
+    /**
+     * Chat Memory no longer keeps [chatId]: its kept messages leave the screen and the other marks go, now and not at the
+     * next reload. Nothing is retired, so a message comes back once it is loaded again while Chat Memory keeps the chat.
+     */
+    fun dropChatMemory(chatId: Long) = synchronized(lock) {
+        val held = states.peekLocked(chatId) ?: return@synchronized
+        val marked = (held.messages + held.outsideWindowMessages).filter { it.memory != null }
+        if (marked.isEmpty()) return@synchronized
+        // A page still in flight holds the marked copies; the changed mark keeps it from putting them back.
+        marked.forEach { markChanged(chatId, it.id) }
+        val state = flow(chatId)
+        val history = state.value
+        state.value = history.copy(
+            messages = history.messages.filter { it.memory?.deletedAtMillis == null }.map { it.withoutChatMemory() },
+            outsideWindowMessages = history.outsideWindowMessages.filter { it.memory?.deletedAtMillis == null }.map { it.withoutChatMemory() }
+        )
+        keepCached(chatId)
+    }
+
+    private fun ChatMessage.withoutChatMemory(): ChatMessage = if (memory == null) this else copy(memory = null)
+
     private fun markChanged(chatId: Long, messageId: Long) {
         val current = ++revision
         if (flow(chatId).value.isLoading) changed.getOrPut(chatId) { mutableMapOf() }[messageId] = current
