@@ -41,8 +41,8 @@ The scope is set in the trigger words screen:
 
 ## Alerts and the mentions feed
 
-- Alerts use their own notification channel, "Trigger words", so Messages keeps its sound and importance. Each message gets its own notification tag. The tap opens the app; opening the chat at the message is not implemented yet.
-- Previews on: the alert shows the sender and the message text, and the feed keeps the text. Previews off: the alert names only the trigger word, and the feed shows no text for that account, older entries included. Protected content (chats where saving is forbidden) keeps no text either.
+- Alerts use their own notification channel, "Trigger words", so Messages keeps its sound and importance. Each message gets its own notification tag. The tap opens the app; opening the chat at the message is not implemented yet. At most 10 trigger alerts stay in the tray: the oldest leave it, and the feed keeps every match. Android limits the notifications of one app, so an unbounded number of these alerts would also block ordinary message alerts.
+- Previews on: the alert shows the sender and the message text, and the feed keeps the text. Previews off, in the account's settings or in the chat's own notification settings: the alert names only the trigger word, and no text is kept for the match. Previews off for the account also hides the text of older entries in the feed. Protected content (chats where saving is forbidden) keeps no text either.
 - An alert follows the account's notification switch, its background switch and the Android notification permission, as other notifications do. No alert is posted for a chat that is open on screen, or for a message older than 10 minutes, so a catch-up after a reconnect does not ring for old matches. A mention is still recorded when no alert is posted.
 - A mention is identified by account, chat and message. A repeated update for the same message does not add a second entry or alert.
 - The feed keeps the newest 200 mentions. "Clear feed" removes the records from this device only; Telegram messages are not changed.
