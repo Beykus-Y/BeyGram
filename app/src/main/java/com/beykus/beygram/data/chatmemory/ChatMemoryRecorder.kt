@@ -79,15 +79,43 @@ internal class ChatMemoryRecorder(
 
     /** Removes everything kept for the account, after the writes already queued. The switches stay. */
     fun clearAll() {
-        writer.execute {
-            // An account that never kept anything has no database; opening one only to clear it would create it.
-            guarded("clearing failed") { if (ChatMemoryStore.hasDatabase(context, accountId)) store.clearAll() }
-        }
+        writer.execute { clearNow() }
+    }
+
+    /** Like [clearAll], but returns once the store is empty, so a settings screen can show the result. */
+    fun clearAllAndWait() {
+        awaitWriter { clearNow() }
     }
 
     /** Brings the store back under the limit of the switches now, instead of at the next scheduled trim. */
     fun trimNow() {
         writer.execute { trimIfDue(force = true) }
+    }
+
+    /** Like [trimNow], but returns once the store is under the limit, so a settings screen can show the result. */
+    fun trimAndWait() {
+        awaitWriter { trimIfDue(force = true) }
+    }
+
+    /** What is kept now. Empty for an account that never kept anything, so that no database is opened to answer. */
+    fun usage(): ChatMemoryUsage {
+        val empty = ChatMemoryUsage(messages = 0, deletedMessages = 0, versions = 0, bytes = 0L)
+        if (!ChatMemoryStore.hasDatabase(context, accountId)) return empty
+        return read(empty) { store.usage() }
+    }
+
+    // Clearing an account that never kept anything would open a database only to empty it, so that case is skipped.
+    private fun clearNow() {
+        guarded("clearing failed") { if (ChatMemoryStore.hasDatabase(context, accountId)) store.clearAll() }
+    }
+
+    /** Runs [task] on the writer after the writes already queued, and waits for it. A failure is logged, never thrown. */
+    private fun awaitWriter(task: () -> Unit) {
+        try {
+            writer.submit(Runnable { task() }).get()
+        } catch (e: Exception) {
+            Log.w(TAG, "Chat memory: waiting for the writer failed", e)
+        }
     }
 
     private fun enqueue(write: () -> Map<Pair<Long, Long>, Int>) {

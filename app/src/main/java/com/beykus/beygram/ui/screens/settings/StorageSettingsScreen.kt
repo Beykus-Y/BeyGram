@@ -68,6 +68,12 @@ import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.storageSizeText
 import com.beykus.beygram.ui.theme.AvatarPalette
+import com.beykus.beygram.data.settings.ChatMemorySettings
+import com.beykus.beygram.data.settings.ChatMemorySettingsStore
+import com.beykus.beygram.domain.model.ChatMemoryStats
+import com.beykus.beygram.ui.screens.chat.SettingSwitch
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 private enum class ClearScope { Selected, All }
 
@@ -127,6 +133,7 @@ fun StorageSettingsScreen(
                     }
                 }
             }
+            ChatMemoryCard(repository = repository, accountId = accountId)
             Text(stringResource(R.string.storage_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
         }
     }
@@ -260,6 +267,105 @@ private fun ChoiceRow(title: String, selected: Boolean, enabled: Boolean, onSele
     ) {
         RadioButton(selected = selected, onClick = null, enabled = enabled)
         Text(title, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
+/**
+ * Chat Memory of the account: the switches, the size limit, what is kept now, and clearing it. The chat sheets read the same
+ * store, so a change here applies to every chat at once, except a chat that has its own choice.
+ */
+@Composable
+private fun ChatMemoryCard(repository: StorageRepository, accountId: String) {
+    val context = LocalContext.current
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val scope = rememberCoroutineScope()
+    val store = remember(accountId) { ChatMemorySettingsStore.forAccount(context.applicationContext, accountId) }
+    val settings by store.state.collectAsStateWithLifecycle()
+    var stats by remember { mutableStateOf<ChatMemoryStats?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
+    LaunchedEffect(accountId) { stats = repository.chatMemoryStats() }
+
+    fun runThenRefresh(work: suspend () -> Unit) {
+        scope.launch {
+            busy = true
+            try {
+                work()
+                stats = repository.chatMemoryStats()
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    val controlsEnabled = settings.enabled && !busy
+    Column(
+        Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(stringResource(R.string.chat_memory_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Text(stringResource(R.string.chat_memory_detail), color = palette.textSecondary, fontSize = 13.sp)
+        SettingSwitch(title = stringResource(R.string.chat_memory_enable), checked = settings.enabled, enabled = !busy) { on ->
+            store.update { it.copy(enabled = on) }
+        }
+        SettingSwitch(title = stringResource(R.string.chat_memory_save_all), checked = settings.saveAllChats, enabled = controlsEnabled) { all ->
+            store.update { it.copy(saveAllChats = all) }
+        }
+        Text(stringResource(R.string.chat_memory_save_all_detail), color = palette.textSecondary, fontSize = 12.sp)
+        Text(
+            stringResource(R.string.chat_memory_limit_title),
+            color = palette.textPrimary,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        Text(stringResource(R.string.chat_memory_limit_detail), color = palette.textSecondary, fontSize = 13.sp)
+        ChatMemorySettings.LIMIT_CHOICES.forEach { limit ->
+            ChoiceRow(storageSizeText(limit), selected = settings.limitBytes == limit, enabled = controlsEnabled) {
+                if (settings.limitBytes != limit) {
+                    store.update { it.copy(limitBytes = limit) }
+                    runThenRefresh { repository.trimChatMemory() }
+                }
+            }
+        }
+        stats?.let { current ->
+            Text(
+                stringResource(
+                    R.string.chat_memory_usage,
+                    current.messages,
+                    current.deletedMessages,
+                    current.versions,
+                    storageSizeText(current.bytes)
+                ),
+                color = palette.textSecondary,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+        OutlinedButton(
+            onClick = { confirmClear = true },
+            enabled = !busy && (stats?.bytes ?: 0L) > 0L,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(R.string.chat_memory_clear))
+        }
+        Text(stringResource(R.string.chat_memory_footnote), color = palette.textSecondary, fontSize = 12.sp)
+    }
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text(stringResource(R.string.chat_memory_clear_title)) },
+            text = { Text(stringResource(R.string.chat_memory_clear_text)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = false
+                    runThenRefresh { repository.clearChatMemory() }
+                }) { Text(stringResource(R.string.storage_clear_confirm)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.common_cancel)) } }
+        )
     }
 }
 

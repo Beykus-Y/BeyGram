@@ -17,3 +17,13 @@ data class ChatMemoryVersion(
     val attachmentNotKept: Boolean,
     val replacedAtMillis: Long
 )
+
+/**
+ * What Chat Memory keeps for one account, shown in its settings. [bytes] is the estimate that the size limit is checked against.
+ */
+data class ChatMemoryStats(
+    val messages: Int = 0,
+    val deletedMessages: Int = 0,
+    val versions: Int = 0,
+    val bytes: Long = 0L
+)
