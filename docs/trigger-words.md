@@ -42,20 +42,20 @@ The scope is set in the trigger words screen:
 ## Alerts and the mentions feed
 
 - Alerts use their own notification channel, "Trigger words", so Messages keeps its sound and importance. Each message gets its own notification tag. The tap opens the app; opening the chat at the message is not implemented yet.
-- Previews on: the alert shows the sender and the message text, and the feed keeps the text. Previews off: the alert names only the trigger word, and the feed keeps no text. Protected content (chats where saving is forbidden) keeps no text either.
-- Alerts respect the account's notification switch and the Android notification permission. A mention is still recorded when alerts are off.
+- Previews on: the alert shows the sender and the message text, and the feed keeps the text. Previews off: the alert names only the trigger word, and the feed shows no text for that account, older entries included. Protected content (chats where saving is forbidden) keeps no text either.
+- An alert follows the account's notification switch, its background switch and the Android notification permission, as other notifications do. No alert is posted for a chat that is open on screen, or for a message older than 10 minutes, so a catch-up after a reconnect does not ring for old matches. A mention is still recorded when no alert is posted.
 - A mention is identified by account, chat and message. A repeated update for the same message does not add a second entry or alert.
 - The feed keeps the newest 200 mentions. "Clear feed" removes the records from this device only; Telegram messages are not changed.
 
 ## Storage
 
-Everything is in SharedPreferences `trigger_words`, as JSON: the rules, the scope and the mentions. The rules are shared by all accounts. Each mention records its account, so a match from a secondary account keeps that account's identity. Sign-out does not remove the rules.
+Everything is in SharedPreferences `trigger_words`, as JSON: the rules, the scope and the mentions. The rules are shared by all accounts. Each mention records its account, so a match from a secondary account keeps that account's identity. Signing a secondary account out removes its alerts and its mentions from this device. The rules and the scope stay.
 
 ## Limits
 
 - Matching runs only while the account's TDLib client runs: the app is open, or the background notification service is running. Doze and battery restrictions can delay the connection, as described in [notifications.md](notifications.md).
 - The matcher runs on the update path synchronously for each incoming message. It folds each text once per option pair, so the cost stays small for up to 50 rules, but a very large number of messages in a burst is not measured.
-- Regular expressions run on the message text, which can be up to 4096 characters. A pathological expression can be slow; this is accepted because the user writes their own expressions.
+- A regular expression may read at most 500 000 characters of a message. Past that budget, or when the expression overflows the stack on a long text, it counts as not matching. Telegram texts are at most 4096 characters, so that is the longest input. An expression that uses its whole budget does so on every message it is checked against, so keep expressions simple.
 
 ## Checks on a device (not run)
 
@@ -66,3 +66,5 @@ These need a real account and a muted group. They are not established by compila
 3. Set the scope to all chats. A match in an unmuted chat should appear in the feed without an alert.
 4. Enter `[` as a regular expression. Expect the "cannot be parsed" message and no save.
 5. Put a message in a secret chat that contains a rule's word. Expect no mention.
+6. Turn off background notifications for the account, then send a matching message to a muted group while the app is in the background. Expect no alert, and the feed still records the match.
+7. Sign out of a secondary account that has an alert in the tray. Expect the alert and its feed entries to disappear.
