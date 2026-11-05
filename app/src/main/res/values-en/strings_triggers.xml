@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Trigger word alerts. The notification shows the trigger word; the message text appears only with previews on. -->
+    <string name="trigger_channel_name">Trigger words</string>
+    <string name="trigger_channel_description">Alerts for your trigger words in muted chats</string>
+    <string name="trigger_alert_text">%1$s: %2$s</string>
+    <string name="trigger_alert_hidden">Found the word “%1$s”</string>
+</resources>

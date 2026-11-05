@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Trigger word alerts. The notification shows the trigger word; the message text appears only with previews on. -->
+    <string name="trigger_channel_name">Palabras clave</string>
+    <string name="trigger_channel_description">Avisos de tus palabras clave en chats silenciados</string>
+    <string name="trigger_alert_text">%1$s: %2$s</string>
+    <string name="trigger_alert_hidden">Se encontró la palabra «%1$s»</string>
+</resources>

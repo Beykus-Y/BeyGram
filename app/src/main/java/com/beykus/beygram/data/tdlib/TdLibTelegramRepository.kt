@@ -2,6 +2,8 @@ package com.beykus.beygram.data.tdlib
 
 import android.content.Context
 import android.os.Build
+import com.beykus.beygram.notifications.TriggerIncoming
+import com.beykus.beygram.notifications.TriggerWordsStore
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
 import com.beykus.beygram.playback.MusicBotCache
@@ -2660,6 +2662,7 @@ class TdLibTelegramRepository private constructor(
             is TdApi.UpdateNewMessage         -> {
                 reportBotChannel.onNewMessage(update.message)
                 handleNewMessage(update.message)
+                offerToTriggerWords(update.message)
                 conversationEffects.uploadStarted(update.message)
                 if (update.message.isOutgoing && update.message.content is TdApi.MessageVideoNote &&
                     update.message.sendingState is TdApi.MessageSendingStatePending) {
@@ -3205,6 +3208,34 @@ class TdLibTelegramRepository private constructor(
         // Название «Избранного» задаёт приложение на языке интерфейса, поэтому присланное TDLib не перезаписывает его.
         chatCache[chatId] = existing.copy(title = if (existing.isSavedMessages) existing.title else title)
         publishChat(chatId)
+    }
+
+    /**
+     * Trigger words look at every incoming message, including muted chats that TDLib never alerts for.
+     * Runs in the update handler, so it only reads cached chat state and hands the text to the store.
+     */
+    private fun offerToTriggerWords(message: TdApi.Message) {
+        if (message.isOutgoing) return
+        val text = triggerWordText(message.content) ?: return
+        val chat = profiles.chat(message.chatId) ?: return
+        if (chat.type is TdApi.ChatTypeSecret) return
+        try {
+            TriggerWordsStore.get(appContext).onIncoming(
+                TriggerIncoming(
+                    accountId = accountId,
+                    chatId = message.chatId,
+                    messageId = message.id,
+                    dateSeconds = message.date.toLong(),
+                    chatTitle = chat.title,
+                    senderName = profiles.senderName(message.senderId),
+                    text = text,
+                    muted = muteState.isMuted(message.chatId),
+                    protectedContent = chat.hasProtectedContent
+                )
+            )
+        } catch (_: Exception) {
+            // A trigger failure must never interrupt the update stream that the chat list depends on.
+        }
     }
 
     private fun handleNewMessage(message: TdApi.Message) {
