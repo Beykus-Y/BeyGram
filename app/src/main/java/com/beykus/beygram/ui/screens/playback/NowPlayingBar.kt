@@ -267,6 +267,8 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatin
     val textSpec = rememberMotionSpec(MotionToken.BannerChange)
     val playSpec = rememberMotionSpec(MotionToken.MicroFeedback)
     val subtitle = miniSubtitle(ui)
+    // Above a rounded dock the top edge is clipped by the corners, so the track is inset by the radius to stay visible.
+    val progressInset = if (floatingDock) navigationSpecFor(design).dockRadius else 0.dp
     Column(
         Modifier
             .fillMaxWidth()
@@ -283,7 +285,7 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatin
                 else Modifier
             )
     ) {
-        MiniPlayerProgress()
+        MiniPlayerProgress(Modifier.padding(horizontal = progressInset))
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -409,10 +411,10 @@ private data class MiniPlayerText(val title: String, val subtitle: String)
 
 /** Real playback progress, not buffering. Buffered data is a faint underlay so the two are distinguishable. */
 @Composable
-private fun MiniPlayerProgress() {
+private fun MiniPlayerProgress(modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
     val position = rememberPlaybackPositionUi()
-    Canvas(Modifier.fillMaxWidth().height(2.dp)) {
+    Canvas(modifier.fillMaxWidth().height(2.dp)) {
         drawLine(palette.divider, start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f), end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f), strokeWidth = size.height, cap = StrokeCap.Butt)
         if (position.bufferedFraction > 0f) {
             drawLine(
