@@ -54,6 +54,7 @@ import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.AutoDownloadRequest
+import com.beykus.beygram.domain.model.ChatMemoryVersion
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -151,7 +152,9 @@ internal fun MessageAlbumBubble(
     onToggleSelection: () -> Unit = {},
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
     /** Reports the window bounds of the album bubble; every member's viewer opens from the same rectangle. */
-    onMediaBounds: ((Rect) -> Unit)? = null
+    onMediaBounds: ((Rect) -> Unit)? = null,
+    /** Loads the earlier texts that Chat Memory kept for a member; without it the album shows no versions link. */
+    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null
 ) {
     if (messages.isEmpty()) return
     val palette = beyGramPalette()
@@ -170,6 +173,15 @@ internal fun MessageAlbumBubble(
     val selectionState = if (selectionMode) {
         stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected)
     } else null
+
+    // The latest member that kept earlier texts; the album's versions link opens its history.
+    val versionsOwner = chronological.lastOrNull { (it.memory?.versionCount ?: 0) > 0 }
+    val loadVersions = onLoadVersions
+    var showVersions by remember(latest.id) { mutableStateOf(false) }
+    val openVersions: () -> Unit = { showVersions = true }
+    if (showVersions && loadVersions != null && versionsOwner != null) {
+        ChatMemoryVersionsSheet(versionsOwner, loadVersions, onDismiss = { showVersions = false })
+    }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = metrics.sideInset), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && captionMessage.sendState == MessageSendState.Sent, outgoing = latest.isOutgoing,
@@ -240,7 +252,9 @@ internal fun MessageAlbumBubble(
                     },
                     meta = {
                         BubbleMeta(latest, isRead, retryAvailable = latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed },
-                            overlay = false, onRetry = onRetry)
+                            overlay = false, onRetry = onRetry,
+                            onShowVersions = if (loadVersions != null && versionsOwner != null) openVersions else null,
+                            versionCount = versionsOwner?.memory?.versionCount ?: 0)
                     },
                     bottomBar = { commentsBar?.invoke() },
                     footer = {

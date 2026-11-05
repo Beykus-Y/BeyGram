@@ -1657,7 +1657,8 @@ fun ChatScreen(
                                     },
                                     onAutoDownloadFile = onAutoDownloadFile,
                                     showSenderHeader = senderHeaderByKey[listItem.key] == true,
-                                    onOpenMessageEntity = onOpenMessageEntity)
+                                    onOpenMessageEntity = onOpenMessageEntity,
+                                    onLoadVersions = { chatId, messageId -> conversation.messageVersions(chatId, messageId) })
                             }
                         }
                     }
