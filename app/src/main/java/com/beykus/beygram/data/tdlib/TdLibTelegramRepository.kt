@@ -439,6 +439,9 @@ class TdLibTelegramRepository private constructor(
     /** The Chat Memory switches of this account. The settings screens read and change the same store. */
     val chatMemorySettings: ChatMemorySettingsStore = ChatMemorySettingsStore.forAccount(appContext, accountId)
 
+    /** The auto-delete timer of each chat as TDLib last announced it. The profile cache does not take that update. */
+    private val chatAutoDeleteTimers = ConcurrentHashMap<Long, Int>()
+
     /** Chat Memory of this account: kept deletions and earlier versions. Its writes run on their own thread. */
     private val chatMemory = ChatMemoryRecorder(
         context = appContext,
@@ -1522,10 +1525,13 @@ class TdLibTelegramRepository private constructor(
     private val conversationEffects = TdConversationEffects({ client }, policy)
     /** A changed stealth switch applies at once: running chat activity stops and the read bookkeeping is reset. */
     private val stealthPolicyListener: () -> Unit = { conversationEffects.refreshPolicy() }
+    /** A switched-off Chat Memory takes its kept messages off the open chats at once, not at their next reload. */
+    private val chatMemoryPolicyListener: () -> Unit = { dropChatMemoryNotKept() }
 
     init {
         // Registered once conversationEffects exists, so a change can never reach a half-built repository.
         stealthSettings.addListener(stealthPolicyListener)
+        chatMemorySettings.addListener(chatMemoryPolicyListener)
     }
 
     // ---- Память и кэш --------------------------------------------------------
@@ -1825,6 +1831,7 @@ class TdLibTelegramRepository private constructor(
         }
         // The store outlives this repository (the UI shares it), so it must not keep this repository reachable.
         stealthSettings.removeListener(stealthPolicyListener)
+        chatMemorySettings.removeListener(chatMemoryPolicyListener)
         networkMonitor.stop()
         autoDownloadNetworkMonitor.stop()
         autoDownloadSettingsJob?.cancel()
@@ -2692,6 +2699,9 @@ class TdLibTelegramRepository private constructor(
                 }
             }
             is TdApi.UpdateChatMessageAutoDeleteTime -> {
+                chatAutoDeleteTimers[update.chatId] = update.messageAutoDeleteTime
+                // A timer that turns on stops Chat Memory keeping this chat, so its kept messages on screen go too.
+                dropChatMemoryNotKept(update.chatId)
                 if (_authState.value == AuthState.Ready) secretChatDirectory.applyTtl(update.chatId, update.messageAutoDeleteTime)
             }
             is TdApi.UpdateChatPhoto -> {
@@ -2990,6 +3000,8 @@ class TdLibTelegramRepository private constructor(
                 cacheMaintenance.signedOut()
                 // The kept messages belong to the account that signed out.
                 chatMemory.clearAll()
+                // Chat ids of private chats repeat across accounts, so the timers of this account must not reach the next one.
+                chatAutoDeleteTimers.clear()
                 // The chat exceptions name chats of the account that left, so they go. The switches stay: this state also
                 // comes when another device ends the session, and a re-login must not quietly lose the protection.
                 if (isLegacyAccount) {
@@ -3409,7 +3421,8 @@ class TdLibTelegramRepository private constructor(
     private fun chatMemoryFacts(chatId: Long): ChatMemoryChatFacts = ChatMemoryChatFacts(
         isSecret = isSecretChat(chatId),
         hasProtectedContent = chatCache[chatId]?.hasProtectedContent == true,
-        hasAutoDeleteTimer = (profiles.chat(chatId)?.messageAutoDeleteTime?.toLong() ?: 0L) > 0L
+        // The last timer TDLib announced wins. The profile cache does not take that update, so it can hold an older one.
+        hasAutoDeleteTimer = (chatAutoDeleteTimers[chatId] ?: profiles.chat(chatId)?.messageAutoDeleteTime ?: 0) > 0
     )
 
     /** Chat Memory's view of a message as TDLib sent it; null for a service event, which is never kept. */
@@ -3506,6 +3519,17 @@ class TdLibTelegramRepository private constructor(
         chatMemory.markDeleted(chatId, messageIds, fallback)
         val requested = messageIds.toSet()
         return chatMemory.deletedBetween(chatId, lowest, highest).map { it.messageId }.filter { it in requested }.toSet()
+    }
+
+    /**
+     * Chat Memory keeps no messages of a chat that the switches or the chat's timer exclude, so the open chats drop what it
+     * kept at once. [chatId] limits the check to one chat; without it, every loaded chat that holds marks is checked.
+     */
+    private fun dropChatMemoryNotKept(chatId: Long? = null) {
+        val chats = if (chatId != null) listOf(chatId) else messageHistory.chatsWithChatMemoryMarks()
+        for (id in chats) {
+            if (!chatMemory.keeps(id)) messageHistory.dropChatMemory(id)
+        }
     }
 
     /** Chat Memory has kept an earlier text for these messages; the screen shows the new version counts. */

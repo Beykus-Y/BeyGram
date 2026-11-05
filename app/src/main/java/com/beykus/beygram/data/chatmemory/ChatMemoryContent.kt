@@ -12,6 +12,8 @@ internal fun memorySnapshotOf(content: TdApi.MessageContent, isService: Boolean)
     if (isService) return null
     return when (content) {
         is TdApi.MessageText -> MemorySnapshot(text = content.text?.text.orEmpty(), hasAttachment = false)
+        // A standalone emoji is shown as its text, as the chat shows it; the animation itself is not kept.
+        is TdApi.MessageAnimatedEmoji -> MemorySnapshot(text = content.emoji.orEmpty(), hasAttachment = false)
         else -> MemorySnapshot(text = captionOf(content), hasAttachment = true)
     }
 }

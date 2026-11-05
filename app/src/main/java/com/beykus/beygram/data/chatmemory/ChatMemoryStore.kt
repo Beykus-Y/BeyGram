@@ -156,23 +156,30 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
         val db = helper.writableDatabase
         var removed = 0
         while (true) {
-            val usage = usage()
-            if (usage.bytes <= limitBytes || usage.messages == 0) break
-            val averageBytes = (usage.bytes / usage.messages).coerceAtLeast(1L)
-            val batch = ((usage.bytes - limitBytes) / averageBytes + 1).coerceIn(1L, MAX_EVICTION_BATCH).toInt()
-            val victims = victimsLocked(db, batch)
+            val excess = usage().bytes - limitBytes
+            if (excess <= 0L) break
+            val victims = victimsLocked(db, MAX_EVICTION_BATCH.toInt())
             if (victims.isEmpty()) break
+            // Only as many of the oldest victims as the excess needs go. Each one is measured, so one long edit history
+            // does not take the deleted messages behind it along.
+            val chosen = mutableListOf<Victim>()
+            var freed = 0L
+            for (victim in victims) {
+                if (freed >= excess) break
+                chosen += victim
+                freed += victim.bytes
+            }
             db.beginTransaction()
             try {
-                for ((chatId, messageId) in victims) {
-                    db.delete("versions", WHERE_MESSAGE, keyArgs(chatId, messageId))
-                    db.delete("messages", WHERE_MESSAGE, keyArgs(chatId, messageId))
+                for (victim in chosen) {
+                    db.delete("versions", WHERE_MESSAGE, keyArgs(victim.chatId, victim.messageId))
+                    db.delete("messages", WHERE_MESSAGE, keyArgs(victim.chatId, victim.messageId))
                 }
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
             }
-            removed += victims.size
+            removed += chosen.size
         }
         return removed
     }
@@ -272,17 +279,28 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
             }
         }
 
-    private fun victimsLocked(db: SQLiteDatabase, limit: Int): List<Pair<Long, Long>> =
+    /**
+     * The messages trim would remove next, in order, each with the bytes it holds: its text, sender name, row cost and
+     * versions. This is the same measure as [usage], so the bytes freed are the bytes the limit counts.
+     */
+    private fun victimsLocked(db: SQLiteDatabase, limit: Int): List<Victim> =
         db.rawQuery(
-            "SELECT chat_id, message_id FROM messages ORDER BY (deleted_at IS NOT NULL) ASC, COALESCE(deleted_at, seen_at) ASC LIMIT ?",
+            "SELECT m.chat_id, m.message_id, " +
+                "COALESCE(LENGTH(CAST(m.text AS BLOB)), 0) + COALESCE(LENGTH(CAST(m.sender_name AS BLOB)), 0) + $ROW_OVERHEAD_BYTES + " +
+                "COALESCE((SELECT SUM(COALESCE(LENGTH(CAST(v.text AS BLOB)), 0) + $ROW_OVERHEAD_BYTES) FROM versions v " +
+                "WHERE v.chat_id = m.chat_id AND v.message_id = m.message_id), 0) " +
+                "FROM messages m ORDER BY (m.deleted_at IS NOT NULL) ASC, COALESCE(m.deleted_at, m.seen_at) ASC LIMIT ?",
             arrayOf(limit.toString())
         ).use { cursor ->
-            val result = mutableListOf<Pair<Long, Long>>()
+            val result = mutableListOf<Victim>()
             while (cursor.moveToNext()) {
-                result += cursor.getLong(0) to cursor.getLong(1)
+                result += Victim(chatId = cursor.getLong(0), messageId = cursor.getLong(1), bytes = cursor.getLong(2))
             }
             result
         }
+
+    /** A message trim would remove next, with the bytes that removing it frees. */
+    private class Victim(val chatId: Long, val messageId: Long, val bytes: Long)
 
     private class Row(val text: String, val hasAttachment: Boolean, val isOutgoing: Boolean, val deletedAtMillis: Long?, val versionCount: Int)
 
