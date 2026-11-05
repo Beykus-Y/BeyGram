@@ -175,7 +175,10 @@ internal class TrackCrossfader(
         primary.volume = 0f
         watch.volumeTouched = true
         // The overlap is CROSSFADE_MS of media, so at another playback speed the same audio takes a different wall time.
-        val speed = primary.playbackParameters.speed.coerceIn(0.25f, 4f)
+        val parameters = primary.playbackParameters
+        val speed = parameters.speed.coerceIn(0.25f, 4f)
+        // The tail plays at the speed the ramp uses, even if the speed was changed while the tail waited.
+        tail.setPlaybackParameters(parameters)
         primary.seekTo(target.index, target.startMs)
         tail.volume = 1f
         tail.play()
