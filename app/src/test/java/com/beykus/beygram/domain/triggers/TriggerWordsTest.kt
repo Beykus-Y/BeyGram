@@ -21,7 +21,7 @@ class TriggerWordsTest {
         TriggerMatcher(listOf(rule(pattern, mode, ignoreCase, ignoreDiacritics))).matches(text).isNotEmpty()
 
     @Test(timeout = 10_000)
-    fun nestedQuantifiersStopAtTheReadBudget() {
+    fun nestedQuantifiersFinishQuickly() {
         val catastrophic = rule("((a+)+)+b", TriggerMatchMode.REGEX)
         assertNull(validateTriggerRule(catastrophic))
         assertTrue(TriggerMatcher(listOf(catastrophic)).matches("a".repeat(4096)).isEmpty())
@@ -35,6 +35,14 @@ class TriggerWordsTest {
     @Test
     fun ordinaryExpressionStillMatchesLongText() {
         assertTrue(fires("a*b", "a".repeat(4096) + "b", TriggerMatchMode.REGEX))
+    }
+
+    @Test
+    fun regexFoldsUnicodeCaseAndRejectsLookaround() {
+        assertTrue(fires("привет\\s+мир", "ПРИВЕТ   Мир", mode = TriggerMatchMode.REGEX))
+        assertFalse(fires("привет", "ПРИВЕТ", mode = TriggerMatchMode.REGEX, ignoreCase = false))
+        assertTrue(fires("\\p{L}+ать", "писать", mode = TriggerMatchMode.REGEX))
+        assertEquals(TriggerProblem.BAD_REGEX, validateTriggerRule(rule("a(?=b)", TriggerMatchMode.REGEX)))
     }
 
     @Test

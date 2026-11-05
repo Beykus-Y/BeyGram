@@ -28,7 +28,7 @@
     <string name="trigger_mode_contains">Dentro del texto</string>
     <string name="trigger_mode_contains_hint">También coincide dentro de palabras más largas: «test» encuentra «tests».</string>
     <string name="trigger_mode_regex">Expresión regular</string>
-    <string name="trigger_mode_regex_hint">Expresión Java con soporte Unicode, por ejemplo \\burgent\\w*. Se aplica la opción de mayúsculas de abajo.</string>
+    <string name="trigger_mode_regex_hint">Expresión RE2, por ejemplo urgente\\p{L}*. Escribe las letras de otros alfabetos con \\p{L}: \\w y \\b solo funcionan con letras latinas y cifras. No se admiten lookahead ni referencias a grupos. Se aplica la opción de mayúsculas de abajo.</string>
 
     <!-- Editor -->
     <string name="trigger_editor_new">Nueva palabra</string>

@@ -28,7 +28,7 @@
     <string name="trigger_mode_contains">Anywhere in text</string>
     <string name="trigger_mode_contains_hint">Also matches inside longer words, so “test” finds “tests”.</string>
     <string name="trigger_mode_regex">Regular expression</string>
-    <string name="trigger_mode_regex_hint">A Java expression with Unicode support, for example \\burgent\\w*. The case setting below applies.</string>
+    <string name="trigger_mode_regex_hint">An RE2 expression, for example urgent\\p{L}*. Write letters of other alphabets as \\p{L}: \\w and \\b work only with Latin letters and digits. Lookahead and backreferences are not supported. The case setting below applies.</string>
 
     <!-- Editor -->
     <string name="trigger_editor_new">New word</string>

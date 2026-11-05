@@ -28,7 +28,7 @@
     <string name="trigger_mode_contains">Im Text</string>
     <string name="trigger_mode_contains_hint">Trifft auch innerhalb längerer Wörter, so findet „Test“ auch „Tests“.</string>
     <string name="trigger_mode_regex">Regulärer Ausdruck</string>
-    <string name="trigger_mode_regex_hint">Java-Ausdruck mit Unicode-Unterstützung, zum Beispiel \\burgent\\w*. Es gilt die Groß-/Kleinschreibung unten.</string>
+    <string name="trigger_mode_regex_hint">RE2-Ausdruck, zum Beispiel dringend\\p{L}*. Buchstaben anderer Alphabete schreibe mit \\p{L}: \\w und \\b arbeiten nur mit lateinischen Buchstaben und Ziffern. Lookahead und Rückverweise werden nicht unterstützt. Es gilt die Groß-/Kleinschreibung unten.</string>
 
     <!-- Editor -->
     <string name="trigger_editor_new">Neues Wort</string>

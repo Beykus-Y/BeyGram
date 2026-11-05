@@ -28,7 +28,7 @@
     <string name="trigger_mode_contains">Dans le texte</string>
     <string name="trigger_mode_contains_hint">Correspond aussi dans les mots plus longs : « test » trouve « tests ».</string>
     <string name="trigger_mode_regex">Expression régulière</string>
-    <string name="trigger_mode_regex_hint">Expression Java avec prise en charge d’Unicode, par exemple \\burgent\\w*. Le réglage de la casse ci-dessous s’applique.</string>
+    <string name="trigger_mode_regex_hint">Expression RE2, par exemple urgent\\p{L}*. Écrivez les lettres des autres alphabets avec \\p{L} : \\w et \\b ne fonctionnent qu’avec les lettres latines et les chiffres. Le lookahead et les références arrière ne sont pas pris en charge. Le réglage de la casse ci-dessous s’applique.</string>
 
     <!-- Editor -->
     <string name="trigger_editor_new">Nouveau mot</string>

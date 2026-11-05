@@ -12,7 +12,7 @@ Each rule has a pattern, a mode, two case options and an enabled switch.
 | --- | --- |
 | Whole word (default) | The match must not touch a letter, digit, underscore or mark at its edges. Only edges that are word characters count, so `#release` matches `#release!`. |
 | Anywhere in text | Plain substring match on the normalized text. `test` matches `tests`. |
-| Regular expression | A Java regular expression with Unicode character classes, applied to the text as written. Case handling follows the case switch. Diacritics are not applied. |
+| Regular expression | An RE2 expression (RE2J library), applied to the text as written. No lookaround or backreferences. `\w` and `\b` are ASCII, so write letters of other scripts as `\p{L}`. Matching takes time linear in the text, so no expression can stall incoming messages. Case handling follows the case switch. Diacritics are not applied. |
 
 Plain patterns and message texts are normalized the same way before comparison:
 
@@ -55,7 +55,7 @@ Everything is in SharedPreferences `trigger_words`, as JSON: the rules, the scop
 
 - Matching runs only while the account's TDLib client runs: the app is open, or the background notification service is running. Doze and battery restrictions can delay the connection, as described in [notifications.md](notifications.md).
 - The matcher runs on the update path synchronously for each incoming message. It folds each text once per option pair, so the cost stays small for up to 50 rules, but a very large number of messages in a burst is not measured.
-- A regular expression may read at most 500 000 characters of a message. Past that budget, or when the expression overflows the stack on a long text, it counts as not matching. Telegram texts are at most 4096 characters, so that is the longest input. An expression that uses its whole budget does so on every message it is checked against, so keep expressions simple.
+- A regular expression runs in time linear in the message length, so a pattern with nested repeats cannot stall the update path. Telegram texts are at most 4096 characters, so that is the longest input.
 
 ## Checks on a device (not run)
 

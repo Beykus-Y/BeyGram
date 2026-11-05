@@ -28,7 +28,7 @@
     <string name="trigger_mode_contains">Внутри текста</string>
     <string name="trigger_mode_contains_hint">Совпадает и внутри более длинных слов: «тест» найдёт «тесты».</string>
     <string name="trigger_mode_regex">Регулярное выражение</string>
-    <string name="trigger_mode_regex_hint">Выражение Java с поддержкой Unicode, например \\bсрочн\\w*. Регистр задаётся настройкой ниже.</string>
+    <string name="trigger_mode_regex_hint">Выражение RE2, например срочн\\p{L}*. Буквы других алфавитов пишите через \\p{L}: \\w и \\b работают только с латиницей и цифрами. Просмотр вперёд и обратные ссылки не поддерживаются. Регистр задаётся настройкой ниже.</string>
 
     <!-- Editor -->
     <string name="trigger_editor_new">Новое слово</string>
