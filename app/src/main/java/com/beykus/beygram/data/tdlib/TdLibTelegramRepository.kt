@@ -3232,6 +3232,7 @@ class TdLibTelegramRepository private constructor(
                     text = text,
                     muted = muteState.isMuted(message.chatId),
                     protectedContent = chat.hasProtectedContent,
+                    previewAllowed = muteState.isPreviewAllowed(message.chatId),
                     foreground = presentation.foreground,
                     chatOnScreen = presentation.foreground && message.chatId in presentation.openedChats
                 )

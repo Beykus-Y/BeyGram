@@ -34,18 +34,38 @@ internal enum class NotificationScope {
  */
 internal class ChatMuteState {
     private val scopeMuted = ConcurrentHashMap<NotificationScope, Boolean>()
+    private val scopePreview = ConcurrentHashMap<NotificationScope, Boolean>()
     private val chats = ConcurrentHashMap<Long, ChatMute>()
 
     fun putChat(chatId: Long, scope: NotificationScope, settings: TdApi.ChatNotificationSettings?) {
-        chats[chatId] = ChatMute(scope, useDefault = settings?.useDefaultMuteFor == true, muteFor = settings?.muteFor ?: 0)
+        chats[chatId] = ChatMute(
+            scope,
+            useDefault = settings?.useDefaultMuteFor == true,
+            muteFor = settings?.muteFor ?: 0,
+            useDefaultPreview = settings?.useDefaultShowPreview ?: true,
+            showPreview = settings?.showPreview ?: false
+        )
     }
 
     /** Меняет только известный чат: чат без записи ещё не загружен, его зададут через [putChat]. */
     fun updateChat(chatId: Long, settings: TdApi.ChatNotificationSettings) {
-        chats.computeIfPresent(chatId) { _, old -> old.copy(useDefault = settings.useDefaultMuteFor, muteFor = settings.muteFor) }
+        chats.computeIfPresent(chatId) { _, old ->
+            old.copy(
+                useDefault = settings.useDefaultMuteFor,
+                muteFor = settings.muteFor,
+                useDefaultPreview = settings.useDefaultShowPreview,
+                showPreview = settings.showPreview
+            )
+        }
     }
 
     fun isMuted(chatId: Long): Boolean = chats[chatId]?.isMuted(scopeMuted) == true
+
+    /**
+     * Разрешает ли Telegram показывать текст сообщений этого чата в уведомлениях. Пока настройка неизвестна, ответ «нет»:
+     * текст тогда не сохраняется.
+     */
+    fun isPreviewAllowed(chatId: Long): Boolean = chats[chatId]?.isPreviewAllowed(scopePreview) == true
 
     /** Известна ли заглушённость чата: своя настройка известна сразу, настройка по умолчанию — когда прочитана её область. */
     fun isKnown(chatId: Long): Boolean = chats[chatId]?.let { !it.useDefault || scopeMuted.containsKey(it.scope) } == true
@@ -53,11 +73,21 @@ internal class ChatMuteState {
     /** Запоминает общую настройку области и возвращает чаты этой области, которые её используют. */
     fun updateScope(scope: NotificationScope, settings: TdApi.ScopeNotificationSettings): List<Long> {
         scopeMuted[scope] = settings.muteFor > 0
+        scopePreview[scope] = settings.showPreview
         return chats.filterValues { it.scope == scope && it.useDefault }.keys.toList()
     }
 
-    private data class ChatMute(val scope: NotificationScope, val useDefault: Boolean, val muteFor: Int) {
+    private data class ChatMute(
+        val scope: NotificationScope,
+        val useDefault: Boolean,
+        val muteFor: Int,
+        val useDefaultPreview: Boolean,
+        val showPreview: Boolean
+    ) {
         fun isMuted(scopeMuted: Map<NotificationScope, Boolean>): Boolean =
             if (useDefault) scopeMuted[scope] ?: (muteFor > 0) else muteFor > 0
+
+        fun isPreviewAllowed(scopePreview: Map<NotificationScope, Boolean>): Boolean =
+            if (useDefaultPreview) scopePreview[scope] == true else showPreview
     }
 }

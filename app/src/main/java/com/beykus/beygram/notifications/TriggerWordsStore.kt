@@ -11,6 +11,7 @@ import com.beykus.beygram.domain.triggers.TriggerWordLimits
 import com.beykus.beygram.domain.triggers.TriggerWordsCodec
 import com.beykus.beygram.domain.triggers.triggerSnippet
 import com.beykus.beygram.domain.triggers.validateTriggerRule
+import com.beykus.beygram.security.NotificationPreviewPolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +27,8 @@ data class TriggerIncoming(
     val text: String,
     val muted: Boolean,
     val protectedContent: Boolean,
+    /** Telegram's preview setting for the chat. When it is off, no text is kept in notifications or the feed. */
+    val previewAllowed: Boolean,
     /** The app is in the foreground. */
     val foreground: Boolean,
     /** The chat is open on screen, so its matches need no alert. */
@@ -118,6 +121,14 @@ class TriggerWordsStore private constructor(context: Context) {
         val fired = TriggerMatcher(active).matches(event.text)
         if (fired.isEmpty()) return
         val preferences = NotificationPreferencesStore(appContext, event.accountId).state.value
+        // The same rule as the other notifications: the account's previews switch, the chat's preview setting, protected content.
+        val showText = !NotificationPreviewPolicy.hideText(
+            previews = preferences.previews,
+            previewAllowed = event.previewAllowed,
+            isSecret = false,
+            metadataReady = true,
+            hasProtectedContent = event.protectedContent
+        )
         val mention = TriggerMention(
             id = "${event.accountId}:${event.chatId}:${event.messageId}",
             accountId = event.accountId,
@@ -126,7 +137,7 @@ class TriggerWordsStore private constructor(context: Context) {
             dateSeconds = event.dateSeconds,
             chatTitle = event.chatTitle,
             senderName = event.senderName,
-            snippet = if (preferences.previews && !event.protectedContent) triggerSnippet(event.text) else null,
+            snippet = if (showText) triggerSnippet(event.text) else null,
             triggers = fired.map { it.pattern },
             muted = event.muted
         )
