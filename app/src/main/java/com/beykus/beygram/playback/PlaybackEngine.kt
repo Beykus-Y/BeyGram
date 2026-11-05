@@ -657,6 +657,7 @@ object PlaybackEngine {
         if (!item.systemPrivate) startPlaybackService()
         startProgress()
         prefetchNext()
+        requestSilenceMeasurement()
         loadNextQueuePage()
     }
 
@@ -1775,6 +1776,7 @@ object PlaybackEngine {
             updateAudioSessionId()
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                 prefetchNext()
+                requestSilenceMeasurement()
                 loadNextQueuePage()
             }
         }
@@ -1937,6 +1939,28 @@ object PlaybackEngine {
                 }
             }
         }
+    }
+
+    /**
+     * Asks for silence measurements of the playing track and of the track ExoPlayer plays next, in playback order.
+     * The work runs on a background thread, so playback never waits for it.
+     */
+    private fun requestSilenceMeasurement() {
+        val context = appContext ?: return
+        val state = _state.value
+        val target = exo ?: return
+        if (state.queue.isEmpty()) return
+        val nextIndex = target.nextMediaItemIndex
+        val nextMediaId = if (nextIndex != C.INDEX_UNSET) target.getMediaItemAt(nextIndex).mediaId else null
+        val next = nextMediaId?.let { id -> state.queue.firstOrNull { it.systemMediaId == id } }
+        val candidates = listOfNotNull(state.item, next).map { withResolvedSource(it) }
+        SilenceAnalyzer.request(context, candidates)
+    }
+
+    /** The local path of a queue item, for measuring only. Nothing is published and TDLib is not asked for a download. */
+    private fun withResolvedSource(item: PlaybackItem): PlaybackItem {
+        val resolved = PlaybackSources.handle(item.systemMediaId)?.resolve() ?: return item
+        return if (resolved.growing == null) item.copy(path = resolved.path) else item
     }
 
     /**
