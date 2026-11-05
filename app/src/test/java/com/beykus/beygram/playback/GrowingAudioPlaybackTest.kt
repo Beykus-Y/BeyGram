@@ -129,6 +129,19 @@ class GrowingAudioPlaybackTest {
         assertNull(settledGrowingItem(PlaybackItem("Audio:22", MediaKind.Audio, "/partial.mp3", "Track", 180, growing = source)))
     }
 
+    @Test fun unseekableOggKeepsItsFlagSoASeekStillRebuildsTheSource() {
+        val source = GrowingPlaybackSource(
+            totalSize = 100L,
+            readablePrefix = { 100L },
+            isComplete = { true },
+            completedPath = { "/done.ogg" },
+            isDownloading = { false },
+            onNeedMore = {},
+            advertiseLength = false
+        )
+        assertNull(settledGrowingItem(PlaybackItem("Audio:24", MediaKind.Audio, "/partial.ogg", "Track", 180, growing = source)))
+    }
+
     @Test fun plainFileIsNeverSettled() {
         assertNull(settledGrowingItem(PlaybackItem("Audio:23", MediaKind.Audio, "/done.mp3", "Track", 180)))
     }

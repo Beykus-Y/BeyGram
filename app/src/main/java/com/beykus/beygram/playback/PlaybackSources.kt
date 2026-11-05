@@ -80,6 +80,9 @@ internal fun growingWaitFailure(transferActive: Boolean, waitedMs: Long): Growin
  */
 internal fun settledGrowingItem(item: PlaybackItem): PlaybackItem? {
     val growing = item.growing ?: return null
+    // An Ogg/Opus source opened without a length can only seek after the engine rebuilds it on the completed file,
+    // and that rebuild is keyed on the growing flag. Such a track keeps the flag.
+    if (!growing.advertiseLength) return null
     if (!growing.isComplete()) return null
     val completed = growing.completedPath()?.takeIf { it.isNotBlank() } ?: return null
     return item.copy(path = completed, growing = null)
