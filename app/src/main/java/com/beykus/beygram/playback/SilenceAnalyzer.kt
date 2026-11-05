@@ -43,7 +43,8 @@ internal object SilenceAnalyzer {
                     if (SilenceEdgeStore.lookup(key, length) != null) continue
                     // A closed gate only postpones the work: the next queue change asks again.
                     if (!allowedInBackground(app)) return@launch
-                    val edges = SilenceEdgeDecoder.analyze(file.path)
+                    // A null result is a failed or timed-out decode. It is not stored, so a later request tries again.
+                    val edges = SilenceEdgeDecoder.analyze(file.path) ?: continue
                     SilenceEdgeStore.put(app, key, edges, length, System.currentTimeMillis())
                 }
             }

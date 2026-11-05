@@ -10,7 +10,8 @@ import java.nio.ByteOrder
 /**
  * Measures the silence at both ends of a complete local audio file with [MediaExtractor] and [MediaCodec].
  * Only the first and the last [SILENCE_SCAN_MS] are decoded, so the cost does not grow with the track length.
- * Any failure gives [SilenceEdges.UNKNOWN]; nothing is thrown to the caller.
+ * Nothing is thrown to the caller. A decode that fails or runs out of time gives null, which is transient and must not
+ * be cached. A file without an audio track gives [SilenceEdges.UNKNOWN], which is final.
  */
 internal object SilenceEdgeDecoder {
     private const val DEQUEUE_TIMEOUT_US = 10_000L
@@ -19,7 +20,7 @@ internal object SilenceEdgeDecoder {
     /** Upper bound for one file, so a stuck codec cannot keep the analysis thread busy. */
     private const val MAX_ANALYSIS_NANOS = 8_000_000_000L
 
-    fun analyze(path: String): SilenceEdges {
+    fun analyze(path: String): SilenceEdges? {
         val extractor = MediaExtractor()
         return try {
             extractor.setDataSource(path)
@@ -48,9 +49,11 @@ internal object SilenceEdgeDecoder {
             } else {
                 null
             }
+            // A decode that should have run and failed is transient, so nothing is returned that would be cached.
+            if (head == null || (durationUs > 0L && tail == null)) return null
             silenceEdgesFromPeaks(head = head, tail = tail, durationMs = durationUs.coerceAtLeast(0L) / 1_000L)
         } catch (_: Exception) {
-            SilenceEdges.UNKNOWN
+            null
         } finally {
             runCatching { extractor.release() }
         }
