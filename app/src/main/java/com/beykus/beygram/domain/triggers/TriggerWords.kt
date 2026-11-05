@@ -112,6 +112,39 @@ private fun stripFormatting(text: String): String = FORMAT_CHARACTERS.replace(te
 private fun regexFlags(ignoreCase: Boolean): Int =
     Pattern.UNICODE_CHARACTER_CLASS or (if (ignoreCase) Pattern.CASE_INSENSITIVE or Pattern.UNICODE_CASE else 0)
 
+/** Character reads one expression may make on one message. A pattern that backtracks past this does not match. */
+private const val REGEX_READ_BUDGET = 500_000
+
+/** Thrown from inside the regex engine when a match runs past its budget. No stack trace, so it stays cheap. */
+private class RegexBudgetExceeded : RuntimeException(null, null, false, false)
+
+/**
+ * The text an expression reads. The engine reads each character through [get], so counting those reads bounds the
+ * work of nested quantifiers, which backtrack for minutes on a few dozen characters.
+ */
+private class BudgetedText(private val text: String) : CharSequence {
+    private var reads = 0
+    override val length: Int get() = text.length
+    override fun get(index: Int): Char {
+        if (++reads > REGEX_READ_BUDGET) throw RegexBudgetExceeded()
+        return text[index]
+    }
+    override fun subSequence(startIndex: Int, endIndex: Int): CharSequence = text.subSequence(startIndex, endIndex)
+    override fun toString(): String = text
+}
+
+/**
+ * Runs an expression on [text] within its budget. Running out of budget, or the stack on alternation over a long
+ * text (`(a|b)*c` overflows on 4096 characters), counts as no match: a message must never stop the update path.
+ */
+private fun matchesWithinBudget(pattern: Pattern, text: String): Boolean = try {
+    pattern.matcher(BudgetedText(text)).find()
+} catch (_: RegexBudgetExceeded) {
+    false
+} catch (_: StackOverflowError) {
+    false
+}
+
 private fun compileTrigger(rule: TriggerRule): CompiledTrigger? {
     val pattern = rule.pattern.trim()
     if (validateTriggerRule(rule.copy(pattern = pattern)) != null) return null
@@ -128,7 +161,7 @@ private class CompiledTrigger(val rule: TriggerRule, val folded: String, val reg
     private val segmentedByScript: Boolean = folded.isNotEmpty() && hasNoSpaceScript(folded)
 
     fun matches(variants: TextVariants): Boolean {
-        regex?.let { return it.matcher(variants.raw).find() }
+        regex?.let { return matchesWithinBudget(it, variants.raw) }
         val text = variants.folded(rule.ignoreCase, rule.ignoreDiacritics)
         return when (rule.mode) {
             TriggerMatchMode.CONTAINS -> text.value.contains(folded)

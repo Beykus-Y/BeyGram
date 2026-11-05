@@ -20,6 +20,23 @@ class TriggerWordsTest {
                       ignoreCase: Boolean = true, ignoreDiacritics: Boolean = false): Boolean =
         TriggerMatcher(listOf(rule(pattern, mode, ignoreCase, ignoreDiacritics))).matches(text).isNotEmpty()
 
+    @Test(timeout = 10_000)
+    fun nestedQuantifiersStopAtTheReadBudget() {
+        val catastrophic = rule("((a+)+)+b", TriggerMatchMode.REGEX)
+        assertNull(validateTriggerRule(catastrophic))
+        assertTrue(TriggerMatcher(listOf(catastrophic)).matches("a".repeat(4096)).isEmpty())
+    }
+
+    @Test(timeout = 10_000)
+    fun alternationOverLongTextDoesNotEscapeAsAnError() {
+        assertFalse(fires("(a|b)*c", "ab".repeat(2048), TriggerMatchMode.REGEX))
+    }
+
+    @Test
+    fun ordinaryExpressionStillMatchesLongText() {
+        assertTrue(fires("a*b", "a".repeat(4096) + "b", TriggerMatchMode.REGEX))
+    }
+
     @Test
     fun cyrillicMatchIgnoresCaseByDefault() {
         assertTrue(fires("срочно", "СРОЧНО всем в офис"))
