@@ -130,6 +130,23 @@ internal fun parseChatMemorySettings(stored: Map<String, *>): ChatMemorySettings
     ).normalized()
 }
 
+/** Whether the settings keep the messages of [chatId], before the facts of that chat (secret chats and the like) are checked. */
+fun ChatMemorySettings.savesChat(chatId: Long): Boolean = when (chats[chatId]) {
+    ChatMemoryChatMode.Save -> true
+    ChatMemoryChatMode.Skip -> false
+    null -> saveAllChats
+}
+
+/**
+ * The settings after the user chose whether to keep the messages of [chatId]. A choice that equals [saveAllChats] removes
+ * the exception instead, so [chats] only ever holds what differs from the default.
+ */
+fun ChatMemorySettings.withChatSaved(chatId: Long, saved: Boolean): ChatMemorySettings {
+    if (saved == saveAllChats) return copy(chats = chats - chatId)
+    val mode = if (saved) ChatMemoryChatMode.Save else ChatMemoryChatMode.Skip
+    return copy(chats = chats + (chatId to mode))
+}
+
 private fun ChatMemorySettings.normalized(): ChatMemorySettings =
     copy(limitBytes = limitBytes.coerceAtLeast(ChatMemorySettings.MIN_LIMIT_BYTES))
 

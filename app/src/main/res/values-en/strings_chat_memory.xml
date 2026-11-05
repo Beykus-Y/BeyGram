@@ -6,4 +6,21 @@
     <string name="chat_memory_versions_title">Earlier versions</string>
     <string name="chat_memory_versions_empty">No earlier versions</string>
     <string name="chat_memory_version_replaced">replaced %1$s</string>
+    <string name="chat_memory_chat_title">Chat memory</string>
+    <string name="chat_memory_chat_switch">Keep deleted and edited messages</string>
+    <string name="chat_memory_chat_secret">Chat memory does not work in secret chats.</string>
+    <string name="chat_memory_chat_off">Chat memory is off. You can turn it on in storage settings.</string>
+    <string name="chat_memory_chat_note">Only text is kept, not attachments. Chats with content protection and chats with an auto-delete timer are never kept.</string>
+    <string name="chat_memory_title">Chat memory</string>
+    <string name="chat_memory_detail">Keeps deleted and edited messages on this device. Secret chats are never kept.</string>
+    <string name="chat_memory_enable">Turn on chat memory</string>
+    <string name="chat_memory_save_all">Keep messages in all chats</string>
+    <string name="chat_memory_save_all_detail">Turn off to keep only the chats you chose in their settings.</string>
+    <string name="chat_memory_limit_title">Memory limit</string>
+    <string name="chat_memory_limit_detail">When memory reaches the limit, the oldest entries go first.</string>
+    <string name="chat_memory_usage">Messages: %1$d · deleted: %2$d · versions: %3$d · %4$s used</string>
+    <string name="chat_memory_clear">Clear chat memory</string>
+    <string name="chat_memory_clear_title">Clear chat memory?</string>
+    <string name="chat_memory_clear_text">Deleted messages and earlier versions will be erased from this device. Your chats in Telegram will not change.</string>
+    <string name="chat_memory_footnote">While chat memory is off, kept messages are not shown, but they are not erased either. Memory is erased when you log out and when you delete an account.</string>
 </resources>

@@ -152,6 +152,7 @@ import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.domain.model.InteractionPolicy
 import com.beykus.beygram.domain.model.StealthBlockedException
 import com.beykus.beygram.domain.model.ChatMemoryMark
+import com.beykus.beygram.domain.model.ChatMemoryStats
 import com.beykus.beygram.domain.model.ChatMemoryVersion
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
@@ -435,11 +436,14 @@ class TdLibTelegramRepository private constructor(
 
     private val messageHistory = MessageHistoryStore()
 
+    /** The Chat Memory switches of this account. The settings screens read and change the same store. */
+    val chatMemorySettings: ChatMemorySettingsStore = ChatMemorySettingsStore.forAccount(appContext, accountId)
+
     /** Chat Memory of this account: kept deletions and earlier versions. Its writes run on their own thread. */
     private val chatMemory = ChatMemoryRecorder(
         context = appContext,
         accountId = accountId,
-        settings = ChatMemorySettingsStore.forAccount(appContext, accountId),
+        settings = chatMemorySettings,
         factsOf = { chatId -> chatMemoryFacts(chatId) },
         onVersionsKept = { changes -> applyKeptVersions(changes) }
     )
@@ -1535,6 +1539,15 @@ class TdLibTelegramRepository private constructor(
     override suspend fun clearStorage(categories: Set<StorageCategory>, onProgress: (done: Int, total: Int) -> Unit): Result<Long> =
         storageInAuthScope { storage.clear(categories, onProgress) }
     override suspend fun applyCachePolicy(policy: CachePolicy): Result<Long> = storageInAuthScope { storage.applyPolicy(policy) }
+
+    // Chat Memory keeps its own database, so it stays outside the file queue above. Its work runs off the main thread.
+    override suspend fun chatMemoryStats(): ChatMemoryStats = withContext(Dispatchers.IO) {
+        chatMemory.usage().let { usage ->
+            ChatMemoryStats(messages = usage.messages, deletedMessages = usage.deletedMessages, versions = usage.versions, bytes = usage.bytes)
+        }
+    }
+    override suspend fun trimChatMemory() = withContext(Dispatchers.IO) { chatMemory.trimAndWait() }
+    override suspend fun clearChatMemory() = withContext(Dispatchers.IO) { chatMemory.clearAllAndWait() }
 
     /**
      * Очистка и лимит идут в области входа: уход с экрана их не прерывает, а очередь [TdStorage] держится до ответа TDLib.

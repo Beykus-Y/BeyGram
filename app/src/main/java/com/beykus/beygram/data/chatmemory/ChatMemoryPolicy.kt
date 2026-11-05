@@ -1,7 +1,7 @@
 package com.beykus.beygram.data.chatmemory
 
-import com.beykus.beygram.data.settings.ChatMemoryChatMode
 import com.beykus.beygram.data.settings.ChatMemorySettings
+import com.beykus.beygram.data.settings.savesChat
 
 /**
  * Facts about a chat that decide whether Chat Memory may keep its messages at all. These limits hold whatever the
@@ -18,9 +18,5 @@ internal data class ChatMemoryChatFacts(
 internal fun chatMemorySaves(settings: ChatMemorySettings, chatId: Long, facts: ChatMemoryChatFacts): Boolean {
     if (!settings.enabled) return false
     if (facts.isSecret || facts.hasProtectedContent || facts.hasAutoDeleteTimer) return false
-    return when (settings.chats[chatId]) {
-        ChatMemoryChatMode.Save -> true
-        ChatMemoryChatMode.Skip -> false
-        null -> settings.saveAllChats
-    }
+    return settings.savesChat(chatId)
 }

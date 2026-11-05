@@ -61,9 +61,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.WallpaperPresets
+import com.beykus.beygram.data.settings.ChatMemorySettingsStore
 import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.ChatStealthMode
 import com.beykus.beygram.data.settings.StealthSettingsStore
+import com.beykus.beygram.data.settings.savesChat
+import com.beykus.beygram.data.settings.withChatSaved
 import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.domain.model.ChatNotificationPreferences
 import com.beykus.beygram.domain.model.NotificationSoundOption
@@ -337,6 +340,10 @@ internal fun ChatSettingsSheet(
                         onSaved = { saved -> if (!saved) error = stealthSaveFailed else if (error == stealthSaveFailed) error = null }
                     )
                 }
+                (conversation as? TdLibTelegramRepository)?.chatMemorySettings?.let { store ->
+                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(vertical = 8.dp))
+                    ChatMemorySection(chatId = chatId, store = store, isSecretChat = isSecretChat)
+                }
                 if (isSecretChat) {
                     HorizontalDivider(color = palette.divider, modifier = Modifier.padding(vertical = 8.dp))
                     SecretChatSettingsSection(
@@ -411,6 +418,31 @@ private fun ChatStealthSection(chatId: Long, store: StealthSettingsStore, onSave
         ChatStealthOption(stringResource(R.string.stealth_chat_allow), selected = mode == ChatStealthMode.Allow) { choose(ChatStealthMode.Allow) }
         ChatStealthOption(stringResource(R.string.stealth_chat_block), selected = mode == ChatStealthMode.Block) { choose(ChatStealthMode.Block) }
         Text(stringResource(R.string.stealth_chat_footnote), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/**
+ * Keeps the deleted and edited messages of this chat. The switch starts from the account-wide choice in storage settings, and
+ * a choice here is stored only when it differs from that choice. Secret chats are never kept, so their switch is off.
+ */
+@Composable
+private fun ChatMemorySection(chatId: Long, store: ChatMemorySettingsStore, isSecretChat: Boolean) {
+    val palette = beyGramPalette()
+    val settings by store.state.collectAsStateWithLifecycle()
+    val keeps = !isSecretChat && settings.enabled && settings.savesChat(chatId)
+    val note = when {
+        isSecretChat -> R.string.chat_memory_chat_secret
+        !settings.enabled -> R.string.chat_memory_chat_off
+        else -> R.string.chat_memory_chat_note
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.chat_memory_chat_title), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        SettingSwitch(
+            title = stringResource(R.string.chat_memory_chat_switch),
+            checked = keeps,
+            enabled = !isSecretChat && settings.enabled
+        ) { wanted -> store.update { it.withChatSaved(chatId, wanted) } }
+        Text(stringResource(note), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
