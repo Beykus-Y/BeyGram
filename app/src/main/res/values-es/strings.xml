@@ -690,6 +690,11 @@
     <string name="settings_group_experiments">Experimentos</string>
     <string name="settings_bgbeat_title">BG Beat (análisis de música)</string>
     <string name="settings_bgbeat_desc">Análisis de ritmo, BPM y estructura impulsado por el motor C++20 BG Media</string>
+    <string name="bgbeat_reason_not_music">BG Beat: solo para música</string>
+    <string name="bgbeat_reason_private_media">BG Beat: los medios privados están excluidos</string>
+    <string name="bgbeat_reason_still_downloading">BG Beat: el análisis empieza cuando termine la descarga del archivo</string>
+    <string name="bgbeat_reason_not_downloaded">BG Beat: el archivo aún no se ha descargado</string>
+    <string name="bgbeat_reason_unsupported_format">BG Beat: este formato de audio no es compatible</string>
     <string name="settings_skip_silence_title">Saltar el silencio entre pistas</string>
     <string name="settings_crossfade_title">Transición suave entre pistas</string>
     <string name="settings_crossfade_desc">Los últimos 4 segundos de una pista se superponen al inicio de la siguiente. Solo música; desactivado por defecto.</string>

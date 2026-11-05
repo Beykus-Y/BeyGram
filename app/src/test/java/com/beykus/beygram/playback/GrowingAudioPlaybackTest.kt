@@ -1,6 +1,7 @@
 package com.beykus.beygram.playback
 
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MediaKind
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -95,6 +96,49 @@ class GrowingAudioPlaybackTest {
         assertNotNull(ogg)
         // Play Next/reorder/remove rebuilds the timeline with positionMs; an unindexed Ogg must not pretend it seeked.
         assertTrue(shouldDeferGrowingSeek(ogg, 42_000L))
+    }
+
+    @Test fun finishedDownloadSettlesTheTrackToItsCompleteFile() {
+        var complete = false
+        val source = GrowingPlaybackSource(
+            totalSize = 100L,
+            readablePrefix = { if (complete) 100L else 40L },
+            isComplete = { complete },
+            completedPath = { if (complete) "/done.mp3" else null },
+            isDownloading = { !complete },
+            onNeedMore = {}
+        )
+        val playing = PlaybackItem("Audio:21", MediaKind.Audio, "/partial.mp3", "Track", 180, growing = source)
+        assertNull(settledGrowingItem(playing))
+        complete = true
+        val settled = requireNotNull(settledGrowingItem(playing))
+        assertEquals("/done.mp3", settled.path)
+        assertNull(settled.growing)
+        assertEquals(playing.key, settled.key)
+    }
+
+    @Test fun completeWithoutFinalPathStaysGrowingUntilTdlibNamesIt() {
+        val source = GrowingPlaybackSource(
+            totalSize = 100L,
+            readablePrefix = { 100L },
+            isComplete = { true },
+            completedPath = { null },
+            isDownloading = { false },
+            onNeedMore = {}
+        )
+        assertNull(settledGrowingItem(PlaybackItem("Audio:22", MediaKind.Audio, "/partial.mp3", "Track", 180, growing = source)))
+    }
+
+    @Test fun plainFileIsNeverSettled() {
+        assertNull(settledGrowingItem(PlaybackItem("Audio:23", MediaKind.Audio, "/done.mp3", "Track", 180)))
+    }
+
+    @Test fun activeTransferWaitsLongerThanAnIdleOne() {
+        assertNull(growingWaitFailure(transferActive = false, waitedMs = 9_999L))
+        assertEquals(GrowingWaitFailure.NoTransfer, growingWaitFailure(transferActive = false, waitedMs = 10_000L))
+        assertNull(growingWaitFailure(transferActive = true, waitedMs = 45_000L))
+        assertNull(growingWaitFailure(transferActive = true, waitedMs = 89_999L))
+        assertEquals(GrowingWaitFailure.Stalled, growingWaitFailure(transferActive = true, waitedMs = 90_000L))
     }
 
     private fun tempMp4(bytes: ByteArray): File = File.createTempFile("audio-probe", ".m4a").apply {
