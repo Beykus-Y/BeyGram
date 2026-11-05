@@ -2121,6 +2121,8 @@
     <string name="player_menu">Действия плеера</string>
     <string name="player_queue">Очередь</string>
     <string name="player_equalizer">Эквалайзер</string>
+    <string name="player_share_timecode">Поделиться с таймкодом</string>
+    <string name="player_share_failed">Не удалось отправить трек</string>
     <string name="player_buffering">Буферизация…</string>
     <string name="player_failed">Не удалось воспроизвести</string>
     <string name="player_ended">Трек завершён</string>

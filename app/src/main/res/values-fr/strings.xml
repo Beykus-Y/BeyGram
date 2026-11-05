@@ -646,6 +646,8 @@
     <string name="player_menu">Actions du lecteur</string>
     <string name="player_queue">File d’attente</string>
     <string name="player_equalizer">Égaliseur</string>
+    <string name="player_share_timecode">Partager avec repère temporel</string>
+    <string name="player_share_failed">Impossible d’envoyer le morceau</string>
     <string name="player_buffering">Mise en mémoire…</string>
     <string name="player_failed">Lecture impossible</string>
     <string name="player_ended">Piste terminée</string>
