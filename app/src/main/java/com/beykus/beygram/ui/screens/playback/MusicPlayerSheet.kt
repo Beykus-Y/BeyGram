@@ -50,6 +50,7 @@ import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import com.beykus.beygram.ui.components.sheetSurfaceColor
+import com.beykus.beygram.ui.theme.LocalBeyGramTokens
 import com.beykus.beygram.media.bgbeat.BgBeatSection
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -75,11 +76,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetState
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -156,6 +160,28 @@ private val QUEUE_ROW_HEIGHT = 76.dp
 
 private enum class PlayerPanel { Player, Queue }
 
+/** The full player sheet. Its tokens come from the cover, so every row inside follows the tint. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CoverPlayerSheet(
+    cover: CoverTokens,
+    onDismissRequest: () -> Unit,
+    sheetState: SheetState,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
+        ModalBottomSheet(
+            onDismissRequest = onDismissRequest,
+            sheetState = sheetState,
+            containerColor = cover.surface,
+            contentColor = cover.tokens.text,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = cover.tokens.muted) }
+        ) {
+            content()
+        }
+    }
+}
+
 /**
  * Large now-playing surface. The same composable owns the queue panel so the sheet is not recreated when the user
  * moves between the player and the queue, and the source title/artwork are resolved from the same account origin.
@@ -173,16 +199,16 @@ internal fun MusicPlayerSheet(
     val current = player ?: return
     var panel by rememberSaveable { mutableStateOf(PlayerPanel.Player) }
     val source = rememberPlaybackSourceLabel(current.item.origin)
-    val palette = beyGramPalette()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val cover = rememberCoverTokens(
+        artworkPath = current.item.artworkPath,
+        audioPath = current.item.path.takeIf { it.isNotBlank() },
+        enabled = true,
+        maxAmount = FULL_COVER_TINT,
+        base = sheetSurfaceColor()
+    )
     BackHandler(enabled = panel == PlayerPanel.Queue) { panel = PlayerPanel.Player }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = sheetSurfaceColor(),
-        contentColor = palette.textPrimary,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = palette.textSecondary) }
-    ) {
+    CoverPlayerSheet(cover = cover, onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier
                 .fillMaxWidth()

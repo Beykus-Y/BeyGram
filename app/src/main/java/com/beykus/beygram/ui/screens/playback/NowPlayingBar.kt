@@ -51,6 +51,7 @@ import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -94,6 +95,7 @@ import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.screens.chat.duration
+import com.beykus.beygram.ui.theme.LocalBeyGramTokens
 import kotlinx.coroutines.flow.collect
 import kotlin.math.roundToInt
 
@@ -199,6 +201,20 @@ fun NowPlayingBar(
 
 @Composable
 private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> Unit) {
+    // Music takes its tint from the cover, or from the theme accent without one. Voice and circles keep the theme.
+    val cover = rememberCoverTokens(
+        artworkPath = ui.artworkPath,
+        audioPath = ui.audioPath,
+        enabled = ui.isMusic,
+        maxAmount = MINI_COVER_TINT
+    )
+    CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
+        MiniPlayerBarContent(ui, bottomInset, onOpen)
+    }
+}
+
+@Composable
+private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, onOpen: () -> Unit) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val openLabel = stringResource(R.string.player_mini_open)
