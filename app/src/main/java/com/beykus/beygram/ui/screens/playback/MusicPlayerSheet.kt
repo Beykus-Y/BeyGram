@@ -49,6 +49,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
@@ -1179,10 +1180,19 @@ private fun PlayerActions(
     // Heart and add need a Telegram origin and a loaded library for this account; both stay hidden until then.
     // Items of a chat with protected content are never kept in the library, so they stay hidden too. The chat is only
     // known for the selected account; otherwise the buttons stay.
-    val protectedChat = rememberOriginChat(item.origin)?.hasProtectedContent == true
+    val originChat = rememberOriginChat(item.origin)
+    val protectedChat = originChat?.hasProtectedContent == true
     val track = remember(item.occurrenceId, item.origin) { item.toPlaylistTrack() }?.takeUnless { protectedChat }
     val library = rememberMusicLibrary(item.accountId)
     var addOpen by remember(item.occurrenceId) { mutableStateOf(false) }
+    // The caption is the timecode at the moment the button is tapped; null keeps the picker closed.
+    var shareCaption by remember(item.occurrenceId) { mutableStateOf<String?>(null) }
+    val shareLabel = stringResource(R.string.player_share_timecode)
+    // Sharing sends from the chat source the player uses. A track from a chat is offered only once that chat is known
+    // not to protect its content; a chat that cannot be checked here gets no share.
+    val shareSource = LocalPlaybackRepositorySource.current
+    val shareAllowed = shareSource != null &&
+        canShareTrack(item, originUnprotected = item.origin == null || originChat?.hasProtectedContent == false)
     val favorite = track != null && containsTrack(library?.favorites, track)
     val favoriteLabel = stringResource(R.string.music_favorite_label)
     val favoriteOnState = stringResource(R.string.music_favorite_state_on)
@@ -1216,6 +1226,10 @@ private fun PlayerActions(
                     .onFailure { Toast.makeText(context, it.userMessage(context, R.string.player_add_to_profile_failed), Toast.LENGTH_SHORT).show() }
             }
         }))
+        add(PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue, primary = true))
+        if (shareAllowed) {
+            add(PlayerActionUi(Icons.Rounded.Share, shareLabel, onClick = { shareCaption = shareTimecode(PlaybackEngine.state.value.positionMs) }))
+        }
         add(PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue, primary = true))
         if (onOpenEqualizer != null) add(PlayerActionUi(Icons.Rounded.Equalizer, equalizerLabel, onOpenEqualizer))
         if (onShowInChat != null) add(PlayerActionUi(Icons.Rounded.ChatBubble, showInChatLabel, onShowInChat))
@@ -1251,6 +1265,11 @@ private fun PlayerActions(
         }
     }
     if (addOpen && track != null) AddToPlaylistSheet(accountId = item.accountId, track = track, onDismiss = { addOpen = false })
+    shareCaption?.let { caption ->
+        shareSource?.let { source ->
+            ShareTrackDialog(repository = source.repository, item = item, caption = caption, onClose = { shareCaption = null })
+        }
+    }
 }
 
 private data class PlayerActionUi(
