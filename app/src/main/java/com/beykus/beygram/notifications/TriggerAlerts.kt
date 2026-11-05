@@ -60,6 +60,15 @@ internal object TriggerAlerts {
         }
     }
 
+    /** Removes the alerts of some chats of one account, after Telegram stopped allowing their text in notifications. */
+    fun cancelChats(context: Context, accountId: String, chatIds: Set<Long>) {
+        if (chatIds.isEmpty()) return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val prefixes = chatIds.map { accountTagPrefix(accountId) + "${it}_" }
+        manager.activeNotifications.filter { notification -> prefixes.any { notification.tag?.startsWith(it) == true } }
+            .forEach { manager.cancel(it.tag, it.id) }
+    }
+
     /** Removes the alerts of one account, so a signed-out account's chat titles and text leave the tray. */
     fun cancelAccount(context: Context, accountId: String) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return

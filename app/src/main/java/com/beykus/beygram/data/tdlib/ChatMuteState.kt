@@ -67,6 +67,9 @@ internal class ChatMuteState {
      */
     fun isPreviewAllowed(chatId: Long): Boolean = chats[chatId]?.isPreviewAllowed(scopePreview) == true
 
+    /** The chats whose message text Telegram allows in notifications right now. */
+    fun previewAllowedChats(): Set<Long> = chats.filterValues { it.isPreviewAllowed(scopePreview) }.keys.toSet()
+
     /** Известна ли заглушённость чата: своя настройка известна сразу, настройка по умолчанию — когда прочитана её область. */
     fun isKnown(chatId: Long): Boolean = chats[chatId]?.let { !it.useDefault || scopeMuted.containsKey(it.scope) } == true
 

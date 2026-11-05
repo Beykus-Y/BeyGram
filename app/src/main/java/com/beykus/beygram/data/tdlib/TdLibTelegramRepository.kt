@@ -2656,7 +2656,12 @@ class TdLibTelegramRepository private constructor(
                 publishChat(update.chatId)
             }
             is TdApi.UpdateChatNotificationSettings -> {
+                val previewWasAllowed = muteState.isPreviewAllowed(update.chatId)
                 muteState.updateChat(update.chatId, update.notificationSettings)
+                // Trigger alerts of this chat still show their text after its previews went off, so they leave the tray.
+                if (previewWasAllowed && !muteState.isPreviewAllowed(update.chatId)) {
+                    TriggerAlerts.cancelChats(appContext, accountId, setOf(update.chatId))
+                }
                 publishChat(update.chatId)
             }
             is TdApi.UpdateScopeNotificationSettings -> handleScopeNotificationSettings(NotificationScope.ofScope(update.scope), update.notificationSettings)
@@ -3036,7 +3041,11 @@ class TdLibTelegramRepository private constructor(
 
     /** Общая настройка меняет только звук: списки пересобираются с ним при публикации, а наблюдатели одного чата звук не показывают. */
     private fun handleScopeNotificationSettings(scope: NotificationScope, settings: TdApi.ScopeNotificationSettings) {
-        if (muteState.updateScope(scope, settings).isNotEmpty()) chatListPublisher.request()
+        val previewsBefore = muteState.previewAllowedChats()
+        val changed = muteState.updateScope(scope, settings)
+        // Chats that use this scope's preview setting may stop allowing text; their trigger alerts leave the tray.
+        TriggerAlerts.cancelChats(appContext, accountId, previewsBefore - muteState.previewAllowedChats())
+        if (changed.isNotEmpty()) chatListPublisher.request()
     }
 
     /** TDLib gives the same order as other clients. IDs aren't local categories. */
