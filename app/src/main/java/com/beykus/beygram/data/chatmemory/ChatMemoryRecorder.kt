@@ -20,8 +20,9 @@ internal class ChatMemoryRecorder(
     private val onVersionsKept: (Map<Pair<Long, Long>, Int>) -> Unit
 ) {
     private val store: ChatMemoryStore by lazy { ChatMemoryStore.forAccount(context, accountId) }
+    private val writerThreadName = "chat-memory-$accountId"
     private val writer: ExecutorService = Executors.newSingleThreadExecutor { task ->
-        Thread(task, "chat-memory-$accountId").apply { isDaemon = true }
+        Thread(task, writerThreadName).apply { isDaemon = true }
     }
 
     // Touched only on the writer thread.
@@ -58,11 +59,17 @@ internal class ChatMemoryRecorder(
         enqueue { store.observe(listOf(observation), now, insertMissing = false) }
     }
 
-    /** Keeps the messages the other side deleted. This runs at once, so a history page that follows sees the deletion. */
+    /**
+     * Keeps the messages the other side deleted. It waits behind the writes already queued, so a message that is still being
+     * recorded is stored before it is marked, and a history page that follows sees the deletion.
+     */
     fun markDeleted(chatId: Long, messageIds: Collection<Long>, fallback: Map<Long, MemoryObservation>) {
         if (messageIds.isEmpty()) return
-        guarded("deletion was not stored") { store.markDeleted(chatId, messageIds, fallback, System.currentTimeMillis()) }
-        writer.execute { trimIfDue(force = false) }
+        val now = System.currentTimeMillis()
+        awaitWriter {
+            guarded("deletion was not stored") { store.markDeleted(chatId, messageIds, fallback, now) }
+            trimIfDue(force = false)
+        }
     }
 
     /** The deleted messages of [chatId] within the id range, oldest first. Empty when the store cannot be read. */
@@ -111,6 +118,11 @@ internal class ChatMemoryRecorder(
 
     /** Runs [task] on the writer after the writes already queued, and waits for it. A failure is logged, never thrown. */
     private fun awaitWriter(task: () -> Unit) {
+        // Called from a writer task, waiting would block the only writer thread for ever: the task runs here, in order.
+        if (Thread.currentThread().name == writerThreadName) {
+            task()
+            return
+        }
         try {
             writer.submit(Runnable { task() }).get()
         } catch (e: Exception) {
