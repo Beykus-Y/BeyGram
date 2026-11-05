@@ -110,4 +110,25 @@ class SilenceEdgesTest {
         assertEquals(SilenceEdges.UNKNOWN_MS, edges.trailingMs)
         assertEquals(0L, edges.durationMs)
     }
+
+    @Test fun leadingSkipStartsBeforeTheFirstAudibleWindow() {
+        assertEquals(0L, leadingSkipStartMs(SilenceEdges.UNKNOWN_MS))
+        assertEquals(0L, leadingSkipStartMs(0L))
+        assertEquals(0L, leadingSkipStartMs(90L))
+        assertEquals(70L, leadingSkipStartMs(100L))
+        assertEquals(970L, leadingSkipStartMs(1_000L))
+    }
+
+    @Test fun trailingSkipWaitsForTheAudibleEnd() {
+        // A 60 s track with 2 s of trailing silence has its audible content end at 58 s.
+        assertFalse(trailingSkipDue(positionMs = 57_999L, durationMs = 60_000L, trailingMs = 2_000L))
+        assertTrue(trailingSkipDue(positionMs = 58_000L, durationMs = 60_000L, trailingMs = 2_000L))
+        assertTrue(trailingSkipDue(positionMs = 59_500L, durationMs = 60_000L, trailingMs = 2_000L))
+    }
+
+    @Test fun trailingSkipIgnoresUnknownShortAndImpossibleCases() {
+        assertFalse(trailingSkipDue(59_000L, 60_000L, SilenceEdges.UNKNOWN_MS))
+        assertFalse(trailingSkipDue(59_950L, 60_000L, 50L))
+        assertFalse(trailingSkipDue(0L, 0L, 500L))
+    }
 }

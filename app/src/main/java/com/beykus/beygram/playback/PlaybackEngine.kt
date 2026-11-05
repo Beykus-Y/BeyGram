@@ -250,6 +250,9 @@ object PlaybackEngine {
     private var bgNoisyRegistered = false
     private var bgMixJob: Job? = null
 
+    /** Key of the track that was moved past early for trailing silence. Cleared by the next media item transition. */
+    private var trailingSkippedKey: String? = null
+
     /**
      * A cover thumbnail may finish downloading after playback has already started. The key carries account/origin,
      * so another account's file with the same numeric id is never updated.
@@ -307,6 +310,7 @@ object PlaybackEngine {
             }
         exo = created
         appContext = context.applicationContext
+        TrackTransitionSettings.load(context)
         _audioSessionId.value = null
         return object : ForwardingPlayer(created) {
             override fun play() {
@@ -1744,6 +1748,7 @@ object PlaybackEngine {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             if (bgMixActive()) return
+            trailingSkippedKey = null
             val mediaId = mediaItem?.mediaId
             val snapshot = _state.value
             if (mediaId != null && reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
@@ -1769,6 +1774,7 @@ object PlaybackEngine {
                             intentPlaying = exo?.playWhenReady ?: it.intentPlaying
                         ).withTimelineNavigation(exo)
                     }
+                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) exo?.let { skipLeadingSilence(it, item) }
                     startedCallback = startedCallback?.takeIf { it.first == item.key }
                     if (exo?.isPlaying == true) fireStartedCallback()
                 }
@@ -1885,6 +1891,7 @@ object PlaybackEngine {
             while (true) {
                 syncPosition()
                 val target = exo ?: break
+                skipTrailingSilence(target)
                 if (!target.isPlaying && target.playbackState != Player.STATE_BUFFERING) break
                 delay(PROGRESS_INTERVAL_MS)
             }
@@ -1946,6 +1953,7 @@ object PlaybackEngine {
      * The work runs on a background thread, so playback never waits for it.
      */
     private fun requestSilenceMeasurement() {
+        if (!TrackTransitionSettings.skipSilence.value) return
         val context = appContext ?: return
         val state = _state.value
         val target = exo ?: return
@@ -1961,6 +1969,43 @@ object PlaybackEngine {
     private fun withResolvedSource(item: PlaybackItem): PlaybackItem {
         val resolved = PlaybackSources.handle(item.systemMediaId)?.resolve() ?: return item
         return if (resolved.growing == null) item.copy(path = resolved.path) else item
+    }
+
+    /**
+     * Moves on early when the rest of the current track is silence, and starts the next track after its own leading
+     * silence. Runs on the progress tick, and only in the last [SILENCE_SCAN_MS] of a measured track.
+     */
+    private fun skipTrailingSilence(target: ExoPlayer) {
+        if (bgMixActive() || deferredSeek != null || !TrackTransitionSettings.skipSilence.value) return
+        if (!target.isPlaying || target.repeatMode == Player.REPEAT_MODE_ONE || !target.hasNextMediaItem()) return
+        val duration = target.duration
+        if (duration == C.TIME_UNSET || duration <= 0L) return
+        val position = target.currentPosition
+        if (duration - position > SILENCE_SCAN_MS) return
+        val state = _state.value
+        val current = state.item ?: return
+        // The engine's item lags the player by one callback; act only when the player is on the same track.
+        if (target.currentMediaItem?.mediaId != current.systemMediaId) return
+        if (state.queue.size < 2 || current.key == trailingSkippedKey) return
+        val edges = SilenceAnalyzer.cachedEdges(withResolvedSource(current)) ?: return
+        if (!trailingSkipDue(position, duration, edges.trailingMs)) return
+        val nextIndex = target.nextMediaItemIndex
+        if (nextIndex == C.INDEX_UNSET) return
+        val nextId = target.getMediaItemAt(nextIndex).mediaId
+        val next = state.queue.firstOrNull { it.systemMediaId == nextId } ?: return
+        val startMs = SilenceAnalyzer.cachedEdges(withResolvedSource(next))
+            ?.let { leadingSkipStartMs(it.leadingMs) } ?: 0L
+        // One early move per track: a tick that runs before ExoPlayer reports the new index must not move again.
+        trailingSkippedKey = current.key
+        target.seekTo(nextIndex, startMs)
+    }
+
+    /** A natural move to the next track starts after that track's leading silence. Repeat One keeps the same start. */
+    private fun skipLeadingSilence(target: ExoPlayer, item: PlaybackItem) {
+        if (bgMixActive() || !TrackTransitionSettings.skipSilence.value) return
+        if (target.repeatMode == Player.REPEAT_MODE_ONE) return
+        val startMs = SilenceAnalyzer.cachedEdges(item)?.let { leadingSkipStartMs(it.leadingMs) } ?: 0L
+        if (startMs > 0L) target.seekTo(startMs)
     }
 
     /**

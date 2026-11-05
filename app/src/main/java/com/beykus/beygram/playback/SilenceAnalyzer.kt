@@ -61,6 +61,17 @@ internal object SilenceAnalyzer {
 
     internal fun cacheKey(item: PlaybackItem): String = "${item.accountId}:${item.fileId}"
 
+    /**
+     * The stored measurement of a complete file. Null when the item is not measurable, the file is partial or changed,
+     * or it has not been measured yet. Reads only memory and one file length, so it is cheap enough for playback.
+     */
+    fun cachedEdges(item: PlaybackItem): SilenceEdges? {
+        if (!isMeasurable(item)) return null
+        val length = File(item.path).length()
+        if (item.sizeBytes <= 0L || length != item.sizeBytes) return null
+        return SilenceEdgeStore.lookup(cacheKey(item), length)
+    }
+
     /** Wi-Fi or charging. A signal that cannot be read counts as absent. */
     internal fun allowedInBackground(context: Context): Boolean {
         val network = runCatching { currentAutoDownloadNetwork(context) }.getOrDefault(AutoDownloadNetwork.None)

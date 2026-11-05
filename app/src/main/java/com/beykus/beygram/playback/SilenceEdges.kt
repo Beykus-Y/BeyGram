@@ -131,6 +131,22 @@ internal fun silenceEdgesFromPeaks(head: FloatArray?, tail: FloatArray?, duratio
     return SilenceEdges(leadingMs = leading, trailingMs = trailing, durationMs = durationMs.coerceAtLeast(0L))
 }
 
+/** A skip into a track starts this long before its first audible window, so the attack of the sound is not clipped. */
+internal const val SILENCE_START_MARGIN_MS = 30L
+
+/**
+ * Where to start a track after its leading silence. Zero when there is nothing worth skipping or the edge is unknown.
+ */
+internal fun leadingSkipStartMs(leadingMs: Long): Long =
+    if (leadingMs < SILENCE_MIN_REPORT_MS) 0L else (leadingMs - SILENCE_START_MARGIN_MS).coerceAtLeast(0L)
+
+/**
+ * True once playback has reached the audible end of a track, so the rest of it is trailing silence worth skipping.
+ * An unknown trailing edge is reported as -1 and never qualifies.
+ */
+internal fun trailingSkipDue(positionMs: Long, durationMs: Long, trailingMs: Long): Boolean =
+    trailingMs >= SILENCE_MIN_REPORT_MS && durationMs > trailingMs && positionMs >= durationMs - trailingMs
+
 private fun reportedMs(windows: Int): Long {
     val ms = windows.toLong() * SILENCE_WINDOW_MS
     return if (ms < SILENCE_MIN_REPORT_MS) 0L else ms

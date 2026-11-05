@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.People
@@ -53,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
+import com.beykus.beygram.playback.TrackTransitionSettings
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -100,10 +102,21 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsRowDivider()
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
         }
+        val transitionContext = LocalContext.current
+        remember(transitionContext) { TrackTransitionSettings.load(transitionContext) }
+        val skipSilence by TrackTransitionSettings.skipSilence.collectAsStateWithLifecycle()
         SettingsGroup(stringResource(R.string.settings_group_sound_playback)) {
             SettingsLink(Icons.Rounded.GraphicEq, stringResource(R.string.settings_equalizer_title), onEqualizer)
             SettingsRowDivider()
             SettingsLink(Icons.Rounded.MusicNote, stringResource(R.string.settings_music_title), onMusicLibrary)
+            SettingsRowDivider()
+            SettingsToggle(
+                icon = Icons.Rounded.SkipNext,
+                title = stringResource(R.string.settings_skip_silence_title),
+                subtitle = stringResource(R.string.settings_skip_silence_desc),
+                checked = skipSilence,
+                onCheckedChange = { TrackTransitionSettings.setSkipSilence(transitionContext, it) }
+            )
         }
         SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {
             SettingsLink(Icons.Rounded.Key, stringResource(R.string.account_security_title), onAccountSecurity)
