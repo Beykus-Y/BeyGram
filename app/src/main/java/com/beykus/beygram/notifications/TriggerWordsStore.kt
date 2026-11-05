@@ -25,7 +25,11 @@ data class TriggerIncoming(
     val senderName: String,
     val text: String,
     val muted: Boolean,
-    val protectedContent: Boolean
+    val protectedContent: Boolean,
+    /** The app is in the foreground. */
+    val foreground: Boolean,
+    /** The chat is open on screen, so its matches need no alert. */
+    val chatOnScreen: Boolean
 )
 
 /**
@@ -85,6 +89,23 @@ class TriggerWordsStore private constructor(context: Context) {
         prefs.edit().remove(KEY_MENTIONS).apply()
     }
 
+    /** Removes the mentions of an account that was signed out. Rules and the scope stay. */
+    @Synchronized
+    fun forgetAccount(accountId: String) {
+        val kept = _mentions.value.filterNot { it.accountId == accountId }
+        if (kept.size == _mentions.value.size) return
+        _mentions.value = kept
+        prefs.edit().putString(KEY_MENTIONS, TriggerWordsCodec.encodeMentions(kept)).apply()
+    }
+
+    /** Whether the feed may show text for an account's mentions. Follows that account's previews switch, older entries too. */
+    fun previewsEnabled(accountId: String): Boolean = NotificationPreferencesStore(appContext, accountId).state.value.previews
+
+    /** Alerts skip messages older than this, so a catch-up after a reconnect does not ring for old matches. */
+    private val alertMaxAgeSeconds = 10 * 60L
+
+    private fun isRecent(dateSeconds: Long): Boolean = System.currentTimeMillis() / 1000 - dateSeconds <= alertMaxAgeSeconds
+
     /**
      * Checks one incoming message. Matches in muted chats always alert, because Telegram stays silent there.
      * In the all-chats scope, matches in unmuted chats only go to the feed, since Telegram already alerts for them.
@@ -114,7 +135,10 @@ class TriggerWordsStore private constructor(context: Context) {
         val kept = (listOf(mention) + _mentions.value).take(TriggerWordLimits.MAX_MENTIONS)
         _mentions.value = kept
         prefs.edit().putString(KEY_MENTIONS, TriggerWordsCodec.encodeMentions(kept)).apply()
-        if (event.muted) TriggerAlerts.post(appContext, mention, preferences)
+        // Alerts follow the delivery rule of other notifications: background switch on, or the app in the foreground.
+        // A chat open on screen needs none, and an old match is recorded in the feed without ringing.
+        val alert = event.muted && (preferences.background || event.foreground) && !event.chatOnScreen
+        if (alert && isRecent(event.dateSeconds)) TriggerAlerts.post(appContext, mention, preferences)
     }
 
     private fun commitRules(rules: List<TriggerRule>) {

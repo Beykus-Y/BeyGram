@@ -56,9 +56,17 @@ internal object TriggerAlerts {
         }
     }
 
+    /** Removes the alerts of one account, so a signed-out account's chat titles and text leave the tray. */
+    fun cancelAccount(context: Context, accountId: String) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val prefix = accountTagPrefix(accountId)
+        manager.activeNotifications.filter { it.tag?.startsWith(prefix) == true }.forEach { manager.cancel(it.tag, it.id) }
+    }
+
     /** One tag per message, so a later alert never replaces an earlier one. */
-    private fun tag(mention: TriggerMention): String =
-        "trigger_${mention.accountId}_${mention.chatId}_${mention.messageId}"
+    private fun tag(mention: TriggerMention): String = accountTagPrefix(mention.accountId) + "${mention.chatId}_${mention.messageId}"
+
+    private fun accountTagPrefix(accountId: String): String = "trigger_${accountId}_"
 
     private fun openApp(context: Context): PendingIntent = PendingIntent.getActivity(
         context,

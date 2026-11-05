@@ -3219,6 +3219,7 @@ class TdLibTelegramRepository private constructor(
         val text = triggerWordText(message.content) ?: return
         val chat = profiles.chat(message.chatId) ?: return
         if (chat.type is TdApi.ChatTypeSecret) return
+        val presentation = notificationPresentation.value
         try {
             TriggerWordsStore.get(appContext).onIncoming(
                 TriggerIncoming(
@@ -3230,7 +3231,9 @@ class TdLibTelegramRepository private constructor(
                     senderName = profiles.senderName(message.senderId),
                     text = text,
                     muted = muteState.isMuted(message.chatId),
-                    protectedContent = chat.hasProtectedContent
+                    protectedContent = chat.hasProtectedContent,
+                    foreground = presentation.foreground,
+                    chatOnScreen = presentation.foreground && message.chatId in presentation.openedChats
                 )
             )
         } catch (_: Exception) {

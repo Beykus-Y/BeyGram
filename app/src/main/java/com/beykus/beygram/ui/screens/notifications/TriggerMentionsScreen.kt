@@ -29,6 +29,8 @@ fun TriggerMentionsScreen(store: TriggerWordsStore, onBack: () -> Unit) {
     val palette = beyGramPalette()
     val mentions by store.mentions.collectAsStateWithLifecycle()
     var confirmClear by remember { mutableStateOf(false) }
+    // Text kept while an account's previews were on stays hidden once they are turned off.
+    val previews = remember(mentions) { mentions.map { it.accountId }.distinct().associateWith { store.previewsEnabled(it) } }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.trigger_mentions_title), onBack)
@@ -49,7 +51,7 @@ fun TriggerMentionsScreen(store: TriggerWordsStore, onBack: () -> Unit) {
                         Text(stringResource(R.string.trigger_mentions_clear), color = palette.danger)
                     }
                 }
-                items(mentions, key = { it.id }) { mention -> MentionRow(mention) }
+                items(mentions, key = { it.id }) { mention -> MentionRow(mention, showText = previews[mention.accountId] == true) }
             }
         }
     }
@@ -72,7 +74,7 @@ fun TriggerMentionsScreen(store: TriggerWordsStore, onBack: () -> Unit) {
 }
 
 @Composable
-private fun MentionRow(mention: TriggerMention) {
+private fun MentionRow(mention: TriggerMention, showText: Boolean) {
     val palette = beyGramPalette()
     val meta = listOf(mention.senderName, formatDateTime(mention.dateSeconds.toInt()))
         .filter { it.isNotBlank() }
@@ -93,7 +95,7 @@ private fun MentionRow(mention: TriggerMention) {
             fontSize = 13.sp
         )
         Text(
-            mention.snippet ?: stringResource(R.string.trigger_mention_hidden_text),
+            mention.snippet?.takeIf { showText } ?: stringResource(R.string.trigger_mention_hidden_text),
             color = palette.textPrimary,
             fontSize = 14.sp,
             maxLines = 3,

@@ -153,6 +153,9 @@ class NotificationRuntime private constructor(private val context: Context) {
         setSecondaryPending(accountId, false)
         setSecondaryConnected(accountId, false)
         previous?.renderer?.cancelAllOwned()
+        // Trigger alerts have their own tags, and the feed keeps the account's mentions: both leave with the account.
+        TriggerAlerts.cancelAccount(context, accountId)
+        TriggerWordsStore.get(context).forgetAccount(accountId)
         preferencesForAccount(accountId).retireForRemoval()
         secondaryPreferences.remove(accountId)
         secondaryReplyOutboxes.remove(accountId)?.clear()
