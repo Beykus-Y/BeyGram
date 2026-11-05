@@ -5,4 +5,54 @@
     <string name="trigger_channel_description">Alertes pour vos mots déclencheurs dans les discussions en sourdine</string>
     <string name="trigger_alert_text">%1$s : %2$s</string>
     <string name="trigger_alert_hidden">Mot trouvé « %1$s »</string>
+
+    <!-- Settings and feed -->
+    <string name="trigger_title">Mots déclencheurs</string>
+    <string name="trigger_row_hint">Alertes quand un mot déclencheur apparaît dans une discussion en sourdine</string>
+    <string name="trigger_intro">Quand un mot ou une expression de la liste apparaît dans une discussion en sourdine, vous recevez une alerte séparée et la correspondance va dans le fil. Cela fonctionne tant que l’application est ouverte ou que le travail en arrière-plan est activé.</string>
+    <string name="trigger_scope_title">Où chercher</string>
+    <string name="trigger_scope_muted">Uniquement dans les discussions en sourdine</string>
+    <string name="trigger_scope_muted_hint">Telegram reste silencieux là-bas, donc une correspondance envoie une alerte.</string>
+    <string name="trigger_scope_all">Toutes les discussions</string>
+    <string name="trigger_scope_all_hint">Dans les discussions non silencieuses, les correspondances vont seulement dans le fil, car Telegram alerte déjà.</string>
+    <string name="trigger_list_title">Mots</string>
+    <string name="trigger_empty">Aucun mot pour l’instant. Ajoutez un mot, une expression ou une expression régulière.</string>
+    <string name="trigger_add">Ajouter un mot</string>
+    <string name="trigger_feed_open">Fil des mentions</string>
+    <string name="trigger_feed_count">Entrées : %1$d</string>
+
+    <!-- Matching modes -->
+    <string name="trigger_mode_title">Mode de recherche</string>
+    <string name="trigger_mode_whole">Mot entier</string>
+    <string name="trigger_mode_whole_hint">Ne correspond qu’à un mot entier. Pour les langues sans espaces (chinois, japonais, thaï), choisissez « Dans le texte ».</string>
+    <string name="trigger_mode_contains">Dans le texte</string>
+    <string name="trigger_mode_contains_hint">Correspond aussi dans les mots plus longs : « test » trouve « tests ».</string>
+    <string name="trigger_mode_regex">Expression régulière</string>
+    <string name="trigger_mode_regex_hint">Expression Java avec prise en charge d’Unicode, par exemple \\burgent\\w*. Le réglage de la casse ci-dessous s’applique.</string>
+
+    <!-- Editor -->
+    <string name="trigger_editor_new">Nouveau mot</string>
+    <string name="trigger_editor_edit">Modifier le mot</string>
+    <string name="trigger_field_pattern">Mot ou expression</string>
+    <string name="trigger_field_pattern_hint">Par exemple : un prénom, un pseudo, le nom d’un projet</string>
+    <string name="trigger_flag_case">Ignorer la casse</string>
+    <string name="trigger_flag_diacritics">Ignorer les diacritiques</string>
+    <string name="trigger_flag_diacritics_hint">Par exemple, é correspond à e. Les lettres qui ne diffèrent que par un signe correspondent aussi.</string>
+    <string name="trigger_editor_save">Enregistrer</string>
+    <string name="trigger_editor_delete">Supprimer</string>
+    <string name="trigger_error_empty">Saisissez un mot ou une expression.</string>
+    <string name="trigger_error_long">%1$d caractères au maximum.</string>
+    <string name="trigger_error_regex">L’expression est illisible. Vérifiez les parenthèses et les barres obliques inversées.</string>
+    <string name="trigger_error_regex_empty">L’expression correspond à un texte vide et se déclencherait sur chaque message.</string>
+    <string name="trigger_error_too_many">Vous pouvez enregistrer jusqu’à %1$d mots.</string>
+
+    <!-- Mentions feed -->
+    <string name="trigger_mentions_title">Mentions</string>
+    <string name="trigger_mentions_empty">Aucune correspondance pour l’instant.</string>
+    <string name="trigger_mentions_clear">Vider le fil</string>
+    <string name="trigger_mentions_clear_title">Vider le fil ?</string>
+    <string name="trigger_mentions_clear_body">Les enregistrements des correspondances seront supprimés de cet appareil. Les messages Telegram ne changent pas.</string>
+    <string name="trigger_mentions_clear_confirm">Vider</string>
+    <string name="trigger_mention_word">Mot : %1$s</string>
+    <string name="trigger_mention_hidden_text">Texte masqué par le réglage d’aperçu</string>
 </resources>

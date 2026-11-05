@@ -5,4 +5,54 @@
     <string name="trigger_channel_description">Уведомления о словах из списка в заглушённых чатах</string>
     <string name="trigger_alert_text">%1$s: %2$s</string>
     <string name="trigger_alert_hidden">Найдено слово «%1$s»</string>
+
+    <!-- Settings and feed -->
+    <string name="trigger_title">Слова-триггеры</string>
+    <string name="trigger_row_hint">Уведомления, когда в заглушённом чате пишут нужное слово</string>
+    <string name="trigger_intro">Если слово или фраза из списка встречается в заглушённом чате, приходит отдельное уведомление, а совпадение попадает в ленту. Работает, пока приложение открыто или включена фоновая работа уведомлений.</string>
+    <string name="trigger_scope_title">Где искать</string>
+    <string name="trigger_scope_muted">Только в заглушённых чатах</string>
+    <string name="trigger_scope_muted_hint">Telegram в них молчит, поэтому совпадение приходит уведомлением.</string>
+    <string name="trigger_scope_all">Во всех чатах</string>
+    <string name="trigger_scope_all_hint">В незаглушённых чатах совпадения идут только в ленту: Telegram и так уведомляет.</string>
+    <string name="trigger_list_title">Слова</string>
+    <string name="trigger_empty">Слов пока нет. Добавьте слово, фразу или регулярное выражение.</string>
+    <string name="trigger_add">Добавить слово</string>
+    <string name="trigger_feed_open">Лента упоминаний</string>
+    <string name="trigger_feed_count">Записей: %1$d</string>
+
+    <!-- Matching modes -->
+    <string name="trigger_mode_title">Как искать</string>
+    <string name="trigger_mode_whole">Целое слово</string>
+    <string name="trigger_mode_whole_hint">Совпадает только целое слово. Для языков без пробелов (китайский, японский, тайский) выберите «Внутри текста».</string>
+    <string name="trigger_mode_contains">Внутри текста</string>
+    <string name="trigger_mode_contains_hint">Совпадает и внутри более длинных слов: «тест» найдёт «тесты».</string>
+    <string name="trigger_mode_regex">Регулярное выражение</string>
+    <string name="trigger_mode_regex_hint">Выражение Java с поддержкой Unicode, например \\bсрочн\\w*. Регистр задаётся настройкой ниже.</string>
+
+    <!-- Editor -->
+    <string name="trigger_editor_new">Новое слово</string>
+    <string name="trigger_editor_edit">Изменить слово</string>
+    <string name="trigger_field_pattern">Слово или фраза</string>
+    <string name="trigger_field_pattern_hint">Например: имя, ник, название проекта</string>
+    <string name="trigger_flag_case">Не различать заглавные и строчные</string>
+    <string name="trigger_flag_diacritics">Не различать диакритику</string>
+    <string name="trigger_flag_diacritics_hint">Например, é совпадает с e. Буквы, которые отличаются только знаком, тоже совпадают.</string>
+    <string name="trigger_editor_save">Сохранить</string>
+    <string name="trigger_editor_delete">Удалить</string>
+    <string name="trigger_error_empty">Введите слово или фразу.</string>
+    <string name="trigger_error_long">Не больше %1$d символов.</string>
+    <string name="trigger_error_regex">Выражение не разбирается. Проверьте скобки и обратные слеши.</string>
+    <string name="trigger_error_regex_empty">Выражение подходит к пустому тексту и сработало бы на любое сообщение.</string>
+    <string name="trigger_error_too_many">Можно сохранить не больше %1$d слов.</string>
+
+    <!-- Mentions feed -->
+    <string name="trigger_mentions_title">Упоминания</string>
+    <string name="trigger_mentions_empty">Совпадений пока нет.</string>
+    <string name="trigger_mentions_clear">Очистить ленту</string>
+    <string name="trigger_mentions_clear_title">Очистить ленту?</string>
+    <string name="trigger_mentions_clear_body">Записи о совпадениях удалятся с этого устройства. Сообщения в Telegram не изменятся.</string>
+    <string name="trigger_mentions_clear_confirm">Очистить</string>
+    <string name="trigger_mention_word">Слово: %1$s</string>
+    <string name="trigger_mention_hidden_text">Текст скрыт настройкой превью</string>
 </resources>
