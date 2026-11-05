@@ -2123,6 +2123,7 @@ class TdLibTelegramRepository private constructor(
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = messageHistory.observe(chatId)
     override suspend fun messageVersions(chatId: Long, messageId: Long): List<ChatMemoryVersion> = withContext(Dispatchers.IO) {
+        if (!chatMemory.keeps(chatId)) return@withContext emptyList<ChatMemoryVersion>()
         chatMemory.versions(chatId, messageId).map {
             ChatMemoryVersion(text = it.text, attachmentNotKept = it.hasAttachment, replacedAtMillis = it.replacedAtMillis)
         }
@@ -3397,7 +3398,8 @@ class TdLibTelegramRepository private constructor(
      * longer returns, and the number of earlier versions of each message. Off means the messages come back unchanged.
      */
     private fun withChatMemory(chatId: Long, messages: List<ChatMessage>, lowestId: Long, highestId: Long): List<ChatMessage> {
-        if (!chatMemory.enabled) return messages
+        // Per chat: a chat that is excluded now shows nothing, even what was kept while it was allowed.
+        if (!chatMemory.keeps(chatId)) return messages
         val ids = messages.map { it.id }
         val deleted = chatMemory.deletedBetween(chatId, lowestId, highestId)
         val deletedById = deleted.associateBy { it.messageId }
@@ -3430,13 +3432,19 @@ class TdLibTelegramRepository private constructor(
         return withChatMemory(chatId, messages.map { it.toChatMessage() }, lowestId = messages.minOfOrNull { it.id } ?: 0L, highestId = highestId)
     }
 
-    /** Chat Memory keeps the messages the other side has just deleted. Returns the ids that stay on screen, marked. */
+    /**
+     * Chat Memory keeps the messages the other side has just deleted. Returns the ids the store now holds as kept, on
+     * screen or not. A kept message must not be retired from the history, or a later page would drop it.
+     */
     private fun keepDeletedMessages(chatId: Long, messageIds: List<Long>): Set<Long> {
         if (!chatMemory.keeps(chatId)) return emptySet<Long>()
+        val lowest = messageIds.minOrNull() ?: return emptySet<Long>()
+        val highest = messageIds.maxOrNull() ?: return emptySet<Long>()
         val onScreen = messageHistory.observe(chatId).value.messages.associateBy { it.id }
         val fallback = messageIds.mapNotNull { id -> onScreen[id]?.toMemoryObservation()?.let { id to it } }.toMap()
         chatMemory.markDeleted(chatId, messageIds, fallback)
-        return messageIds.filterTo(HashSet<Long>()) { id -> onScreen[id]?.let { !it.isOutgoing && it.serviceText == null } == true }
+        val requested = messageIds.toSet()
+        return chatMemory.deletedBetween(chatId, lowest, highest).map { it.messageId }.filter { it in requested }.toSet()
     }
 
     /** Chat Memory has kept an earlier text for these messages; the screen shows the new version counts. */

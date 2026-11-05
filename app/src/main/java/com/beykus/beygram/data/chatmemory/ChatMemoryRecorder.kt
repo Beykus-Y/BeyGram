@@ -77,9 +77,12 @@ internal class ChatMemoryRecorder(
     fun versions(chatId: Long, messageId: Long): List<MemorizedVersion> =
         read(emptyList()) { store.versions(chatId, messageId) }
 
-    /** Removes everything kept for the account. The switches stay. */
+    /** Removes everything kept for the account, after the writes already queued. The switches stay. */
     fun clearAll() {
-        guarded("clearing failed") { store.clearAll() }
+        writer.execute {
+            // An account that never kept anything has no database; opening one only to clear it would create it.
+            guarded("clearing failed") { if (ChatMemoryStore.hasDatabase(context, accountId)) store.clearAll() }
+        }
     }
 
     /** Brings the store back under the limit of the switches now, instead of at the next scheduled trim. */

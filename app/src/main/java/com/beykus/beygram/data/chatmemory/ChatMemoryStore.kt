@@ -307,6 +307,10 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
             listOf("", "-wal", "-shm", "-journal").forEach { suffix -> File(file.path + suffix).delete() }
         }
 
+        /** Whether the account has a database on disk. Checking does not create one. */
+        fun hasDatabase(context: Context, accountId: String): Boolean =
+            databaseFile(context.applicationContext, accountId).exists()
+
         private fun databaseFile(context: Context, accountId: String): File =
             File(context.noBackupFilesDir, "chat-memory/$accountId.db")
     }
