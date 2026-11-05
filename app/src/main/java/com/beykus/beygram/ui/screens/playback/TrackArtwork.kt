@@ -38,7 +38,7 @@ import java.io.File
 
 private const val MAX_COVER_SIZE = 512
 private const val MAX_EMBEDDED_BYTES = 8 * 1024 * 1024
-private const val ARTWORK_FADE_MS = 220
+internal const val ARTWORK_FADE_MS = 220
 
 /** Small LRU avoids repeatedly decoding artwork for rows and the shared player. */
 private object ArtworkCache {
@@ -149,6 +149,24 @@ private fun embeddedCover(path: String): Bitmap? {
     }
 }
 
+/**
+ * The decoded cover of a track, from the shared cache when it is there. This is blocking file I/O: call it off the
+ * main thread. The player's colour reads the same bitmap, so a cover is decoded once.
+ */
+internal fun loadTrackArtwork(artworkPath: String?, audioPath: String?): Bitmap? {
+    val artFile = artworkPath?.let(::File)?.takeIf { it.isFile }
+    val audioFile = audioPath?.let(::File)?.takeIf { it.isFile }
+    // mtime/size ensures a just-downloaded TDLib thumbnail invalidates a miss.
+    val key = artworkCacheKey(artFile, audioFile)
+    if (key != null && ArtworkCache.contains(key)) return ArtworkCache.get(key)
+    val decoded = runCatching {
+        artFile?.absolutePath?.let(::decodeCoverFile)
+            ?: audioFile?.absolutePath?.let(::embeddedCover)
+    }.getOrNull()
+    if (key != null) ArtworkCache.put(key, decoded)
+    return decoded
+}
+
 /** TDLib cover first, then embedded file artwork; missing/corrupt art uses the theme-friendly fallback. */
 @Composable
 internal fun TrackArtwork(
@@ -163,22 +181,7 @@ internal fun TrackArtwork(
 ) {
     val displayKey = "${artworkPath.orEmpty()}|${audioPath.orEmpty()}"
     val image by produceState<ArtworkImage>(initialValue = ArtworkImage("", null), key1 = artworkPath, key2 = audioPath) {
-        value = withContext(Dispatchers.IO) {
-            // mtime/size ensures a just-downloaded TDLib thumbnail invalidates a miss.
-            val artFile = artworkPath?.let(::File)?.takeIf { it.isFile }
-            val audioFile = audioPath?.let(::File)?.takeIf { it.isFile }
-            val key = artworkCacheKey(artFile, audioFile)
-            val bitmap = if (key != null && ArtworkCache.contains(key)) ArtworkCache.get(key)
-            else {
-                val decoded = runCatching {
-                    artFile?.absolutePath?.let(::decodeCoverFile)
-                        ?: audioFile?.absolutePath?.let(::embeddedCover)
-                }.getOrNull()
-                if (key != null) ArtworkCache.put(key, decoded)
-                decoded
-            }
-            ArtworkImage(displayKey, bitmap)
-        }
+        value = withContext(Dispatchers.IO) { ArtworkImage(displayKey, loadTrackArtwork(artworkPath, audioPath)) }
     }
     val reduced = systemReducedMotion()
     val shape = RoundedCornerShape(cornerRadius)
