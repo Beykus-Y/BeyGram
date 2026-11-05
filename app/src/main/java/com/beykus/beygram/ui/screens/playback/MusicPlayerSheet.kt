@@ -1185,8 +1185,9 @@ private fun PlayerActions(
     val track = remember(item.occurrenceId, item.origin) { item.toPlaylistTrack() }?.takeUnless { protectedChat }
     val library = rememberMusicLibrary(item.accountId)
     var addOpen by remember(item.occurrenceId) { mutableStateOf(false) }
-    // The caption is the timecode at the moment the button is tapped; null keeps the picker closed.
-    var shareCaption by remember(item.occurrenceId) { mutableStateOf<String?>(null) }
+    // The picked track, timecode and source are fixed when the button is tapped. Nothing here is keyed to the track, so
+    // the picker stays open when the player moves on to the next track.
+    var pendingShare by remember { mutableStateOf<PendingTrackShare?>(null) }
     val shareLabel = stringResource(R.string.player_share_timecode)
     // Sharing sends from the chat source the player uses. A track from a chat is offered only once that chat is known
     // not to protect its content; a chat that cannot be checked here gets no share.
@@ -1228,7 +1229,11 @@ private fun PlayerActions(
         }))
         add(PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue, primary = true))
         if (shareAllowed) {
-            add(PlayerActionUi(Icons.Rounded.Share, shareLabel, onClick = { shareCaption = shareTimecode(PlaybackEngine.state.value.positionMs) }))
+            add(PlayerActionUi(Icons.Rounded.Share, shareLabel, onClick = {
+                shareSource?.let { source ->
+                    pendingShare = PendingTrackShare(item, shareTimecode(PlaybackEngine.state.value.positionMs), source)
+                }
+            }))
         }
         add(PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue, primary = true))
         if (onOpenEqualizer != null) add(PlayerActionUi(Icons.Rounded.Equalizer, equalizerLabel, onOpenEqualizer))
@@ -1265,10 +1270,13 @@ private fun PlayerActions(
         }
     }
     if (addOpen && track != null) AddToPlaylistSheet(accountId = item.accountId, track = track, onDismiss = { addOpen = false })
-    shareCaption?.let { caption ->
-        shareSource?.let { source ->
-            ShareTrackDialog(repository = source.repository, item = item, caption = caption, onClose = { shareCaption = null })
-        }
+    pendingShare?.let { share ->
+        ShareTrackDialog(
+            repository = share.source.repository,
+            item = share.item,
+            caption = share.caption,
+            onClose = { pendingShare = null }
+        )
     }
 }
 
