@@ -2994,6 +2994,8 @@ class TdLibTelegramRepository private constructor(
                 cacheMaintenance.signedOut()
                 // The kept messages belong to the account that signed out.
                 chatMemory.clearAll()
+                // Chat ids of private chats repeat across accounts, so the timers of this account must not reach the next one.
+                chatAutoDeleteTimers.clear()
                 // The chat exceptions name chats of the account that left, so they go. The switches stay: this state also
                 // comes when another device ends the session, and a re-login must not quietly lose the protection.
                 if (isLegacyAccount) {
