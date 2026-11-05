@@ -180,6 +180,29 @@ class ChatMemoryStoreTest {
         assertEquals("b", store.deletedMessages(20L, 1L, 1L).single().text)
     }
 
+    @Test
+    fun outgoingMessagesAreNotKeptWhenDeleted() {
+        store.observe(listOf(observation(3, "mine", outgoing = true)), nowMillis = 100)
+
+        store.markDeleted(CHAT, listOf(3L), fallback = mapOf(3L to observation(3, "mine", outgoing = true)), nowMillis = 200)
+
+        assertTrue(store.deletedMessages(CHAT, 1L, Long.MAX_VALUE).isEmpty())
+        assertEquals(1, store.usage().messages)
+    }
+
+    @Test
+    fun aChangeWithoutASenderNameKeepsTheStoredName() {
+        store.observe(listOf(observation(6, "one")), nowMillis = 100)
+        val change = MemoryObservation(CHAT, 6L, false, 0L, 0L, "", MemorySnapshot("two", false))
+        store.observe(listOf(change), nowMillis = 200, insertMissing = false)
+
+        store.markDeleted(CHAT, listOf(6L), fallback = emptyMap(), nowMillis = 300)
+
+        val kept = store.deletedMessages(CHAT, 1L, Long.MAX_VALUE).single()
+        assertEquals("Anna", kept.senderName)
+        assertEquals("two", kept.text)
+    }
+
     private companion object {
         const val CHAT = 100L
     }

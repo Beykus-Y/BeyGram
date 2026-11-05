@@ -78,6 +78,13 @@ import com.beykus.beygram.data.media.currentAutoDownloadNetwork
 import com.beykus.beygram.data.delayed.DelayedSendQueue
 import com.beykus.beygram.data.media.decideAutoDownload
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.data.chatmemory.ChatMemoryChatFacts
+import com.beykus.beygram.data.chatmemory.ChatMemoryRecorder
+import com.beykus.beygram.data.chatmemory.MemorizedMessage
+import com.beykus.beygram.data.chatmemory.MemoryObservation
+import com.beykus.beygram.data.chatmemory.MemorySnapshot
+import com.beykus.beygram.data.chatmemory.memorySnapshotOf
+import com.beykus.beygram.data.settings.ChatMemorySettingsStore
 import com.beykus.beygram.data.settings.StealthInteractionPolicy
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
@@ -141,6 +148,8 @@ import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.domain.model.InteractionPolicy
 import com.beykus.beygram.domain.model.StealthBlockedException
+import com.beykus.beygram.domain.model.ChatMemoryMark
+import com.beykus.beygram.domain.model.ChatMemoryVersion
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSpecialContent
@@ -422,6 +431,15 @@ class TdLibTelegramRepository private constructor(
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
+
+    /** Chat Memory of this account: kept deletions and earlier versions. Its writes run on their own thread. */
+    private val chatMemory = ChatMemoryRecorder(
+        context = appContext,
+        accountId = accountId,
+        settings = ChatMemorySettingsStore.forAccount(appContext, accountId),
+        factsOf = { chatId -> chatMemoryFacts(chatId) },
+        onVersionsKept = { changes -> applyKeptVersions(changes) }
+    )
     private val deletedMessages = ConcurrentHashMap<Long, MutableStateFlow<Set<Long>>>()
     // A forum topic is a separate history even though all of its messages have the parent chatId.
     private val topicStores = ConcurrentHashMap<Pair<Long, Long>, MessageHistoryStore>()
@@ -2104,6 +2122,13 @@ class TdLibTelegramRepository private constructor(
     }
 
     override fun observeChatHistory(chatId: Long): StateFlow<ChatHistory> = messageHistory.observe(chatId)
+    override suspend fun messageVersions(chatId: Long, messageId: Long): List<ChatMemoryVersion> = withContext(Dispatchers.IO) {
+        if (!chatMemory.keeps(chatId)) return@withContext emptyList<ChatMemoryVersion>()
+        chatMemory.versions(chatId, messageId).map {
+            ChatMemoryVersion(text = it.text, attachmentNotKept = it.hasAttachment, replacedAtMillis = it.replacedAtMillis)
+        }
+    }
+
     override fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>> =
         deletedMessages.computeIfAbsent(chatId) { MutableStateFlow(emptySet()) }
     override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> =
@@ -2434,7 +2459,8 @@ class TdLibTelegramRepository private constructor(
             // A newer jump or latest load started meanwhile, so this window must not replace its result.
             if (historyRequests[chatId] != request) false else {
                 val newestId = chatCache[chatId]?.lastMessageId
-                messageHistory.replaceWithWindow(chatId, messages.map { it.toChatMessage() }, reachesLatest = messages.any { it.id == newestId })
+                val reachesLatest = messages.any { it.id == newestId }
+                messageHistory.replaceWithWindow(chatId, windowPage(chatId, messages, reachesLatest), reachesLatest = reachesLatest)
                 messages.forEach(conversationActions::hydrateReply)
                 true
             }
@@ -2463,7 +2489,7 @@ class TdLibTelegramRepository private constructor(
                     val more = page.isNotEmpty()
                     val continueLoading = more && nextFrom != fromMessageId && remaining > page.size && pagesLeft > 1
                     // A page from before the window was replaced is stale and must not be merged or continued.
-                    if (messageHistory.finishLoad(chatId, page.map { it.toChatMessage() }, more, continueLoading, requestVersion, epoch)) {
+                    if (messageHistory.finishLoad(chatId, historyPage(chatId, page, fromMessageId), more, continueLoading, requestVersion, epoch)) {
                         page.forEach(conversationActions::hydrateReply)
                         if (BuildConfig.DEBUG) android.util.Log.i(TelegramNetworkMonitor.TAG, "History page received: ${page.size} messages")
                         if (continueLoading) requestHistory(chatId, nextFrom, remaining - page.size, pagesLeft - 1, epoch)
@@ -2592,6 +2618,10 @@ class TdLibTelegramRepository private constructor(
                 }
                 messageHistory.update(update.chatId, update.messageId, transform)
                 updateForumMessage(update.chatId, update.messageId, transform)
+                // Chat Memory keeps the earlier text when the text changed; a message it does not know is not stored.
+                memorySnapshotOf(update.newContent, isService = service != null)?.let { snapshot ->
+                    if (chatMemory.keeps(update.chatId)) chatMemory.recordChange(update.chatId, update.messageId, snapshot)
+                }
                 // TDLib can finalize a call without emitting UpdateChatLastMessage.
                 // Re-render only while this message remains the chat's last.
                 val preview = chatCache[update.chatId]
@@ -2694,6 +2724,9 @@ class TdLibTelegramRepository private constructor(
                     messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
                     putForumMessage(update.message, update.oldMessageId)
                     conversationActions.hydrateReply(update.message)
+                    if (chatMemory.keeps(update.message.chatId)) {
+                        update.message.toMemoryObservation()?.let { chatMemory.recordSeen(listOf(it)) }
+                    }
                 }
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
@@ -2719,10 +2752,15 @@ class TdLibTelegramRepository private constructor(
             is TdApi.UpdateDeleteMessages -> {
                 update.messageIds.forEach { conversationEffects.uploadFinished(update.chatId, it) }
                 if (update.isPermanent) {
-                    messageHistory.delete(update.chatId, update.messageIds.toList())
-                    topicStores.filterKeys { it.first == update.chatId }.values.forEach { it.delete(update.chatId, update.messageIds.toList()) }
-                    if (update.messageIds.isNotEmpty()) {
-                        deletedMessages[update.chatId]?.update { it + update.messageIds.toList() }
+                    val ids = update.messageIds.toList()
+                    // Chat Memory keeps incoming messages that the other side deleted: they stay on screen, marked.
+                    val kept = if (update.fromCache) emptySet<Long>() else keepDeletedMessages(update.chatId, ids)
+                    val removed = ids.filterNot { it in kept }
+                    messageHistory.delete(update.chatId, removed)
+                    messageHistory.markDeleted(update.chatId, kept, System.currentTimeMillis())
+                    topicStores.filterKeys { it.first == update.chatId }.values.forEach { it.delete(update.chatId, ids) }
+                    if (removed.isNotEmpty()) {
+                        deletedMessages[update.chatId]?.update { it + removed }
                     }
                 }
             }
@@ -2928,6 +2966,8 @@ class TdLibTelegramRepository private constructor(
                 }
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
+                // The kept messages belong to the account that signed out.
+                chatMemory.clearAll()
                 // The chat exceptions name chats of the account that left, so they go. The switches stay: this state also
                 // comes when another device ends the session, and a re-login must not quietly lose the protection.
                 if (isLegacyAccount) {
@@ -3213,6 +3253,10 @@ class TdLibTelegramRepository private constructor(
             messageHistory.put(message.toChatMessage())
             putForumMessage(message)
             conversationActions.hydrateReply(message)
+            // Our own sends are stored when TDLib confirms them, not while they are still pending.
+            if (message.sendingState == null && chatMemory.keeps(message.chatId)) {
+                message.toMemoryObservation()?.let { chatMemory.recordSeen(listOf(it)) }
+            }
         }
         val chat = chatCache[message.chatId]
         // Muted archived chats stay in the archive, as they do in Telegram. Until the chat's notification settings are
@@ -3296,6 +3340,120 @@ class TdLibTelegramRepository private constructor(
             canBeSaved = canBeSaved,
             media = media
         )
+    }
+
+    // ---- Память чата: сохранённые удаления и правки ----------------------------------------
+
+    /** The facts of a chat that decide what Chat Memory may keep; see chatMemorySaves. */
+    private fun chatMemoryFacts(chatId: Long): ChatMemoryChatFacts = ChatMemoryChatFacts(
+        isSecret = isSecretChat(chatId),
+        hasProtectedContent = chatCache[chatId]?.hasProtectedContent == true,
+        hasAutoDeleteTimer = (profiles.chat(chatId)?.messageAutoDeleteTime?.toLong() ?: 0L) > 0L
+    )
+
+    /** Chat Memory's view of a message as TDLib sent it; null for a service event, which is never kept. */
+    private fun TdApi.Message.toMemoryObservation(): MemoryObservation? {
+        val event = serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
+        val snapshot = memorySnapshotOf(content, isService = event != null) ?: return null
+        return MemoryObservation(
+            chatId = chatId,
+            messageId = id,
+            isOutgoing = isOutgoing,
+            dateSeconds = date.toLong(),
+            senderId = (senderId as? TdApi.MessageSenderUser)?.userId?.toLong() ?: 0L,
+            senderName = profiles.senderName(senderId),
+            snapshot = snapshot
+        )
+    }
+
+    /** What Chat Memory keeps of a message on screen; null for a service event. Used when a deletion finds it unstored. */
+    private fun ChatMessage.toMemoryObservation(): MemoryObservation? {
+        if (serviceText != null) return null
+        return MemoryObservation(
+            chatId = chatId,
+            messageId = id,
+            isOutgoing = isOutgoing,
+            dateSeconds = dateSeconds,
+            senderId = senderId,
+            senderName = senderName,
+            snapshot = MemorySnapshot(text = text, hasAttachment = media != null || special != null)
+        )
+    }
+
+    /** A kept message as the screen shows it: its last text, marked as deleted, with the versions it has. */
+    private fun MemorizedMessage.toKeptMessage(): ChatMessage = ChatMessage(
+        id = messageId,
+        chatId = chatId,
+        text = text,
+        time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(dateSeconds * 1000L)),
+        isOutgoing = isOutgoing,
+        dateSeconds = dateSeconds,
+        senderName = senderName,
+        senderId = senderId,
+        memory = ChatMemoryMark(deletedAtMillis = deletedAtMillis, attachmentNotKept = hasAttachment, versionCount = versionCount)
+    )
+
+    /**
+     * Adds Chat Memory to the messages of a range: the kept messages that the other side deleted, which the server no
+     * longer returns, and the number of earlier versions of each message. Off means the messages come back unchanged.
+     */
+    private fun withChatMemory(chatId: Long, messages: List<ChatMessage>, lowestId: Long, highestId: Long): List<ChatMessage> {
+        // Per chat: a chat that is excluded now shows nothing, even what was kept while it was allowed.
+        if (!chatMemory.keeps(chatId)) return messages
+        val ids = messages.map { it.id }
+        val deleted = chatMemory.deletedBetween(chatId, lowestId, highestId)
+        val deletedById = deleted.associateBy { it.messageId }
+        val counts = chatMemory.versionCounts(chatId, ids)
+        val page = messages.map { message ->
+            val kept = deletedById[message.id]
+            val count = counts[message.id]
+            when {
+                kept != null -> kept.toKeptMessage()
+                count != null -> message.copy(memory = (message.memory ?: ChatMemoryMark()).copy(versionCount = count))
+                else -> message
+            }
+        }
+        val pageIds = ids.toSet()
+        return page + deleted.filter { it.messageId !in pageIds }.map { it.toKeptMessage() }
+    }
+
+    /** A history page with Chat Memory applied. [fromMessageId] is zero for the newest page. */
+    private fun historyPage(chatId: Long, page: List<TdApi.Message>, fromMessageId: Long): List<ChatMessage> {
+        if (chatMemory.keeps(chatId)) chatMemory.recordSeen(page.mapNotNull { it.toMemoryObservation() })
+        // The newest page reaches every id above it; an older page reaches up to the message it was asked from.
+        val highestId = if (fromMessageId == 0L) Long.MAX_VALUE else fromMessageId - 1
+        return withChatMemory(chatId, page.map { it.toChatMessage() }, lowestId = page.minOfOrNull { it.id } ?: 0L, highestId = highestId)
+    }
+
+    /** A jump window with Chat Memory applied. [reachesLatest] is false while newer messages are still unloaded. */
+    private fun windowPage(chatId: Long, messages: List<TdApi.Message>, reachesLatest: Boolean): List<ChatMessage> {
+        if (chatMemory.keeps(chatId)) chatMemory.recordSeen(messages.mapNotNull { it.toMemoryObservation() })
+        val highestId = if (reachesLatest) Long.MAX_VALUE else messages.maxOfOrNull { it.id } ?: 0L
+        return withChatMemory(chatId, messages.map { it.toChatMessage() }, lowestId = messages.minOfOrNull { it.id } ?: 0L, highestId = highestId)
+    }
+
+    /**
+     * Chat Memory keeps the messages the other side has just deleted. Returns the ids the store now holds as kept, on
+     * screen or not. A kept message must not be retired from the history, or a later page would drop it.
+     */
+    private fun keepDeletedMessages(chatId: Long, messageIds: List<Long>): Set<Long> {
+        if (!chatMemory.keeps(chatId)) return emptySet<Long>()
+        val lowest = messageIds.minOrNull() ?: return emptySet<Long>()
+        val highest = messageIds.maxOrNull() ?: return emptySet<Long>()
+        val onScreen = messageHistory.observe(chatId).value.messages.associateBy { it.id }
+        val fallback = messageIds.mapNotNull { id -> onScreen[id]?.toMemoryObservation()?.let { id to it } }.toMap()
+        chatMemory.markDeleted(chatId, messageIds, fallback)
+        val requested = messageIds.toSet()
+        return chatMemory.deletedBetween(chatId, lowest, highest).map { it.messageId }.filter { it in requested }.toSet()
+    }
+
+    /** Chat Memory has kept an earlier text for these messages; the screen shows the new version counts. */
+    private fun applyKeptVersions(changes: Map<Pair<Long, Long>, Int>) {
+        for ((key, count) in changes) {
+            messageHistory.update(key.first, key.second) { message ->
+                message.copy(memory = (message.memory ?: ChatMemoryMark()).copy(versionCount = count))
+            }
+        }
     }
 
     /** The chat cache is normally warm; the stored TdApi.Chat covers a message that arrives first. */

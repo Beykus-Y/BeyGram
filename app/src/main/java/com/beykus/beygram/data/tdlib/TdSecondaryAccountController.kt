@@ -10,13 +10,16 @@ import com.beykus.beygram.notifications.NotificationRuntime
 import com.beykus.beygram.notifications.NotificationPreferencesStore
 import com.beykus.beygram.notifications.notificationPreferencesName
 import com.beykus.beygram.data.archive.archivePreferencesName
+import com.beykus.beygram.data.chatmemory.ChatMemoryStore
 import com.beykus.beygram.data.delayed.DelayedSendQueue
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.music.MusicOutcome
+import com.beykus.beygram.data.settings.ChatMemorySettingsStore
 import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.settings.chatOverridePreferencesName
 import com.beykus.beygram.data.settings.delayedSendPreferencesName
+import com.beykus.beygram.data.settings.chatMemoryPreferencesName
 import com.beykus.beygram.data.settings.stealthPreferencesName
 import com.beykus.beygram.data.settings.translationPreferencesName
 import kotlinx.coroutines.delay
@@ -585,6 +588,7 @@ internal class TdSecondaryAccountController private constructor(
             translationPreferencesName(accountId),
             chatOverridePreferencesName(accountId),
             stealthPreferencesName(accountId),
+            chatMemoryPreferencesName(accountId),
             delayedSendPreferencesName(accountId),
             "pending_group_creation_$accountId",
             "mihomo_tdlib_proxy_$accountId"
@@ -595,6 +599,8 @@ internal class TdSecondaryAccountController private constructor(
         DelayedSendSettingsStore.releaseAccount(accountId)
         com.beykus.beygram.data.archive.ArchiveSettingsStore.releaseAccount(accountId)
         StealthSettingsStore.releaseAccount(accountId)
+        ChatMemoryStore.deleteAccountFiles(app, accountId)
+        ChatMemorySettingsStore.releaseAccount(accountId)
         // The music library, its backups and its cover files. This runs before the tombstone is released: if it fails, the
         // tombstone stays and the cleanup is retried on the next start.
         val music = MusicLibraries.get(app).clearAccount(accountId)
