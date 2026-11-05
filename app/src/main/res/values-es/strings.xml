@@ -691,6 +691,8 @@
     <string name="settings_bgbeat_title">BG Beat (análisis de música)</string>
     <string name="settings_bgbeat_desc">Análisis de ritmo, BPM y estructura impulsado por el motor C++20 BG Media</string>
     <string name="settings_skip_silence_title">Saltar el silencio entre pistas</string>
+    <string name="settings_crossfade_title">Transición suave entre pistas</string>
+    <string name="settings_crossfade_desc">Los últimos 4 segundos de una pista se superponen al inicio de la siguiente. Solo música; desactivado por defecto.</string>
     <string name="settings_skip_silence_desc">El silencio al final de una pista y al principio de la siguiente. Se mide en segundo plano, solo con Wi-Fi o mientras se carga.</string>
     <string name="settings_bgmix_title">BG Mix (transiciones entre pistas)</string>
     <string name="settings_bgmix_desc">Transiciones suaves entre pistas de música con el núcleo C++ de BG Media. Experimental; los mensajes de voz y de vídeo no se ven afectados.</string>
