@@ -57,8 +57,10 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
                 val row = readRowLocked(db, chatId, messageId)
                 if (row == null) {
                     val known = fallback[messageId] ?: continue
+                    // Our own messages are not kept: deleting one is our own action, or a group admin's.
+                    if (known.isOutgoing) continue
                     insertMessageLocked(db, known.copy(chatId = chatId, messageId = messageId), nowMillis, deletedAtMillis = nowMillis)
-                } else if (row.deletedAtMillis == null) {
+                } else if (!row.isOutgoing && row.deletedAtMillis == null) {
                     val values = ContentValues().apply { put("deleted_at", nowMillis) }
                     db.update("messages", values, WHERE_MESSAGE, keyArgs(chatId, messageId))
                 }
@@ -211,7 +213,6 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
         if (row.text == snapshot.text && row.hasAttachment == snapshot.hasAttachment) {
             val values = ContentValues().apply {
                 put("seen_at", nowMillis)
-                put("sender_name", observation.senderName)
             }
             db.update("messages", values, WHERE_MESSAGE, keyArgs(observation.chatId, observation.messageId))
             return null
@@ -231,7 +232,6 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
             put("has_attachment", snapshot.hasAttachment)
             put("version_count", versionNumber)
             put("seen_at", nowMillis)
-            put("sender_name", observation.senderName)
         }
         db.update("messages", values, WHERE_MESSAGE, keyArgs(observation.chatId, observation.messageId))
         return Pair(observation.chatId to observation.messageId, versionNumber)
@@ -256,7 +256,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
 
     private fun readRowLocked(db: SQLiteDatabase, chatId: Long, messageId: Long): Row? =
         db.rawQuery(
-            "SELECT text, has_attachment, deleted_at, version_count FROM messages WHERE chat_id = ? AND message_id = ?",
+            "SELECT text, has_attachment, is_outgoing, deleted_at, version_count FROM messages WHERE chat_id = ? AND message_id = ?",
             keyArgs(chatId, messageId)
         ).use { cursor ->
             if (!cursor.moveToFirst()) {
@@ -265,8 +265,9 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
                 Row(
                     text = cursor.getString(0),
                     hasAttachment = cursor.getInt(1) != 0,
-                    deletedAtMillis = if (cursor.isNull(2)) null else cursor.getLong(2),
-                    versionCount = cursor.getInt(3)
+                    isOutgoing = cursor.getInt(2) != 0,
+                    deletedAtMillis = if (cursor.isNull(3)) null else cursor.getLong(3),
+                    versionCount = cursor.getInt(4)
                 )
             }
         }
@@ -283,7 +284,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
             result
         }
 
-    private class Row(val text: String, val hasAttachment: Boolean, val deletedAtMillis: Long?, val versionCount: Int)
+    private class Row(val text: String, val hasAttachment: Boolean, val isOutgoing: Boolean, val deletedAtMillis: Long?, val versionCount: Int)
 
     companion object {
         private val stores = ConcurrentHashMap<String, ChatMemoryStore>()
@@ -293,16 +294,21 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
             require(TdAccountStorageLayout.isValidAccountId(accountId)) { "Invalid account id for chat memory" }
             return stores.computeIfAbsent(accountId) {
                 val appContext = context.applicationContext
-                val file = File(appContext.noBackupFilesDir, "chat-memory/$accountId.db")
+                val file = databaseFile(appContext, accountId)
                 file.parentFile?.mkdirs()
                 ChatMemoryStore(ChatMemoryDatabase(appContext, file.path))
             }
         }
 
-        /** Closes and forgets the store of a removed account. The caller deletes the file. */
-        fun releaseAccount(accountId: String) {
+        /** Closes the store of a removed account and deletes its database files. */
+        fun deleteAccountFiles(context: Context, accountId: String) {
             stores.remove(accountId)?.close()
+            val file = databaseFile(context.applicationContext, accountId)
+            listOf("", "-wal", "-shm", "-journal").forEach { suffix -> File(file.path + suffix).delete() }
         }
+
+        private fun databaseFile(context: Context, accountId: String): File =
+            File(context.noBackupFilesDir, "chat-memory/$accountId.db")
     }
 }
 

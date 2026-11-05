@@ -91,6 +91,9 @@ interface ConversationRepository {
     ): Result<ChatMessage?>
     /** Permanent deletions observed in a chat; history windows alone cannot distinguish deleted vs unloaded rows. */
     fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>>
+
+    /** Earlier texts that Chat Memory kept for a message, oldest first. Empty when nothing was kept or the feature is off. */
+    suspend fun messageVersions(chatId: Long, messageId: Long): List<ChatMemoryVersion> = emptyList()
     fun openChat(chatId: Long)
     fun closeChat(chatId: Long)
     fun loadOlderMessages(chatId: Long)

@@ -2,6 +2,7 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.ChatMemoryMark
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.LiveMessageArrival
 import com.beykus.beygram.domain.model.MessageIdReplacement
@@ -232,6 +233,15 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
         val state = flow(chatId)
         state.value = state.value.copy(error = error, isLoading = if (endLoading) false else state.value.isLoading)
         if (endLoading) endLoad(chatId)
+    }
+
+    /** Chat Memory kept these messages after the other side deleted them: they stay on screen, marked as deleted. */
+    fun markDeleted(chatId: Long, ids: Collection<Long>, deletedAtMillis: Long) {
+        for (id in ids) {
+            update(chatId, id) { message ->
+                message.copy(memory = (message.memory ?: ChatMemoryMark()).copy(deletedAtMillis = deletedAtMillis))
+            }
+        }
     }
 
     fun delete(chatId: Long, ids: Collection<Long>) = synchronized(lock) {
