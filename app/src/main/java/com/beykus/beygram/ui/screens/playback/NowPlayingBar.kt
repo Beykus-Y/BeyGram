@@ -64,6 +64,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -453,7 +454,8 @@ private fun VoiceNowPlayingSheet(onDismiss: () -> Unit) {
             item = item,
             colors = NowPlayingColors(palette.textPrimary, palette.textSecondary, palette.accent, palette.accentSoft, palette.accentInk),
             enabled = true,
-            onPlayPause = { PlaybackEngine.togglePlayPause() }
+            onPlayPause = { PlaybackEngine.togglePlayPause() },
+            modifier = Modifier.nestedScroll(SheetOverscrollGuard)
         )
         Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.Center) {
             item.origin?.let { origin ->
