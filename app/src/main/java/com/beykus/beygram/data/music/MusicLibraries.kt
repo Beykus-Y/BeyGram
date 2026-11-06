@@ -23,6 +23,9 @@ object MusicLibraries {
                     coverRoot = File(appContext.filesDir, MUSIC_COVER_DIRECTORY),
                     coverOwners = PreferencesMusicCoverOwners(
                         appContext.getSharedPreferences(MUSIC_COVER_OWNERS_PREFERENCES, Context.MODE_PRIVATE)
+                    ),
+                    pendingClears = PreferencesMusicPendingClears(
+                        appContext.getSharedPreferences(MUSIC_PENDING_CLEARS_PREFERENCES, Context.MODE_PRIVATE)
                     )
                 ).also { instance = it }
             }

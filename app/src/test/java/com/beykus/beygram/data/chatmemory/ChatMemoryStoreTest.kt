@@ -2,6 +2,7 @@ package com.beykus.beygram.data.chatmemory
 
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -30,6 +31,26 @@ class ChatMemoryStoreTest {
     @After
     fun close() {
         store.close()
+    }
+
+    @Test
+    fun aClosedStoreDoesNotCreateItsDatabaseAgain() {
+        // Deleting an account's files closes its store first. A call that arrives later must be refused, and must not create
+        // the database file again.
+        store.observe(listOf(observation(1, "hello")), nowMillis = 100)
+        val database = File(folder.root, "memory.db")
+        assertTrue(database.exists())
+        store.close()
+        database.delete()
+
+        var refused = false
+        try {
+            store.usage()
+        } catch (expected: IllegalStateException) {
+            refused = true
+        }
+        assertTrue(refused)
+        assertFalse(database.exists())
     }
 
     private fun observation(

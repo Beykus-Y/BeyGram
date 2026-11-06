@@ -1426,7 +1426,8 @@ fun ChatScreen(
             // The delay is not read yet: the text waits for it, instead of going out as if no delay were set.
             DelayedSendRoute.Hold -> { sendWaitingForDelay = HeldDelayedSend(effectiveOptions, composerDraft); return }
             DelayedSendRoute.Queue -> {
-                delayed.enqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { MessageDraft() } })
+                // Only the text that was stored leaves the composer: text typed while the write ran stays.
+                delayed.enqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { current -> draftAfterDelayedQueue(current, storedText = draft) } })
                 return
             }
             DelayedSendRoute.SendNow -> Unit

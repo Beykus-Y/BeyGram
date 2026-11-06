@@ -17,6 +17,9 @@ import java.util.concurrent.ConcurrentHashMap
  */
 internal class ChatMemoryStore internal constructor(private val helper: SQLiteOpenHelper) {
 
+    // Set when the store is closed for good, after its account's files were deleted. Guarded by the store's lock.
+    private var closed = false
+
     /**
      * Records what TDLib showed or changed. A new message gets a row when [insertMissing] is set. A message whose text
      * changed keeps its earlier text as a version. A deleted message is not changed any more.
@@ -29,7 +32,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
         insertMissing: Boolean = true
     ): Map<Pair<Long, Long>, Int> {
         if (observations.isEmpty()) return emptyMap()
-        val db = helper.writableDatabase
+        val db = database()
         val archived = LinkedHashMap<Pair<Long, Long>, Int>()
         db.beginTransaction()
         try {
@@ -51,7 +54,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
     @Synchronized
     fun markDeleted(chatId: Long, messageIds: Collection<Long>, fallback: Map<Long, MemoryObservation>, nowMillis: Long) {
         if (messageIds.isEmpty()) return
-        val db = helper.writableDatabase
+        val db = database()
         db.beginTransaction()
         try {
             for (messageId in messageIds) {
@@ -76,7 +79,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
     @Synchronized
     fun deletedMessages(chatId: Long, fromMessageId: Long, toMessageId: Long): List<MemorizedMessage> {
         if (fromMessageId > toMessageId) return emptyList()
-        return helper.writableDatabase.rawQuery(
+        return database().rawQuery(
             "SELECT $COLUMNS FROM messages WHERE chat_id = ? AND deleted_at IS NOT NULL AND message_id BETWEEN ? AND ? ORDER BY message_id ASC",
             arrayOf(chatId.toString(), fromMessageId.toString(), toMessageId.toString())
         ).use { cursor -> readMessages(cursor) }
@@ -85,7 +88,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
     /** The message as the store has it now, or null when it is not stored. */
     @Synchronized
     fun memorized(chatId: Long, messageId: Long): MemorizedMessage? =
-        helper.writableDatabase.rawQuery(
+        database().rawQuery(
             "SELECT $COLUMNS FROM messages WHERE chat_id = ? AND message_id = ?",
             keyArgs(chatId, messageId)
         ).use { cursor -> readMessages(cursor).firstOrNull() }
@@ -93,7 +96,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
     /** The earlier texts of one message, oldest first. */
     @Synchronized
     fun versions(chatId: Long, messageId: Long): List<MemorizedVersion> =
-        helper.writableDatabase.rawQuery(
+        database().rawQuery(
             "SELECT text, has_attachment, replaced_at FROM versions WHERE chat_id = ? AND message_id = ? ORDER BY seq ASC",
             keyArgs(chatId, messageId)
         ).use { cursor ->
@@ -108,7 +111,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
     @Synchronized
     fun versionCounts(chatId: Long, messageIds: Collection<Long>): Map<Long, Int> {
         if (messageIds.isEmpty()) return emptyMap()
-        val db = helper.writableDatabase
+        val db = database()
         val counts = HashMap<Long, Int>()
         for (chunk in messageIds.chunked(QUERY_CHUNK)) {
             val placeholders = chunk.joinToString(",") { "?" }
@@ -127,7 +130,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
 
     @Synchronized
     fun usage(): ChatMemoryUsage {
-        val db = helper.writableDatabase
+        val db = database()
         val messageTotals = db.rawQuery(
             "SELECT COUNT(*), COALESCE(SUM(CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END), 0), " +
                 "COALESCE(SUM(LENGTH(CAST(text AS BLOB)) + LENGTH(CAST(sender_name AS BLOB))), 0) FROM messages",
@@ -163,7 +166,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
     // Runs on the writer only, so no other write changes the store between the batches. Only the delete of a batch holds the
     // lock, so a read of a chat waits for one batch and not for the whole trim.
     fun trim(limitBytes: Long): Int {
-        val db = helper.writableDatabase
+        val db = database()
         var removed = 0
         while (true) {
             val excess = usage().bytes - limitBytes
@@ -199,7 +202,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
     /** Removes everything the store holds, for example when the user clears Chat Memory. */
     @Synchronized
     fun clearAll() {
-        val db = helper.writableDatabase
+        val db = database()
         db.beginTransaction()
         try {
             db.delete("versions", null, null)
@@ -217,7 +220,7 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
     @Synchronized
     fun forget(chatId: Long, messageIds: Collection<Long>) {
         if (messageIds.isEmpty()) return
-        val db = helper.writableDatabase
+        val db = database()
         db.beginTransaction()
         try {
             for (messageId in messageIds) {
@@ -234,7 +237,18 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
 
     @Synchronized
     fun close() {
+        closed = true
         helper.close()
+    }
+
+    /**
+     * The open database. Once the store is closed, no call opens it again: the account's files may have been deleted, and
+     * opening the database would create them again.
+     */
+    @Synchronized
+    private fun database(): SQLiteDatabase {
+        check(!closed) { "Chat memory of this account is closed" }
+        return helper.writableDatabase
     }
 
     private fun observeLocked(

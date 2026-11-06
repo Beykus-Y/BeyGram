@@ -36,7 +36,9 @@ class MusicLibraryRepository(
     private val newId: () -> String = { UUID.randomUUID().toString() },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** The covers each account's library used when it was last written. They are deleted with the account, even if its library is unreadable. */
-    private val coverOwners: MusicCoverOwners = MemoryMusicCoverOwners()
+    private val coverOwners: MusicCoverOwners = MemoryMusicCoverOwners(),
+    /** The accounts whose stored library still owes a clear. Nothing is written to such a library, and it is cleared before the account is selected. */
+    private val pendingClears: MusicPendingClears = MemoryMusicPendingClears()
 ) {
     private val mutex = Mutex()
     private val _library = MutableStateFlow(MusicLibrary(accountId = "", playlists = emptyList()))
@@ -65,6 +67,12 @@ class MusicLibraryRepository(
     /** False while the stored file of the active account cannot be used. Guarded by [mutex]. */
     private var writable = false
 
+    /**
+     * Accounts whose owed mark was removed in memory while its removal did not reach the disk. They stay owed until a removal
+     * succeeds, because the mark that is still on disk would clear whatever is saved after a restart. Guarded by [mutex].
+     */
+    private val unremovedMarks = HashSet<String>()
+
     /** Shows the library of [accountId], loading it from storage. Re-selecting a readable active account does nothing. */
     suspend fun setActiveAccount(accountId: String) {
         if (accountId.isBlank()) return
@@ -72,14 +80,23 @@ class MusicLibraryRepository(
     }
 
     private suspend fun switchLocked(accountId: String) {
-        if (_library.value.accountId == accountId && writable) return
+        // A library that still owes its clear is not kept, even if it is the one shown: the owed clear runs first.
+        if (_library.value.accountId == accountId && writable && !owesClear(accountId)) return
         writable = false
         _isLoaded.value = false
         _storageError.value = false
         _library.value = MusicLibrary(accountId = accountId, playlists = emptyList())
         try {
             // Not cancellable: once the read has started, its result is published as a whole even if the caller is cancelled.
-            withContext(NonCancellable + ioDispatcher) { publishLoaded(accountId, persistence.load(accountId)) }
+            withContext(NonCancellable + ioDispatcher) {
+                if (owesClear(accountId) && clearLocked(accountId) is MusicOutcome.Failed) {
+                    // The owed clear failed again: nothing of the stored library is shown or written until a clear succeeds.
+                    writable = false
+                    _storageError.value = true
+                    return@withContext
+                }
+                publishLoaded(accountId, persistence.load(accountId))
+            }
         } finally {
             _isLoaded.value = true
         }
@@ -113,6 +130,21 @@ class MusicLibraryRepository(
      */
     suspend fun clearAccount(accountId: String): MusicOutcome<Unit> = mutex.withLock { clearLocked(accountId) }
 
+    /**
+     * Records that the stored library of [accountId] owes a clear. The mark is stored before this returns, so it survives the
+     * process ending before the clear runs. Until a clear succeeds, nothing is written to the account's library, and the next
+     * selection of the account clears it first and shows nothing of it before that. Returns false when the mark could not be stored.
+     */
+    fun markClearOwed(accountId: String): Boolean = pendingClears.mark(accountId)
+
+    /**
+     * Runs the clear that [markClearOwed] recorded. Nothing happens once the mark is gone: a selection of the account has cleared
+     * it already, and the library loaded since then must not be cleared.
+     */
+    suspend fun clearOwed(accountId: String): MusicOutcome<Unit> = mutex.withLock {
+        if (owesClear(accountId)) clearLocked(accountId) else MusicOutcome.Done(Unit)
+    }
+
     private suspend fun clearLocked(accountId: String): MusicOutcome<Unit> {
         // The covers are read first: once the library file is gone, only the recorded covers are still known.
         val covers = storedCoverPaths(accountId) + withContext(ioDispatcher) { coverOwners.covers(accountId) }
@@ -129,14 +161,35 @@ class MusicLibraryRepository(
                 writable = true
                 _storageError.value = false
             }
-            // Only the covers that stayed are recorded, so the next clear or a later write still finds them.
             withContext(ioDispatcher) {
+                // Only the covers that stayed are recorded, so the next clear or a later write still finds them.
                 if (left.isEmpty()) coverOwners.forget(accountId) else coverOwners.replace(accountId, left)
             }
             if (left.isNotEmpty()) return@withContext MusicOutcome.Failed(MusicFailure.StorageUnavailable)
+            // The owed mark goes once the clear is complete. Until its removal is on disk, the account stays unwritable here too.
+            if (owesClear(accountId) && !removeMark(accountId)) {
+                if (_library.value.accountId == accountId) {
+                    writable = false
+                    _storageError.value = true
+                }
+                return@withContext MusicOutcome.Failed(MusicFailure.StorageUnavailable)
+            }
             MusicOutcome.Done(Unit)
         }
     }
+
+    /**
+     * Removes the owed mark of [accountId] from the disk. A removal that did not reach the disk keeps the account owed here.
+     * Returns whether the removal is on disk.
+     */
+    private suspend fun removeMark(accountId: String): Boolean {
+        val removed = withContext(ioDispatcher) { pendingClears.unmark(accountId) }
+        if (removed) unremovedMarks.remove(accountId) else unremovedMarks.add(accountId)
+        return removed
+    }
+
+    /** Whether the stored library of [accountId] still owes a clear: its mark is on disk, or its removal did not reach the disk. */
+    private fun owesClear(accountId: String): Boolean = accountId in unremovedMarks || pendingClears.isMarked(accountId)
 
     /** Cover paths of the account's stored playlists. The active library is used directly; another account is read from storage. */
     private suspend fun storedCoverPaths(accountId: String): List<String> {
@@ -290,7 +343,7 @@ class MusicLibraryRepository(
     private suspend fun <T> commitLocked(edit: (MusicLibrary) -> MusicEditOutcome<T>): MusicOutcome<T> {
         val current = _library.value
         if (current.accountId.isEmpty()) return MusicOutcome.Failed(MusicFailure.NoActiveAccount)
-        if (!writable) return MusicOutcome.Failed(MusicFailure.StorageUnavailable)
+        if (!writable || owesClear(current.accountId)) return MusicOutcome.Failed(MusicFailure.StorageUnavailable)
         return when (val outcome = edit(current)) {
             is MusicOutcome.Failed -> outcome
             is MusicOutcome.Done -> {

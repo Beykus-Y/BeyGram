@@ -8,11 +8,15 @@ import kotlinx.coroutines.Dispatchers
 
 internal const val TEST_ACCOUNT = "acc"
 
-/** In-memory persistence. [failSaves] simulates a full disk; [loadOverride] simulates an unreadable file. */
+/**
+ * In-memory persistence. [failSaves] simulates a full disk, [failClears] a file that cannot be removed, and [loadOverride] an
+ * unreadable file.
+ */
 internal class FakeMusicPersistence : MusicLibraryPersistence {
     val stored = HashMap<String, MusicLibrary>()
     var loadOverride: MusicLibraryLoad? = null
     var failSaves = false
+    var failClears = false
     var saves = 0
 
     override suspend fun load(accountId: String): MusicLibraryLoad {
@@ -28,6 +32,7 @@ internal class FakeMusicPersistence : MusicLibraryPersistence {
     }
 
     override suspend fun clear(accountId: String) {
+        if (failClears) throw IOException("file in use")
         stored.remove(accountId)
     }
 }
@@ -53,7 +58,8 @@ internal fun repositoryFor(
     persistence: MusicLibraryPersistence,
     clock: FakeClock,
     coverRoot: File? = null,
-    coverOwners: MusicCoverOwners = MemoryMusicCoverOwners()
+    coverOwners: MusicCoverOwners = MemoryMusicCoverOwners(),
+    pendingClears: MusicPendingClears = MemoryMusicPendingClears()
 ): MusicLibraryRepository {
     var counter = 0
     return MusicLibraryRepository(
@@ -62,7 +68,8 @@ internal fun repositoryFor(
         clock = { clock.now },
         newId = { "id-${++counter}" },
         ioDispatcher = Dispatchers.Unconfined,
-        coverOwners = coverOwners
+        coverOwners = coverOwners,
+        pendingClears = pendingClears
     )
 }
 

@@ -111,3 +111,9 @@ internal fun bgMixQueueTail(
     val tail = (startIndex until items.size).toList()
     return if (tail.all { eligible(items[it]) }) tail else null
 }
+
+/**
+ * Whether BG Mix may take a queue from [source]. A source with more pages still to load stays on ExoPlayer: the native queue
+ * holds only the items that are known now, so it would end at the edge of the first page.
+ */
+internal fun bgMixAdmitsSource(source: PlaybackQueueSource?): Boolean = source?.loadMore == null

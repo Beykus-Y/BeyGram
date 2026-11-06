@@ -13,6 +13,13 @@ import kotlinx.coroutines.launch
 internal data class CrossfadeNext(val index: Int, val mediaId: String, val startMs: Long)
 
 /**
+ * Whether an overlap must stop at this check. A transient loss of audio focus keeps playWhenReady set and only suppresses the
+ * output, so the suppression is a condition of its own: the tail has no focus handling and would keep playing without it.
+ */
+internal fun crossfadeMustStop(playerError: Boolean, playWhenReady: Boolean, playbackSuppressed: Boolean): Boolean =
+    playerError || !playWhenReady || playbackSuppressed
+
+/**
  * Overlaps the end of the playing music track with the start of the next one.
  *
  * The primary player stays the one that the queue and the MediaSession follow. At the switch point it jumps to the next
@@ -61,6 +68,8 @@ internal class TrackCrossfader(
             givenUpMediaId = null
             return
         }
+        // A transient loss of audio focus starts no overlap. The next progress tick tries again once focus is back.
+        if (playbackSuppressed(primary)) return
         val mediaId = primary.currentMediaItem?.mediaId ?: return
         if (mediaId == givenUpMediaId) return
         // The give-up applies to one track only: a different track starts with a clean slate.
@@ -99,13 +108,17 @@ internal class TrackCrossfader(
         }
     }
 
+    /** Whether the primary's output is suppressed, for example by a transient loss of audio focus. */
+    private fun playbackSuppressed(player: ExoPlayer): Boolean =
+        player.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE
+
     private suspend fun run(primary: ExoPlayer, watch: Watch): Outcome {
         var lockedSwitch: Long? = null
         var lockedNext: CrossfadeNext? = null
         var lastPosition: Long? = null
         while (true) {
             if (!enabled() || busy()) return Outcome.Interrupted
-            if (!primary.playWhenReady || primary.playerError != null) return Outcome.Interrupted
+            if (crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary))) return Outcome.Interrupted
             if (primary.currentMediaItem?.mediaId != watch.mediaId) return Outcome.Interrupted
             val duration = primary.duration
             if (duration == C.TIME_UNSET || duration <= 0L) {
@@ -172,6 +185,8 @@ internal class TrackCrossfader(
         // The queue may have changed while the tail waited. A different next track keeps this transition a plain cut.
         val target = nextAfter(primary, watch.mediaId)
         if (target == null || target.mediaId != locked.mediaId) return Outcome.GaveUp
+        // Focus lost since the last check: the tail must not start, because it would play without focus.
+        if (crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary))) return Outcome.Interrupted
         primary.volume = 0f
         watch.volumeTouched = true
         // The overlap is CROSSFADE_MS of media, so at another playback speed the same audio takes a different wall time.
@@ -186,7 +201,7 @@ internal class TrackCrossfader(
         while (true) {
             val mediaElapsedMs = ((System.nanoTime() - startedAt) / 1_000_000L * speed).toLong()
             if (mediaElapsedMs >= CROSSFADE_MS) return Outcome.Finished
-            if (primary.playerError != null || !primary.playWhenReady) return Outcome.Interrupted
+            if (crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary))) return Outcome.Interrupted
             if (primary.currentMediaItem?.mediaId != target.mediaId) return Outcome.Interrupted
             val progress = crossfadeProgress(mediaElapsedMs)
             primary.volume = incomingGain(progress)
