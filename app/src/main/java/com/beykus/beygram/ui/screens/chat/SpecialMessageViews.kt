@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
+import com.beykus.beygram.ui.design.styledShape
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -42,7 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -494,7 +495,7 @@ private fun PollOptionRow(
     val a11y = if (showResults) context.getString(R.string.a11y_poll_option, option.text, percent) else option.text
     Box(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 2.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(styledShape(10.dp))
             .background(if (option.isChosen || selected) palette.accentSoft else palette.surface2)
             .clickable(enabled = enabled, role = if (poll.allowsMultipleAnswers) Role.Checkbox else Role.RadioButton, onClick = onClick)
             .semantics {

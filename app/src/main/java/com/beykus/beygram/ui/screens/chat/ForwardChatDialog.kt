@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,7 +16,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Forum
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -170,6 +172,7 @@ internal fun ForwardChatDialog(
             containerColor = palette.screen,
             topBar = {
                 TopAppBar(
+                    modifier = Modifier.topAppBarSurface(),
                     title = {
                         Text(
                             if (chat != null) stringResource(R.string.forward_choose_topic, chat.title)
@@ -199,7 +202,7 @@ internal fun ForwardChatDialog(
                         LazyColumn(Modifier.heightIn(max = 96.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(targets, key = { "${it.chatId}:${it.topicId}" }) { target ->
                                 Box(
-                                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(palette.accentSoft)
+                                    Modifier.fillMaxWidth().clip(styledShape(12.dp)).background(palette.accentSoft)
                                         .clickable(enabled = !locked, role = Role.Button) { toggle(target) }
                                         .padding(horizontal = 12.dp, vertical = 8.dp)
                                 ) {

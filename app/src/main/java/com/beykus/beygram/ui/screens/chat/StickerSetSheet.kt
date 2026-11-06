@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.layout.Box
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,7 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.StickerItem
@@ -188,7 +190,7 @@ internal fun StickerSetSheet(
         action(item)
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = palette.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = sheetSurfaceColor()) {
         Column(Modifier.fillMaxWidth().heightIn(min = 280.dp, max = 560.dp).padding(bottom = 16.dp)) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
@@ -197,7 +199,7 @@ internal fun StickerSetSheet(
                 if (cover != null) {
                     StickerArtwork(
                         cover,
-                        Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)),
+                        Modifier.size(48.dp).clip(styledShape(12.dp)),
                         observeFile,
                         downloadFile
                     )

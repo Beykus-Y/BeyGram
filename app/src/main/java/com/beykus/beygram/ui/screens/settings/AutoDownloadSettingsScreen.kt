@@ -1,6 +1,5 @@
 package com.beykus.beygram.ui.screens.settings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,11 +15,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Switch
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,7 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +44,11 @@ import com.beykus.beygram.data.media.TrafficUsageStore
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.ui.components.TrafficUsageSummary
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.listGroupShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
 private val CONFIGURED_NETWORKS = listOf(
@@ -75,6 +78,7 @@ fun AutoDownloadSettingsScreen(onBack: () -> Unit, accountId: String = "legacy")
     var network by remember { mutableStateOf(AutoDownloadNetwork.Wifi) }
     var saveFailed by remember { mutableStateOf(false) }
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
 
     fun update(transform: (AutoDownloadSettings) -> AutoDownloadSettings) {
         saveFailed = store.update(transform).isFailure
@@ -83,7 +87,7 @@ fun AutoDownloadSettingsScreen(onBack: () -> Unit, accountId: String = "legacy")
         update { value -> value.withPolicy(network, transform(value.policyFor(network))) }
     }
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.settings_auto_download_title), onBack)
         Column(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -131,7 +135,7 @@ fun AutoDownloadSettingsScreen(onBack: () -> Unit, accountId: String = "legacy")
             )
 
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp),
+                Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 SwitchRow(
@@ -160,9 +164,10 @@ private fun CategoryRuleCard(
     onLimit: (Long) -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     var menuOpen by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp),
+        Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         SwitchRow(title = title, checked = rule.enabled, onCheckedChange = onToggle)

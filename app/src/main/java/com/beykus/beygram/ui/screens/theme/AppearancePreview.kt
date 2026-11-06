@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.theme
 
+import com.beykus.beygram.ui.design.signatureChrome
+import com.beykus.beygram.ui.design.HairlineEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -72,6 +75,14 @@ import com.beykus.beygram.ui.screens.chat.MessageAnimationFrame
 import com.beykus.beygram.ui.screens.chat.bubbleMetricsFor
 import com.beykus.beygram.ui.screens.chat.bubbleShape
 import com.beykus.beygram.ui.screens.chat.BubbleLayout
+import com.beykus.beygram.ui.design.ComposerVariant
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.TopBarVariant
+import com.beykus.beygram.ui.design.squareSendButton
+import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.rememberDesign
+import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.LocalMessageLineSpacing
 import com.beykus.beygram.ui.theme.LocalMessageTextSize
@@ -88,20 +99,26 @@ internal fun AppearanceThemeScope(
     content: @Composable () -> Unit
 ) {
     val dark = config.mode.isDark(systemDark)
-    val metrics = remember(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp) {
-        bubbleMetricsFor(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp)
+    val design = rememberDesign(config)
+    val glassBackdrop = rememberGlassBackdrop()
+    val metrics = remember(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp, design.bubbles) {
+        bubbleMetricsFor(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp, design.bubbles)
     }
     BeyGramTheme(
         darkTheme = dark,
         tokens = resolveTokens(config, systemDark),
+        design = design,
         messageTextSizeSp = config.messageTextSizeSp,
         messageLineSpacing = config.messageLineSpacing
     ) {
         CompositionLocalProvider(
             LocalBubbleMetrics provides metrics,
-            LocalChatWallpaper provides config.wallpaper
+            LocalChatWallpaper provides config.wallpaper,
+            LocalGlassBackdrop provides glassBackdrop
         ) {
-            content()
+            Box(Modifier.fillMaxSize()) {
+                content()
+            }
         }
     }
 }
@@ -356,8 +373,16 @@ private fun PreviewMessagesContent(
 @Composable
 private fun PreviewChatHeader(contact: String) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     Row(
-        Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 14.dp, vertical = 9.dp),
+        Modifier.fillMaxWidth().then(
+            when (design.components.topBar) {
+                TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
+                TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.86f)))
+                TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
+                TopBarVariant.Flat -> Modifier.background(palette.surface)
+            }
+        ).padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -491,15 +516,23 @@ private fun PreviewComposer(
     onSend: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val replayDescription = stringResource(R.string.theme_animations_replay)
     Row(
-        Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 10.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().then(
+            when (design.components.composer) {
+                ComposerVariant.Outlined -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
+                ComposerVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.86f)))
+                ComposerVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
+                ComposerVariant.Rounded -> Modifier.background(palette.surface)
+            }
+        ).padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(
             Modifier.weight(1f).defaultMinSize(minHeight = 40.dp)
-                .clip(CircleShape).background(palette.surface2)
+                .clip(RoundedCornerShape(design.shapes.composer)).background(palette.surface2)
                 .padding(horizontal = 14.dp, vertical = 10.dp)
                 .onGloballyPositioned { fieldPositioned(it.boundsInWindow()) }
         ) {
@@ -513,7 +546,7 @@ private fun PreviewComposer(
             )
         }
         Box(
-            Modifier.size(40.dp).clip(CircleShape).background(palette.accent)
+            Modifier.size(40.dp).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(palette.accent)
                 .then(
                     if (onSend != null) Modifier.clickable(role = Role.Button, onClick = onSend)
                         .semantics { contentDescription = replayDescription }

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.geometry.Rect
@@ -53,6 +54,7 @@ import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.AutoDownloadRequest
+import com.beykus.beygram.domain.model.ChatMemoryVersion
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -66,6 +68,7 @@ import com.beykus.beygram.domain.model.reactionMessage
 import com.beykus.beygram.domain.model.showSenderHeader
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
 
@@ -81,15 +84,26 @@ internal data class ChatMessageListItem(
 
 /** Combines messages only when TDLib supplied the same nonzero mediaAlbumId. */
 internal fun groupTelegramMediaAlbums(messages: List<ChatMessage>): List<ChatMessageListItem> {
-    val albumMembers = messages.asSequence().filter { it.mediaAlbumId != 0L && it.media != null }.groupBy { it.mediaAlbumId }
-    val emittedAlbums = mutableSetOf<Long>()
-    return messages.asReversed().mapNotNull { message ->
+    val albumMembers = HashMap<Long, MutableList<ChatMessage>>()
+    for (message in messages) {
+        if (message.mediaAlbumId != 0L && message.media != null) albumMembers.getOrPut(message.mediaAlbumId) { mutableListOf() }.add(message)
+    }
+    val items = ArrayList<ChatMessageListItem>(messages.size)
+    for (index in messages.lastIndex downTo 0) {
+        val message = messages[index]
         val albumId = message.mediaAlbumId
         if (albumId != 0L && message.media != null) {
-            if (emittedAlbums.add(albumId)) ChatMessageListItem("album:$albumId", albumMembers[albumId].orEmpty(), albumId) else null
-        } else ChatMessageListItem("message:${message.id}", listOf(message))
+            // The newest member emits the album with all its members; the older ones find it already taken.
+            val members = albumMembers.remove(albumId) ?: continue
+            items.add(ChatMessageListItem("album:$albumId", members, albumId))
+        } else {
+            items.add(ChatMessageListItem("message:${message.id}", listOf(message)))
+        }
     }
+    return items
 }
+
+private val chronologicalMessages = compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.id }
 
 /**
  * Sender headers for the newest-first feed. The list is walked chronologically so consecutive messages from one author
@@ -100,7 +114,8 @@ internal fun senderHeaderVisibility(chat: ChatPreview, items: List<ChatMessageLi
     val headers = HashMap<String, Boolean>(items.size)
     var previous: ChatMessage? = null
     for (item in items.asReversed()) {
-        val chronological = item.messages.sortedWith(compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.id })
+        // A row with one message, which is nearly every row, is already in order.
+        val chronological = if (item.messages.size > 1) item.messages.sortedWith(chronologicalMessages) else item.messages
         if (chronological.isEmpty()) {
             previous = null
             continue
@@ -137,7 +152,9 @@ internal fun MessageAlbumBubble(
     onToggleSelection: () -> Unit = {},
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
     /** Reports the window bounds of the album bubble; every member's viewer opens from the same rectangle. */
-    onMediaBounds: ((Rect) -> Unit)? = null
+    onMediaBounds: ((Rect) -> Unit)? = null,
+    /** Loads the earlier texts that Chat Memory kept for a member; without it the album shows no versions link. */
+    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null
 ) {
     if (messages.isEmpty()) return
     val palette = beyGramPalette()
@@ -156,6 +173,15 @@ internal fun MessageAlbumBubble(
     val selectionState = if (selectionMode) {
         stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected)
     } else null
+
+    // The latest member that kept earlier texts; the album's versions link opens its history.
+    val versionsOwner = chronological.lastOrNull { (it.memory?.versionCount ?: 0) > 0 }
+    val loadVersions = onLoadVersions
+    var showVersions by remember(latest.id) { mutableStateOf(false) }
+    val openVersions: () -> Unit = { showVersions = true }
+    if (showVersions && loadVersions != null && versionsOwner != null) {
+        ChatMemoryVersionsSheet(versionsOwner, loadVersions, onDismiss = { showVersions = false })
+    }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = metrics.sideInset), horizontalAlignment = if (latest.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && captionMessage.sendState == MessageSendState.Sent, outgoing = latest.isOutgoing,
@@ -199,7 +225,7 @@ internal fun MessageAlbumBubble(
                                 if (index < rows.lastIndex) Spacer(Modifier.height(2.dp))
                             }
                             if (reply != null) {
-                                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).clip(RoundedCornerShape(10.dp))
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).clip(styledShape(10.dp))
                                     .background(palette.surface.copy(alpha = 0.72f)).combinedClickable(
                                         onClickLabel = selectionLabel,
                                         onLongClickLabel = selectionLabel,
@@ -226,14 +252,24 @@ internal fun MessageAlbumBubble(
                     },
                     meta = {
                         BubbleMeta(latest, isRead, retryAvailable = latest.isOutgoing && chronological.any { it.sendState == MessageSendState.Failed },
-                            overlay = false, onRetry = onRetry)
+                            overlay = false, onRetry = onRetry,
+                            onShowVersions = if (loadVersions != null && versionsOwner != null) openVersions else null,
+                            versionCount = versionsOwner?.memory?.versionCount ?: 0)
                     },
-                    bottomBar = { commentsBar?.invoke() }
+                    bottomBar = { commentsBar?.invoke() },
+                    footer = {
+                        // One reaction owner for the whole Telegram album, anchored inside its
+                        // shared bubble instead of a detached row underneath the media.
+                        if (!selectionMode) MessageReactionChips(
+                            reactionOwner.reactions, observeCustomEmoji, observeFile, onDownloadFile,
+                            onToggle = { onReaction(reactionOwner.id, it) },
+                            modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 2.dp)
+                        )
+                    }
                 )
                 if (selectionMode) SelectionCheckBadge(selected, Modifier.align(Alignment.TopEnd).padding(6.dp))
             }
         }
-        MessageReactionChips(reactionOwner.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(reactionOwner.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
     }
 }
 
@@ -268,6 +304,8 @@ private fun AlbumMediaTile(
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val visual = media.kind in setOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)
     val autoDownload = onAutoDownloadFile ?: LocalAutoDownloadFile.current
+    // A GIF in an album animates only after it has been on screen for the autoplay dwell time, as it does in the bubble.
+    val autoplay = rememberAutoplayEligible(enabled = media.mimeType == "image/gif")
     // Секретное вложение в альбоме не грузим и не показываем до открытия, как в ленте.
     val imagePath = if (media.isSecret) null else if (media.mimeType.startsWith("image/") && file.size <= 300_000) file.localPath ?: thumb.localPath else thumb.localPath
     LaunchedEffect(thumbId, revealed, thumb.size, media.isSecret, media.isSecretChat, media.hasSpoiler, policySettings, policyNetwork) {
@@ -284,16 +322,17 @@ private fun AlbumMediaTile(
         }
     }
 
-    Box(modifier.aspectRatio(1f).padding(1.dp).clip(RoundedCornerShape(5.dp)).background(palette.disabled)
+    Box(modifier.aspectRatio(1f).padding(1.dp).clip(styledShape(5.dp)).background(palette.disabled)
         .combinedClickable(
             onClickLabel = if (selectionMode) selectionLabel else if (revealed) openLabel else spoilerLabel,
             onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
             onClick = { if (selectionMode) onToggleSelection() else if (!revealed) revealed = true else onOpen() },
             onLongClick = { if (selectionMode) onToggleSelection() else onLongPress() }
         )
-        .semantics { if (revealed) contentDescription = mediaLabel },
+        .semantics { if (revealed) contentDescription = mediaLabel }
+        .then(autoplay.modifier),
         contentAlignment = Alignment.Center) {
-        if (revealed && imagePath != null) LocalMediaImage(imagePath, Modifier.fillMaxSize())
+        if (revealed && imagePath != null) LocalMediaImage(imagePath, Modifier.fillMaxSize(), animate = autoplay.eligible.value)
         when {
             !revealed -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
             imagePath == null && (file.isDownloading || thumb.isDownloading) -> CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
@@ -305,7 +344,7 @@ private fun AlbumMediaTile(
                 modifier = Modifier.size(36.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(7.dp))
         }
         if (media.durationSeconds > 0) Text(duration(media.durationSeconds), color = Color.White, fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(5.dp)).padding(horizontal = 4.dp, vertical = 2.dp))
+            modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.55f), styledShape(5.dp)).padding(horizontal = 4.dp, vertical = 2.dp))
         if (file.isDownloading || file.isUploading) LinearProgressIndicator(
             progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
             modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)

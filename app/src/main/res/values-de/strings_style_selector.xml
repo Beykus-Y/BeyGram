@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="style_preview_scene_chats">Chats</string>
+    <string name="style_preview_scene_messages">Unterhaltung</string>
+    <string name="style_preview_scene_settings">Einstellungen</string>
+    <string name="style_preview_description">Vorschau des Stils „%1$s“, Bildschirm „%2$s“</string>
+    <string name="style_preview_glass_note">Die Vorschau zeigt Glas ohne Hintergrundunschärfe. Die echte Unschärfe erscheint in der Oberfläche selbst.</string>
+    <string name="style_preview_glass_fallback_note">Glas wird derzeit mit dichter Tönung und ohne Unschärfe gezeichnet, genau wie in der Vorschau.</string>
+    <string name="style_preview_search">Suche</string>
+    <string name="style_preview_folder_all">Alle</string>
+    <string name="style_preview_folder_personal">Privat</string>
+    <string name="style_preview_folder_groups">Gruppen</string>
+    <string name="style_preview_archive_summary">3 Chats</string>
+    <string name="style_preview_chat1_name">Anna</string>
+    <string name="style_preview_chat1_message">Fotos vom Wochenende geschickt</string>
+    <string name="style_preview_chat1_time">12:40</string>
+    <string name="style_preview_chat2_name">Projektteam</string>
+    <string name="style_preview_chat2_message">Der Build ist bereit zur Prüfung</string>
+    <string name="style_preview_chat2_time">11:02</string>
+    <string name="style_preview_chat3_name">Michael</string>
+    <string name="style_preview_chat3_message">Telefonieren wir heute Abend?</string>
+    <string name="style_preview_chat3_time">Gestern</string>
+    <string name="style_preview_chat4_name">Notizen</string>
+    <string name="style_preview_chat4_message">Einkaufsliste</string>
+    <string name="style_preview_chat4_time">Mo</string>
+    <string name="style_preview_settings_general">Allgemein</string>
+    <string name="style_preview_settings_notifications">Benachrichtigungen</string>
+    <string name="style_preview_settings_sounds">Chat-Töne</string>
+    <string name="style_preview_settings_privacy">Datenschutz</string>
+    <string name="style_preview_settings_data">Daten</string>
+    <string name="style_preview_settings_autodownload">Automatischer Medien-Download</string>
+    <string name="style_preview_settings_storage">Speichernutzung</string>
+</resources>

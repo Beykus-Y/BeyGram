@@ -30,7 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.beykus.beygram.data.archive.ArchiveSettingsStore
 import com.beykus.beygram.data.archive.archivePreferencesName
+import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.tdlib.TdLibBootstrap
 import com.beykus.beygram.data.tdlib.AccountDeletionTracker
 import com.beykus.beygram.data.tdlib.TdLibReadiness
@@ -73,6 +74,8 @@ import com.beykus.beygram.navigation.TabVisibility
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.canOpenGroupStatistics
 import com.beykus.beygram.domain.model.PublicChatOpenResult
+import com.beykus.beygram.domain.model.InteractionEffect
+import com.beykus.beygram.domain.model.StealthBlockedException
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.MusicSessionStore
 import com.beykus.beygram.playback.restoreMusicSession
@@ -117,6 +120,9 @@ import com.beykus.beygram.ui.screens.chats.CreateGroupScreen
 import com.beykus.beygram.ui.screens.chats.NewChatScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchScreen
 import com.beykus.beygram.ui.screens.chats.GlobalSearchSession
+import com.beykus.beygram.ui.screens.chats.MarkReadConfirmationDialog
+import com.beykus.beygram.ui.screens.chats.MarkReadConfirmationState
+import com.beykus.beygram.ui.screens.chats.MarkReadRequest
 import com.beykus.beygram.ui.screens.stories.StoryPublisherScreen
 import com.beykus.beygram.ui.screens.stories.StoryViewerScreen
 import com.beykus.beygram.ui.screens.contacts.ContactsScreen
@@ -127,6 +133,8 @@ import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.PrivacySettingsScreen
+import com.beykus.beygram.ui.screens.settings.StealthSettingsScreen
+import com.beykus.beygram.ui.screens.settings.rememberStealthSettings
 import com.beykus.beygram.ui.screens.settings.AccountSecurityScreen
 import com.beykus.beygram.ui.screens.settings.BlockedSendersScreen
 import com.beykus.beygram.ui.screens.settings.StorageSettingsScreen
@@ -149,19 +157,25 @@ import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
 import com.beykus.beygram.ui.screens.profile.GiftsScreen
 import com.beykus.beygram.ui.screens.profile.PremiumScreen
 import com.beykus.beygram.ui.screens.profile.GroupManagementScreen
+import com.beykus.beygram.ui.screens.profile.LocalAddProfileAudio
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
+import com.beykus.beygram.ui.screens.profile.addPlaybackItemToProfile
 import com.beykus.beygram.ui.screens.profile.StarsScreen
 import com.beykus.beygram.ui.screens.theme.AppearanceDraftSaver
 import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
 import com.beykus.beygram.ui.screens.profile.EditProfileScreen
 import com.beykus.beygram.domain.model.NotificationOpenRequest
 import com.beykus.beygram.notifications.NotificationRuntime
+import com.beykus.beygram.notifications.TriggerWordsStore
 import com.beykus.beygram.ui.screens.notifications.NotificationSettingsScreen
+import com.beykus.beygram.ui.screens.notifications.TriggerMentionsScreen
+import com.beykus.beygram.ui.screens.notifications.TriggerWordsScreen
 import com.beykus.beygram.data.vpn.VpnBackend
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.motion.MotionSettingsStore
 import com.beykus.beygram.data.settings.ChatAnimationSettingsStore
 import com.beykus.beygram.data.settings.ChatOverridesStore
+import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
@@ -181,6 +195,13 @@ import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.screens.playback.EqualizerScreen
 import com.beykus.beygram.ui.screens.playback.MusicSearchScreen
 import com.beykus.beygram.ui.screens.playback.LocalOpenEqualizer
+import com.beykus.beygram.ui.screens.playback.LocalOpenMusicSearch
+import com.beykus.beygram.ui.screens.playback.LocalOpenMyMusic
+import com.beykus.beygram.ui.screens.bgmusic.LocalOpenMusicPlaylist
+import com.beykus.beygram.ui.screens.music.MyMusicScreen
+import com.beykus.beygram.ui.screens.music.MusicPlaylistScreen
+import com.beykus.beygram.ui.screens.music.ChatLibraryLink
+import com.beykus.beygram.ui.screens.music.chatCollectionId
 import com.beykus.beygram.ui.screens.playback.LocalPlaybackRepositorySource
 import com.beykus.beygram.ui.screens.playback.PlaybackRepositorySource
 import com.beykus.beygram.ui.text.resolve
@@ -345,7 +366,15 @@ private fun BeyGramAppContent(
     val repository = repositorySelection ?: unavailableAccountRepository
     val authState by repository.authState.collectAsStateWithLifecycle()
     val legacyAuthState by legacyRepository.authState.collectAsStateWithLifecycle()
-    val markChatRead: suspend (ChatPreview) -> Boolean = { chat -> repository.markChatRead(chat.id).isSuccess }
+    // Keyed by the account's repository: a question asked for one account is dropped when the user switches to another.
+    val markReadConfirmation = remember(repository) { MarkReadConfirmationState() }
+    val stealthSettings by rememberStealthSettings((repository as? TdLibTelegramRepository)?.stealthSettings)
+    val markChatRead: suspend (ChatPreview) -> Boolean = { chat ->
+        repository.markChatRead(chat.id).onFailure { failure ->
+            // A stealth refusal waits for the answer in the dialog. The swipe action ignores this result, so nothing shows.
+            if (failure is StealthBlockedException) markReadConfirmation.ask(MarkReadRequest.Chat(chat))
+        }.isSuccess
+    }
     val markAllReadScope = rememberCoroutineScope()
     val archiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, true).isSuccess }
     val unarchiveChat: suspend (ChatPreview) -> Boolean = { chat -> repository.setChatArchived(chat.id, false).isSuccess }
@@ -377,6 +406,22 @@ private fun BeyGramAppContent(
     // Equalizer always exits to Settings in its own back handler; remember where it was opened, so both that handler
     // and the toolbar return to the chat/profile/settings that actually opened it.
     var equalizerReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
+    // Search can open from Settings or a global player on any screen; Back returns to that origin.
+    var musicSearchReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
+    var myMusicReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
+    var musicPlaylistId by rememberSaveable { mutableStateOf("") }
+    // Where Back from the playlist goes: My Music, the chat whose `.bgmusic` preview opened it, or the chat info
+    // when the playlist is a chat's collection.
+    var musicPlaylistReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
+    // The account that opened the playlist. Playlists belong to an account, so a switch leaves the playlist behind.
+    var musicPlaylistAccountId by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(selectedAccountId) {
+        if (routeName == AppRoute.MusicPlaylist.name && musicPlaylistAccountId != selectedAccountId) {
+            musicPlaylistId = ""
+            musicPlaylistAccountId = ""
+            routeName = AppRoute.MyMusic.name
+        }
+    }
     var previousRouteName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     // One shared account switcher is rendered above every route.
     var accountSwitcherVisible by rememberSaveable { mutableStateOf(false) }
@@ -687,7 +732,13 @@ private fun BeyGramAppContent(
     // Выход из аккаунта останавливает общий плеер: его файл и «Показать в чате» относятся к прошлой сессии.
     LaunchedEffect(authState) { if (authState != AuthState.Ready) PlaybackEngine.stop() }
     // Смена выбранного аккаунта не должна оставлять музыку/очередь прошлого аккаунта в общем плеере.
-    LaunchedEffect(selectedAccountId) { PlaybackEngine.setActiveAccount(selectedAccountId) }
+    LaunchedEffect(selectedAccountId) {
+        PlaybackEngine.setActiveAccount(selectedAccountId)
+        com.beykus.beygram.media.bgbeat.BgBeatManager.getInstance(context).onAccountChanged(selectedAccountId)
+    }
+    // The music library follows the selected account. Listen history is recorded for the whole process by BeyGramApplication.
+    val musicLibrary = remember(context) { MusicLibraries.get(context) }
+    LaunchedEffect(selectedAccountId) { musicLibrary.setActiveAccount(selectedAccountId) }
     // Restore only after the selected account's real repository is authorized. Paused restoration never
     // prepares a stream or starts a service. Identity is validated against TDLib before creating a queue.
     LaunchedEffect(authState, selectedAccountId, repositorySelection, connectionState) {
@@ -1473,7 +1524,9 @@ private fun BeyGramAppContent(
         )
     )
     // Направление перехода берётся из порядка открытия экранов: назад — pop, новый экран — push, вкладки — fade.
-    val routeHistory = remember { NavigationHistory(initial = route, isRoot = { it in tabRootRoutes }) }
+    // Keep back-stack direction local to the active account. A route visited in another account
+    // must not turn a new screen into a backwards transition after switching accounts.
+    val routeHistory = remember(selectedAccountId) { NavigationHistory(initial = route, isRoot = { it in tabRootRoutes }) }
     val routeMove = routeHistory.visit(route)
     LaunchedEffect(route, previousRouteName) {
         // Every Equalizer entry (player, Settings, profile) records its caller here. The Settings shortcut used to
@@ -1533,7 +1586,9 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
-    BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = musicSearchReturnRouteName }
+    BackHandler(enabled = route == AppRoute.MyMusic) { routeName = myMusicReturnRouteName }
+    BackHandler(enabled = route == AppRoute.MusicPlaylist) { routeName = musicPlaylistReturnRouteName }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.AppLock) { routeName = AppRoute.Settings.name }
@@ -1601,7 +1656,15 @@ private fun BeyGramAppContent(
             onAccountPicker = { accountSwitcherVisible = true },
             onArchiveClick = { routeName = AppRoute.Archive.name },
             onMarkRead = markChatRead,
-            onMarkAllRead = { chats -> markAllReadScope.launch { chats.forEach { markChatRead(it) } } },
+            onMarkAllRead = { chats ->
+                // Stealth mode may refuse some of these reads: ask once for the whole list. Cancelling runs nothing.
+                val refused = chats.count { !stealthSettings.allows(InteractionEffect.ReadHistory, it.id) }
+                if (refused > 0) {
+                    markReadConfirmation.ask(MarkReadRequest.All(chats, refused))
+                } else {
+                    markAllReadScope.launch { chats.forEach { repository.markChatRead(it.id) } }
+                }
+            },
             onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
             onArchive = archiveChat,
             onPinChat = repository::setChatPinned,
@@ -1614,6 +1677,11 @@ private fun BeyGramAppContent(
                 globalSearchQuery = typed
                 globalSearchSession.reset(typed)
                 routeName = AppRoute.GlobalSearch.name
+            },
+            onMusicSearch = {
+                // Keep the actual origin: a split-screen chat must return to that chat on Back.
+                musicSearchReturnRouteName = routeName
+                routeName = AppRoute.MusicSearch.name
             },
             onChatClick = { chat ->
                 selectedChatId = chat.id
@@ -1632,7 +1700,7 @@ private fun BeyGramAppContent(
     }
     // Телефонный раздел чатов: тот же список под нижним меню. Широкий экран собирает две панели ниже.
     val chatsTab: @Composable () -> Unit = {
-        MainTabsScaffold("${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats, tabVisibility, selectTab, tabStateHolder) {
+        MainTabsScaffold("${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
             chatsList(false, false)
         }
     }
@@ -1960,10 +2028,18 @@ private fun BeyGramAppContent(
         val infoFlow = remember(repository, selectedChatId) { repository.observeChatInfo(selectedChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
         LaunchedEffect(repository, selectedChatId) { repository.refreshChatInfo(selectedChatId) }
+        // The chat's tracks in the library, as a collection of their own. No row for a protected chat, nor while the chat is loading.
+        val openChatMusic: (Long) -> Unit = { chatId ->
+            musicPlaylistId = chatCollectionId(chatId)
+            musicPlaylistAccountId = selectedAccountId
+            musicPlaylistReturnRouteName = AppRoute.ChatInfo.name
+            routeName = AppRoute.MusicPlaylist.name
+        }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onManage = { routeName = AppRoute.ChatManagement.name },
+            chatLibrary = if (selectedChat == null || chatInfoSecure) null else ChatLibraryLink(selectedAccountId, openChatMusic),
             onStatistics = if (canOpenGroupStatistics(info.info)) {
                 {
                     statisticsReturnRouteName = AppRoute.ChatInfo.name
@@ -2074,7 +2150,30 @@ private fun BeyGramAppContent(
         LocalMainTabIndicator provides tabIndicator,
         LocalAutoDownloadFile provides repository::autoDownloadFile,
         LocalBackgroundMediaDownload provides repository::downloadFileInBackground,
-        LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name }
+        LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name },
+        LocalAddProfileAudio provides repository::addPlaybackItemToProfile,
+        LocalOpenMusicSearch provides {
+            musicSearchReturnRouteName = routeName
+            routeName = AppRoute.MusicSearch.name
+        },
+        LocalOpenMyMusic provides {
+            if (routeName == AppRoute.MyMusic.name) {
+                // Already open: the player sheet closes and My Music stays as it is.
+            } else if (routeName == AppRoute.MusicPlaylist.name) {
+                // The playlist is part of My Music, so Back still returns to the route My Music was opened from.
+                routeName = AppRoute.MyMusic.name
+            } else {
+                myMusicReturnRouteName = routeName
+                routeName = AppRoute.MyMusic.name
+            }
+        },
+        // A playlist opened from a chat (its `.bgmusic` preview) returns to that chat with Back.
+        LocalOpenMusicPlaylist provides { playlistId: String ->
+            musicPlaylistReturnRouteName = routeName
+            musicPlaylistId = playlistId
+            musicPlaylistAccountId = selectedAccountId
+            routeName = AppRoute.MusicPlaylist.name
+        }
     ) {
     Column(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
@@ -2309,6 +2408,8 @@ private fun BeyGramAppContent(
                         onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
                         loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
             setPreviousProfilePhoto = repository::setPreviousProfilePhoto,
+                        removeProfileAudio = repository::removeProfileAudio,
+                        moveProfileAudioToFront = repository::moveProfileAudioToFront,
                         onNotifications = { openNotifications(AppRoute.MyProfile) },
                         hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
@@ -2372,7 +2473,26 @@ private fun BeyGramAppContent(
                     conversation = repository,
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
-                    onBack = { routeName = AppRoute.Settings.name }
+                    onBack = { routeName = musicSearchReturnRouteName }
+                )
+                AppRoute.MyMusic -> MyMusicScreen(
+                    accountId = selectedAccountId,
+                    telegram = repository,
+                    onBack = { routeName = myMusicReturnRouteName },
+                    onSearch = { musicSearchReturnRouteName = AppRoute.MyMusic.name; routeName = AppRoute.MusicSearch.name },
+                    onOpenPlaylist = { playlistId ->
+                        musicPlaylistReturnRouteName = AppRoute.MyMusic.name
+                        musicPlaylistId = playlistId
+                        musicPlaylistAccountId = selectedAccountId
+                        routeName = AppRoute.MusicPlaylist.name
+                    }
+                )
+                AppRoute.MusicPlaylist -> MusicPlaylistScreen(
+                    accountId = selectedAccountId,
+                    telegram = repository,
+                    playlistId = musicPlaylistId,
+                    onBack = { routeName = musicPlaylistReturnRouteName },
+                    onSearch = { musicSearchReturnRouteName = AppRoute.MusicPlaylist.name; routeName = AppRoute.MusicSearch.name }
                 )
                 AppRoute.Equalizer -> EqualizerScreen(
                     settings = equalizerSettings,
@@ -2395,7 +2515,17 @@ private fun BeyGramAppContent(
                     accountId = selectedAccountId,
                     connectionState = connectionState,
                     onBack = { routeName = notificationsReturnRouteName },
-                    onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name }
+                    onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name },
+                    onTriggers = { routeName = AppRoute.TriggerWords.name }
+                )
+                AppRoute.TriggerWords -> TriggerWordsScreen(
+                    store = TriggerWordsStore.get(context),
+                    onBack = { routeName = AppRoute.Notifications.name },
+                    onOpenMentions = { routeName = AppRoute.TriggerMentions.name }
+                )
+                AppRoute.TriggerMentions -> TriggerMentionsScreen(
+                    store = TriggerWordsStore.get(context),
+                    onBack = { routeName = AppRoute.TriggerWords.name }
                 )
                 AppRoute.ConnectionDiagnostics -> ConnectionDiagnosticsScreen(
                     repository = repository,
@@ -2445,7 +2575,10 @@ private fun BeyGramAppContent(
                         onSecondaryAccounts = { accountSwitcherVisible = true },
                         onAppLock = { routeName = AppRoute.AppLock.name },
                         onEqualizer = { routeName = AppRoute.Equalizer.name },
-                        onMusicSearch = { routeName = AppRoute.MusicSearch.name }
+                        onMusicLibrary = {
+                            myMusicReturnRouteName = AppRoute.Settings.name
+                            routeName = AppRoute.MyMusic.name
+                        }
                     )
                 }
                 AppRoute.AppLock -> AppLockSettingsScreen(onBack = { routeName = AppRoute.Settings.name })
@@ -2716,8 +2849,18 @@ private fun BeyGramAppContent(
                         loadPrivacy = repository::loadPrivacySettings,
                         savePrivacy = repository::setPrivacySetting,
                         loadContacts = repository::loadContacts,
+                        stealthActive = stealthSettings.protectionActive,
+                        onStealth = { routeName = AppRoute.StealthSettings.name },
                         onBlockedSenders = { routeName = AppRoute.BlockedSenders.name },
                         onBack = { routeName = AppRoute.Settings.name }
+                    )
+                }
+                AppRoute.StealthSettings -> key(selectedAccountId) {
+                    StealthSettingsScreen(
+                        store = (repository as? TdLibTelegramRepository)?.stealthSettings,
+                        delayStore = (repository as? TdLibTelegramRepository)?.let { DelayedSendSettingsStore.forAccount(context, it.accountId) },
+                        onServerPrivacy = { routeName = AppRoute.PrivacySettings.name },
+                        onBack = { routeName = AppRoute.PrivacySettings.name }
                     )
                 }
                 AppRoute.BlockedSenders -> key(selectedAccountId) {
@@ -2936,8 +3079,16 @@ private fun BeyGramAppContent(
         )
     }
     if (!locked) noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
-        text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { androidx.compose.material3.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
+        text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { com.beykus.beygram.ui.components.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
     if (!locked) ProxyRestoreDialog(vpnBackend = vpnBackend)
+    if (!locked) MarkReadConfirmationDialog(markReadConfirmation) { request ->
+        markAllReadScope.launch {
+            when (request) {
+                is MarkReadRequest.Chat -> repository.markChatRead(request.chat.id, consent = true)
+                is MarkReadRequest.All -> request.chats.forEach { repository.markChatRead(it.id, consent = true) }
+            }
+        }
+    }
 }
 
 private data class DeepLinkInvitePrompt(

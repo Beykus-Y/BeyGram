@@ -1,6 +1,9 @@
 package com.beykus.beygram.ui.screens.profile
 
+import com.beykus.beygram.ui.design.HairlineEdge
+import com.beykus.beygram.ui.design.signatureChrome
 import android.content.Context
+import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -19,16 +22,24 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.Button
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.TopBarVariant
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -58,6 +69,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import com.beykus.beygram.R
+import com.beykus.beygram.ui.screens.music.ChatLibraryLink
+import com.beykus.beygram.ui.screens.music.ChatLibraryMusicRow
 import java.time.LocalDate
 import java.time.MonthDay
 import java.time.format.DateTimeFormatter
@@ -93,7 +106,13 @@ fun ProfileScreen(
     startSecretChat: (suspend (Long) -> Result<Long>)? = null,
     /** Chat-level no-forwards restriction: music stays out of public playlists and MediaSession. */
     protectedContent: Boolean = false,
-    onSecretChatOpened: (Long) -> Unit = {}
+    onSecretChatOpened: (Long) -> Unit = {},
+    /** The chat's library tracks, shown as a row when there are some. Null hides the row. */
+    chatLibrary: ChatLibraryLink? = null,
+    /** Own profile music: removes one track from the account list. Other profiles never call it. */
+    removeProfileAudio: suspend (Int) -> Result<Unit> = { Result.failure(IllegalStateException("Profile music unavailable")) },
+    /** Own profile music: moves one track to the first place of the account list. */
+    moveProfileAudioToFront: suspend (Int) -> Result<Unit> = { Result.failure(IllegalStateException("Profile music unavailable")) }
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -125,7 +144,8 @@ fun ProfileScreen(
         onMembers = onMembers, onOpenUser = onOpenUser, onStatistics = onStatistics,
         sharedMessages = sharedMessages, confirmExport = confirmExport,
         messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
-        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage, autoDownloadFile = autoDownloadFile
+        onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage, autoDownloadFile = autoDownloadFile,
+        chatLibrary = chatLibrary
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
             if (!isOwnProfile) ChatInfoMenu(
@@ -148,6 +168,14 @@ fun ProfileScreen(
                         TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
                             Modifier.clearAndSetSemantics {})
                     }
+                    if (info.profileAudios.isNotEmpty()) {
+                        Spacer(Modifier.height(14.dp))
+                        ProfileMusicBar(
+                            ownerId = info.id, tracks = info.profileAudios, own = isOwnProfile,
+                            observeFile = observeFile, downloadFile = downloadFile, autoDownloadFile = autoDownloadFile,
+                            removeTrack = removeProfileAudio, moveTrackToFront = moveProfileAudioToFront
+                        )
+                    }
                     Spacer(Modifier.height(16.dp))
                     Text(info.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                         modifier = Modifier.semantics { heading() })
@@ -155,18 +183,66 @@ fun ProfileScreen(
                     ProfileSubtitle(info, lastSeenStyle)
                     ProfileBadges(info)
                     if (isOwnProfile) {
-                        // Edit and photo change share one row, so the header takes one action line instead of two.
                         Spacer(Modifier.height(14.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            FilledTonalButton(onClick = onEdit, enabled = !state.isLoading && state.error == null && !saving && !preparing, shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.weight(1f, fill = false).heightIn(min = 48.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.profile_action_edit), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
-                            TextButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !saving && !preparing, modifier = Modifier.weight(1f, fill = false).heightIn(min = 48.dp)) { Text(if (preparing) stringResource(R.string.profile_photo_preparing) else stringResource(R.string.profile_action_change_photo), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                        // Equal-width actions at normal font sizes; stack with full labels if the screen or text is large.
+                        // Keep the complete action names in accessibility semantics even when compact labels are shown.
+                        val editDescription = stringResource(R.string.profile_action_edit)
+                        val photoDescription = stringResource(R.string.profile_action_change_photo)
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val horizontal = maxWidth >= 320.dp && LocalDensity.current.fontScale < 1.3f
+                            // Edit is the primary action (accent fill); the photo change is the secondary one (neutral tonal).
+                            // Both used to be accent-tinted, and a crimson accent made the tonal pair read as a destructive wine.
+                            val editButton: @Composable (Modifier) -> Unit = { actionModifier ->
+                                Button(
+                                    onClick = onEdit,
+                                    enabled = !state.isLoading && state.error == null && !saving && !preparing,
+                                    shape = styledShape(14.dp),
+                                    modifier = actionModifier.heightIn(min = 48.dp).semantics { contentDescription = editDescription },
+                                    colors = ButtonDefaults.buttonColors(containerColor = palette.accent, contentColor = palette.onAccent)
+                                ) {
+                                    Text(
+                                        if (horizontal) stringResource(R.string.profile_action_edit_short) else editDescription,
+                                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                            val changePhotoButton: @Composable (Modifier) -> Unit = { actionModifier ->
+                                FilledTonalButton(
+                                    onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                    enabled = !saving && !preparing,
+                                    shape = styledShape(14.dp),
+                                    modifier = actionModifier.heightIn(min = 48.dp).semantics { contentDescription = photoDescription },
+                                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.surface2, contentColor = palette.textPrimary)
+                                ) {
+                                    Text(
+                                        if (preparing) stringResource(R.string.profile_photo_preparing)
+                                        else if (horizontal) stringResource(R.string.profile_action_change_photo_short)
+                                        else photoDescription,
+                                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                            if (horizontal) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    editButton(Modifier.weight(1f))
+                                    changePhotoButton(Modifier.weight(1f))
+                                }
+                            } else {
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    editButton(Modifier.fillMaxWidth())
+                                    changePhotoButton(Modifier.fillMaxWidth())
+                                }
+                            }
                         }
                     } else if (info.kind == ProfileKind.Person || info.kind == ProfileKind.Secret) {
                         Spacer(Modifier.height(14.dp))
                         FilledTonalButton(
                             onClick = { onGifts(info.id, false, info.title) },
-                            shape = RoundedCornerShape(14.dp),
+                            shape = styledShape(14.dp),
                             modifier = Modifier.heightIn(min = 48.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)
                         ) {
@@ -216,9 +292,13 @@ fun ProfileScreen(
                 }
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
+                chatLibrary?.let { link -> ChatLibraryMusicRow(info.id, link.accountId) { link.onOpen(info.id) } }
                 if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile, protectedContent = protectedContent)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
-                if (isOwnProfile) TextButton(onClick = onNotifications, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { Text(stringResource(R.string.profile_notifications), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+                // A settings-style row in its own card, not a bare accent link that reads as a section header.
+                if (isOwnProfile) Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {
+                    ProfileLinkRow(Icons.Rounded.Notifications, stringResource(R.string.profile_notifications), onNotifications)
+                }
             }
             if (state.info == null && !state.isLoading && state.error == null) Text(stringResource(R.string.profile_info_not_loaded), color = palette.textSecondary, modifier = Modifier.padding(24.dp))
             photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp).errorAnnouncement()) }
@@ -248,9 +328,9 @@ fun ProfileScreen(
                 photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(top = 12.dp).errorAnnouncement()) }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilledTonalButton(onClick = ::discard, enabled = !saving, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f).height(50.dp),
+                FilledTonalButton(onClick = ::discard, enabled = !saving, shape = styledShape(16.dp), modifier = Modifier.weight(1f).height(50.dp),
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = palette.accentSoft, contentColor = palette.accentInk)) { Text(stringResource(R.string.common_cancel), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                Button(enabled = !saving, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f).height(50.dp),
+                Button(enabled = !saving, shape = styledShape(16.dp), modifier = Modifier.weight(1f).height(50.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = palette.accent, contentColor = palette.onAccent), onClick = { scope.launch {
                         saving = true; photoError = null
                         try {
@@ -391,7 +471,7 @@ internal fun profileRows(context: Context, info: ProfileInfo, withSharedCounts: 
 @Composable
 internal fun ProfileRowsCard(rows: List<Pair<String, String>>) {
     val palette = beyGramPalette()
-    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {
         rows.forEachIndexed { index, (label, value) ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
             InfoRow(label, value)
@@ -409,41 +489,54 @@ internal fun ProfileBadges(info: ProfileInfo) {
     )
 }
 
+/** One header style for every profile section: small semibold capitals in the secondary text colour. */
+@Composable
+internal fun ProfileSectionHeader(title: String) {
+    Text(
+        title.uppercase(),
+        color = beyGramPalette().textSecondary,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.4.sp,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() }
+    )
+}
+
 /** Points of entry to the read-only monetization screens; they never buy anything by themselves. */
 @Composable
 private fun ProfileMonetizationLinks(onPremium: () -> Unit, onStars: () -> Unit, onGifts: () -> Unit) {
     val palette = beyGramPalette()
-    Text(
-        stringResource(R.string.profile_monetization_header),
-        color = palette.textSecondary,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp)
-            .semantics { heading() }
-    )
+    ProfileSectionHeader(stringResource(R.string.profile_monetization_header))
     Column(
-        Modifier.profileCardSurface(palette.surface)
+        Modifier.profileCardSurface()
             .padding(vertical = 4.dp)
     ) {
-        MonetizationLinkRow(Icons.Rounded.WorkspacePremium, stringResource(R.string.profile_monetization_premium), onPremium)
-        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 54.dp))
-        MonetizationLinkRow(Icons.Rounded.Star, stringResource(R.string.profile_monetization_stars), onStars)
-        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 54.dp))
-        MonetizationLinkRow(Icons.Rounded.CardGiftcard, stringResource(R.string.profile_monetization_gifts_own), onGifts)
+        ProfileLinkRow(Icons.Rounded.WorkspacePremium, stringResource(R.string.profile_monetization_premium), onPremium)
+        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = ProfileLinkDividerInset))
+        ProfileLinkRow(Icons.Rounded.Star, stringResource(R.string.profile_monetization_stars), onStars)
+        HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = ProfileLinkDividerInset))
+        ProfileLinkRow(Icons.Rounded.CardGiftcard, stringResource(R.string.profile_monetization_gifts_own), onGifts)
     }
 }
 
+/** Where a divider of a profile link card starts: under the label, past the icon. */
+private val ProfileLinkDividerInset = 52.dp
+
+/**
+ * A tappable row of a profile card, drawn like a settings row: the icon takes [settingsIconTint], so the profile and
+ * the settings lists use one rule for their icons, and the label takes the primary text colour.
+ */
 @Composable
-private fun MonetizationLinkRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun ProfileLinkRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
-        Text(label, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f).padding(start = 12.dp))
-        Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
+        Icon(icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
+        Text(label, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
+        Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -460,9 +553,8 @@ internal fun InfoRow(label: String, value: String) {
 @Composable
 internal fun AdministratorsSection(administrators: List<ProfileAdmin>, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
-    Text(stringResource(R.string.profile_admins_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
-    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
+    ProfileSectionHeader(stringResource(R.string.profile_admins_header))
+    Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {
         administrators.forEachIndexed { index, admin ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
             Box(Modifier.fillMaxWidth().clickable { onOpenUser(admin.userId) }) {
@@ -475,9 +567,8 @@ internal fun AdministratorsSection(administrators: List<ProfileAdmin>, onOpenUse
 @Composable
 private fun MembersSection(info: ProfileInfo, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onMembers: () -> Unit, onOpenUser: (Long) -> Unit) {
     val palette = beyGramPalette()
-    Text(stringResource(R.string.profile_members_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
-    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
+    ProfileSectionHeader(stringResource(R.string.profile_members_header))
+    Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {
         info.memberPreview.forEachIndexed { index, member ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 82.dp))
             MemberRow(member, observeFile, downloadFile) { onOpenUser(member.userId) }
@@ -498,9 +589,8 @@ private fun MembersSection(info: ProfileInfo, observeFile: (Int) -> StateFlow<Me
 @Composable
 private fun HiddenTabsSection(hiddenTabs: List<MainTab>, onOpenTab: (MainTab) -> Unit) {
     val palette = beyGramPalette()
-    Text(stringResource(R.string.profile_hidden_tabs_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp).semantics { heading() })
-    Column(Modifier.profileCardSurface(palette.surface).padding(vertical = 4.dp)) {
+    ProfileSectionHeader(stringResource(R.string.profile_hidden_tabs_header))
+    Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {
         hiddenTabs.forEachIndexed { index, tab ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { onOpenTab(tab) }.padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -518,9 +608,29 @@ private fun HiddenTabsSection(hiddenTabs: List<MainTab>, onOpenTab: (MainTab) ->
 @Composable
 internal fun ProfileToolbar(title: String, onBack: () -> Unit, actions: @Composable RowScope.() -> Unit = {}) {
     val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    val design = LocalDesignSystem.current
+    val container = Modifier.fillMaxWidth().then(
+        when (design.components.topBar) {
+            TopBarVariant.Elevated -> Modifier.topAppBarSurface()
+            TopBarVariant.Glass -> Modifier
+                .background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.72f)))
+            TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
+            TopBarVariant.Flat -> Modifier
+        }
+    )
+    Row(container.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
-        Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
+        Text(
+            title,
+            color = palette.textPrimary,
+            fontSize = if (design.style == DesignStyle.Default) 18.sp else 19.sp,
+            fontWeight = when (design.style) {
+                DesignStyle.Material2 -> FontWeight.Medium
+                DesignStyle.Material3 -> FontWeight.Medium
+                else -> FontWeight.SemiBold
+            },
+            modifier = Modifier.weight(1f).semantics { heading() }
+        )
         actions()
     }
 }
@@ -554,15 +664,15 @@ fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save
             } }) { Text(if (saving) "…" else stringResource(R.string.common_save)) }
         }
         if (saving) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
-        if (discard) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(palette.warningSurface).errorAnnouncement().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (discard) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(styledShape(16.dp)).background(palette.warningSurface).errorAnnouncement().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.profile_unsaved_changes), color = palette.warningText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             TextButton(onClick = onBack) { Text(stringResource(R.string.profile_discard_changes), color = palette.warningText, fontWeight = FontWeight.SemiBold) }
         }
         Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            OutlinedTextField(first, { first = it.take(64) }, label = { Text(stringResource(R.string.profile_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
-            OutlinedTextField(last, { last = it.take(64) }, label = { Text(stringResource(R.string.profile_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
-            OutlinedTextField(username, { username = it.removePrefix("@").take(32) }, label = { Text(stringResource(R.string.profile_username)) }, prefix = { Text("@") }, supportingText = { Text(stringResource(R.string.profile_username_hint)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
-            OutlinedTextField(bio, { bio = it }, label = { Text(stringResource(R.string.profile_about_me)) }, supportingText = { Text(stringResource(R.string.profile_bio_counter, bioCount, bioLimit)) }, isError = bioCount > bioLimit, minLines = 3, maxLines = 6, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), shape = RoundedCornerShape(14.dp), colors = beyGramTextFieldColors())
+            OutlinedTextField(first, { first = it.take(64) }, label = { Text(stringResource(R.string.profile_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = styledShape(14.dp), colors = beyGramTextFieldColors())
+            OutlinedTextField(last, { last = it.take(64) }, label = { Text(stringResource(R.string.profile_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), shape = styledShape(14.dp), colors = beyGramTextFieldColors())
+            OutlinedTextField(username, { username = it.removePrefix("@").take(32) }, label = { Text(stringResource(R.string.profile_username)) }, prefix = { Text("@") }, supportingText = { Text(stringResource(R.string.profile_username_hint)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), shape = styledShape(14.dp), colors = beyGramTextFieldColors())
+            OutlinedTextField(bio, { bio = it }, label = { Text(stringResource(R.string.profile_about_me)) }, supportingText = { Text(stringResource(R.string.profile_bio_counter, bioCount, bioLimit)) }, isError = bioCount > bioLimit, minLines = 3, maxLines = 6, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences), shape = styledShape(14.dp), colors = beyGramTextFieldColors())
             Text(stringResource(R.string.profile_save_hint), color = palette.textSecondary, fontSize = 13.sp)
             error?.let { Text(it, color = palette.danger, modifier = Modifier.errorAnnouncement()) }
         }

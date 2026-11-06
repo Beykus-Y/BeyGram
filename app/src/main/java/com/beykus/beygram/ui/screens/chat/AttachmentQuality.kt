@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.annotation.StringRes
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -21,7 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -399,7 +400,7 @@ private fun QualityChoice(
     semanticsLabel: String? = null
 ) {
     val palette = beyGramPalette()
-    val shape = RoundedCornerShape(12.dp)
+    val shape = styledShape(12.dp)
     val tint = if (enabled) palette.textPrimary else palette.textPrimary.copy(alpha = 0.38f)
     Column(
         modifier

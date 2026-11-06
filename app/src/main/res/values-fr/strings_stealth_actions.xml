@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_view_once_title">Ouvrir le média à usage unique ?</string>
+    <string name="stealth_view_once_text">L’expéditeur saura que vous l’avez ouvert, et il disparaîtra après la consultation. Le mode furtif ne masquera pas cette consultation.</string>
+    <string name="stealth_view_once_open">Ouvrir</string>
+    <string name="stealth_send_warning_title">Envoyer le message ?</string>
+    <string name="stealth_send_warning_text">Telegram vous affichera en ligne pendant environ 30 secondes, même si votre statut est masqué.</string>
+    <string name="stealth_send_warning_send">Envoyer</string>
+</resources>

@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +57,7 @@ fun ForumTopicsLoadingScreen(chatTitle: String, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(
-            Modifier.fillMaxWidth().background(palette.surface).padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
+            Modifier.fillMaxWidth().topAppBarSurface().background(palette.surface).padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
@@ -67,15 +70,15 @@ fun ForumTopicsLoadingScreen(chatTitle: String, onBack: () -> Unit) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             repeat(5) {
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                    Modifier.fillMaxWidth().clip(styledShape(18.dp))
                         .background(palette.surface).padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Box(Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(palette.accentSoft))
+                    Box(Modifier.size(46.dp).clip(styledShape(15.dp)).background(palette.accentSoft))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.fillMaxWidth(0.7f).height(13.dp).clip(RoundedCornerShape(7.dp)).background(palette.surface2))
-                        Box(Modifier.fillMaxWidth(0.9f).height(10.dp).clip(RoundedCornerShape(7.dp)).background(palette.surface2))
+                        Box(Modifier.fillMaxWidth(0.7f).height(13.dp).clip(styledShape(7.dp)).background(palette.surface2))
+                        Box(Modifier.fillMaxWidth(0.9f).height(10.dp).clip(styledShape(7.dp)).background(palette.surface2))
                     }
                 }
             }
@@ -125,7 +128,7 @@ fun ForumTopicsScreen(
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(
-            Modifier.fillMaxWidth().background(palette.surface).padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
+            Modifier.fillMaxWidth().topAppBarSurface().background(palette.surface).padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
@@ -163,7 +166,7 @@ fun ForumTopicsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(Icons.Rounded.Forum, contentDescription = null, tint = palette.accent,
-                    modifier = Modifier.size(56.dp).clip(RoundedCornerShape(18.dp))
+                    modifier = Modifier.size(56.dp).clip(styledShape(18.dp))
                         .background(palette.accentSoft).padding(12.dp))
                 Spacer(Modifier.height(16.dp))
                 Text(stringResource(R.string.forum_topics_empty), color = palette.textPrimary,
@@ -300,7 +303,7 @@ private fun ForumTopicItem(
         stringResource(R.string.forum_topic_unread_count, topic.unreadCount) else null
     val topicStateDescription = listOfNotNull(topicStatus, unreadDescription).joinToString(", ")
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface)
+        Modifier.fillMaxWidth().clip(styledShape(18.dp)).background(palette.surface)
             .clickable(enabled = !busy) { onTopic(topic) }
             .semantics { stateDescription = topicStateDescription }
             .padding(start = 12.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
@@ -308,7 +311,7 @@ private fun ForumTopicItem(
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Box(
-            Modifier.size(46.dp).clip(RoundedCornerShape(15.dp)).background(palette.accentSoft),
+            Modifier.size(46.dp).clip(styledShape(15.dp)).background(palette.accentSoft),
             contentAlignment = Alignment.Center
         ) {
             Icon(

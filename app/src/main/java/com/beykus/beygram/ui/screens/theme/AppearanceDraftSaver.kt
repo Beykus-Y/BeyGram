@@ -5,10 +5,13 @@ import androidx.compose.runtime.saveable.listSaver
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.bubbleStyleFromStored
 import com.beykus.beygram.data.appearance.chatWallpaperFromStored
+import com.beykus.beygram.data.appearance.designStyleFromStored
 import com.beykus.beygram.data.appearance.encode
+import com.beykus.beygram.data.appearance.glassQualityFromStored
 import com.beykus.beygram.data.appearance.listDensityFromStored
 import com.beykus.beygram.data.appearance.messageAnimationConfigFromStored
 import com.beykus.beygram.data.appearance.messageLineSpacingFromStored
+import com.beykus.beygram.data.appearance.navigationPlacementFromStored
 import com.beykus.beygram.data.appearance.themeModeFromStored
 import com.beykus.beygram.data.appearance.themePresetFromStored
 import com.beykus.beygram.data.appearance.DEFAULT_MESSAGE_TEXT_SIZE_SP
@@ -40,16 +43,28 @@ internal fun encodeAppearanceDraft(draft: AppearanceConfig?): List<String> = dra
         it.messageTextColor?.toString().orEmpty(),
         it.messageTimeColor?.toString().orEmpty(),
         it.messageAnimations.encode(),
+        it.designStyle.name,
+        it.glassQuality.name,
+        it.navigationPlacement.name,
         APPEARANCE_DRAFT_VERSION.toString()
     )
 }.orEmpty()
 
+/** Index of the draft version that added the design style and the glass quality; earlier drafts end at the version. */
+private const val APPEARANCE_DRAFT_V3_SIZE = 16
+
+/** Size of the draft that also carries the bottom bar placement, which was appended after the glass quality. */
+private const val APPEARANCE_DRAFT_V4_SIZE = 17
+
 /**
- * Reads a draft written by [encodeAppearanceDraft]. The trailing version is accepted but not required, so a state
- * saved by an earlier build of this screen still restores. Damaged values fall back the same way DataStore does.
+ * Reads a draft written by [encodeAppearanceDraft]. Older drafts are shorter: the design style, the glass quality and
+ * the bar placement were added at the end, so a draft saved by an earlier build still restores with the defaults for
+ * the new choices. Damaged values fall back the same way DataStore does.
  */
 internal fun decodeAppearanceDraft(parts: List<String>): AppearanceConfig? {
-    if (parts.size !in 7..14) return null
+    if (parts.size !in 7..APPEARANCE_DRAFT_V4_SIZE) return null
+    val hasDesignChoices = parts.size >= APPEARANCE_DRAFT_V3_SIZE
+    val hasNavigationPlacement = parts.size >= APPEARANCE_DRAFT_V4_SIZE
     return AppearanceConfig(
         preset = themePresetFromStored(parts[0]),
         mode = themeModeFromStored(parts[1]),
@@ -63,8 +78,13 @@ internal fun decodeAppearanceDraft(parts: List<String>): AppearanceConfig? {
         messageLineSpacing = messageLineSpacingFromStored(parts.getOrNull(9)),
         messageTextColor = parts.getOrNull(10)?.toIntOrNull(),
         messageTimeColor = parts.getOrNull(11)?.toIntOrNull(),
-        messageAnimations = messageAnimationConfigFromStored(parts.getOrNull(12))
+        messageAnimations = messageAnimationConfigFromStored(parts.getOrNull(12)),
+        designStyle = designStyleFromStored(parts.getOrNull(13)?.takeIf { hasDesignChoices }),
+        glassQuality = glassQualityFromStored(parts.getOrNull(14)?.takeIf { hasDesignChoices }),
+        navigationPlacement = navigationPlacementFromStored(
+            parts.getOrNull(15)?.takeIf { hasNavigationPlacement }
+        )
     )
 }
 
-private const val APPEARANCE_DRAFT_VERSION = 2
+private const val APPEARANCE_DRAFT_VERSION = 4

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_view_once_title">Einmaliges Medium öffnen?</string>
+    <string name="stealth_view_once_text">Der Absender erfährt, dass Sie es geöffnet haben, und es verschwindet nach dem Ansehen. Der Stealth-Modus verbirgt diese Ansicht nicht.</string>
+    <string name="stealth_view_once_open">Öffnen</string>
+    <string name="stealth_send_warning_title">Nachricht senden?</string>
+    <string name="stealth_send_warning_text">Telegram zeigt Sie etwa 30 Sekunden lang als online, auch wenn Ihr Status ausgeblendet ist.</string>
+    <string name="stealth_send_warning_send">Senden</string>
+</resources>

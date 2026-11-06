@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -18,6 +19,8 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.TextButton
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -278,7 +281,7 @@ internal fun GroupMembersScreen(
                     textAlign = TextAlign.Center
                 )
                 else -> LazyColumn(
-                    Modifier.fillMaxSize().padding(horizontal = 12.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface),
+                    Modifier.fillMaxSize().padding(horizontal = 12.dp).clip(styledShape(20.dp)).background(palette.surface),
                     state = listState, contentPadding = PaddingValues(vertical = 4.dp)
                 ) {
                     itemsIndexed(members, key = { _, member -> member.userId }) { index, member ->

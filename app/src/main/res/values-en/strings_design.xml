@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_section_style">Interface style</string>
+    <string name="appearance_style_title">Interface style</string>
+    <string name="appearance_style_summary">%1$s</string>
+    <string name="appearance_style_note">The style changes the shapes, typography, navigation and surfaces of the whole app. Palette, brightness, wallpaper, text size and motion stay exactly as they are.</string>
+    <string name="appearance_style_selected">Style “%1$s” selected</string>
+    <string name="appearance_style_quality_section">Glass quality</string>
+    <string name="appearance_style_quality_detail">Full glass blurs the background behind the panels. If the device cannot keep up, BeyGram lowers the effect on its own.</string>
+    <string name="appearance_style_quality_auto">Auto</string>
+    <string name="appearance_style_quality_auto_detail">Chosen from the device and the system settings</string>
+    <string name="appearance_style_quality_high">Maximum</string>
+    <string name="appearance_style_quality_high_detail">Real backdrop blur behind the panels</string>
+    <string name="appearance_style_quality_high_unavailable">Blur is not available on this device, so panels are drawn as in Balanced</string>
+    <string name="appearance_style_quality_balanced">Balanced</string>
+    <string name="appearance_style_quality_balanced_detail">Tint and light rims without the blur pass</string>
+    <string name="appearance_style_quality_lite">Economy</string>
+    <string name="appearance_style_quality_lite_detail">Dense matte surface, maximum readability</string>
+    <string name="appearance_navigation_placement_section">Bottom bar position</string>
+    <string name="appearance_navigation_placement_detail">The position changes separately from the style: tab shapes, colours and finish stay as they are.</string>
+    <string name="appearance_navigation_placement_auto">Follow the style</string>
+    <string name="appearance_navigation_placement_auto_detail">Whatever the selected style decides</string>
+    <string name="appearance_navigation_placement_pinned">Pinned to the bottom</string>
+    <string name="appearance_navigation_placement_pinned_detail">Full width, without the floating margin</string>
+    <string name="appearance_navigation_placement_floating">Floating</string>
+    <string name="appearance_navigation_placement_floating_detail">A separate capsule with margins above the chats</string>
+    <string name="design_style_default">Standard BeyGram</string>
+    <string name="design_style_default_detail">The app’s familiar look, unchanged</string>
+    <string name="design_style_material2">Material 2</string>
+    <string name="design_style_material2_detail">Classic Material Design: strict shapes, elevation and a dense type scale</string>
+    <string name="design_style_material3">Material 3</string>
+    <string name="design_style_material3_detail">Material You: tonal surfaces, soft shapes and dynamic colour</string>
+    <string name="design_style_liquid_glass">Liquid Glass</string>
+    <string name="design_style_liquid_glass_detail">Floating glass panels with backdrop blur and light rims</string>
+    <string name="design_style_signature">BeyGram Signature</string>
+    <string name="design_style_signature_detail">BeyGram’s own language: chat first, quiet depth and its own dock</string>
+</resources>

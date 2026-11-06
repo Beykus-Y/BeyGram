@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.animation.core.Animatable
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -354,7 +355,7 @@ internal fun ComposerLaunchPreview(
         }
     }
     Box(
-        modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(14.dp))
+        modifier.fillMaxWidth().height(190.dp).clip(styledShape(14.dp))
             .background(palette.screen).clipToBounds()
             .onGloballyPositioned { overlayBounds = it.boundsInWindow() }
     ) {
@@ -369,7 +370,7 @@ internal fun ComposerLaunchPreview(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.weight(1f).defaultMinSize(minHeight = 38.dp)
-                        .clip(RoundedCornerShape(19.dp)).background(palette.surface2)
+                        .clip(styledShape(19.dp)).background(palette.surface2)
                         .padding(horizontal = 13.dp, vertical = 9.dp)
                         .onGloballyPositioned { sourceBounds = it.boundsInWindow() }
                 ) {

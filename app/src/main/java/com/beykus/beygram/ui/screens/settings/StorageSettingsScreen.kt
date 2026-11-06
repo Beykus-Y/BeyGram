@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,14 +22,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedButton
+import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,10 +59,21 @@ import com.beykus.beygram.domain.model.StorageCategory
 import com.beykus.beygram.domain.model.StorageUsage
 import com.beykus.beygram.domain.repository.StorageRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.listGroupShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.storageSizeText
 import com.beykus.beygram.ui.theme.AvatarPalette
+import com.beykus.beygram.data.settings.ChatMemorySettings
+import com.beykus.beygram.data.settings.ChatMemorySettingsStore
+import com.beykus.beygram.domain.model.ChatMemoryStats
+import com.beykus.beygram.ui.screens.chat.SettingSwitch
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 private enum class ClearScope { Selected, All }
 
@@ -77,6 +89,7 @@ fun StorageSettingsScreen(
         initializer { StorageSettingsViewModel(repository, StorageSettingsStore.getInstance(context.applicationContext)) }
     })
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val settings by model.settings.collectAsStateWithLifecycle()
     val usage = model.usage
     val cleaningProgress = model.cleaningProgress
@@ -84,7 +97,7 @@ fun StorageSettingsScreen(
     var pendingClear by remember { mutableStateOf<ClearScope?>(null) }
     LaunchedEffect(Unit) { model.refresh() }
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.settings_storage_title), onBack)
         if (model.applying) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = palette.accent)
         Column(
@@ -102,7 +115,7 @@ fun StorageSettingsScreen(
                 onClearSelected = { pendingClear = ClearScope.Selected },
                 onClearAll = { pendingClear = ClearScope.All }
             )
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.storage_limit_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_limit_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageSizeLimit.entries.forEach { limit ->
@@ -111,7 +124,7 @@ fun StorageSettingsScreen(
                     }
                 }
             }
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.storage_retention_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(stringResource(R.string.storage_retention_detail), color = palette.textSecondary, fontSize = 13.sp)
                 StorageRetention.entries.forEach { retention ->
@@ -120,6 +133,7 @@ fun StorageSettingsScreen(
                     }
                 }
             }
+            ChatMemoryCard(repository = repository, accountId = accountId)
             Text(stringResource(R.string.storage_footnote), color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 4.dp))
         }
     }
@@ -143,7 +157,8 @@ fun StorageSettingsScreen(
 @Composable
 private fun UsageCard(usage: StorageUsage?, loading: Boolean, selected: Set<StorageCategory>, busy: Boolean, onToggle: (StorageCategory) -> Unit) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val design = LocalDesignSystem.current
+    Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.storage_usage_title), color = palette.textSecondary, fontSize = 13.sp)
         if (usage == null) {
             if (loading) {
@@ -169,7 +184,7 @@ private fun UsageCard(usage: StorageUsage?, loading: Boolean, selected: Set<Stor
 private fun UsageBar(usage: StorageUsage) {
     val palette = beyGramPalette()
     val segments = StorageCategory.entries.map { it.color() to usage.bytes(it) } + (palette.accent to usage.uploadBytes) + (palette.textSecondary to usage.databaseBytes)
-    Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(palette.surface2)) {
+    Row(Modifier.fillMaxWidth().height(10.dp).clip(styledShape(5.dp)).background(palette.surface2)) {
         segments.filter { it.second > 0L }.forEach { (color, bytes) ->
             Box(Modifier.weight(bytes.toFloat()).fillMaxHeight().background(color))
         }
@@ -221,9 +236,10 @@ private fun ClearCard(
     onClearAll: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val selectedBytes = usage?.let { current -> selected.sumOf { current.bytes(it) } } ?: 0L
     val filesBytes = usage?.filesBytes ?: 0L
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(stringResource(R.string.storage_selected_size, storageSizeText(selectedBytes)), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onClearSelected, enabled = !busy && selectedBytes > 0L, modifier = Modifier.weight(1f)) {
@@ -251,6 +267,107 @@ private fun ChoiceRow(title: String, selected: Boolean, enabled: Boolean, onSele
     ) {
         RadioButton(selected = selected, onClick = null, enabled = enabled)
         Text(title, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
+/**
+ * Chat Memory of the account: the switches, the size limit, what is kept now, and clearing it. The chat sheets read the same
+ * store, so a change here applies to every chat at once, except a chat that has its own choice.
+ */
+@Composable
+private fun ChatMemoryCard(repository: StorageRepository, accountId: String) {
+    val context = LocalContext.current
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val scope = rememberCoroutineScope()
+    val store = remember(accountId) { ChatMemorySettingsStore.forAccount(context.applicationContext, accountId) }
+    val settings by store.state.collectAsStateWithLifecycle()
+    var stats by remember { mutableStateOf<ChatMemoryStats?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
+    // Usage is read again when the switch changes, so the counts and the clear button follow it.
+    LaunchedEffect(accountId, settings.enabled) { stats = repository.chatMemoryStats() }
+
+    fun runThenRefresh(work: suspend () -> Unit) {
+        scope.launch {
+            busy = true
+            try {
+                work()
+                stats = repository.chatMemoryStats()
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    val controlsEnabled = settings.enabled && !busy
+    Column(
+        Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(stringResource(R.string.chat_memory_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Text(stringResource(R.string.chat_memory_detail), color = palette.textSecondary, fontSize = 13.sp)
+        SettingSwitch(title = stringResource(R.string.chat_memory_enable), checked = settings.enabled, enabled = !busy) { on ->
+            store.update { it.copy(enabled = on) }
+        }
+        SettingSwitch(title = stringResource(R.string.chat_memory_save_all), checked = settings.saveAllChats, enabled = controlsEnabled) { all ->
+            store.update { it.copy(saveAllChats = all) }
+        }
+        Text(stringResource(R.string.chat_memory_save_all_detail), color = palette.textSecondary, fontSize = 12.sp)
+        Text(
+            stringResource(R.string.chat_memory_limit_title),
+            color = palette.textPrimary,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        Text(stringResource(R.string.chat_memory_limit_detail), color = palette.textSecondary, fontSize = 13.sp)
+        ChatMemorySettings.LIMIT_CHOICES.forEach { limit ->
+            ChoiceRow(storageSizeText(limit), selected = settings.limitBytes == limit, enabled = controlsEnabled) {
+                if (settings.limitBytes != limit) {
+                    store.update { it.copy(limitBytes = limit) }
+                    runThenRefresh { repository.trimChatMemory() }
+                }
+            }
+        }
+        stats?.let { current ->
+            Text(
+                stringResource(
+                    R.string.chat_memory_usage,
+                    current.messages,
+                    current.deletedMessages,
+                    current.versions,
+                    storageSizeText(current.bytes)
+                ),
+                color = palette.textSecondary,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+        OutlinedButton(
+            onClick = { confirmClear = true },
+            // While Chat Memory is on, writes can land after the last read, so clearing stays possible.
+            enabled = !busy && (settings.enabled || (stats?.bytes ?: 0L) > 0L),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(R.string.chat_memory_clear))
+        }
+        Text(stringResource(R.string.chat_memory_footnote), color = palette.textSecondary, fontSize = 12.sp)
+    }
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text(stringResource(R.string.chat_memory_clear_title)) },
+            text = { Text(stringResource(R.string.chat_memory_clear_text)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = false
+                    runThenRefresh { repository.clearChatMemory() }
+                }) { Text(stringResource(R.string.storage_clear_confirm)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.common_cancel)) } }
+        )
     }
 }
 

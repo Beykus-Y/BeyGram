@@ -55,7 +55,9 @@ data class ChatMessage(
     /** TDLib replaced an expired self-destructing attachment with MessageExpired*; the bubble shows a placeholder. */
     val expiredMediaKind: MediaKind? = null,
     /** TDLib's Message.effectId: the effect chosen by the sender, or zero when the message has none. */
-    val effectId: Long = 0L
+    val effectId: Long = 0L,
+    /** What Chat Memory kept for this message: a deletion by the other side and earlier versions. Null when nothing was kept. */
+    val memory: ChatMemoryMark? = null
 ) {
     /** View-once media is the per-message "open once" type, not every attachment in a secret chat. */
     val isViewOnce: Boolean get() = selfDestruct is MessageSelfDestruct.Immediately

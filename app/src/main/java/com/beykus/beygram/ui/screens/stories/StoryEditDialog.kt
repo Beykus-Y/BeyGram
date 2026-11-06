@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.stories
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,7 +68,7 @@ internal fun StoryEditDialog(
 
     Dialog(onDismissRequest = { if (!saving) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.padding(horizontal = 20.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp))
+            Modifier.padding(horizontal = 20.dp).fillMaxWidth().clip(styledShape(24.dp))
                 .background(palette.surface).padding(18.dp)
         ) {
             Text(
@@ -181,7 +182,7 @@ internal fun StoryEditDialog(
 private fun StoryEditChoice(label: String, isSelected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
-        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
+        Modifier.heightIn(min = 48.dp).clip(styledShape(16.dp))
             .background(if (isSelected) palette.accent else palette.surface2)
             .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .semantics { this.selected = isSelected }

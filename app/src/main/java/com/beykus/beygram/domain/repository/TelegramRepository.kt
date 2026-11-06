@@ -102,8 +102,11 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     suspend fun storyReactions(): Result<List<ReactionOption>>
     /** Pass null to remove the current reaction. */
     suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?): Result<Unit>
-    /** Sends a normal chat message that quotes the story, as Telegram clients do. */
-    suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit>
+    /**
+     * Sends a normal chat message that quotes the story, as Telegram clients do. In stealth mode it is scheduled on the
+     * server; [sendNowConsent] is the user's explicit agreement to send at once when that is not possible.
+     */
+    suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String, sendNowConsent: Boolean = false): Result<Unit>
     suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit>
     /** Expired stories of the signed-in user, newest first. Pass the last page's nextFromStoryId for more. */
     suspend fun storyArchive(fromStoryId: Int = 0): Result<StoryArchivePage>
@@ -145,6 +148,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     fun refreshMyProfile()
     suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit>
     suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit>
+    /** Profile music: the track is added to the first place of the own list. The file must already be known to TDLib from a chat. */
+    suspend fun addProfileAudio(fileId: Int, title: String, performer: String, durationSeconds: Int): Result<Unit>
+    /** Profile music: removes one track from the own profile list. */
+    suspend fun removeProfileAudio(fileId: Int): Result<Unit>
+    /** Profile music: moves one track to the first place of the own profile list. */
+    suspend fun moveProfileAudioToFront(fileId: Int): Result<Unit>
     /** Only available TDLib photo history, fetched on demand, never as part of ProfileInfo. */
     suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.ProfilePhotosPage>
     /** Delete the selected own Telegram profile photo, by its TDLib photo id. */
@@ -243,8 +252,11 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Меняет настройку аккаунта, поэтому она действует на все устройства, где вошёл этот аккаунт. */
     suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit>
 
-    /** Отмечает прочитанными все сообщения чата, в том числе у архивных чатов. */
-    suspend fun markChatRead(chatId: Long): Result<Unit>
+    /**
+     * Отмечает прочитанными все сообщения чата, в том числе у архивных чатов.
+     * [consent] is a one-off user choice that lets this read through while stealth mode would block it.
+     */
+    suspend fun markChatRead(chatId: Long, consent: Boolean = false): Result<Unit>
 
 
     /** Контакты из адресной книги Telegram, по имени. */

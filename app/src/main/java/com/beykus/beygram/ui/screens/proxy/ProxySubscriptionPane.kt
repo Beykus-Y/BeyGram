@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.proxy
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,7 +22,7 @@ import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -131,7 +132,7 @@ internal fun ColumnScope.ProxySubscriptionPane(
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(styledShape(20.dp))
                 .background(palette.surface)
         ) {
             if (connections.isEmpty()) {
@@ -234,7 +235,7 @@ private fun ProxyTonalButton(
     Row(
         modifier
             .height(40.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(styledShape(12.dp))
             .background(background)
             .clickable(enabled = enabled, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,

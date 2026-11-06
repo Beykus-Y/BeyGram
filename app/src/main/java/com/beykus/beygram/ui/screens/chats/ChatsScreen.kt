@@ -1,11 +1,14 @@
 package com.beykus.beygram.ui.screens.chats
 
 import androidx.compose.animation.animateColorAsState
+import com.beykus.beygram.ui.design.styledShape
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,10 +40,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
@@ -57,8 +62,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.LocalConfiguration
@@ -68,6 +74,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -81,9 +88,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -119,6 +133,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.pluralForm
+import java.text.NumberFormat
 import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -134,10 +149,33 @@ import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.accessibility.accessibleChatRowDescription
 import com.beykus.beygram.ui.accessibility.accessibleDescription
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.components.LocalNavigationDock
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.createButtonPlacement
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.ArchiveTreatment
+import com.beykus.beygram.ui.design.ChipSelectionTone
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.usesGlassPanels
+import com.beykus.beygram.ui.design.recordsGlassBackdrop
+import com.beykus.beygram.ui.design.rememberGlassBackdrop
+import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.GlassPanel
+import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.glassScreenBackground
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.screens.stories.StoryBarSection
+
+/** Ignore tiny scroll offsets; collapse after passing the story/archive area. */
+internal fun shouldCompactChatListHeader(firstVisibleItemIndex: Int, scrollOffsetPx: Int, thresholdPx: Int): Boolean =
+    firstVisibleItemIndex > 0 || scrollOffsetPx > thresholdPx
 
 private enum class ChatFilter(val title: Int) {
     All(R.string.chats_filter_all), People(R.string.chats_filter_people), Groups(R.string.chats_filter_groups), Unread(R.string.chats_filter_unread)
@@ -145,6 +183,12 @@ private enum class ChatFilter(val title: Int) {
 
 /** Сколько протянуть список вниз, чтобы вернуть скрытый архив; подсказка занимает столько же. */
 private val archivePullThreshold = 104.dp
+
+/**
+ * Высота мягкого края списка: строки, которые уходят под шапку или подходят к плавающему доку, растворяются здесь,
+ * а не обрываются тонкой полосой.
+ */
+private val chatListEdgeFadeHeight = 24.dp
 
 @Composable
 fun ChatsScreen(
@@ -187,6 +231,7 @@ fun ChatsScreen(
     onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit,
     onGlobalSearch: (String) -> Unit = {},
+    onMusicSearch: () -> Unit = {},
     /**
      * Чат, открытый в правой панели: его строка подсвечена и помечена для TalkBack.
      * Пока панель показывает заглушку «Выберите чат», сюда приходит null.
@@ -233,8 +278,16 @@ fun ChatsScreen(
     // The split list pane is narrower than a phone: the title and side paddings give room to the
     // header actions (saved messages, account switcher, avatar) without pushing them off-screen.
     val headerPadding = if (compactHeader) 14.dp else 20.dp
-    val titleSize = if (compactHeader) 24.sp else 30.sp
-    val titleLineHeight = if (compactHeader) 27.sp else 33.sp
+    // The create button follows the real navigation: it lines up with a floating capsule and keeps its air, or stays in
+    // the classic bottom-end corner above a pinned bar. The list keeps enough room to scroll its last row clear of it.
+    val design = LocalDesignSystem.current
+    val dock = LocalNavigationDock.current
+    val fabPlacement = remember(dock) { createButtonPlacement(dock) }
+    val fabShape = RoundedCornerShape(design.fab.cornerRadius)
+    // Material 2 shouts its section labels; the other styles keep the sentence case of the resource.
+    val sectionLabel: (String) -> String = { text ->
+        if (design.mainScreen.sectionLabelUppercase) text.uppercase() else text
+    }
     // Статус сессии Telegram общий для телефона и двухпанельного списка: он не зависит от раскладки.
     val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
@@ -269,11 +322,46 @@ fun ChatsScreen(
     val pinnedChats = remember(filteredChats, selectedFilter, query) {
         if (selectedFilter == ChatFilter.All && query.isBlank()) filteredChats.filter { it.isPinned } else emptyList()
     }
-    val regularChats = remember(filteredChats, pinnedChats) { filteredChats.filterNot { it in pinnedChats } }
-    val unreadTotal = remember(displayedChats) { displayedChats.sumOf { it.unreadCount } }
+    // Pinned rows are the pinned rows of filteredChats whenever they are shown, so the split reads the flag
+    // instead of searching pinnedChats for every row.
+    val regularChats = remember(filteredChats, pinnedChats) {
+        if (pinnedChats.isEmpty()) filteredChats else filteredChats.filterNot { it.isPinned }
+    }
+    // The header reads these on every recomposition, so the scans over all chats run only when their lists change.
+    val hasUnreadChats = remember(displayedChats) { displayedChats.any { it.unreadCount > 0 || it.isMarkedAsUnread } }
+    val savedMessagesChat = remember(chats, archivedChats) {
+        chats.firstOrNull { it.isSavedMessages } ?: archivedChats.firstOrNull { it.isSavedMessages }
+    }
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
     val listState = state.listState
+    val headerCollapseThresholdPx = with(density) { 96.dp.roundToPx() }
+    val headerCollapsed by remember(listState, headerCollapseThresholdPx) {
+        derivedStateOf {
+            shouldCompactChatListHeader(
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+                headerCollapseThresholdPx
+            )
+        }
+    }
+    val headerMotion = rememberMotionSpec(MotionToken.BannerChange)
+    // The style owns the title scale; the collapsed form keeps the same 0.8 ratio Default has always had (24 of 30).
+    val headerSize = design.mainScreen.titleSize.value
+    val headerTitleSize by animateFloatAsState(
+        targetValue = if (compactHeader || headerCollapsed) headerSize * 0.8f else headerSize,
+        animationSpec = headerMotion.animationSpec<Float>(),
+        label = "chatsHeaderTitleSize"
+    )
+    val titleSize = headerTitleSize.sp
+    // The line box stays at the expanded size: the title shrinks inside it, so collapsing never changes the header height
+    // and the list below it does not move. The overline does the same: it fades out and keeps its line.
+    val titleLineHeight = (headerSize + 3f).sp
+    val overlineAlpha by animateFloatAsState(
+        targetValue = if (headerCollapsed) 0f else 1f,
+        animationSpec = headerMotion.animationSpec<Float>(),
+        label = "chatsOverlineAlpha"
+    )
     val archivePullThresholdPx = with(density) { archivePullThreshold.toPx() }
     // Сколько протянуто вниз, пока архив скрыт. Подсказка растёт до порога, а за порогом архив возвращается при отпускании.
     var pullPx by remember { mutableFloatStateOf(0f) }
@@ -313,13 +401,27 @@ fun ChatsScreen(
     LaunchedEffect(listState.isScrollInProgress) {
         if (!listState.isScrollInProgress) pullPx = 0f
     }
+    // The list's top edge is a viewport edge, not a boundary between rows: once it has moved, rows scrolled under the
+    // header are cut there. Their slice (a line of the archive summary, the edge of a tonal card) then sits in the 18 dp
+    // gap above the pinned label and reads as stray debris. The edge dissolves instead; at rest nothing is faded.
+    val listMoved by remember(listState) {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
+    }
+    val topEdgeFade by animateFloatAsState(
+        targetValue = if (listMoved) 1f else 0f,
+        animationSpec = headerMotion.animationSpec<Float>(),
+        label = "chatsListTopEdgeFade"
+    )
 
     if (managingFolders) {
         val manager: @Composable () -> Unit = {
+            // Sorting every chat by title is only needed while the manager is open, and once per list change.
+            val knownChats = remember(chats, archivedChats, folderChats) {
+                (chats + archivedChats + folderChats.values.flatten()).distinctBy { it.id }.sortedBy { it.title.lowercase() }
+            }
             FolderManagerScreen(
                 snapshot = folderSnapshot,
-                knownChats = (chats + archivedChats + folderChats.values.flatten()).distinctBy { it.id }
-                    .sortedBy { it.title.lowercase() },
+                knownChats = knownChats,
                 loadFolder = onLoadFolder,
                 saveFolder = onSaveFolder,
                 deleteFolder = onDeleteFolder,
@@ -347,29 +449,25 @@ fun ChatsScreen(
         return
     }
 
-    // The root Box is bounded by MainTabsScaffold: above the bottom navigation on phones,
-    // beside the navigation rail on wide screens. Its FAB is never drawn under the system navigation bar.
-    Box(
-        modifier = Modifier.fillMaxSize().background(palette.screen)
-            .windowInsetsPadding(
-                WindowInsets.safeDrawing.only(
-                    // In the two-pane layout the pane's right edge is in the middle of the window:
-                    // the end inset belongs to the chat pane, not to the list.
-                    if (compactHeader) WindowInsetsSides.Top + WindowInsetsSides.Start
-                    else WindowInsetsSides.Top + WindowInsetsSides.Horizontal
-                )
-            )
-    ) {
-      Column(Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(start = headerPadding, end = headerPadding, top = 8.dp, bottom = 4.dp)) {
+    // The header is one block shared by both layouts: in a column above the list, or as glass chrome over it.
+    val chatsHeader: @Composable (Modifier) -> Unit = { modifier ->
+        Column(modifier = modifier.fillMaxWidth().padding(start = headerPadding, end = headerPadding, top = 8.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.app_name).uppercase(), color = palette.accent, style = MaterialTheme.typography.labelMedium, letterSpacing = 0.8.sp)
-                    Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp,
+                    if (design.mainScreen.showBrandOverline) {
+                        Text(
+                            stringResource(R.string.app_name).uppercase(),
+                            modifier = Modifier.graphicsLayer { alpha = overlineAlpha },
+                            color = palette.accent,
+                            style = MaterialTheme.typography.labelMedium,
+                            letterSpacing = 0.8.sp
+                        )
+                    }
+                    Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = design.mainScreen.titleWeight, letterSpacing = design.mainScreen.titleTracking,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.semantics { heading() })
                 }
-                if (displayedChats.any { it.unreadCount > 0 || it.isMarkedAsUnread }) {
+                if (hasUnreadChats) {
                     androidx.compose.material3.IconButton(
                         onClick = { confirmReadAll = true },
                         modifier = Modifier.semantics { contentDescription = context.getString(R.string.chats_read_all) }
@@ -377,7 +475,7 @@ fun ChatsScreen(
                         Icon(Icons.Rounded.DoneAll, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                     }
                 }
-                (chats + archivedChats).firstOrNull { it.isSavedMessages }?.let { saved ->
+                savedMessagesChat?.let { saved ->
                     androidx.compose.material3.IconButton(onClick = { openChat(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
                         Icon(Icons.Rounded.Bookmark, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
                     }
@@ -403,8 +501,33 @@ fun ChatsScreen(
             // показывается строкой во всю ширину шапки и исчезает сразу после восстановления связи.
             ChatsConnectionLine(connectionStatus)
 
-            Spacer(Modifier.height(14.dp))
-            SearchField(query = query, onChange = { state.query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
+            Spacer(Modifier.height(design.mainScreen.headerGap))
+            // Music search is reachable directly from the daily chat list; it reuses the same
+            // MusicSearch route, account context and queue as Settings and the full player.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    SearchField(
+                        query = query,
+                        onChange = { state.query = it },
+                        placeholder = stringResource(R.string.chats_search_placeholder)
+                    )
+                }
+                androidx.compose.material3.IconButton(
+                    onClick = {
+                        // Leaving a focused search field should dismiss its IME before the route changes.
+                        focusManager.clearFocus()
+                        onMusicSearch()
+                    },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.MusicNote,
+                        contentDescription = stringResource(R.string.music_search_action),
+                        tint = palette.accentInk,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
             // The network action stays directly under the field, above folders and local rows,
             // so it is discoverable before a long cached chat list scrolls it out of view.
             networkSearchAction(query)?.let { search ->
@@ -415,7 +538,7 @@ fun ChatsScreen(
                     onClick = { onGlobalSearch(query) }
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(design.mainScreen.folderGap))
             // Only one source of folder navigation: server-backed Telegram lists.
             // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
             if (folderSnapshot.initialized) {
@@ -458,13 +581,14 @@ fun ChatsScreen(
                 }
             }
         }
-
-        ArchivePullSlot(shownPx = { if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f })
+    }
+    val chatList: @Composable (Modifier, Dp) -> Unit = { modifier, topPadding ->
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).nestedScroll(pullConnection),
-            // Keep the last conversation accessible above the overlay button.
-            contentPadding = PaddingValues(bottom = 104.dp)
+            modifier = modifier.nestedScroll(pullConnection).chatListEdgeFade(topPadding, fadeBottom = dock.floating && dock.contentInset == 0.dp) { topEdgeFade },
+            // Keep the last conversation accessible above the overlay button, measured from the button itself. Under
+            // glass chrome the list also starts below the header it scrolls beneath.
+            contentPadding = PaddingValues(top = topPadding, bottom = fabPlacement.listClearance)
         ) {
             // Stories live on the main chat list only, not in search results or a server folder.
             if (activeFolderId == null && query.isBlank()) {
@@ -484,7 +608,13 @@ fun ChatsScreen(
             }
             if (pinnedChats.isNotEmpty()) {
                 item(key = "pinned_header") {
-                    Text(stringResource(R.string.chats_section_pinned), modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp), color = palette.textSecondary, style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        sectionLabel(stringResource(R.string.chats_section_pinned)),
+                        modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp),
+                        color = palette.textSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                        letterSpacing = design.mainScreen.sectionLabelTracking
+                    )
                 }
                 // Same key as the regular rows, so a pin or unpin moves the row instead of replacing it.
                 items(pinnedChats, key = { it.id }) { chat ->
@@ -509,11 +639,13 @@ fun ChatsScreen(
             }
             if (query.isNotBlank()) {
                 item(key = "local_search_header") {
+                    val label = sectionLabel(stringResource(R.string.chats_search_local_section))
                     Text(
-                        stringResource(R.string.chats_search_local_section),
+                        label,
                         color = palette.textSecondary,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
+                        letterSpacing = design.mainScreen.sectionLabelTracking,
                         modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp)
                             .semantics { heading() }
                     )
@@ -543,23 +675,31 @@ fun ChatsScreen(
                     }
                 }
                 items(regularChats, key = { it.id }) { chat ->
-                    SwipeChatRow(
-                        modifier = Modifier.animateItem(
+                    val showDividers = LocalDesignSystem.current.components.showListDividers
+                    Column(
+                        Modifier.animateItem(
                             fadeInSpec = listFadeSpec,
                             placementSpec = listPlacementSpec,
                             fadeOutSpec = listFadeSpec
-                        ),
-                        chat = chat,
-                        observeFile = observeFile,
-                        downloadFile = downloadFile,
-                        openChatId = openSwipeChatId,
-                        onOpenChange = { openSwipeChatId = it },
-                        onClick = { openChat(chat) },
-                        onLongClick = { selectedActions = chat },
-                        read = readAction.copy(enabled = showsUnreadIndicator(chat)),
-                        primary = archiveAction,
-                        highlighted = chat.id == highlightedChatId
-                    )
+                        )
+                    ) {
+                        SwipeChatRow(
+                            chat = chat,
+                            observeFile = observeFile,
+                            downloadFile = downloadFile,
+                            openChatId = openSwipeChatId,
+                            onOpenChange = { openSwipeChatId = it },
+                            onClick = { openChat(chat) },
+                            onLongClick = { selectedActions = chat },
+                            read = readAction.copy(enabled = showsUnreadIndicator(chat)),
+                            primary = archiveAction,
+                            highlighted = chat.id == highlightedChatId
+                        )
+                        // Material 2 separates rows with a real divider; the other styles rely on spacing.
+                        if (showDividers) {
+                            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 76.dp))
+                        }
+                    }
                 }
             }
             if (activeFolderId != null) {
@@ -578,13 +718,72 @@ fun ChatsScreen(
                 }
             }
         }
+    }
+    // Glass chrome: the chat list header becomes a pane over the list. Its own recorder captures the list only, and only
+    // when the device really blurs it; Balanced and Lite draw the same pane with a dense tint and record nothing.
+    val glassChrome = design.usesGlassPanels
+    val chatsBackdrop = if (glassChrome && design.recordsGlassBackdrop) rememberGlassBackdrop() else null
+    var glassHeaderHeightPx by remember { mutableIntStateOf(0) }
+
+    // The root Box is bounded by MainTabsScaffold: above the bottom navigation on phones,
+    // beside the navigation rail on wide screens. Its FAB is never drawn under the system navigation bar.
+    Box(
+        modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(
+                    // In the two-pane layout the pane's right edge is in the middle of the window:
+                    // the end inset belongs to the chat pane, not to the list.
+                    if (compactHeader) WindowInsetsSides.Top + WindowInsetsSides.Start
+                    else WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                )
+            )
+    ) {
+      if (glassChrome) {
+          // Liquid Glass: the list runs the whole height and the header floats over it as one pane of glass. Only the
+          // list is recorded for the pane, never the pane itself, so it cannot sample a layer it is drawn into (#623).
+          val headerHeight = with(density) { glassHeaderHeightPx.toDp() }
+          val pullShown = if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f
+          val pullDp = with(density) { pullShown.toDp() }
+          Box(Modifier.fillMaxSize().then(if (chatsBackdrop != null) Modifier.glassBackdropSource(chatsBackdrop) else Modifier)) {
+              chatList(Modifier.fillMaxSize(), headerHeight + pullDp)
+              // The pull hint opens the same gap the list leaves for it, right under the glass.
+              Box(Modifier.padding(top = headerHeight)) { ArchivePullSlot(shownPx = { pullShown }) }
+          }
+          CompositionLocalProvider(LocalGlassBackdrop provides chatsBackdrop) {
+              GlassPanel(
+                  design = design,
+                  tint = palette.surface,
+                  rim = palette.textSecondary,
+                  // The recorded list has no background of its own, so the pane starts from the screen colour.
+                  backdropBase = palette.screen,
+                  shape = RectangleShape,
+                  edge = GlassEdge.BottomHairline,
+                  // The pane is hit-tested as a whole: a tap on the title or a gap must not reach a chat row
+                  // scrolled underneath. Its own buttons and the search field still receive input first.
+                  modifier = Modifier.fillMaxWidth().onSizeChanged { glassHeaderHeightPx = it.height }
+                      .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
+              ) {
+                  chatsHeader(Modifier)
+              }
+          }
+      } else {
+      Column(Modifier.fillMaxSize()) {
+        chatsHeader(Modifier)
+
+        ArchivePullSlot(shownPx = { if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f })
+        chatList(Modifier.weight(1f), 0.dp)
+      }
       }
       FloatingActionButton(
           onClick = onNewChat,
-          modifier = Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 16.dp),
-          containerColor = palette.accent,
-          contentColor = palette.onAccent,
-          shape = RoundedCornerShape(20.dp)
+          modifier = Modifier.align(Alignment.BottomEnd)
+              .padding(end = fabPlacement.endPadding, bottom = fabPlacement.bottomPadding)
+              .size(design.fab.size.coerceAtLeast(48.dp)),
+          // Material 3 keeps the main action tonal (primary container); the other styles keep the accent fill.
+          containerColor = if (design.fab.tonal) palette.accentSoft else palette.accent,
+          contentColor = if (design.fab.tonal) palette.accentInk else palette.onAccent,
+          shape = fabShape,
+          elevation = FloatingActionButtonDefaults.elevation(defaultElevation = design.fab.elevation)
       ) {
           Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.new_chat_title), modifier = Modifier.size(24.dp))
       }
@@ -675,7 +874,7 @@ private fun TelegramSearchAction(
     Row(
         modifier = Modifier.fillMaxWidth()
             .heightIn(min = 56.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(styledShape(16.dp))
             .background(palette.accentSoft)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) {
@@ -706,41 +905,80 @@ private fun TelegramSearchAction(
 }
 
 @Composable
-private fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, onHide: () -> Unit) {
+internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, onHide: () -> Unit) {
     val palette = beyGramPalette()
+    val main = LocalDesignSystem.current.mainScreen
     val context = LocalContext.current
     var actionsOpen by remember { mutableStateOf(false) }
-    val unread = archivedChats.sumOf { it.unreadCount }
+    // Chats with something unread, not the sum of their messages: a seven-digit message total is noise nobody can act
+    // on, while "3 chats need attention" is what the archive line is for.
+    val unreadChats = archivedChats.count { showsUnreadIndicator(it) }
     val title = stringResource(R.string.chats_archive_title)
-    val language = LocalConfiguration.current.locales[0].language
-    val summary = buildString {
-        append("${archivedChats.size} ${pluralForm(language, archivedChats.size, context.getString(R.string.chats_archive_count_one), context.getString(R.string.chats_archive_count_few), context.getString(R.string.chats_archive_count_many))}")
-        if (unread > 0) append(" · $unread ${pluralForm(language, unread, context.getString(R.string.chats_archive_unread_one), context.getString(R.string.chats_archive_unread_few), context.getString(R.string.chats_archive_unread_few))}")
+    val locale = LocalConfiguration.current.locales[0]
+    val language = locale.language
+    // Digits are grouped for the interface language (3 132 938 in Russian, 3,132,938 in English), as any count is.
+    val numbers = NumberFormat.getIntegerInstance(locale)
+    val countLine = "${numbers.format(archivedChats.size.toLong())} ${pluralForm(language, archivedChats.size, context.getString(R.string.chats_archive_count_one), context.getString(R.string.chats_archive_count_few), context.getString(R.string.chats_archive_count_many))}"
+    val unreadLine = if (unreadChats > 0) "${numbers.format(unreadChats.toLong())} ${pluralForm(language, unreadChats, context.getString(R.string.chats_archive_unread_one), context.getString(R.string.chats_archive_unread_few), context.getString(R.string.chats_archive_unread_few))}" else null
+    val summary = if (unreadLine != null) "$countLine · $unreadLine" else countLine
+    // Archive is a navigation row, not a featured content card. Keep its touch target >= 48dp
+    // while reducing the visual prominence that previously pushed conversations down.
+    // Card is a raised surface, Tonal is today's quiet fill, Flat is just a navigation line inside the list.
+    val archiveShape = RoundedCornerShape(main.archiveRadius)
+    val groupSurface = groupSurfaceColor()
+    val archiveBackground = when (main.archive) {
+        ArchiveTreatment.Card, ArchiveTreatment.Tonal -> groupSurface
+        ArchiveTreatment.Flat -> Color.Transparent
     }
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
+    val compact = main.compactArchive
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = if (compact) 2.dp else 3.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp)).background(palette.surface)
+                .heightIn(min = if (compact) 48.dp else 56.dp)
+                .then(
+                    if (main.archiveElevation > 0.dp) Modifier.shadow(main.archiveElevation, archiveShape)
+                    else Modifier
+                )
+                .clip(archiveShape).background(archiveBackground)
                 .combinedClickable(onClick = onClick, onLongClick = { actionsOpen = true }, role = Role.Button)
                 .semantics(mergeDescendants = true) { contentDescription = accessibleDescription(title, summary) }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = if (compact) 12.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.Archive, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
+            val iconBox = if (compact) 30.dp else 36.dp
+            Box(modifier = Modifier.size(iconBox).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Archive, contentDescription = null, tint = if (compact) palette.textSecondary else palette.accentInk, modifier = Modifier.size(if (compact) 18.dp else 20.dp))
             }
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Text(summary, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.width(12.dp))
+            if (compact) {
+                // One line: the title and the chat count; unread chats become a small muted counter on the right.
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Spacer(Modifier.width(8.dp))
+                    Text(countLine, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (unreadChats > 0) {
+                    Box(
+                        Modifier.padding(start = 8.dp).heightIn(min = 20.dp).clip(RoundedCornerShape(main.badgeRadius))
+                            .background(palette.surface2).padding(horizontal = 7.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(if (unreadChats > 99) "99+" else unreadChats.toString(), color = palette.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            } else {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(summary, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
-            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
         }
         if (actionsOpen) {
             // Действия открываются прямо под строкой, без всплывающего окна.
             Column(
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
-                    .clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)
+                    .clip(styledShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)
             ) {
                 ArchiveAction(Icons.Rounded.VisibilityOff, stringResource(R.string.chats_archive_hide), palette.accent, palette.accentInk, FontWeight.SemiBold, onHide)
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(palette.divider))
@@ -788,43 +1026,238 @@ private fun ArchivePullHint(heightDp: Dp) {
     }
 }
 
+/**
+ * Soft edges of the chat list. The top edge dissolves under the header once the list has moved: [topProgress] scales it
+ * (0 at rest, so the first row is never dimmed) and [topPadding] is where the header ends. With a floating dock
+ * ([fadeBottom]) the bottom edge dissolves before the gap above the capsule, so a row cut there does not end in a
+ * sliver. The list is drawn into its own layer and masked there (DstIn): the screen colour, the glows and the glass
+ * backdrop record show through unchanged, and nothing is blurred.
+ */
+private fun Modifier.chatListEdgeFade(topPadding: Dp, fadeBottom: Boolean, topProgress: () -> Float): Modifier =
+    graphicsLayer {
+        compositingStrategy = if (fadeBottom || topProgress() > 0f) {
+            CompositingStrategy.Offscreen
+        } else {
+            CompositingStrategy.Auto
+        }
+    }.drawWithContent {
+        drawContent()
+        val fade = chatListEdgeFadeHeight.toPx()
+        val amount = topProgress().coerceIn(0f, 1f)
+        if (amount > 0f) {
+            val top = topPadding.toPx()
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Black.copy(alpha = 1f - amount), Color.Black),
+                    startY = top,
+                    endY = top + fade
+                ),
+                topLeft = Offset(0f, top),
+                size = Size(size.width, fade),
+                blendMode = BlendMode.DstIn
+            )
+        }
+        if (fadeBottom) {
+            val bottom = size.height
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Black, Color.Transparent),
+                    startY = bottom - fade,
+                    endY = bottom
+                ),
+                topLeft = Offset(0f, bottom - fade),
+                size = Size(size.width, fade),
+                blendMode = BlendMode.DstIn
+            )
+        }
+    }
+
 /** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
 @Composable
-private fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+    when (LocalDesignSystem.current.mainScreen.chipSelection) {
+        ChipSelectionTone.Filter -> {
+            Material3FolderChip(title, selected, unreadCount, onClick)
+            return
+        }
+        ChipSelectionTone.Ink -> {
+            InkFolderChip(title, selected, unreadCount, onClick)
+            return
+        }
+        else -> Unit
+    }
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val main = design.mainScreen
     val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
-    val containerColor by animateColorAsState(if (selected) palette.accent else palette.surface2, tabSpec)
-    val labelColor by animateColorAsState(if (selected) palette.onAccent else palette.textPrimary, tabSpec)
-    Row(
-        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
-            .background(containerColor)
-            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            title,
-            color = labelColor,
-            fontSize = 14.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            modifier = Modifier.widthIn(max = 144.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (unreadCount != null && unreadCount > 0) {
-            Spacer(Modifier.width(8.dp))
+    // Filled is the BeyGram accent chip, Tonal is the Material 3 filter chip, Underlined is the classic Material 2 tab:
+    // the container keeps the surface and the selection is a rule under the label.
+    val containerColor by animateColorAsState(
+        when {
+            // The underlined tab keeps the neutral surface in both states: its accent label would be unreadable on an
+            // accent fill, and the rule under it is what marks the selection.
+            main.chipSelection == ChipSelectionTone.Underlined -> palette.surface2
+            !selected -> palette.surface2
+            main.chipSelection == ChipSelectionTone.Tonal -> palette.accentSoft
+            else -> palette.accent
+        },
+        tabSpec
+    )
+    val labelColor by animateColorAsState(
+        when {
+            !selected -> palette.textPrimary
+            main.chipSelection == ChipSelectionTone.Filled -> palette.onAccent
+            else -> palette.accentInk
+        },
+        tabSpec
+    )
+    val chipShape = RoundedCornerShape(main.chipRadius)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(
+            Modifier.heightIn(min = 48.dp).clip(chipShape)
+                .background(containerColor)
+                .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                unreadCount.toString(),
-                color = if (selected) palette.onAccent else palette.accent,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
+                title,
+                color = labelColor,
+                fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                modifier = Modifier.widthIn(max = 144.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            if (unreadCount != null && unreadCount > 0) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    unreadCount.toString(),
+                    color = when {
+                        !selected -> palette.accent
+                        main.chipSelection == ChipSelectionTone.Filled -> palette.onAccent
+                        else -> palette.accentInk
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        if (main.chipSelection == ChipSelectionTone.Underlined) {
+            // The rule is always laid out, so switching folders never shifts the row of chips by two dp.
+            Box(
+                Modifier.padding(top = 2.dp).height(2.dp).width(if (selected) 28.dp else 0.dp)
+                    .background(if (selected) palette.accent else Color.Transparent)
+            )
+        }
+    }
+}
+
+/**
+ * The Material 3 filter chip: a 32dp chip with an outline when off, the secondary container with a leading check when
+ * on. It sits in a 48dp touch target, so the row of folders looks lighter without a smaller tap area.
+ */
+@Composable
+private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val main = LocalDesignSystem.current.mainScreen
+    val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
+    val containerColor by animateColorAsState(if (selected) palette.accentSoft else Color.Transparent, tabSpec)
+    val outlineColor by animateColorAsState(if (selected) Color.Transparent else palette.divider, tabSpec)
+    val labelColor = if (selected) palette.accentInk else palette.textSecondary
+    val chipShape = RoundedCornerShape(main.chipRadius)
+    Box(
+        Modifier.heightIn(min = 48.dp)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            Modifier.heightIn(min = 32.dp).clip(chipShape)
+                .background(containerColor)
+                .border(1.dp, outlineColor, chipShape)
+                .padding(start = if (selected) 8.dp else 16.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (selected) {
+                Icon(Icons.Rounded.Check, contentDescription = null, tint = labelColor, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                title,
+                color = labelColor,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.widthIn(max = 144.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (unreadCount != null && unreadCount > 0) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    unreadCount.toString(),
+                    color = if (selected) palette.accentInk else palette.accent,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The BeyGram Signature folder: a plain label when off, an ink-filled 36dp chip with the canvas colour as label when on.
+ * Selection is ink, so the accent stays on the unread count; the 48dp touch target is kept around the smaller chip.
+ */
+/** How much accent the Signature ink chip carries; enough to warm it, little enough to keep it ink. */
+private const val INK_ACCENT_SHARE = 0.18f
+
+@Composable
+private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val main = LocalDesignSystem.current.mainScreen
+    val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
+    // Ink still selects, but a pure white (or pure black) slab fought the warm accent of the palette (#670), so the
+    // ink takes a small share of the accent. The label stays the canvas colour, so the contrast barely moves.
+    val containerColor by animateColorAsState(if (selected) lerp(palette.textPrimary, palette.accent, INK_ACCENT_SHARE) else Color.Transparent, tabSpec)
+    val labelColor by animateColorAsState(if (selected) palette.screen else palette.textSecondary, tabSpec)
+    val chipShape = RoundedCornerShape(main.chipRadius)
+    Box(
+        Modifier.heightIn(min = 48.dp).clip(chipShape)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            Modifier.heightIn(min = 36.dp).clip(chipShape)
+                .background(containerColor)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title,
+                color = labelColor,
+                fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                modifier = Modifier.widthIn(max = 144.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (unreadCount != null && unreadCount > 0) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    unreadCount.toString(),
+                    color = if (selected) palette.screen else palette.accent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
 
 @Composable
 internal fun FilterChip(title: String, selected: Boolean, count: Int?, onClick: () -> Unit) {
+    if (LocalDesignSystem.current.mainScreen.chipSelection == ChipSelectionTone.Ink) {
+        InkFolderChip(title, selected, count, onClick)
+        return
+    }
     val palette = beyGramPalette()
     Row(
         modifier = Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(50)).background(if (selected) palette.accent else palette.surface2)
@@ -895,7 +1328,8 @@ private fun sendStatusLabel(chat: ChatPreview): String? {
 private fun SendStatusIcon(chat: ChatPreview) {
     val palette = beyGramPalette()
     if (!chat.lastMessageOutgoing) return
-    val modifier = Modifier.padding(start = 6.dp).size(16.dp)
+    // The gap to the neighbouring marker comes from the trailing group, not from the glyph.
+    val modifier = Modifier.size(16.dp)
     // The row speaks one merged description (see ChatListItem), so the glyph itself stays decorative.
     when (chat.lastMessageSendState) {
         MessageSendState.Sending -> Icon(Icons.Rounded.Schedule, null, tint = palette.textSecondary, modifier = modifier)
@@ -926,11 +1360,16 @@ internal fun chatListDensityFor(density: ListDensity): ChatListDensity = when (d
 /** Telegram shows a chat as unread either because of a server unread count or an explicit manual marker. */
 internal fun showsUnreadIndicator(chat: ChatPreview): Boolean = chat.unreadCount > 0 || chat.isMarkedAsUnread
 
+/** Air between the preview text and the trailing markers of a chat row, and between the markers themselves. */
+private val TrailingIndicatorStart = 10.dp
+private val TrailingIndicatorGap = 6.dp
+
 @Composable
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     onClick: () -> Unit, onLongClick: (() -> Unit)? = null, highlighted: Boolean = false) {
     val palette = beyGramPalette()
     val listDensity = LocalChatListDensity.current
+    val main = LocalDesignSystem.current.mainScreen
     val unread = showsUnreadIndicator(chat)
     val emptyPreview = (chat.lastMessage as? UiText.Raw)?.text?.isBlank() == true
     val preview = previewLine(chat, emptyPreview)
@@ -947,8 +1386,12 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         statusLabel = sendStatusLabel(chat),
         secretLabel = if (chat.isSecret) stringResource(R.string.chats_secret_chat) else null
     )
+    // Signature draws the row as a rounded tile inside the list: the press and the open-chat highlight stop short of the
+    // screen edge. The content keeps the same 20dp start position as every other style.
+    val tileShape = RoundedCornerShape(main.rowRadius)
     Row(
         modifier = Modifier.fillMaxWidth()
+            .then(if (main.rowInset > 0.dp) Modifier.padding(horizontal = main.rowInset).clip(tileShape) else Modifier)
             .background(if (highlighted) palette.accentSoft else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick, role = Role.Button)
             .semantics(mergeDescendants = true) {
@@ -956,14 +1399,14 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                 // TalkBack announces which conversation is already open in the right pane.
                 if (highlighted) selected = true
             }
-            .padding(horizontal = 20.dp, vertical = listDensity.rowVerticalPadding),
+            .padding(horizontal = (20.dp - main.rowInset).coerceAtLeast(0.dp), vertical = listDensity.rowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ChatAvatar(chat, 54.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+        ChatAvatar(chat, main.avatarSize, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = main.rowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (chat.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.accent, modifier = Modifier.padding(start = 4.dp).size(14.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(chat.lastMessageTime, color = if (unread) palette.accent else palette.textSecondary, fontSize = 12.sp, fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal)
@@ -971,18 +1414,32 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             Spacer(Modifier.height(3.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (chat.isMuted) Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
-                Text(preview, color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                SendStatusIcon(chat)
-                if (unread) {
-                    Spacer(Modifier.width(8.dp))
-                    // Чат без звука получает серый счётчик, как в Telegram. Ручная отметка без сообщений — точка.
-                    val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
-                    if (chat.unreadCount > 0) {
-                        Box(modifier = Modifier.defaultMinSize(minWidth = 22.dp).height(22.dp).clip(RoundedCornerShape(11.dp)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
-                            Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(preview, color = if (unread && main.unreadPreviewEmphasis && !chat.isMuted) palette.textPrimary else palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                // The send status and the unread marker share one trailing group. The group keeps its own air from the
+                // preview text and a fixed gap from its neighbour, so a preview that ends in a symbol never runs into a count.
+                if (chat.lastMessageOutgoing || unread) {
+                    Row(
+                        modifier = Modifier.padding(start = TrailingIndicatorStart),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(TrailingIndicatorGap)
+                    ) {
+                        SendStatusIcon(chat)
+                        if (unread) {
+                            // Чат без звука получает серый счётчик, как в Telegram. Ручная отметка без сообщений — точка.
+                            val badgeColor = if (chat.isMuted) palette.textSecondary else palette.accent
+                            if (chat.unreadCount > 0) {
+                                // The 22dp pill grows with the system font scale, so large digits are not clipped; at 1x and
+                                // below every style keeps exactly the pill it had (its text line is taller than 22dp in some
+                                // styles, so a plain minimum height would change them).
+                                val badgeScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+                                val badgeSize = 22.dp * badgeScale
+                                Box(modifier = Modifier.defaultMinSize(minWidth = badgeSize).height(badgeSize).clip(RoundedCornerShape(main.badgeRadius * badgeScale)).background(badgeColor).padding(horizontal = 7.dp), contentAlignment = Alignment.Center) {
+                                    Text(if (chat.unreadCount > 99) "99+" else chat.unreadCount.toString(), color = if (chat.isMuted) palette.surface else palette.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Box(Modifier.size(10.dp).clip(CircleShape).background(badgeColor))
+                            }
                         }
-                    } else {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(badgeColor))
                     }
                 }
             }

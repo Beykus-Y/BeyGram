@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.ui.components.topAppBarSurface
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
@@ -11,6 +12,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -22,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.R
+import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.copyableMessageLinks
 import com.beykus.beygram.domain.model.*
@@ -86,7 +89,7 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Row(Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().topAppBarSurface().background(palette.surface).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textPrimary) }
                 Column(Modifier.weight(1f)) {
                     Text(context?.title ?: stringResource(R.string.message_original_reply), color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
@@ -161,12 +164,16 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
     if (activeItem != null) {
         val activeChatId = viewerChatId.takeIf { it > 0L } ?: chatId
         val pages = MediaViewerPolicy.retainViewOncePage(listOf(activeItem), activeItem)
-        MediaViewer(pages = pages, selectedId = activeItem.messageId, onSelect = {},
+        // Same consent question as in the chat: with media-open marks hidden, view-once content asks before it shows.
+        val viewOnceGate = rememberViewOnceStealthGate(activeChatId)
+        if (viewOnceGate.needsConsent(activeChatId, activeItem.messageId, activeItem.viewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, activeChatId))) {
+            viewOnceGate.ConsentDialog(activeChatId, activeItem.messageId) { viewerItem = null; viewerChatId = 0L; selected = null }
+        } else MediaViewer(pages = pages, selectedId = activeItem.messageId, onSelect = {},
             observeFile = observeFile, downloadFile = downloadFile, autoDownloadFile = autoDownloadFile,
             onViewed = { id ->
                 if (!activeItem.viewOnce || id !in openedViewOnceIds) {
                     if (activeItem.viewOnce) openedViewOnceIds = openedViewOnceIds + id
-                    conversation.openMessageContent(activeChatId, id)
+                    viewOnceGate.openContent(conversation, activeChatId, id)
                 }
             },
             onClose = { viewerItem = null; viewerChatId = 0L; selected = null },

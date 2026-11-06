@@ -1,11 +1,12 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.layout.*
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.text.contextmenu.data.*
 import androidx.compose.foundation.text.contextmenu.provider.*
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -50,7 +51,7 @@ internal fun SelectionMenuProvider(modifier: Modifier, content: @Composable () -
                 val bounds = session.data.contentBounds(anchor).translate(anchor.positionInWindow())
                 val items = session.data.data().components.filterIsInstance<TextContextMenuItem>()
                 Popup(popupPositionProvider = SelectionPosition(bounds), onDismissRequest = session::close) {
-                    Surface(shadowElevation = 6.dp, shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)) {
+                    Surface(shadowElevation = 6.dp, shape = styledShape(12.dp)) {
                         Column(Modifier.widthIn(max = 340.dp).padding(horizontal = 4.dp)) {
                             listOf(listOf(TextContextMenuKeys.SelectAllKey, TextContextMenuKeys.CopyKey, TextContextMenuKeys.PasteKey),
                                 listOf(TextContextMenuKeys.CutKey, FormatSelectionKey)).forEach { keys ->

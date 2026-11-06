@@ -14,6 +14,25 @@ class ChatPresenceTest {
 
     private fun chat(isGroup: Boolean) = ChatPreview(1L, "Команда", "К", UiText.Raw(""), "", 0, 0L, isGroup = isGroup)
 
+    @Test fun savedMessagesNeverShowTheUsersOwnOnlineStatus() {
+        val saved = ChatPreview(
+            1L, "Избранное", "И", UiText.Raw(""), "", 0, 0L,
+            isSavedMessages = true
+        )
+        assertEquals(
+            UiText.Res(R.string.presence_saved_messages),
+            chatPresenceLine(saved, ProfileInfo(1L, "Я", status = ProfilePresence.Online), LastSeenStyle.Relative, now)
+        )
+        assertEquals(
+            UiText.Res(R.string.presence_saved_messages),
+            chatPresenceLine(saved, null, LastSeenStyle.Relative, now)
+        )
+        assertEquals(
+            UiText.Res(R.string.presence_saved_messages),
+            chatPresenceLine(saved, ProfileInfo(1L, "Я", status = ProfilePresence.Recently), LastSeenStyle.Exact, now)
+        )
+    }
+
     @Test fun groupShowsOnlineCount() {
         assertEquals(UiText.Res(R.string.presence_online_count, listOf(12)), chatPresenceLine(chat(true), ProfileInfo(1L, "Команда", onlineMemberCount = 12), LastSeenStyle.Relative, now))
     }

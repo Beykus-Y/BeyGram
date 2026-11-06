@@ -33,9 +33,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -683,7 +683,7 @@ private fun GiftCatalogRow(
 ) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {
@@ -734,7 +734,7 @@ private fun GiftCatalogRow(
 private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
     val palette = beyGramPalette()
     Column(
-        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {
@@ -795,7 +795,7 @@ private fun ReceivedGiftRow(gift: ReceivedGiftItem) {
 private fun GiftCollectionRow(collection: GiftCollectionItem) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .heightIn(min = 48.dp)
             .semantics(mergeDescendants = true) {},

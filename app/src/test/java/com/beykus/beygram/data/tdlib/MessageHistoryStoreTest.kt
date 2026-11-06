@@ -1,6 +1,7 @@
 package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.model.ChatMemoryMark
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.DiceStickerAsset
 import com.beykus.beygram.domain.model.MediaKind
@@ -13,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.random.Random
 
 class MessageHistoryStoreTest {
     private fun message(id: Long, date: Long = 1L, state: MessageSendState = MessageSendState.Sent, chatId: Long = 1L) =
@@ -85,6 +87,37 @@ class MessageHistoryStoreTest {
         val messages = store.observe(1L).value.messages
         assertEquals(listOf(50L, 100L), messages.map { it.id })
         assertEquals(listOf(MessageSendState.Sent, MessageSendState.Sent), messages.map { it.sendState })
+    }
+
+    @Test fun dropChatMemoryRemovesKeptMessagesAndOtherMarks() {
+        val store = MessageHistoryStore()
+        store.put(message(1L, 1L))
+        store.put(message(2L, 2L))
+        store.put(message(3L, 3L))
+        store.markDeleted(1L, listOf(2L), deletedAtMillis = 5L)
+        store.update(1L, 3L) { it.copy(memory = ChatMemoryMark(versionCount = 2)) }
+        store.dropChatMemory(1L)
+        val history = store.observe(1L).value
+        assertEquals(listOf(1L, 3L), history.messages.map { it.id })
+        assertEquals(listOf<ChatMemoryMark?>(null, null), history.messages.map { it.memory })
+    }
+
+    @Test fun droppedKeptMessageComesBackWhenChatMemoryKeepsTheChatAgain() {
+        val store = MessageHistoryStore()
+        store.put(message(2L, 2L))
+        store.markDeleted(1L, listOf(2L), deletedAtMillis = 5L)
+        store.dropChatMemory(1L)
+        assertEquals(emptyList<ChatMessage>(), store.observe(1L).value.messages)
+        store.finishLoad(1L, listOf(message(2L, 2L).copy(memory = ChatMemoryMark(deletedAtMillis = 5L))), false)
+        assertEquals(listOf(2L), store.observe(1L).value.messages.map { it.id })
+    }
+
+    @Test fun chatsWithChatMemoryMarksListsOnlyChatsThatHoldThem() {
+        val store = MessageHistoryStore()
+        store.put(message(1L, 1L, chatId = 1L))
+        store.put(message(2L, 2L, chatId = 2L))
+        store.markDeleted(2L, listOf(2L), deletedAtMillis = 5L)
+        assertEquals(listOf(2L), store.chatsWithChatMemoryMarks())
     }
 
     @Test fun loadStartedBeforeJumpWindowCannotMergeIntoIt() {
@@ -317,4 +350,146 @@ class MessageHistoryStoreTest {
         assertEquals(setOf(88, 89), store.mediaFileIds())
     }
 
+    @Test fun confirmedSendIsSplicedIntoItsPlaceAndItsTemporaryCopyLeaves() {
+        val store = MessageHistoryStore()
+        store.finishLoad(1L, listOf(message(1L, 1L), message(2L, 2L), message(4L, 4L)), hasOlder = false)
+        store.put(message(-1L, 3L, state = MessageSendState.Sending))
+        assertEquals(listOf(1L, 2L, -1L, 4L), store.observe(1L).value.messages.map { it.id })
+        store.put(message(3L, 3L), replaces = -1L)
+        assertEquals(listOf(1L, 2L, 3L, 4L), store.observe(1L).value.messages.map { it.id })
+    }
+
+    @Test fun mergeAfterAnEditThatChangesTheOrderSortsAgain() {
+        val store = MessageHistoryStore()
+        store.finishLoad(1L, listOf(message(1L, 5L), message(2L, 5L)), hasOlder = false)
+        store.update(1L, 1L) { it.copy(sendState = MessageSendState.Sending) }
+        store.put(message(3L, 5L))
+        assertEquals(listOf(2L, 3L, 1L), store.observe(1L).value.messages.map { it.id })
+    }
+
+    @Test fun messageOrderIsTheOrderTheFullSortUses() {
+        val legacy = compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.sendState == MessageSendState.Sending }.thenBy { it.id }
+        val random = Random(42L)
+        val states = listOf(MessageSendState.Sending, MessageSendState.Sent, MessageSendState.Failed)
+        repeat(2_000) {
+            val a = message(random.nextLong(-3L, 4L), random.nextLong(0L, 3L), states[random.nextInt(states.size)])
+            val b = message(random.nextLong(-3L, 4L), random.nextLong(0L, 3L), states[random.nextInt(states.size)])
+            assertEquals(Integer.signum(legacy.compare(a, b)), Integer.signum(compareMessageOrder(a, b)))
+        }
+    }
+
+    /**
+     * Sends, confirmations, edits, deletions, pages and window loads, applied to a store that splices small batches and to one
+     * that sorts every merge. Both get the same calls with the same arguments, so their lists must match after each call.
+     */
+    @Test fun splicedMergeGivesTheSameListAsAFullSortOnRandomSequences() {
+        val random = Random(20261103)
+        val spliced = MessageHistoryStore(maxCachedChats = 2)
+        val sorted = MessageHistoryStore(maxCachedChats = 2, fastMerge = false)
+        val chats = listOf(1L, 2L, 3L)
+        var clock = 1_000L
+        var nextServerId = 1L
+        var nextTempId = -1L
+        fun both(call: MessageHistoryStore.() -> Unit) {
+            spliced.call()
+            sorted.call()
+        }
+        repeat(3_000) { step ->
+            if (random.nextInt(3) == 0) clock++
+            val chatId = chats[random.nextInt(chats.size)]
+            val held = spliced.observe(chatId).value.messages
+            val sending = held.filter { it.sendState == MessageSendState.Sending }
+            when (random.nextInt(20)) {
+                0, 1 -> {
+                    val temp = message(nextTempId--, clock, MessageSendState.Sending, chatId)
+                    both { put(temp) }
+                }
+                2, 3, 4 -> if (sending.isNotEmpty()) {
+                    val temp = sending[random.nextInt(sending.size)]
+                    val server = message(nextServerId++, clock + random.nextLong(0L, 2L), MessageSendState.Sent, chatId)
+                    both { put(server, replaces = temp.id) }
+                }
+                5 -> if (sending.isNotEmpty()) {
+                    val temp = sending[random.nextInt(sending.size)]
+                    both { put(temp.copy(sendState = MessageSendState.Failed), replaces = temp.id) }
+                }
+                6, 7, 8, 9 -> {
+                    // A live arrival, or a newer copy of a message already held, as an edit or a reaction update brings.
+                    val arrival = if (held.isNotEmpty() && random.nextInt(4) == 0) {
+                        held[random.nextInt(held.size)].copy(isEdited = true)
+                    } else {
+                        message(nextServerId++, clock, MessageSendState.Sent, chatId)
+                    }
+                    both { put(arrival) }
+                }
+                10 -> if (nextTempId < -1L) {
+                    // A late copy of a temporary message, which may have been retired already.
+                    val late = message(random.nextLong(nextTempId + 1L, 0L), clock, MessageSendState.Sending, chatId)
+                    both { put(late) }
+                }
+                11 -> if (held.isNotEmpty()) {
+                    val target = held[random.nextInt(held.size)]
+                    // Some edits change the sort keys, so the list is out of order until the next merge.
+                    val kind = random.nextInt(10)
+                    val edit: (ChatMessage) -> ChatMessage = { m ->
+                        when (kind) {
+                            0 -> m.copy(sendState = MessageSendState.Sent)
+                            1 -> m.copy(dateSeconds = m.dateSeconds + 1L)
+                            2 -> m.copy(isPinned = !m.isPinned)
+                            else -> m.copy(text = "edit $step", isEdited = true)
+                        }
+                    }
+                    both { update(chatId, target.id, edit) }
+                }
+                12 -> if (held.isNotEmpty()) {
+                    val ids = held.shuffled(random).take(1 + random.nextInt(3)).map { it.id }
+                    both { delete(chatId, ids) }
+                }
+                13, 14, 15 -> {
+                    // A history page: it may overlap the messages held, and some of it may be older than an update.
+                    val requestVersion = spliced.version()
+                    val epoch = spliced.beginLoad(chatId)
+                    assertEquals("epoch at step $step", epoch, sorted.beginLoad(chatId))
+                    val size = if (random.nextInt(3) == 0) random.nextInt(1, 6) else random.nextInt(10, 60)
+                    val page = List(size) {
+                        val state = if (random.nextInt(8) == 0) MessageSendState.Failed else MessageSendState.Sent
+                        message(random.nextLong(1L, nextServerId + 3L), clock - random.nextLong(0L, 20L), state, chatId)
+                    }
+                    val hasOlder = random.nextBoolean()
+                    val continueLoading = random.nextInt(4) == 0
+                    both { finishLoad(chatId, page, hasOlder, continueLoading, requestVersion, epoch) }
+                }
+                16 -> {
+                    val first = random.nextLong(1L, nextServerId + 3L)
+                    val window = List(random.nextInt(1, 40)) { message(first + it, clock - it, MessageSendState.Sent, chatId) }
+                    val reachesLatest = random.nextBoolean()
+                    both { replaceWithWindow(chatId, window, reachesLatest) }
+                }
+                17 -> {
+                    val epoch = spliced.restartFromLatest(chatId)
+                    assertEquals("restart at step $step", epoch, sorted.restartFromLatest(chatId))
+                }
+                18 -> {
+                    val comments = List(random.nextInt(1, 4)) { message(nextServerId++, clock, MessageSendState.Sent, chatId) }
+                    both { recordOutsideWindow(chatId, comments) }
+                }
+                else -> when (random.nextInt(4)) {
+                    0 -> both { opened(chatId) }
+                    1 -> both { closed(chatId) }
+                    2 -> {
+                        val readId = random.nextLong(1L, nextServerId + 1L)
+                        both { readInbox(chatId, readId) }
+                    }
+                    else -> {
+                        val endLoading = random.nextBoolean()
+                        both { fail(chatId, UiText.Raw("offline"), endLoading = endLoading) }
+                    }
+                }
+            }
+            assertEquals("version at step $step", sorted.version(), spliced.version())
+            for (id in chats) {
+                assertEquals("chat $id at step $step", sorted.observe(id).value, spliced.observe(id).value)
+            }
+        }
+    }
 }

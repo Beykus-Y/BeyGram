@@ -2,21 +2,23 @@ package com.beykus.beygram.data.tdlib
 
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.ChatMemoryMark
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.LiveMessageArrival
 import com.beykus.beygram.domain.model.MessageIdReplacement
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageSpecialContent
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import java.util.concurrent.ConcurrentHashMap
 
-/** One identity per TDLib message, including temporary -> server ID replacement. */
-internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
-    private val states = ConcurrentHashMap<Long, MutableStateFlow<ChatHistory>>()
-    private val retiredIds = mutableMapOf<Long, MutableSet<Long>>()
+/**
+ * One identity per TDLib message, including temporary -> server ID replacement.
+ *
+ * [fastMerge] false sorts every merge in full. The fast path gives the same lists; the flag lets the tests run both on the
+ * same calls.
+ */
+internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStates: Int = MAX_STATES, private val fastMerge: Boolean = true) {
     private val lock = Any()
+    private val retiredIds = mutableMapOf<Long, MutableSet<Long>>()
     private var revision = 0L
     private var liveArrivalSequence = 0L
     // Only messages changed while their chat loads are recorded, so an older snapshot cannot overwrite them.
@@ -24,13 +26,34 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     private val openedChats = mutableSetOf<Long>()
     // Chats that keep their messages, least recently used first.
     private val cachedChats = LinkedHashSet<Long>()
+    // Read markers outlive a chat's state, which is dropped while the chat is idle; see [states].
+    private val readMarks = HashMap<Long, ReadMarks>()
     // Bumped whenever the loaded window is replaced, so responses to loads started before it are dropped.
     private val windowEpochs = mutableMapOf<Long, Long>()
+    /**
+     * Chat states. An idle chat is dropped when it leaves the message cache or its screen closes, and the least recently
+     * used idle ones go once the map is full. Its read markers stay in [readMarks], so reading the chat again rebuilds
+     * exactly the state that was dropped.
+     */
+    private val states = EvictableStateMap<Long, ChatHistory>(
+        lock = lock,
+        maxEntries = maxStates,
+        seed = { chatId ->
+            readMarks[chatId]?.let { ChatHistory(lastReadInboxMessageId = it.inbox, lastReadOutboxMessageId = it.outbox) } ?: ChatHistory()
+        },
+        isIdle = { chatId, history -> chatId !in openedChats && isBare(history) }
+    )
     fun version(): Long = synchronized(lock) { revision }
+
+    /** Number of chat states held now; bounded by the store's limit. */
+    internal fun stateCount(): Int = states.size()
+
+    /** Whether the state of [chatId] is held now, for tests and diagnostics. */
+    internal fun stateHeld(chatId: Long): Boolean = states.contains(chatId)
 
     /** Файлы медиа, которые показывают сообщения открытых и загруженных чатов: их локальные копии нужны ленте и просмотрщику. */
     fun mediaFileIds(): Set<Int> = synchronized(lock) {
-        (cachedChats + openedChats).flatMap { chatId -> states[chatId]?.value?.let { it.messages + it.outsideWindowMessages }.orEmpty() }
+        (cachedChats + openedChats).flatMap { chatId -> states.peekLocked(chatId)?.let { it.messages + it.outsideWindowMessages }.orEmpty() }
             .flatMap { message ->
                 buildList {
                     message.media?.fileId?.let { add(it) }
@@ -46,8 +69,9 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
             .filter { it != 0 }.toSet()
     }
 
-    private fun flow(chatId: Long) = states.computeIfAbsent(chatId) { MutableStateFlow(ChatHistory()) }
-    fun observe(chatId: Long): StateFlow<ChatHistory> = flow(chatId).asStateFlow()
+    /** The state of [chatId] for a writer; the caller holds [lock]. */
+    private fun flow(chatId: Long) = states.stateLocked(chatId)
+    fun observe(chatId: Long): StateFlow<ChatHistory> = states.observe(chatId)
 
     fun opened(chatId: Long) = synchronized(lock) {
         openedChats += chatId
@@ -57,6 +81,8 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     fun closed(chatId: Long) = synchronized(lock) {
         openedChats -= chatId
         keepCached(chatId)
+        // A chat that holds nothing is not cached, so its state would otherwise wait for the limit.
+        states.removeIfIdleLocked(chatId)
     }
 
     fun put(message: ChatMessage, replaces: Long? = null) = synchronized(lock) {
@@ -187,11 +213,19 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
     fun readInbox(chatId: Long, messageId: Long) = synchronized(lock) {
         val state = flow(chatId)
         state.value = state.value.copy(lastReadInboxMessageId = maxOf(state.value.lastReadInboxMessageId, messageId))
+        rememberReadMarks(chatId, state.value)
     }
 
     fun readOutbox(chatId: Long, messageId: Long) = synchronized(lock) {
         val state = flow(chatId)
         state.value = state.value.copy(lastReadOutboxMessageId = maxOf(state.value.lastReadOutboxMessageId, messageId))
+        rememberReadMarks(chatId, state.value)
+    }
+
+    /** Keeps the read markers of a chat, so they survive the chat's state being dropped. */
+    private fun rememberReadMarks(chatId: Long, history: ChatHistory) {
+        val marks = ReadMarks(history.lastReadInboxMessageId, history.lastReadOutboxMessageId)
+        if (marks.inbox == 0L && marks.outbox == 0L) readMarks.remove(chatId) else readMarks[chatId] = marks
     }
 
     fun fail(chatId: Long, error: UiText, endLoading: Boolean = true, epoch: Long? = null) = synchronized(lock) {
@@ -199,6 +233,15 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
         val state = flow(chatId)
         state.value = state.value.copy(error = error, isLoading = if (endLoading) false else state.value.isLoading)
         if (endLoading) endLoad(chatId)
+    }
+
+    /** Chat Memory kept these messages after the other side deleted them: they stay on screen, marked as deleted. */
+    fun markDeleted(chatId: Long, ids: Collection<Long>, deletedAtMillis: Long) {
+        for (id in ids) {
+            update(chatId, id) { message ->
+                message.copy(memory = (message.memory ?: ChatMemoryMark()).copy(deletedAtMillis = deletedAtMillis))
+            }
+        }
     }
 
     fun delete(chatId: Long, ids: Collection<Long>) = synchronized(lock) {
@@ -209,6 +252,40 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
             outsideWindowMessages = state.value.outsideWindowMessages.filterNot { it.id in ids }
         )
     }
+
+    /** The loaded chats that hold Chat Memory marks now, so the marks can go once Chat Memory stops keeping them. */
+    fun chatsWithChatMemoryMarks(): List<Long> = synchronized(lock) {
+        (cachedChats + openedChats).filter { chatId ->
+            val held = states.peekLocked(chatId) ?: return@filter false
+            held.messages.any { it.memory != null } || held.outsideWindowMessages.any { it.memory != null }
+        }
+    }
+
+    /**
+     * Chat Memory no longer keeps [chatId]: its kept messages leave the screen and the other marks go, now and not at the
+     * next reload. Nothing is retired, so a message comes back once it is loaded again while Chat Memory keeps the chat.
+     */
+    fun dropChatMemory(chatId: Long) = synchronized(lock) {
+        val held = states.peekLocked(chatId) ?: return@synchronized
+        val marked = (held.messages + held.outsideWindowMessages).filter { it.memory != null }
+        if (marked.isEmpty()) return@synchronized
+        // A page still in flight holds the marked copies; the changed mark keeps it from putting them back.
+        marked.forEach { markChanged(chatId, it.id) }
+        val state = flow(chatId)
+        val history = state.value
+        state.value = history.copy(
+            messages = history.messages.filter { it.memory?.deletedAtMillis == null }.map { it.withoutChatMemory() },
+            outsideWindowMessages = history.outsideWindowMessages.filter { it.memory?.deletedAtMillis == null }.map { it.withoutChatMemory() }
+        )
+        keepCached(chatId)
+    }
+
+    /** Chat Memory keeps nothing now, in any loaded chat: every kept message and version mark leaves the screen. */
+    fun dropAllChatMemory() {
+        for (chatId in chatsWithChatMemoryMarks()) dropChatMemory(chatId)
+    }
+
+    private fun ChatMessage.withoutChatMemory(): ChatMessage = if (memory == null) this else copy(memory = null)
 
     private fun markChanged(chatId: Long, messageId: Long) {
         val current = ++revision
@@ -251,20 +328,108 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16) {
                 lastReadInboxMessageId = state.value.lastReadInboxMessageId,
                 lastReadOutboxMessageId = state.value.lastReadOutboxMessageId
             )
+            // The chat now holds only its read markers, which [readMarks] keeps: its state goes at once unless collected.
+            states.removeIfIdleLocked(candidate)
         }
     }
 
+    /** A state that holds nothing but read markers is rebuilt from [readMarks] without any loss. */
+    private fun isBare(history: ChatHistory): Boolean = history == ChatHistory(
+        lastReadInboxMessageId = history.lastReadInboxMessageId,
+        lastReadOutboxMessageId = history.lastReadOutboxMessageId
+    )
+
+    /**
+     * Whether a retired id keeps [message] out. A copy that Chat Memory keeps as deleted is let in: that is how a deletion the
+     * other side made stays on screen, marked, after its id was retired from the history.
+     */
+    private fun Set<Long>.blocks(message: ChatMessage): Boolean = message.id in this && message.memory?.deletedAtMillis == null
+
+    /**
+     * [current] with [incoming] merged in: one copy per ID, the newer copy wins, and retired IDs are left out. The result is
+     * in [compareMessageOrder] order. A small batch into a list that is already in that order takes the fast path.
+     */
     private fun merge(chatId: Long, current: List<ChatMessage>, incoming: List<ChatMessage>): List<ChatMessage> {
         val retired = retiredIds[chatId].orEmpty()
-        return (current + incoming).filterNot { it.id in retired }.associateBy { it.id }.values
+        return if (fastMerge && incoming.size <= MAX_SPLICED_BATCH && isInOrder(current)) {
+            spliceBatch(current, incoming, retired)
+        } else {
+            mergeAll(current, incoming, retired)
+        }
+    }
+
+    /**
+     * Sorts the whole list. Big batches take this path, and so does a list that an update has left out of order, since
+     * [update] does not sort. This is the reference that [spliceBatch] has to equal.
+     */
+    private fun mergeAll(current: List<ChatMessage>, incoming: List<ChatMessage>, retired: Set<Long>): List<ChatMessage> =
+        (current + incoming).filterNot { retired.blocks(it) }.associateBy { it.id }.values
             .sortedWith(compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.sendState == MessageSendState.Sending }.thenBy { it.id })
+
+    /**
+     * [mergeAll] without the sort, for a small batch: each incoming message replaces its older copy and is inserted at its
+     * place by binary search, so [current] is copied and not sorted again. [current] must be in order with one copy per ID.
+     */
+    private fun spliceBatch(current: List<ChatMessage>, incoming: List<ChatMessage>, retired: Set<Long>): List<ChatMessage> {
+        val merged = ArrayList<ChatMessage>(current.size + incoming.size)
+        if (retired.isEmpty()) merged.addAll(current) else current.filterNotTo(merged) { retired.blocks(it) }
+        for (message in incoming) {
+            if (retired.blocks(message)) continue
+            val older = indexOfId(merged, message.id)
+            if (older >= 0) merged.removeAt(older)
+            merged.add(insertionIndex(merged, message), message)
+        }
+        return merged
+    }
+
+    private fun indexOfId(list: List<ChatMessage>, id: Long): Int {
+        for (index in list.indices) if (list[index].id == id) return index
+        return -1
+    }
+
+    /** The position of [message] in [list], which is in order and holds no equal message: right after every message ordered before it. */
+    private fun insertionIndex(list: List<ChatMessage>, message: ChatMessage): Int {
+        var low = 0
+        var high = list.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (compareMessageOrder(list[middle], message) < 0) low = middle + 1 else high = middle
+        }
+        return low
+    }
+
+    /** Whether [list] is strictly in [compareMessageOrder] order, which [spliceBatch] needs. */
+    private fun isInOrder(list: List<ChatMessage>): Boolean {
+        for (index in 1 until list.size) if (compareMessageOrder(list[index - 1], list[index]) >= 0) return false
+        return true
     }
 
     private companion object {
+        /** Idle chat states kept beyond the chats that hold messages; each one is a small flow. */
+        const val MAX_STATES = 512
         const val MAX_RETIRED_IDS_PER_CHAT = 256
         /** Enough to cover a burst of messages delivered while the chat is composing, without growing without bound. */
         const val MAX_LIVE_ARRIVALS = 64
         /** Composer Launch follows an id across its temporary-to-server confirmation. */
         const val MAX_ID_REPLACEMENTS = 64
+        /** Single messages and small bursts are spliced in; a history page is sorted in one pass, which is cheaper. */
+        const val MAX_SPLICED_BATCH = 16
     }
+}
+
+/** The last read positions of a chat, kept while its state is not held. */
+private class ReadMarks(val inbox: Long, val outbox: Long)
+
+/**
+ * The order of a chat's loaded messages: by date, then the messages still being sent after the others, then by ID. Among
+ * messages with distinct IDs it is a total order, so a list in this order has one possible shape. [MessageHistoryStore]'s
+ * full sort uses the same order, and a test compares the two.
+ */
+internal fun compareMessageOrder(a: ChatMessage, b: ChatMessage): Int {
+    val byDate = a.dateSeconds.compareTo(b.dateSeconds)
+    if (byDate != 0) return byDate
+    val aSending = a.sendState == MessageSendState.Sending
+    val bSending = b.sendState == MessageSendState.Sending
+    if (aSending != bSending) return if (aSending) 1 else -1
+    return a.id.compareTo(b.id)
 }

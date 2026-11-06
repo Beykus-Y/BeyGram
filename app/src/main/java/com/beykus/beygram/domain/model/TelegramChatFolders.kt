@@ -94,15 +94,21 @@ fun orderedTelegramFolderTabs(state: TelegramChatFolders): List<TelegramFolderTa
 fun validTelegramFolderSelection(state: TelegramChatFolders, folderId: Int?): Int? =
     folderId?.takeIf { id -> state.initialized && state.folders.any { it.id == id } }
 
+/** A chat belongs to a server folder while TDLib gives it a positive position there. */
+fun ChatPreview.isInFolder(folderId: Int): Boolean = (folderPositions[folderId]?.order ?: 0L) > 0L
+
+/**
+ * The chat's row inside [folderId], or null when it is not a member. The folder's own pinned flag and position
+ * replace the Main-list values, so Main and folder order stay independent.
+ */
+fun telegramFolderRow(chat: ChatPreview, folderId: Int): ChatPreview? {
+    val position = chat.folderPositions[folderId]?.takeIf { it.order > 0L } ?: return null
+    return chat.copy(isPinned = position.pinned, order = position.order)
+}
+
 /**
  * Folder ordering comes from TDLib ChatListFolder positions. Main/archive order and
  * pinned state remain independent; included chats do not have to appear in Main.
  */
 fun orderedTelegramFolderChats(chats: Collection<ChatPreview>, folderId: Int): List<ChatPreview> =
-    chats.mapNotNull { chat ->
-        val position = chat.folderPositions[folderId] ?: return@mapNotNull null
-        if (position.order <= 0L) return@mapNotNull null
-        chat.copy(isPinned = position.pinned, order = position.order)
-    }.sortedWith(compareByDescending<ChatPreview> { it.isPinned }
-        .thenByDescending { it.order }
-        .thenByDescending { it.id })
+    chats.mapNotNull { telegramFolderRow(it, folderId) }.sortedWith(telegramListOrder)

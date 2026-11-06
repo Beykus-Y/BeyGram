@@ -18,11 +18,12 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.Style
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -116,6 +117,16 @@ internal fun AppearanceOverviewPage(
 
         AppearanceSectionLabel(stringResource(R.string.appearance_section_navigation))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppearanceNavCard(
+                title = stringResource(R.string.appearance_style_title),
+                summary = stringResource(
+                    R.string.appearance_style_summary,
+                    stringResource(draft.designStyle.labelRes())
+                ),
+                onClick = { onOpenPage(AppearancePage.Style) },
+                trailingIcon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                leading = { AppearanceIconTile(Icons.Rounded.Style) }
+            )
             AppearanceNavCard(
                 title = stringResource(R.string.appearance_colors_title),
                 summary = themeSummary,

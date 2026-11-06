@@ -1,29 +1,46 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.clickable
+import com.beykus.beygram.ui.design.styledShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Switch
+import androidx.compose.material3.RadioButton
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -35,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,7 +61,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.WallpaperPresets
+import com.beykus.beygram.data.settings.ChatMemorySettingsStore
 import com.beykus.beygram.data.settings.ChatOverridesStore
+import com.beykus.beygram.data.settings.ChatStealthMode
+import com.beykus.beygram.data.settings.StealthSettingsStore
+import com.beykus.beygram.data.settings.savesChat
+import com.beykus.beygram.data.settings.withChatSaved
+import com.beykus.beygram.data.tdlib.TdLibTelegramRepository
 import com.beykus.beygram.domain.model.ChatNotificationPreferences
 import com.beykus.beygram.domain.model.NotificationSoundOption
 import com.beykus.beygram.domain.repository.ConversationRepository
@@ -59,6 +83,7 @@ private const val NO_SOUND_ID = 0L
  * Local wallpaper plus TDLib-backed notification overrides for one chat. Nothing is written to the global
  * appearance config, so other chats keep the app-wide choice.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ChatSettingsSheet(
     chatId: Long,
@@ -72,19 +97,27 @@ internal fun ChatSettingsSheet(
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val currentOverride = overrides.state.value[chatId]?.wallpaper
-    var wallpaper by remember(chatId) { mutableStateOf(currentOverride) }
-    var preferences by remember(chatId) { mutableStateOf<ChatNotificationPreferences?>(null) }
-    var sounds by remember(chatId) { mutableStateOf<List<NotificationSoundOption>>(emptyList()) }
-    var loading by remember(chatId) { mutableStateOf(true) }
-    var busy by remember(chatId) { mutableStateOf(false) }
-    var error by remember(chatId) { mutableStateOf<String?>(null) }
-    var soundMenu by remember { mutableStateOf(false) }
+    // The store is already the source of truth. Reading .value into a remembered copy
+    // leaked the previous chat/account's wallpaper when the sheet was reused.
+    val allOverrides by overrides.state.collectAsStateWithLifecycle()
+    val wallpaper = allOverrides[chatId]?.wallpaper
+    var preferences by remember(chatId, conversation) { mutableStateOf<ChatNotificationPreferences?>(null) }
+    var sounds by remember(chatId, conversation) { mutableStateOf<List<NotificationSoundOption>>(emptyList()) }
+    var loading by remember(chatId, conversation) { mutableStateOf(true) }
+    var busy by remember(chatId, conversation) { mutableStateOf(false) }
+    var error by remember(chatId, conversation) { mutableStateOf<String?>(null) }
+    var soundMenu by remember(chatId, conversation) { mutableStateOf(false) }
     val secretChats by conversation.secretChats.collectAsStateWithLifecycle()
+    // Null for an account without a TDLib repository: the stealth section is then left out.
+    val stealthStore = (conversation as? TdLibTelegramRepository)?.stealthSettings
+    val stealthSaveFailed = stringResource(R.string.stealth_save_failed)
 
     LaunchedEffect(chatId, conversation, isSecretChat) {
         loading = true
         error = null
+        preferences = null
+        sounds = emptyList()
+        soundMenu = false
         conversation.chatNotificationPreferences(chatId)
             .onSuccess { preferences = it }
             .onFailure { error = it.userMessage(context, R.string.chat_settings_load_failed) }
@@ -110,7 +143,6 @@ internal fun ChatSettingsSheet(
     }
 
     fun chooseWallpaper(next: ChatWallpaper?) {
-        wallpaper = next
         overrides.setWallpaper(chatId, next)
     }
 
@@ -122,11 +154,42 @@ internal fun ChatSettingsSheet(
             ?: stringResource(R.string.chat_settings_sound_custom)
     }
 
-    AlertDialog(
+    // Settings contain wallpapers, notifications, privacy and secret-chat actions:
+    // use one scrollable bottom sheet instead of compressing them into an AlertDialog.
+    ModalBottomSheet(
         onDismissRequest = { if (!busy) onClose() },
-        title = { Text(stringResource(R.string.chat_settings_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold) },
-        text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
+        sheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+            // A swipe must not hide the sheet during an in-flight TDLib/store operation:
+            // onDismissRequest alone is too late to veto the state transition.
+            confirmValueChange = { next -> next != SheetValue.Hidden || !busy }
+        ),
+        containerColor = palette.surface,
+        contentColor = palette.textPrimary,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = palette.textSecondary) }
+    ) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp)) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    stringResource(R.string.chat_settings_title),
+                    color = palette.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onClose, enabled = !busy) {
+                    Text(stringResource(R.string.common_close))
+                }
+            }
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(bottom = 12.dp))
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 20.dp)
+            ) {
                 error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
                 if (loading) {
                     CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent, strokeWidth = 2.dp)
@@ -134,23 +197,63 @@ internal fun ChatSettingsSheet(
                 }
 
                 Text(stringResource(R.string.chat_settings_wallpaper), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    stringResource(R.string.chat_settings_scope_note),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
                 Text(wallpaperLabel(effectiveWallpaper), color = palette.textPrimary, fontSize = 14.sp, modifier = Modifier.padding(vertical = 6.dp))
                 Row(Modifier.fillMaxWidth()) {
                     TextButton(onClick = { chooseWallpaper(null) }) { Text(stringResource(R.string.chat_settings_wallpaper_global)) }
                     TextButton(onClick = { chooseWallpaper(ChatWallpaper.None) }) { Text(stringResource(R.string.chat_settings_wallpaper_none)) }
                 }
-                var wallpaperMenu by remember { mutableStateOf(false) }
-                Column {
-                    TextButton(onClick = { wallpaperMenu = true }) { Text(stringResource(R.string.chat_settings_choose_wallpaper)) }
-                    DropdownMenu(expanded = wallpaperMenu, onDismissRequest = { wallpaperMenu = false }) {
-                        WallpaperPresets.forEach { preset ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(wallpaperPresetNameRes(preset.id))) },
-                                onClick = {
-                                    wallpaperMenu = false
-                                    chooseWallpaper(ChatWallpaper.Preset(preset.id))
+                // Keep the selection within the current surface: a text-only DropdownMenu above the
+                // chat settings dialog hid the appearance of every preset and blocked most of the screen.
+                var showWallpaperChoices by remember(chatId, overrides) { mutableStateOf(false) }
+                TextButton(onClick = { showWallpaperChoices = !showWallpaperChoices }) {
+                    Text(stringResource(R.string.chat_settings_choose_wallpaper))
+                }
+                if (showWallpaperChoices) {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(WallpaperPresets, key = { it.id }) { preset ->
+                            val selected = (effectiveWallpaper as? ChatWallpaper.Preset)?.id == preset.id
+                            val option = ChatWallpaper.Preset(preset.id)
+                            val outline = styledShape(12.dp)
+                            Column(
+                                modifier = Modifier.width(112.dp).selectable(
+                                    selected = selected,
+                                    role = Role.RadioButton,
+                                    onClick = { chooseWallpaper(option) }
+                                ),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    Modifier.fillMaxWidth().height(96.dp).clip(outline)
+                                        .border(if (selected) 2.dp else 1.dp, if (selected) palette.accent else palette.divider, outline)
+                                ) {
+                                    ChatWallpaperLayer(option, Modifier.fillMaxSize())
+                                    if (selected) {
+                                        Icon(
+                                            Icons.Rounded.Check,
+                                            contentDescription = null,
+                                            tint = palette.accentInk,
+                                            modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
+                                        )
+                                    }
                                 }
-                            )
+                                Text(
+                                    stringResource(wallpaperPresetNameRes(preset.id)),
+                                    color = palette.textPrimary,
+                                    fontSize = 12.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 5.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -166,36 +269,49 @@ internal fun ChatSettingsSheet(
                             Text(stringResource(R.string.chat_settings_sound), color = palette.textPrimary)
                             Text(soundLabel, color = palette.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = { soundMenu = true }, enabled = !busy) {
-                            Icon(Icons.Rounded.MoreVert, stringResource(R.string.chat_settings_choose_sound), tint = palette.textSecondary)
+                        IconButton(onClick = { soundMenu = !soundMenu }, enabled = !busy) {
+                            Icon(
+                                Icons.Rounded.KeyboardArrowDown,
+                                stringResource(R.string.chat_settings_choose_sound),
+                                tint = palette.textSecondary
+                            )
                         }
                     }
-                    DropdownMenu(expanded = soundMenu, onDismissRequest = { soundMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.chat_settings_sound_default)) },
-                            onClick = {
+                    // No dropdown layered over the already-open settings dialog. Keep many saved sounds scrollable.
+                    if (soundMenu) {
+                        Column(
+                            Modifier.fillMaxWidth().heightIn(max = 220.dp)
+                                .clip(styledShape(12.dp))
+                                .background(palette.surface2)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 4.dp)
+                        ) {
+                            ChatSoundChoice(
+                                label = stringResource(R.string.chat_settings_sound_default),
+                                selected = current.useDefaultSound,
+                                enabled = !busy
+                            ) {
                                 soundMenu = false
                                 saveNotifications(current.copy(useDefaultSound = true, soundId = 0L))
                             }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.chat_settings_sound_silent)) },
-                            onClick = {
+                            ChatSoundChoice(
+                                label = stringResource(R.string.chat_settings_sound_silent),
+                                selected = !current.useDefaultSound && current.soundId == NO_SOUND_ID,
+                                enabled = !busy
+                            ) {
                                 soundMenu = false
                                 saveNotifications(current.copy(useDefaultSound = false, soundId = NO_SOUND_ID))
                             }
-                        )
-                        sounds.forEach { sound ->
-                            DropdownMenuItem(
-                                text = { Text(sound.title) },
-                                leadingIcon = if (current.soundId == sound.id && !current.useDefaultSound) {
-                                    { Icon(Icons.Rounded.Check, null, tint = palette.accent) }
-                                } else null,
-                                onClick = {
+                            sounds.forEach { sound ->
+                                ChatSoundChoice(
+                                    label = sound.title,
+                                    selected = !current.useDefaultSound && current.soundId == sound.id,
+                                    enabled = !busy
+                                ) {
                                     soundMenu = false
                                     saveNotifications(current.copy(useDefaultSound = false, soundId = sound.id))
                                 }
-                            )
+                            }
                         }
                     }
                     SettingSwitch(
@@ -216,6 +332,18 @@ internal fun ChatSettingsSheet(
                         enabled = !busy
                     ) { Text(stringResource(R.string.chat_settings_reset), color = palette.accent) }
                 }
+                stealthStore?.let { store ->
+                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(vertical = 8.dp))
+                    ChatStealthSection(
+                        chatId = chatId,
+                        store = store,
+                        onSaved = { saved -> if (!saved) error = stealthSaveFailed else if (error == stealthSaveFailed) error = null }
+                    )
+                }
+                (conversation as? TdLibTelegramRepository)?.chatMemorySettings?.let { store ->
+                    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(vertical = 8.dp))
+                    ChatMemorySection(chatId = chatId, store = store, isSecretChat = isSecretChat)
+                }
                 if (isSecretChat) {
                     HorizontalDivider(color = palette.divider, modifier = Modifier.padding(vertical = 8.dp))
                     SecretChatSettingsSection(
@@ -226,18 +354,107 @@ internal fun ChatSettingsSheet(
                     )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onClose, enabled = !busy) { Text(stringResource(R.string.common_close)) }
         }
-    )
+    }
+}
+
+/** A radio choice in the chat settings surface, without opening another modal layer. */
+@Composable
+private fun ChatSoundChoice(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
+        Text(
+            label,
+            color = palette.textPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 6.dp)
+        )
+    }
 }
 
 @Composable
-private fun SettingSwitch(title: String, checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+internal fun SettingSwitch(title: String, checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().clickable(enabled = enabled) { onCheckedChange(!checked) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            // One toggle target and one accessibility switch state. The visual thumb must not
+            // expose a second action, or a tap on the thumb may bypass the row semantics.
+            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(title, color = palette.textPrimary, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
+}
+
+/**
+ * The per-chat stealth exception. The account-wide switches apply to every chat that is not named here. The online
+ * status is the same in all chats, so no choice in this section changes it.
+ */
+@Composable
+private fun ChatStealthSection(chatId: Long, store: StealthSettingsStore, onSaved: (Boolean) -> Unit) {
+    val palette = beyGramPalette()
+    val settings by store.state.collectAsStateWithLifecycle()
+    val mode = settings.chats[chatId] ?: ChatStealthMode.Inherit
+
+    fun choose(next: ChatStealthMode) {
+        val saved = store.update { current ->
+            current.copy(chats = if (next == ChatStealthMode.Inherit) current.chats - chatId else current.chats + (chatId to next))
+        }
+        onSaved(saved)
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.stealth_chat_title), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        ChatStealthOption(stringResource(R.string.stealth_chat_inherit), selected = mode == ChatStealthMode.Inherit) { choose(ChatStealthMode.Inherit) }
+        ChatStealthOption(stringResource(R.string.stealth_chat_allow), selected = mode == ChatStealthMode.Allow) { choose(ChatStealthMode.Allow) }
+        ChatStealthOption(stringResource(R.string.stealth_chat_block), selected = mode == ChatStealthMode.Block) { choose(ChatStealthMode.Block) }
+        Text(stringResource(R.string.stealth_chat_footnote), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/**
+ * Keeps the deleted and edited messages of this chat. The switch starts from the account-wide choice in storage settings, and
+ * a choice here is stored only when it differs from that choice. Secret chats are never kept, so their switch is off.
+ */
+@Composable
+private fun ChatMemorySection(chatId: Long, store: ChatMemorySettingsStore, isSecretChat: Boolean) {
+    val palette = beyGramPalette()
+    val settings by store.state.collectAsStateWithLifecycle()
+    val keeps = !isSecretChat && settings.enabled && settings.savesChat(chatId)
+    val note = when {
+        isSecretChat -> R.string.chat_memory_chat_secret
+        !settings.enabled -> R.string.chat_memory_chat_off
+        else -> R.string.chat_memory_chat_note
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.chat_memory_chat_title), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        SettingSwitch(
+            title = stringResource(R.string.chat_memory_chat_switch),
+            checked = keeps,
+            enabled = !isSecretChat && settings.enabled
+        ) { wanted -> store.update { it.withChatSaved(chatId, wanted) } }
+        Text(stringResource(note), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+@Composable
+private fun ChatStealthOption(label: String, selected: Boolean, onSelect: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 44.dp).selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // The row is the radio button for TalkBack, so the radio itself takes no clicks.
+        RadioButton(selected = selected, onClick = null)
+        Text(label, color = palette.textPrimary, modifier = Modifier.padding(start = 4.dp))
     }
 }

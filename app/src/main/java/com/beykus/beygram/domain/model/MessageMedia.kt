@@ -102,5 +102,10 @@ data class OutgoingMedia(
     /** Server-side thumbnail for [remoteFileId]; zero when only a local [thumbnailPath] exists. */
     val thumbnailRemoteFileId: Int = 0,
     /** Emoji of a sticker, required by InputMessageSticker. */
-    val emoji: String = ""
+    val emoji: String = "",
+    /** Track tags of a [MediaKind.Audio] file sent by [remoteFileId]; empty for every other kind. */
+    val title: String = "",
+    val performer: String = "",
+    /** Per-occurrence identity for duplicate server-side media staged in the composer. */
+    val stagingKey: String = ""
 ) : Serializable

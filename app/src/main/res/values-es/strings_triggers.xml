@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Trigger word alerts. The notification shows the trigger word; the message text appears only with previews on. -->
+    <string name="trigger_channel_name">Palabras clave</string>
+    <string name="trigger_channel_description">Avisos de tus palabras clave en chats silenciados</string>
+    <string name="trigger_alert_text">%1$s: %2$s</string>
+    <string name="trigger_alert_hidden">Se encontró la palabra «%1$s»</string>
+
+    <!-- Settings and feed -->
+    <string name="trigger_title">Palabras clave</string>
+    <string name="trigger_row_hint">Avisos cuando aparece una palabra clave en un chat silenciado</string>
+    <string name="trigger_intro">Cuando aparece una palabra o frase de la lista en un chat silenciado, recibes un aviso aparte y la coincidencia va al historial. Funciona mientras la app está abierta o el trabajo en segundo plano está activado.</string>
+    <string name="trigger_scope_title">Dónde buscar</string>
+    <string name="trigger_scope_muted">Solo en chats silenciados</string>
+    <string name="trigger_scope_muted_hint">Telegram no avisa allí, así que una coincidencia envía un aviso.</string>
+    <string name="trigger_scope_all">Todos los chats</string>
+    <string name="trigger_scope_all_hint">En los chats sin silenciar, las coincidencias solo van al historial, porque Telegram ya avisa allí.</string>
+    <string name="trigger_list_title">Palabras</string>
+    <string name="trigger_empty">Aún no hay palabras. Añade una palabra, una frase o una expresión regular.</string>
+    <string name="trigger_add">Añadir una palabra</string>
+    <string name="trigger_feed_open">Historial de menciones</string>
+    <string name="trigger_feed_count">Entradas: %1$d</string>
+
+    <!-- Matching modes -->
+    <string name="trigger_mode_title">Cómo buscar</string>
+    <string name="trigger_mode_whole">Palabra completa</string>
+    <string name="trigger_mode_whole_hint">Solo coincide con una palabra completa. Para idiomas sin espacios (chino, japonés, tailandés) elige «Dentro del texto».</string>
+    <string name="trigger_mode_contains">Dentro del texto</string>
+    <string name="trigger_mode_contains_hint">También coincide dentro de palabras más largas: «test» encuentra «tests».</string>
+    <string name="trigger_mode_regex">Expresión regular</string>
+    <string name="trigger_mode_regex_hint">Expresión RE2, por ejemplo urgente\\p{L}*. Escribe las letras de otros alfabetos con \\p{L}: \\w y \\b solo funcionan con letras latinas y cifras. No se admiten lookahead ni referencias a grupos. Se aplica la opción de mayúsculas de abajo.</string>
+
+    <!-- Editor -->
+    <string name="trigger_editor_new">Nueva palabra</string>
+    <string name="trigger_editor_edit">Editar palabra</string>
+    <string name="trigger_field_pattern">Palabra o frase</string>
+    <string name="trigger_field_pattern_hint">Por ejemplo: un nombre, un apodo, el nombre de un proyecto</string>
+    <string name="trigger_flag_case">Ignorar mayúsculas y minúsculas</string>
+    <string name="trigger_flag_diacritics">Ignorar diacríticos</string>
+    <string name="trigger_flag_diacritics_hint">Por ejemplo, é coincide con e. Las letras que solo se diferencian por un signo también coinciden.</string>
+    <string name="trigger_editor_save">Guardar</string>
+    <string name="trigger_editor_delete">Eliminar</string>
+    <string name="trigger_error_empty">Escribe una palabra o una frase.</string>
+    <string name="trigger_error_long">No más de %1$d caracteres.</string>
+    <string name="trigger_error_regex">La expresión no se puede interpretar. Revisa los paréntesis y las barras invertidas.</string>
+    <string name="trigger_error_regex_empty">La expresión coincide con un texto vacío y saltaría con cualquier mensaje.</string>
+    <string name="trigger_error_too_many">Puedes guardar hasta %1$d palabras.</string>
+
+    <!-- Mentions feed -->
+    <string name="trigger_mentions_title">Menciones</string>
+    <string name="trigger_mentions_empty">Aún no hay coincidencias.</string>
+    <string name="trigger_mentions_clear">Borrar historial</string>
+    <string name="trigger_mentions_clear_title">¿Borrar el historial?</string>
+    <string name="trigger_mentions_clear_body">Los registros de coincidencias se borrarán de este dispositivo. Los mensajes de Telegram no cambian.</string>
+    <string name="trigger_mentions_clear_confirm">Borrar</string>
+    <string name="trigger_mention_word">Palabra: %1$s</string>
+    <string name="trigger_mention_hidden_text">Texto oculto por el ajuste de vista previa</string>
+</resources>

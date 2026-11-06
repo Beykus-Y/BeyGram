@@ -19,6 +19,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.BubbleStyle
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.appearance.NavigationPlacement
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -66,7 +68,40 @@ class AppearanceNavigationTest {
 
         composeRule.onNodeWithContentDescription(context.getString(R.string.common_back)).performClick()
         composeRule.onNodeWithText(context.getString(R.string.theme_title)).assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.appearance_applied)).assertIsDisplayed()
+        // Clean state: the Apply footer is removed, not shown as a disabled button.
+        composeRule.onNodeWithText(context.getString(R.string.theme_apply)).assertDoesNotExist()
+    }
+
+    @Test fun bottomBarPlacementIsEditedInTheStylePageAndAppliedWithTheSharedDraft() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        var saved by mutableStateOf(AppearanceConfig())
+        var draft by mutableStateOf(saved)
+        composeRule.setContent {
+            BeyGramTheme {
+                ThemeSettingsScreen(
+                    saved = saved,
+                    draft = draft,
+                    onDraftChange = { draft = it },
+                    onSave = { saved = it; draft = it },
+                    onBack = {},
+                    initialPageName = "Style"
+                )
+            }
+        }
+
+        // The placement is its own choice next to the style, not another style.
+        composeRule.onNodeWithText(context.getString(R.string.appearance_navigation_placement_pinned))
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.runOnIdle { assertEquals(NavigationPlacement.Pinned, draft.navigationPlacement) }
+        composeRule.runOnIdle { assertEquals(DesignStyle.Default, draft.designStyle) }
+
+        composeRule.onNodeWithText(context.getString(R.string.theme_apply)).performClick()
+        composeRule.runOnIdle {
+            assertEquals(NavigationPlacement.Pinned, saved.navigationPlacement)
+            assertEquals(DesignStyle.Default, saved.designStyle)
+        }
     }
 
     @Test fun systemBackReturnsToOverviewBeforeLeavingTheSection() {

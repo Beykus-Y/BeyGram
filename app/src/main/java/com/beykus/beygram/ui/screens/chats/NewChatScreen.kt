@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chats
 
 import android.widget.Toast
+import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,7 +37,7 @@ import androidx.compose.material.icons.rounded.GroupAdd
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,7 +45,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -197,7 +198,7 @@ internal fun NewChatScreen(
         if (secretMode) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                    .background(palette.accentSoft, RoundedCornerShape(14.dp))
+                    .background(palette.accentSoft, styledShape(14.dp))
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 Text(
@@ -234,7 +235,7 @@ internal fun NewChatScreen(
                 modifier = Modifier.weight(1f),
                 placeholder = { Text(stringResource(R.string.new_chat_public_hint)) },
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp)
+                shape = styledShape(14.dp)
             )
             Spacer(Modifier.width(8.dp))
             IconButton(onClick = ::discoverPublicChat, enabled = !discoveryBusy && discoveryQuery.isNotBlank()) {
@@ -569,12 +570,12 @@ private fun NewChatAction(
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(16.dp)).background(palette.surface)
+            .clip(styledShape(16.dp)).background(palette.surface)
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(palette.accentSoft),
+            Modifier.size(46.dp).clip(styledShape(14.dp)).background(palette.accentSoft),
             contentAlignment = Alignment.Center
         ) {
             Icon(icon, contentDescription = null, tint = palette.accentInk)

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import java.net.URI
+import com.beykus.beygram.ui.design.styledShape
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -107,7 +108,7 @@ internal fun FormattedMessageText(
         parts.forEachIndexed { index, part ->
             key(messageId, index, part.text) {
                 when (part.block) {
-                    TextStyleKind.Quote -> Box(Modifier.clip(RoundedCornerShape(6.dp)).background(palette.accent.copy(alpha = 0.12f))) {
+                    TextStyleKind.Quote -> Box(Modifier.clip(styledShape(6.dp)).background(palette.accent.copy(alpha = 0.12f))) {
                         Row(Modifier.padding(start = 11.dp, end = 25.dp, top = 6.dp, bottom = 6.dp)) {
                             RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled)
                         }
@@ -117,7 +118,7 @@ internal fun FormattedMessageText(
                         Text("❞", color = palette.accent, fontSize = 18.sp,
                             modifier = Modifier.align(Alignment.TopEnd).padding(end = 5.dp, top = 1.dp))
                     }
-                    TextStyleKind.Pre -> Box(Modifier.clip(RoundedCornerShape(6.dp)).background(palette.textSecondary.copy(alpha = 0.09f)).padding(8.dp)) {
+                    TextStyleKind.Pre -> Box(Modifier.clip(styledShape(6.dp)).background(palette.textSecondary.copy(alpha = 0.09f)).padding(8.dp)) {
                         RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled)
                     }
                     else -> RichTextPart(messageId, part, observeCustomEmoji, observeFile, downloadFile, onOpenEntity, entityClicksEnabled)

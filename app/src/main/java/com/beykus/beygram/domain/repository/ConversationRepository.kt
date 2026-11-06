@@ -20,8 +20,11 @@ interface ConversationRepository {
      * bot (unknown, a user, a channel or a bot without inline mode), which is not an error.
      */
     suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String = ""): Result<InlineBotResults?>
-    /** Music from the optional music inline bot; null when the bot does not resolve. The caller's own music search is separate. */
-    suspend fun musicBotSearch(query: String, offset: String = ""): Result<InlineBotResults?>
+    /**
+     * Music from the optional music inline bot; null when the bot does not resolve. The caller's own music search is separate.
+     * [contextChatId] is the chat a result will be sent to; 0 asks in Saved Messages, which is enough for playback.
+     */
+    suspend fun musicBotSearch(query: String, offset: String = "", contextChatId: Long = 0L): Result<InlineBotResults?>
     /** Downloads one music bot result for the shared player and removes the temporary message it was sent as. */
     suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?>
     /** Sends one inline result with the composer's reply, forum topic and delivery options. */
@@ -74,16 +77,23 @@ interface ConversationRepository {
     suspend fun loadMessageThread(chatId: Long, messageId: Long): Result<MessageThread>
     /** One older page of comments, newest first in TDLib and mapped oldest first for the thread list. */
     suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long = 0L): Result<MessageThreadPage>
-    /** Sends into the discussion chat's thread, not into the channel; the reply keeps the target comment's thread. */
+    /**
+     * Sends into the discussion chat's thread, not into the channel; the reply keeps the target comment's thread.
+     * Null when stealth mode scheduled the comment on the server: it is not part of the thread yet.
+     */
     suspend fun sendThreadReply(
         discussionChatId: Long,
         threadId: Long,
         text: String,
         entities: List<MessageTextEntity> = emptyList(),
-        replyToMessageId: Long? = null
-    ): Result<ChatMessage>
+        replyToMessageId: Long? = null,
+        sendNowConsent: Boolean = false
+    ): Result<ChatMessage?>
     /** Permanent deletions observed in a chat; history windows alone cannot distinguish deleted vs unloaded rows. */
     fun observeDeletedMessages(chatId: Long): StateFlow<Set<Long>>
+
+    /** Earlier texts that Chat Memory kept for a message, oldest first. Empty when nothing was kept or the feature is off. */
+    suspend fun messageVersions(chatId: Long, messageId: Long): List<ChatMemoryVersion> = emptyList()
     fun openChat(chatId: Long)
     fun closeChat(chatId: Long)
     fun loadOlderMessages(chatId: Long)
@@ -158,8 +168,11 @@ interface ConversationRepository {
     suspend fun rescheduleMessage(chatId: Long, messageId: Long, atSeconds: Long): Result<Unit>
     /** Delivers a queued message immediately through TDLib. */
     suspend fun sendScheduledNow(chatId: Long, messageId: Long): Result<Unit>
-    /** Retries failed outgoing messages regardless of their content type. */
-    suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit>
+    /**
+     * Retries failed outgoing messages regardless of their content type. In stealth mode a resend that would go out at once
+     * fails with StealthScheduleUnavailableException unless [sendNowConsent] carries the user's explicit agreement.
+     */
+    suspend fun retryMessages(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean = false): Result<Unit>
     suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities>
     /** Per-chat notification preferences from TDLib; no local copy is created. */
     suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences>
@@ -299,7 +312,17 @@ interface ConversationRepository {
     ): Result<ChatExportSummary>
     fun setAppForeground(foreground: Boolean)
     fun refreshInteractionPolicy()
+    /** Whether this account's stealth settings let [effect] reach Telegram for [chatId]. Accounts without stealth settings allow everything. */
+    fun interactionAllowed(effect: InteractionEffect, chatId: Long?): Boolean = true
+    /** Whether a message send must be confirmed first: this account hides its online status and warns before risky actions. */
+    fun stealthWarnsBeforeSending(): Boolean = false
+    /** Whether this account's sends go out as Telegram scheduled messages (stealth mode). The repository enforces it on every send. */
+    fun stealthSchedulesSends(): Boolean = false
+    /** Whether stealth sending holds this account's sends, on the server or, for a lead under 15 seconds, in the app. */
+    fun stealthHoldsSends(): Boolean = false
     fun openMessageContent(chatId: Long, messageId: Long)
+    /** Opens view-once content the user explicitly agreed to open although media-open marks are hidden. */
+    fun openMessageContentWithConsent(chatId: Long, messageId: Long) = openMessageContent(chatId, messageId)
     /** Names of the people typing in the chat right now; empty when nobody is. A blank name means the sender's name is unknown. */
     fun observeTyping(chatId: Long): StateFlow<List<String>>
     /**

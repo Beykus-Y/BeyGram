@@ -48,6 +48,18 @@ class MotionResolverTest {
     }
 
     @Test
+    fun appearanceNavigationTokensRespectOffAndReducedMotion() {
+        val off = MotionSettings().withPreset(MotionPreset.Off)
+        val navigationDisabled = MotionSettings().withCategoryEnabled(MotionCategory.Navigation, enabled = false)
+        for (token in listOf(MotionToken.NavigationPush, MotionToken.NavigationPop)) {
+            assertTrue(resolveMotion(token, off, reduced = false).isInstant)
+            assertTrue(resolveMotion(token, navigationDisabled, reduced = false).isInstant)
+            assertTrue(resolveMotion(token, MotionSettings(), reduced = true).isInstant)
+            assertFalse(resolveMotion(token, MotionSettings(), reduced = false).isInstant)
+        }
+    }
+
+    @Test
     fun presetCopiesSpeedAndIntensityAndCustomKeepsThem() {
         val expressive = MotionSettings().withPreset(MotionPreset.Expressive)
         assertEquals(0.75f, expressive.speed, 0f)

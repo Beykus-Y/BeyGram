@@ -91,12 +91,25 @@ android {
             minorApiLevel = 1
         }
     }
+    ndkVersion = "30.0.15729638"
 
     defaultConfig {
         applicationId = "com.beykus.beygram"
         minSdk = 29
         targetSdk = 36
         ndk { abiFilters += nativeAbis }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DBGMEDIA_BUILD_DESKTOP=OFF",
+                    "-DBGMEDIA_BUILD_TESTS=OFF",
+                    "-DBGMEDIA_BUILD_TOOLS=OFF",
+                    "-DBGMEDIA_BUILD_MINIAUDIO=ON",
+                    "-DBGMEDIA_WARNINGS_AS_ERRORS=OFF"
+                )
+            }
+        }
         versionCode = stableVersionCode
         versionName = stableVersion
 
@@ -162,9 +175,32 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    testOptions {
+        unitTests {
+            // Robolectric screenshot tests read strings, fonts and the test activity from the merged resources.
+            isIncludeAndroidResources = true
+            all { test ->
+                // Screenshot goldens (#634) live in src/test/screenshots and are verified by default, so deleted
+                // goldens fail instead of being re-recorded silently. -Pscreenshots=record rewrites them after an
+                // intended visual change (see docs/screenshot-tests.md).
+                val goldens = file("src/test/screenshots")
+                val mode = providers.gradleProperty("screenshots").orNull ?: "verify"
+                require(mode in setOf("record", "verify", "compare")) { "-Pscreenshots must be record, verify or compare" }
+                test.systemProperty("roborazzi.test.$mode", "true")
+                test.inputs.files(fileTree(goldens)).withPropertyName("screenshotGoldens")
+                test.maxHeapSize = "2g"
+            }
+        }
+    }
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "4.1.2"
+        }
     }
 }
 
@@ -172,6 +208,7 @@ dependencies {
     implementation(fileTree("libs") { include("*.jar") })
     implementation(files(mihomoAndroidAar).builtBy(downloadMihomoAndroid))
     implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.re2j)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.core)
@@ -205,6 +242,11 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.json)
+    // Screenshot goldens (#634): Compose rendered on the JVM by Robolectric's native graphics, compared by Roborazzi.
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

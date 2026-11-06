@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chats
 
 import android.os.Bundle
+import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,6 +18,10 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.Button
+import com.beykus.beygram.ui.components.TextButton
+import com.beykus.beygram.ui.components.OutlinedButton
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -209,7 +214,7 @@ internal fun FolderManagerScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(snapshot.folders, key = { it.id }) { folder ->
-                        Surface(shape = RoundedCornerShape(16.dp), color = palette.surface) {
+                        Surface(shape = styledShape(16.dp), color = palette.surface) {
                             Row(
                                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically

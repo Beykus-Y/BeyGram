@@ -4,7 +4,10 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ChatStories
+import com.beykus.beygram.domain.model.InteractionEffect
+import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
+import com.beykus.beygram.domain.model.StealthBlockedException
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.StoryDetail
 import com.beykus.beygram.domain.model.StoryArchivePage
@@ -62,9 +65,14 @@ internal class TdStories(
     private val profiles: TdProfiles,
     private val mediaFiles: MediaFileStore,
     private val accountId: String,
-    private val uploadsRoot: File
+    private val uploadsRoot: File,
+    /** Stealth mode: false means this account must not open the stories posted by [posterChatId]. */
+    private val canViewStory: (posterChatId: Long) -> Boolean,
+    stealthDelaySeconds: () -> Int? = { null }
 ) {
     private val requests = TdRequests(client)
+    // A story reply is a chat message, so stealth mode schedules it on the server like any other send (#541).
+    private val stealth = TdStealthScheduler(requests, stealthDelaySeconds)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private val active = mutableMapOf<Long, TdApi.ChatActiveStories>()
@@ -74,6 +82,8 @@ internal class TdStories(
     private val storyCache = object : LinkedHashMap<Pair<Long, Int>, StoryDetail>(16, 0.75f, true) {}
     private val hiddenStories = mutableSetOf<Pair<Long, Int>>()
     private val readOverrides = mutableMapOf<Long, Int>()
+    /** Stories whose OpenStory was sent. Only these get a CloseStory, so a refused open leaves nothing behind. */
+    private val openedStories = mutableSetOf<Pair<Long, Int>>()
     private val requestedChats = mutableSetOf<Long>()
     private val blockedChats = mutableSetOf<Long>()
     private val unblockedChats = mutableSetOf<Long>()
@@ -127,6 +137,7 @@ internal class TdStories(
             storyCache.clear()
             hiddenStories.clear()
             readOverrides.clear()
+            openedStories.clear()
             requestedChats.clear()
             blockedChats.clear()
             unblockedChats.clear()
@@ -424,16 +435,25 @@ internal class TdStories(
         requests(TdApi.GetStory(posterChatId, storyId, false)).toDetail().also(::cacheStory)
     }
 
-    suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit> = storyRequest {
-        requests(TdApi.OpenStory(posterChatId, storyId))
-        synchronized(lock) {
-            readOverrides[posterChatId] = maxOf(readOverrides[posterChatId] ?: 0, storyId)
+    suspend fun openStory(posterChatId: Long, storyId: Int): Result<Unit> {
+        // Checked before anything is sent: a refused story gets no OpenStory, so no read mark either.
+        if (!canViewStory(posterChatId)) return Result.failure(StealthBlockedException(InteractionEffect.StoryView))
+        return storyRequest {
+            // Tracked before the request leaves, so a cancelled await still gets its CloseStory later.
+            synchronized(lock) { openedStories.add(posterChatId to storyId) }
+            requests(TdApi.OpenStory(posterChatId, storyId))
+            synchronized(lock) {
+                readOverrides[posterChatId] = maxOf(readOverrides[posterChatId] ?: 0, storyId)
+            }
+            publish()
         }
-        publish()
     }
 
     suspend fun closeStory(posterChatId: Long, storyId: Int): Result<Unit> = storyRequest {
-        requests(TdApi.CloseStory(posterChatId, storyId))
+        // Only a story whose OpenStory was sent is closed. The pair is forgotten whether or not the close succeeds.
+        val wasOpened = synchronized(lock) { openedStories.remove(posterChatId to storyId) }
+        if (wasOpened) requests(TdApi.CloseStory(posterChatId, storyId))
+        Unit
     }
 
     suspend fun availableReactions(): Result<List<ReactionOption>> = storyRequest {
@@ -445,21 +465,26 @@ internal class TdStories(
         requests(TdApi.SetStoryReaction(posterChatId, storyId, reaction?.let(::reactionTypeOf), true))
     }
 
-    suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit> = storyRequest {
+    suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String, sendNowConsent: Boolean = false): Result<Unit> = storyRequest {
         val body = text.trim()
         if (body.isEmpty()) throw UserMessageException(UiText.Res(R.string.stories_reply_empty))
         val chat = requests(TdApi.GetChat(posterChatId))
         if (chat.type !is TdApi.ChatTypePrivate) {
             throw UserMessageException(UiText.Res(R.string.stories_reply_unavailable))
         }
-        requests(TdApi.SendMessage().apply {
-            this.chatId = posterChatId
-            this.replyTo = TdApi.InputMessageReplyToStory(posterChatId, storyId)
-            this.inputMessageContent = TdApi.InputMessageText().apply {
-                this.text = TdApi.FormattedText(body, emptyArray())
-                this.clearDraft = false
-            }
-        })
+        val options = MessageSendOptions(sendNowConsent = sendNowConsent)
+        val resolved = stealth.resolve(posterChatId, options)
+        stealth.scheduledRequest(resolved) {
+            requests(TdApi.SendMessage().apply {
+                this.chatId = posterChatId
+                this.replyTo = TdApi.InputMessageReplyToStory(posterChatId, storyId)
+                this.options = sendOptions(resolved.options)
+                this.inputMessageContent = TdApi.InputMessageText().apply {
+                    this.text = TdApi.FormattedText(body, emptyArray())
+                    this.clearDraft = false
+                }
+            })
+        }
         Unit
     }
 

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.annotation.StringRes
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -101,7 +102,7 @@ private fun StatisticsChartCard(
     val axis = remember(chart) { chartAxis(chart) }
 
     Column(
-        modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(16.dp)).padding(14.dp)
+        modifier.fillMaxWidth().background(palette.surface, styledShape(16.dp)).padding(14.dp)
     ) {
         Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         Text(

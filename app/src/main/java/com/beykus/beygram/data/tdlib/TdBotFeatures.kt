@@ -20,8 +20,10 @@ import java.util.concurrent.ConcurrentHashMap
  * Bot commands, inline mode, Mini App launches and Web App data. TDLib is the only source of commands/results and the
  * only component that turns a bot button into a Web App URL; the UI never opens a button's raw URL.
  */
-internal class TdBotFeatures(client: () -> Client) {
+internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> Int? = { null }) {
     private val request = TdRequests(client)
+    // An inline result sent into a chat is a message like any other, so stealth mode schedules it on the server (#541).
+    private val stealth = TdStealthScheduler(request, stealthDelaySeconds)
     private val inlineBots = ConcurrentHashMap<String, CachedInlineBot>()
 
     /** Confirmed ids of sends that finished before anyone waited for them, and the waiters of sends still pending. */
@@ -77,12 +79,13 @@ internal class TdBotFeatures(client: () -> Client) {
      * server's application config; the documented fallback is used only when that key is absent. A bot that does not
      * resolve gives null, so the caller shows the source as unavailable and keeps its own results.
      */
-    suspend fun musicBotSearch(query: String, offset: String): Result<InlineBotResults?> = requestResult {
+    suspend fun musicBotSearch(query: String, offset: String, contextChatId: Long = 0L): Result<InlineBotResults?> = requestResult {
         val username = musicSearchUsername()
         val botUserId = inlineBot(username) ?: return@requestResult null
         // The user's own id is the Saved Messages chat, a chat the account always has, so it works as the query context.
-        val savedMessagesChatId = request(TdApi.GetMe()).id
-        val answer = request(TdApi.GetInlineQueryResults(botUserId, savedMessagesChatId, null, query, offset))
+        // A result picked in a chat's attachment menu is asked in that chat, the chat it is then sent to.
+        val queryChatId = contextChatId.takeIf { it != 0L } ?: request(TdApi.GetMe()).id
+        val answer = request(TdApi.GetInlineQueryResults(botUserId, queryChatId, null, query, offset))
         InlineBotResults(
             queryId = answer.inlineQueryId,
             botUserId = botUserId,
@@ -211,7 +214,6 @@ internal class TdBotFeatures(client: () -> Client) {
             this.queryId = queryId
             this.resultId = resultId
             hideViaBot = false
-            this.options = sendOptions(options)
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
                 replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
@@ -219,7 +221,9 @@ internal class TdBotFeatures(client: () -> Client) {
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }
         }
-        request(function)
+        val resolved = stealth.resolve(chatId, options)
+        function.options = sendOptions(resolved.options)
+        stealth.scheduledRequest(resolved) { request(function) }
         Unit
     }
 

@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.archive
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,7 +26,7 @@ import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Switch
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -81,7 +83,7 @@ fun ArchiveScreen(
         modifier = Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 6.dp, end = 20.dp, bottom = 6.dp),
+            modifier = Modifier.fillMaxWidth().topAppBarSurface().padding(start = 8.dp, top = 6.dp, end = 20.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = context.getString(R.string.common_back) }) {
@@ -124,7 +126,7 @@ fun ArchiveScreen(
 private fun ArchiveSettingsSection(settings: ArchiveSettings, onChange: (ArchiveSettings) -> Unit) {
     val palette = beyGramPalette()
     Column(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).clip(styledShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
             ArchiveSwitchRow(stringResource(R.string.archive_setting_return_on_message), settings.returnOnNewMessage) { onChange(settings.copy(returnOnNewMessage = it)) }
             HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 20.dp))
             ArchiveSwitchRow(stringResource(R.string.archive_setting_sound), settings.archiveSound) { onChange(settings.copy(archiveSound = it)) }

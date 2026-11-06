@@ -18,6 +18,7 @@
     <string name="presence_online">en ligne</string>
     <string name="presence_online_count">%1$d en ligne</string>
     <string name="presence_private_chat">Discussion privée</string>
+    <string name="presence_saved_messages">Vos messages et fichiers</string>
     <string name="presence_recently">vu récemment</string>
     <string name="presence_someone">Quelqu’un</string>
     <string name="presence_typing_more">%1$s, %2$s et %3$d autres sont en train d’écrire…</string>

@@ -5,4 +5,5 @@
     <cache-path name="diagnostics" path="diagnostics/" />
     <cache-path name="stable_updates" path="stable-updates/" />
     <cache-path name="dev_updates" path="dev-updates/" />
+    <cache-path name="bgmusic_export" path="bgmusic_export/" />
 </paths>

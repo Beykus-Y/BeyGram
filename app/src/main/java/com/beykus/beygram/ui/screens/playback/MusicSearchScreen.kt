@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
@@ -8,13 +10,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -39,6 +42,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.music.PlaylistTrack
+import com.beykus.beygram.data.music.toPlaylistTrack
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
@@ -46,6 +51,8 @@ import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.InlineBotResult
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.domain.model.MessageExtraDraft
+import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.playback.MusicBotCache
@@ -55,7 +62,9 @@ import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackQueueSource
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
+import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -65,10 +74,22 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
+/** A cancelled or superseded request must never repopulate another search's UI. */
+internal fun isCurrentMusicSearchResult(
+    requestGeneration: Long,
+    latestGeneration: Long,
+    requestedQuery: String,
+    activeQuery: String
+): Boolean = requestGeneration == latestGeneration && requestedQuery == activeQuery.trim()
+
 /**
  * «Настройки → Звук и воспроизведение → Музыка». Ищет музыкальные аудиосообщения во всех доступных аккаунту чатах
- * через TDLib-фильтр аудио; публичный поиск треков здесь не подключён. Нажатие на трек ставит в очередь общего
+ * через TDLib-фильтр аудио, а публичный поиск обрабатывает отдельным запросом к музыкальному боту.
+ * Нажатие на трек ставит в очередь общего
  * плеера все найденные треки, начиная с выбранного, без пересылки и без отправки в чат.
+ *
+ * С [onPick] это выбор трека для «Прикрепить → Музыка» в чате [pickChatId]: у строки появляется кнопка выбора,
+ * а сам трек уходит только после обычной кнопки «Отправить» в поле ввода.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,13 +98,17 @@ internal fun MusicSearchScreen(
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    pickChatId: Long = 0L,
+    onPick: ((MessageExtraDraft) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val automaticDownload = LocalAutoDownloadFile.current
     var query by rememberSaveable(accountId) { mutableStateOf("") }
+    // The track a row asked to add to a playlist. Only results that are sent music with an origin qualify.
+    var addTrack by remember(accountId) { mutableStateOf<PlaylistTrack?>(null) }
     var results by remember(accountId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var chats by remember(accountId) { mutableStateOf<Map<Long, ChatPreview>>(emptyMap()) }
     var nextOffset by remember(accountId) { mutableStateOf("") }
@@ -91,38 +116,58 @@ internal fun MusicSearchScreen(
     var loading by remember(accountId) { mutableStateOf(false) }
     var error by remember(accountId) { mutableStateOf<String?>(null) }
     val searchJob = remember(accountId) { mutableStateOf<Job?>(null) }
+    val localRequestGeneration = remember(accountId) { AtomicLong() }
     // Public results come from the optional music bot. They have their own job and state, so a bot failure
     // never touches the account's own results.
     val latestSelection = remember(accountId) { AtomicLong() }
     var publicResults by remember(accountId) { mutableStateOf<List<InlineBotResult>>(emptyList()) }
     var publicAvailable by remember(accountId) { mutableStateOf(true) }
+    var publicLoading by remember(accountId) { mutableStateOf(false) }
+    var publicSearchedQuery by remember(accountId) { mutableStateOf<String?>(null) }
     val publicJob = remember(accountId) { mutableStateOf<Job?>(null) }
-    DisposableEffect(accountId) { onDispose { searchJob.value?.cancel(); publicJob.value?.cancel() } }
+    val publicRequestGeneration = remember(accountId) { AtomicLong() }
+    DisposableEffect(accountId, conversation) {
+        onDispose {
+            localRequestGeneration.incrementAndGet()
+            publicRequestGeneration.incrementAndGet()
+            searchJob.value?.cancel()
+            publicJob.value?.cancel()
+        }
+    }
 
     fun runPublicSearch(needle: String) {
+        val requestGeneration = publicRequestGeneration.incrementAndGet()
         publicJob.value?.cancel()
         publicResults = emptyList()
         publicAvailable = true
+        publicLoading = true
+        publicSearchedQuery = null
         publicJob.value = scope.launch {
-            conversation.musicBotSearch(needle).onSuccess { page ->
+            val result = conversation.musicBotSearch(needle, contextChatId = pickChatId)
+            if (!isActive || !isCurrentMusicSearchResult(requestGeneration, publicRequestGeneration.get(), needle, query)) return@launch
+            result.onSuccess { page ->
                 publicAvailable = page != null
                 publicResults = page?.results.orEmpty()
             }.onFailure {
                 publicAvailable = false
                 publicResults = emptyList()
             }
+            publicLoading = false
+            publicSearchedQuery = needle
         }
     }
 
     fun runSearch(text: String, offset: String) {
         val needle = text.trim()
         if (needle.isEmpty()) return
+        val requestGeneration = localRequestGeneration.incrementAndGet()
         searchJob.value?.cancel()
         if (offset.isEmpty()) runPublicSearch(needle)
         loading = true
         error = null
         searchJob.value = scope.launch {
             val result = conversation.searchGlobalMessages(needle, offset, GlobalSearchFilter(kind = SharedMediaKind.Music))
+            if (!isActive || !isCurrentMusicSearchResult(requestGeneration, localRequestGeneration.get(), needle, query)) return@launch
             loading = false
             result.onSuccess { page ->
                 val audio = page.messages.filter { it.media?.kind == MediaKind.Audio }
@@ -137,13 +182,18 @@ internal fun MusicSearchScreen(
     }
 
     // Debounce: each keystroke restarts this effect, so only a pause in typing reaches the server.
-    LaunchedEffect(query) {
+    LaunchedEffect(query, accountId, conversation) {
+        // Invalidate late TDLib/bot callbacks even if their underlying operation ignores cancellation.
+        localRequestGeneration.incrementAndGet()
+        publicRequestGeneration.incrementAndGet()
         // A changed query drops the old request, results and offset at once, so nothing from it can publish
         // or paginate during the debounce.
         searchJob.value?.cancel()
         publicJob.value?.cancel()
         publicResults = emptyList()
         publicAvailable = true
+        publicLoading = false
+        publicSearchedQuery = null
         results = emptyList()
         chats = emptyMap()
         nextOffset = ""
@@ -224,9 +274,10 @@ internal fun MusicSearchScreen(
         containerColor = palette.screen,
         topBar = {
             TopAppBar(
+                modifier = Modifier.topAppBarSurface(),
                 title = {
                     Text(
-                        stringResource(R.string.settings_music_title),
+                        stringResource(if (onPick != null) R.string.music_attach_title else R.string.settings_music_title),
                         color = palette.textPrimary,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -241,19 +292,27 @@ internal fun MusicSearchScreen(
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                singleLine = true,
-                placeholder = { Text(stringResource(R.string.music_search_hint)) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                SearchField(
+                    query = query,
+                    onChange = { query = it },
+                    placeholder = stringResource(R.string.music_search_hint)
+                )
+            }
             if (query.isBlank()) Text(
-                stringResource(R.string.music_search_intro),
+                stringResource(if (onPick != null) R.string.music_attach_intro else R.string.music_search_intro),
                 color = palette.textSecondary,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
+            if (query.isNotBlank() && (loading || searchedQuery == query.trim() || error != null)) {
+                Text(
+                    stringResource(R.string.music_local_title),
+                    color = palette.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
             error?.let {
                 Text(it, color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
@@ -262,8 +321,8 @@ internal fun MusicSearchScreen(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) { CircularProgressIndicator() }
-            if (!loading && searchedQuery != null && results.isEmpty() && error == null) Text(
-                stringResource(R.string.music_search_empty),
+            if (!loading && searchedQuery == query.trim() && results.isEmpty() && error == null) Text(
+                stringResource(R.string.music_local_empty),
                 color = palette.textSecondary,
                 modifier = Modifier.fillMaxWidth().padding(16.dp)
             )
@@ -273,18 +332,30 @@ internal fun MusicSearchScreen(
                     if (item != null) MusicRow(
                         title = item.title,
                         subtitle = chats[message.chatId]?.title.orEmpty(),
-                        onClick = { play(message) }
+                        onClick = { play(message) },
+                        onSend = onPick?.let { pick -> musicFileDraft(message, chats, item.title)?.let { draft -> { pick(draft) } } },
+                        onAddToPlaylist = if (onPick == null && chats[message.chatId]?.hasProtectedContent != true) {
+                            item.toPlaylistTrack()?.let { track -> { addTrack = track } }
+                        } else {
+                            null
+                        }
                     )
                 }
-                // Keyed by the typed query, not by the account search, so a failed account search never hides this section.
-                if (query.isNotBlank()) {
+                // Public results have an independent state: a local miss must never imply no public matches.
+                if (query.isNotBlank() && (publicLoading || publicSearchedQuery == query.trim())) {
                     item(key = "public_header") {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Text(stringResource(R.string.music_public_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
                             Text(stringResource(R.string.music_public_note), color = palette.textSecondary, fontSize = 13.sp)
                         }
                     }
-                    if (!publicAvailable) item(key = "public_unavailable") {
+                    if (publicLoading) item(key = "public_loading") {
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            horizontalArrangement = Arrangement.Center
+                        ) { CircularProgressIndicator() }
+                    }
+                    if (!publicLoading && publicSearchedQuery == query.trim() && !publicAvailable) item(key = "public_unavailable") {
                         Text(
                             stringResource(R.string.music_public_unavailable),
                             color = palette.textSecondary,
@@ -292,8 +363,22 @@ internal fun MusicSearchScreen(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
                     }
+                    if (!publicLoading && publicSearchedQuery == query.trim() &&
+                        publicAvailable && publicResults.isEmpty()
+                    ) item(key = "public_empty") {
+                        Text(
+                            stringResource(R.string.music_public_empty),
+                            color = palette.textSecondary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
                     items(publicResults, key = { "public:${it.queryId}:${it.id}" }) { result ->
-                        MusicRow(title = result.title, subtitle = result.description, onClick = { playBotTrack(result) })
+                        MusicRow(
+                            title = result.title,
+                            subtitle = result.description,
+                            onClick = { playBotTrack(result) },
+                            onSend = onPick?.let { pick -> { pick(MessageExtraDraft.MusicBotResult(result.queryId, result.id, result.title)) } }
+                        )
                     }
                 }
                 if (nextOffset.isNotEmpty() && !loading) item(key = "more") {
@@ -305,10 +390,19 @@ internal fun MusicSearchScreen(
             }
         }
     }
+    addTrack?.let { track ->
+        AddToPlaylistSheet(accountId = accountId, track = track, onDismiss = { addTrack = null })
+    }
 }
 
 @Composable
-private fun MusicRow(title: String, subtitle: String, onClick: (() -> Unit)?) {
+private fun MusicRow(
+    title: String,
+    subtitle: String,
+    onClick: (() -> Unit)?,
+    onSend: (() -> Unit)? = null,
+    onAddToPlaylist: (() -> Unit)? = null
+) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 64.dp)
@@ -317,7 +411,7 @@ private fun MusicRow(title: String, subtitle: String, onClick: (() -> Unit)?) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(palette.accentSoft),
+            Modifier.size(44.dp).clip(styledShape(12.dp)).background(palette.accentSoft),
             contentAlignment = Alignment.Center
         ) {
             Icon(Icons.Rounded.MusicNote, null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
@@ -327,7 +421,34 @@ private fun MusicRow(title: String, subtitle: String, onClick: (() -> Unit)?) {
             Text(title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle.isNotBlank()) Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        if (onAddToPlaylist != null) IconButton(onClick = onAddToPlaylist, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Rounded.Add, stringResource(R.string.music_add_track_action, title), tint = palette.accent)
+        }
+        if (onSend != null) IconButton(onClick = onSend, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.music_attach_pick, title), tint = palette.accent)
+        }
     }
+}
+
+/**
+ * A chat track for the attachment menu, sent again by its server file id. Secret, view-once and protected tracks
+ * cannot be sent on, so they get no send button.
+ */
+private fun musicFileDraft(message: ChatMessage, chats: Map<Long, ChatPreview>, label: String): MessageExtraDraft.MusicFile? {
+    if (message.isViewOnce || chats[message.chatId]?.hasProtectedContent == true) return null
+    val media = message.media?.takeUnless { it.isSecret || it.isSecretChat } ?: return null
+    if (media.kind != MediaKind.Audio || media.fileId <= 0) return null
+    val outgoing = OutgoingMedia(
+        path = "",
+        fileName = media.fileName,
+        mimeType = media.mimeType,
+        kind = MediaKind.Audio,
+        durationSeconds = media.durationSeconds,
+        remoteFileId = media.fileId,
+        title = media.title,
+        performer = media.performer
+    )
+    return MessageExtraDraft.MusicFile(outgoing, label)
 }
 
 /**

@@ -150,7 +150,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun closeStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
     override suspend fun storyReactions(): Result<List<ReactionOption>> = Result.success(emptyList())
     override suspend fun setStoryReaction(posterChatId: Long, storyId: Int, reaction: ReactionOption?): Result<Unit> = unavailable()
-    override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String): Result<Unit> = unavailable()
+    override suspend fun replyToStory(posterChatId: Long, storyId: Int, text: String, sendNowConsent: Boolean): Result<Unit> = unavailable()
     override suspend fun deleteStory(posterChatId: Long, storyId: Int): Result<Unit> = unavailable()
     override suspend fun storyArchive(fromStoryId: Int): Result<StoryArchivePage> = Result.success(StoryArchivePage())
     override suspend fun storyPostPermission(chatId: Long): Result<StoryPostPermission> = unavailable()
@@ -193,6 +193,9 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun refreshMyProfile() {}
     override suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit> = unavailable()
     override suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit> = unavailable()
+    override suspend fun addProfileAudio(fileId: Int, title: String, performer: String, durationSeconds: Int): Result<Unit> = unavailable()
+    override suspend fun removeProfileAudio(fileId: Int): Result<Unit> = unavailable()
+    override suspend fun moveProfileAudioToFront(fileId: Int): Result<Unit> = unavailable()
     override suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.ProfilePhotosPage> = unavailable()
     override suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit> = unavailable()
     override suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit> = unavailable()
@@ -319,7 +322,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun deleteTelegramAccount(password: String): Result<Unit> = unavailable()
     override suspend fun archiveReturnsOnNewMessage(): Result<Boolean> = unavailable()
     override suspend fun setArchiveReturnsOnNewMessage(enabled: Boolean): Result<Unit> = unavailable()
-    override suspend fun markChatRead(chatId: Long): Result<Unit> = unavailable()
+    override suspend fun markChatRead(chatId: Long, consent: Boolean): Result<Unit> = unavailable()
     override suspend fun markChatUnread(chatId: Long): Result<Unit> = unavailable()
     override suspend fun loadContacts(): Result<List<ContactPreview>> = Result.success(emptyList())
     override suspend fun addContact(firstName: String, lastName: String, phone: String): Result<Unit> = unavailable()
@@ -389,7 +392,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun botCallback(chatId: Long, messageId: Long, data: List<Byte>): Result<BotCallbackAnswer> = unavailable()
     override suspend fun botCommandMenu(chatId: Long): Result<BotCommandMenu?> = unavailable()
     override suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults?> = unavailable()
-    override suspend fun musicBotSearch(query: String, offset: String): Result<InlineBotResults?> = unavailable()
+    override suspend fun musicBotSearch(query: String, offset: String, contextChatId: Long): Result<InlineBotResults?> = unavailable()
     override suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> = unavailable()
     override suspend fun sendInlineBotResult(
         chatId: Long,
@@ -434,7 +437,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun linkedDiscussionChatId(chatId: Long): Result<Long> = unavailable()
     override suspend fun loadMessageThread(chatId: Long, messageId: Long): Result<MessageThread> = unavailable()
     override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long): Result<MessageThreadPage> = unavailable()
-    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?): Result<ChatMessage> = unavailable()
+    override suspend fun sendThreadReply(discussionChatId: Long, threadId: Long, text: String, entities: List<MessageTextEntity>, replyToMessageId: Long?, sendNowConsent: Boolean): Result<ChatMessage?> = unavailable()
     override fun openChat(chatId: Long) {}
     override fun closeChat(chatId: Long) {}
     override fun loadOlderMessages(chatId: Long) {}
@@ -476,7 +479,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun recentAnimations(offset: String): Result<AnimationPage> = unavailable()
     override suspend fun searchAnimations(query: String, offset: String): Result<AnimationPage> = unavailable()
     override suspend fun isPremiumAccount(): Result<Boolean> = unavailable()
-    override suspend fun retryMessages(chatId: Long, messageIds: List<Long>): Result<Unit> = unavailable()
+    override suspend fun retryMessages(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean): Result<Unit> = unavailable()
     override suspend fun messageCapabilities(chatId: Long, messageId: Long): Result<MessageCapabilities> = unavailable()
     override suspend fun chatNotificationPreferences(chatId: Long): Result<ChatNotificationPreferences> = unavailable()
     override suspend fun setChatNotificationPreferences(chatId: Long, preferences: ChatNotificationPreferences): Result<Unit> = unavailable()

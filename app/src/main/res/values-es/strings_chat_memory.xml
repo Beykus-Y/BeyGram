@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_memory_deleted">eliminado</string>
+    <string name="chat_memory_attachment_not_kept">adjunto no guardado</string>
+    <string name="chat_memory_versions_count">versiones: %1$d</string>
+    <string name="chat_memory_versions_title">Versiones anteriores</string>
+    <string name="chat_memory_versions_empty">No hay versiones anteriores</string>
+    <string name="chat_memory_version_replaced">reemplazado %1$s</string>
+    <string name="chat_memory_chat_title">Memoria del chat</string>
+    <string name="chat_memory_chat_switch">Guardar mensajes eliminados y editados</string>
+    <string name="chat_memory_chat_secret">La memoria del chat no funciona en los chats secretos.</string>
+    <string name="chat_memory_chat_off">La memoria del chat está desactivada. Puedes activarla en los ajustes de almacenamiento.</string>
+    <string name="chat_memory_chat_note">Solo se guarda el texto, no los adjuntos. Los chats con contenido protegido y los chats con temporizador de autodestrucción nunca se guardan.</string>
+    <string name="chat_memory_title">Memoria del chat</string>
+    <string name="chat_memory_detail">Guarda en este dispositivo los mensajes eliminados y editados. Los chats secretos nunca se guardan.</string>
+    <string name="chat_memory_enable">Activar la memoria del chat</string>
+    <string name="chat_memory_save_all">Guardar en todos los chats</string>
+    <string name="chat_memory_save_all_detail">Desactívalo para guardar solo los chats que elegiste en sus ajustes.</string>
+    <string name="chat_memory_limit_title">Límite de memoria</string>
+    <string name="chat_memory_limit_detail">Cuando la memoria llega al límite, primero se eliminan las entradas más antiguas.</string>
+    <string name="chat_memory_usage">Mensajes: %1$d · eliminados: %2$d · versiones: %3$d · ocupa %4$s</string>
+    <string name="chat_memory_clear">Borrar la memoria del chat</string>
+    <string name="chat_memory_clear_title">¿Borrar la memoria del chat?</string>
+    <string name="chat_memory_clear_text">Los mensajes eliminados y las versiones anteriores se borrarán de este dispositivo. Tus chats en Telegram no cambiarán.</string>
+    <string name="chat_memory_footnote">Mientras la memoria del chat esté desactivada, lo guardado no se muestra, pero tampoco se borra. La memoria se borra al cerrar sesión y al eliminar una cuenta.</string>
+</resources>

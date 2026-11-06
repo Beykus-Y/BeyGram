@@ -325,4 +325,8 @@ sealed interface MessageExtraDraft {
     data class Location(val point: GeoPoint) : MessageExtraDraft
     data class Contact(val userId: Long, val title: String) : MessageExtraDraft
     data class Dice(val emoji: String) : MessageExtraDraft
+    /** A track from the music search: an audio file already on Telegram's servers, sent by its file id. */
+    data class MusicFile(val media: OutgoingMedia, val label: String) : MessageExtraDraft
+    /** A public music result, sent through the music bot's inline answer. */
+    data class MusicBotResult(val queryId: Long, val resultId: String, val label: String) : MessageExtraDraft
 }

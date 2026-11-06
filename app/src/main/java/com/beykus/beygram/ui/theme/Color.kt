@@ -45,8 +45,8 @@ internal data class SurfaceContainerTones(
     val highest: Color
 )
 
-internal fun BeyGramTokens.surfaceContainerTones(dark: Boolean): SurfaceContainerTones =
-    if (dark) {
+internal fun BeyGramTokens.surfaceContainerTones(dark: Boolean, tonalStep: Float = 1f): SurfaceContainerTones {
+    val tonal = if (dark) {
         SurfaceContainerTones(
             lowest = bg,
             low = lerp(bg, surface, 0.6f),
@@ -63,6 +63,20 @@ internal fun BeyGramTokens.surfaceContainerTones(dark: Boolean): SurfaceContaine
             highest = surface2
         )
     }
+    // Material 2 has no tonal containers: every container is the plain surface and only the highest step is the
+    // secondary grey. Fractions give a quieter ramp for the layered Signature style.
+    val step = tonalStep.coerceIn(0f, 1f)
+    if (step >= 1f) return tonal
+    val flat = SurfaceContainerTones(surface, surface, surface, surface2, surface2)
+    fun mix(toned: Color, plain: Color) = lerp(plain, toned, step)
+    return SurfaceContainerTones(
+        lowest = mix(tonal.lowest, flat.lowest),
+        low = mix(tonal.low, flat.low),
+        normal = mix(tonal.normal, flat.normal),
+        high = mix(tonal.high, flat.high),
+        highest = mix(tonal.highest, flat.highest)
+    )
+}
 
 /** The light set of the Warm preset. */
 val LightTokens = BeyGramTokens(

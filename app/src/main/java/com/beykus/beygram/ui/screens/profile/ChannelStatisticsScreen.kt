@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -21,7 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -270,7 +271,7 @@ private fun StatCard(value: ChannelStatisticsSummary, palette: BeyGramPalette, m
         metricLabel(metric) to metricValue(metric, value)
     }
     Column(
-        modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(16.dp)).padding(14.dp),
+        modifier.fillMaxWidth().background(palette.surface, styledShape(16.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         rows.forEach { (label, number) ->

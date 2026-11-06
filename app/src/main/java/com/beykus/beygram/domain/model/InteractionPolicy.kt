@@ -1,7 +1,10 @@
 package com.beykus.beygram.domain.model
 
 /** Keep privacy decisions independent from message loading, rendering and transport. */
-enum class InteractionEffect { ReadHistory, OpenContent, OnlinePresence, Typing }
+enum class InteractionEffect { ReadHistory, OpenContent, OnlinePresence, Typing, StoryView }
+
+/** Stealth mode refused [effect]. A failure of this type is a decision, not a connection problem. */
+class StealthBlockedException(val effect: InteractionEffect) : IllegalStateException("Blocked by stealth mode: $effect")
 
 fun interface InteractionPolicy {
     fun allows(effect: InteractionEffect, chatId: Long?): Boolean

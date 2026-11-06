@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_view_once_title">¿Abrir el contenido de un solo uso?</string>
+    <string name="stealth_view_once_text">El remitente sabrá que lo abriste y desaparecerá después de verlo. El modo invisible no ocultará esta visualización.</string>
+    <string name="stealth_view_once_open">Abrir</string>
+    <string name="stealth_send_warning_title">¿Enviar mensaje?</string>
+    <string name="stealth_send_warning_text">Telegram te mostrará en línea unos 30 segundos, aunque tu estado esté oculto.</string>
+    <string name="stealth_send_warning_send">Enviar</string>
+</resources>

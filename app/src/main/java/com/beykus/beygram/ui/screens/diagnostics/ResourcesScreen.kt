@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.diagnostics
 
 import android.content.Context
+import com.beykus.beygram.ui.design.styledShape
 import android.content.Intent
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
@@ -22,9 +23,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -172,7 +173,7 @@ fun ResourcesScreen(onBack: () -> Unit) {
                 Text(stringResource(R.string.resources_record_hint), color = palette.textSecondary, fontSize = 13.sp)
             }
 
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().clip(styledShape(20.dp)).background(palette.surface).padding(16.dp)) {
                 Text(stringResource(R.string.resources_cpu), color = palette.textPrimary, fontSize = 16.sp)
                 Text(
                     latest?.rates?.cpuPercent?.let { String.format(Locale.getDefault(), "%.1f%%", it) } ?: unavailable,
@@ -218,7 +219,7 @@ fun ResourcesScreen(onBack: () -> Unit) {
                 )
             }
 
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().clip(styledShape(20.dp)).background(palette.surface).padding(16.dp)) {
                 Text(stringResource(R.string.resources_network), color = palette.textPrimary, fontSize = 16.sp)
                 Text(
                     latest?.let {

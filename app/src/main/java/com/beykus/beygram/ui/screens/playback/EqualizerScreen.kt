@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,15 +32,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.WarningAmber
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
+import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -209,7 +210,7 @@ fun EqualizerScreen(
                 )
 
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface)
+                    Modifier.fillMaxWidth().clip(styledShape(20.dp)).background(palette.surface)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
@@ -285,7 +286,7 @@ private fun EqualizerSwitchRow(
     val palette = beyGramPalette()
     val title = stringResource(R.string.equalizer_enabled_title)
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface)
+        Modifier.fillMaxWidth().clip(styledShape(20.dp)).background(palette.surface)
             .heightIn(min = 56.dp)
             .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
             .padding(horizontal = 18.dp, vertical = 12.dp),
@@ -310,7 +311,7 @@ private fun EqualizerNotice(
     val background = if (error) palette.warningSurface else palette.accentSoft
     val foreground = if (error) palette.warningText else palette.accentInk
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(background)
+        Modifier.fillMaxWidth().clip(styledShape(20.dp)).background(background)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.Top
     ) {
@@ -380,7 +381,7 @@ private fun PresetChips(
 @Composable
 private fun PresetChip(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
-    val shape = RoundedCornerShape(14.dp)
+    val shape = styledShape(14.dp)
     Box(
         Modifier.heightIn(min = 48.dp).clip(shape)
             .background(
@@ -444,7 +445,7 @@ private fun EqualizerCurve(
     val fillColor = lineColor.copy(alpha = if (active) 0.16f else 0.07f)
     val surface = palette.surface2
     val grid = palette.divider
-    val shape = RoundedCornerShape(20.dp)
+    val shape = styledShape(20.dp)
 
     Canvas(
         Modifier.fillMaxWidth().height(190.dp).clip(shape).background(surface)

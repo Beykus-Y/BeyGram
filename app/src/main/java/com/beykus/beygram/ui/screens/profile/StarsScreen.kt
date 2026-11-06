@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,7 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -719,7 +720,7 @@ private fun StarsTopUpMethodsDialog(
                 methods.forEach { method ->
                     FilledTonalButton(
                         onClick = { onOpen(method) },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = styledShape(14.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(
                             containerColor = palette.accentSoft,
                             contentColor = palette.accentInk
@@ -749,7 +750,7 @@ private fun StarTransactionRow(transaction: StarTransactionItem) {
     val amountText = formatStarAmount(transaction.amount.starCount, transaction.amount.nanostarCount)
         .let { if (positive) "+$it" else it }
     Column(
-        Modifier.fillMaxWidth().profileCardSurface(palette.surface)
+        Modifier.fillMaxWidth().profileCardSurface()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {}
     ) {

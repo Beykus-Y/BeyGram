@@ -3,29 +3,35 @@ package com.beykus.beygram.ui.screens.chat
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -35,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -143,27 +150,31 @@ private fun Long.isFuture(nowSeconds: Long = System.currentTimeMillis() / 1000):
 
 private const val SCHEDULED_REFRESH_MS = 5_000L
 
-/** TDLib is the source of truth: this dialog always reloads the queue from the server. */
+/** TDLib is the source of truth: this sheet always reloads the queue from the server. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ScheduledMessagesDialog(
     chatId: Long,
     conversation: ConversationRepository,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onCompose: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var messages by remember(chatId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var loading by remember(chatId) { mutableStateOf(true) }
-    var busy by remember(chatId) { mutableStateOf(false) }
-    var error by remember(chatId) { mutableStateOf<String?>(null) }
-    var reload by remember(chatId) { mutableIntStateOf(0) }
-    var editing by remember(chatId) { mutableStateOf<ChatMessage?>(null) }
+    var messages by remember(chatId, conversation) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    var loading by remember(chatId, conversation) { mutableStateOf(true) }
+    var hasLoaded by remember(chatId, conversation) { mutableStateOf(false) }
+    var busy by remember(chatId, conversation) { mutableStateOf(false) }
+    var error by remember(chatId, conversation) { mutableStateOf<String?>(null) }
+    var reload by remember(chatId, conversation) { mutableIntStateOf(0) }
+    var editing by remember(chatId, conversation) { mutableStateOf<ChatMessage?>(null) }
 
     // TDLib is the source of truth: delivery, another client's edit/cancel and upload failures all change the queue.
     // Keep the open dialog in sync without flickering the initial spinner.
     LaunchedEffect(chatId, reload, conversation) {
-        loading = true
+        // Keep the previous list visible during explicit refreshes; only the first request owns the spinner.
+        loading = !hasLoaded
         error = null
         while (true) {
             val result = conversation.scheduledMessages(chatId)
@@ -174,6 +185,7 @@ internal fun ScheduledMessagesDialog(
                 if (messages.isEmpty()) messages = emptyList()
                 error = it.userMessage(context, R.string.chat_scheduled_load_failed)
             }
+            hasLoaded = true
             loading = false
             delay(SCHEDULED_REFRESH_MS)
         }
@@ -205,40 +217,116 @@ internal fun ScheduledMessagesDialog(
         return
     }
 
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = { if (!busy) onClose() },
-        title = { Text(stringResource(R.string.chat_scheduled_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold) },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp).errorAnnouncement()) }
-                when {
-                    loading -> CircularProgressIndicator(Modifier.size(24.dp), color = palette.accent, strokeWidth = 2.dp)
-                    messages.isEmpty() -> if (error == null) Text(stringResource(R.string.chat_scheduled_empty), color = palette.textSecondary, fontSize = 14.sp)
-                    else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
-                        items(messages, key = { it.id }) { message ->
-                            ScheduledMessageRow(
-                                message = message,
-                                busy = busy,
-                                onEdit = { editing = message },
-                                onReschedule = {
-                                    showSchedulePicker(context) { at ->
-                                        if (!at.isFuture()) error = context.getString(R.string.err_schedule_time_future)
-                                        else runAction({ conversation.rescheduleMessage(chatId, message.id, at) }, R.string.chat_scheduled_reschedule_failed)
-                                    }
-                                },
-                                onSendNow = { runAction({ conversation.sendScheduledNow(chatId, message.id) }, R.string.chat_scheduled_send_now_failed) },
-                                onRetry = { runAction({ conversation.retryMessages(chatId, listOf(message.id)) }, R.string.chat_scheduled_retry_failed) },
-                                onCancel = { runAction({ conversation.deleteScheduledMessage(chatId, message.id) }, R.string.chat_scheduled_cancel_failed) }
-                            )
-                            HorizontalDivider(color = palette.divider)
-                        }
+        sheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+            // A swipe must not hide the sheet during an in-flight TDLib/store operation:
+            // onDismissRequest alone is too late to veto the state transition.
+            confirmValueChange = { next -> next != SheetValue.Hidden || !busy }
+        ),
+        containerColor = palette.surface,
+        contentColor = palette.textPrimary,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = palette.textSecondary) }
+    ) {
+        Column(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp)
+        ) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    stringResource(R.string.chat_scheduled_title),
+                    color = palette.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onClose, enabled = !busy) {
+                    Text(stringResource(R.string.common_close))
+                }
+            }
+            HorizontalDivider(color = palette.divider, modifier = Modifier.padding(bottom = 12.dp))
+            error?.let {
+                Text(
+                    it,
+                    color = palette.danger,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 8.dp).errorAnnouncement()
+                )
+            }
+            when {
+                loading -> CircularProgressIndicator(
+                    Modifier.size(24.dp).padding(bottom = 4.dp),
+                    color = palette.accent,
+                    strokeWidth = 2.dp
+                )
+                messages.isEmpty() -> if (error == null) {
+                    Text(
+                        stringResource(R.string.chat_scheduled_empty),
+                        color = palette.textSecondary,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                    if (onCompose != null) {
+                        Text(
+                            stringResource(R.string.chat_scheduled_compose_hint),
+                            color = palette.textSecondary,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+                else -> LazyColumn(
+                    Modifier.fillMaxWidth().heightIn(max = 520.dp),
+                    contentPadding = PaddingValues(bottom = 8.dp)
+                ) {
+                    items(messages, key = { it.id }) { message ->
+                        ScheduledMessageRow(
+                            message = message,
+                            busy = busy,
+                            onEdit = { editing = message },
+                            onReschedule = {
+                                showSchedulePicker(context) { at ->
+                                    if (!at.isFuture()) error = context.getString(R.string.err_schedule_time_future)
+                                    else runAction(
+                                        { conversation.rescheduleMessage(chatId, message.id, at) },
+                                        R.string.chat_scheduled_reschedule_failed
+                                    )
+                                }
+                            },
+                            onSendNow = {
+                                runAction(
+                                    { conversation.sendScheduledNow(chatId, message.id) },
+                                    R.string.chat_scheduled_send_now_failed
+                                )
+                            },
+                            onRetry = {
+                                runAction(
+                                    { conversation.retryMessages(chatId, listOf(message.id)) },
+                                    R.string.chat_scheduled_retry_failed
+                                )
+                            },
+                            onCancel = {
+                                runAction(
+                                    { conversation.deleteScheduledMessage(chatId, message.id) },
+                                    R.string.chat_scheduled_cancel_failed
+                                )
+                            }
+                        )
+                        HorizontalDivider(color = palette.divider)
                     }
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onClose, enabled = !busy) { Text(stringResource(R.string.common_close)) } }
-    )
+            if (!loading && !busy && error == null && messages.isEmpty() && onCompose != null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onCompose) {
+                        Text(stringResource(R.string.chat_scheduled_compose_action))
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -257,7 +345,8 @@ private fun ScheduledMessageRow(
         Text(message.summary(), color = palette.textPrimary, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(scheduledTimeLabel(message), color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
         if (failed) Text(stringResource(R.string.chat_scheduled_failed), color = palette.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+        // Wrapping makes every action discoverable without a hidden horizontal swipe.
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (failed) TextButton(onClick = onRetry, enabled = !busy) { Text(stringResource(R.string.common_retry)) }
             TextButton(onClick = onReschedule, enabled = !busy) { Text(stringResource(R.string.chat_scheduled_reschedule)) }
             TextButton(onClick = onSendNow, enabled = !busy) { Text(stringResource(R.string.chat_send_now)) }

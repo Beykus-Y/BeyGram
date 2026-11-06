@@ -18,6 +18,9 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val chats = mutableMapOf<Long, TdApi.Chat>()
     private val users = mutableMapOf<Long, TdApi.User>()
     private val userFull = mutableMapOf<Long, TdApi.UserFullInfo>()
+    private val profileAudios = mutableMapOf<Long, List<ProfileAudio>>()
+    /** Orders the answers about a user's profile music, so an answer that arrives late cannot put back an older list. */
+    private val profileAudioAnswers = NewestAnswers<Long>()
     private val groups = mutableMapOf<Long, TdApi.BasicGroup>()
     private val groupFull = mutableMapOf<Long, TdApi.BasicGroupFullInfo>()
     private val supers = mutableMapOf<Long, TdApi.Supergroup>()
@@ -150,6 +153,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 val full = request(TdApi.GetUserFullInfo(user.id))
                 synchronized(lock) { userFull[user.id] = full; publish() }
                 loadPersonalChatIfPresent(full.personalChatId)
+                loadProfileAudiosQuietly(user.id)
                 val option = request(TdApi.GetOption("bio_length_max"))
                 if (option is TdApi.OptionValueInteger) _bioLimit.value = option.value.toInt().coerceIn(1, 4096)
             } }
@@ -279,6 +283,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         val full = request(TdApi.GetUserFullInfo(id))
         synchronized(lock) { userFull[id] = full }
         loadPersonalChatIfPresent(full.personalChatId)
+        loadProfileAudiosQuietly(id)
     }
 
     /** Missing/hidden linked channels are optional profile content and must not fail the profile refresh. */
@@ -394,6 +399,74 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         Unit
     }.mapProfileError()
 
+    /**
+     * Profile music is a separate TDLib request, so its failure must not fail the profile. Only a "hidden or not
+     * available" answer clears the cached tracks; any other failure keeps the list the user already sees.
+     */
+    private suspend fun loadProfileAudiosQuietly(userId: Long) {
+        val ticket = profileAudioAnswers.start()
+        try {
+            when (val answer = ask(TdApi.GetUserProfileAudios(userId, 0, PROFILE_AUDIO_PAGE_LIMIT))) {
+                is TdApi.Audios -> {
+                    val tracks = answer.audios.map { track ->
+                        files.register(track.audio.toMediaFileState())
+                        track.toProfileAudio()
+                    }
+                    // An answer that a newer load or a change of the list has overtaken must not show the list as it was before.
+                    synchronized(lock) {
+                        if (profileAudioAnswers.accept(userId, ticket)) { profileAudios[userId] = tracks; publish() }
+                    }
+                }
+                is TdApi.Error -> if (answer.code in profileAudioHiddenCodes) {
+                    synchronized(lock) {
+                        if (profileAudioAnswers.accept(userId, ticket)) { profileAudios.remove(userId); publish() }
+                    }
+                }
+                else -> Unit
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Keep the list the user already sees.
+        }
+    }
+
+    /** Asks TDLib and returns the answer as it is, so the caller can see an error code. */
+    private suspend fun <T : TdApi.Object> ask(function: TdApi.Function<T>): TdApi.Object = suspendCancellableCoroutine { continuation ->
+        client().send(function, Client.ResultHandler { result -> if (continuation.isActive) continuation.resume(result) })
+    }
+
+    /**
+     * Runs one change of the own list. Once TDLib has applied it, a failed refresh is not reported as a failed change:
+     * the next profile load shows the server order anyway.
+     */
+    private suspend fun changeProfileAudios(failure: Int, change: suspend () -> Unit): Result<Unit> {
+        val result = runCatching { change() }.mapProfileAudioError(failure)
+        if (result.isSuccess) {
+            val me = myUserId()
+            // Answers to loads that started before this change must not show the list as it was before it.
+            profileAudioAnswers.change(me)
+            loadProfileAudiosQuietly(me)
+        }
+        return result
+    }
+
+    /** Adds a track from a chat to the start of the own profile list. The file must be known to TDLib for this account. */
+    suspend fun addProfileAudio(fileId: Int, title: String, performer: String, durationSeconds: Int): Result<Unit> =
+        changeProfileAudios(R.string.player_add_to_profile_failed) {
+            // The file is already known to TDLib from a chat, so its id is enough; the binding in app/libs takes the fields flat.
+            request(TdApi.AddProfileAudio(TdApi.InputFileId(fileId), durationSeconds, title, performer))
+        }
+
+    suspend fun removeProfileAudio(fileId: Int): Result<Unit> = changeProfileAudios(R.string.profile_music_failed) {
+        request(TdApi.RemoveProfileAudio(fileId))
+    }
+
+    /** Position 0 means the first place in the list, as TDLib defines it. */
+    suspend fun moveProfileAudioToFront(fileId: Int): Result<Unit> = changeProfileAudios(R.string.profile_music_failed) {
+        request(TdApi.SetProfileAudioPosition(fileId, 0))
+    }
+
     private fun publish() {
         users[myId]?.let { _me.value = _me.value.copy(info = userInfo(it)) }
         details.forEach { (id, state) -> state.value = state.value.copy(info = chatInfo(id)) }
@@ -454,7 +527,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             personalChatId = full?.personalChatId?.toLong() ?: 0L,
             personalChatTitle = full?.personalChatId?.let { chats[it]?.title }.orEmpty(),
             isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true,
-            isBlocked = user.id != myId && full?.blockList is TdApi.BlockListMain
+            isBlocked = user.id != myId && full?.blockList is TdApi.BlockListMain,
+            profileAudios = profileAudios[user.id].orEmpty()
         )
     }
     private fun chatInfo(id: Long): ProfileInfo? = chatProfile(id)?.copy(
@@ -545,3 +619,12 @@ private fun Throwable.profileError(): UiText = when {
     else -> UiText.Res(R.string.err_profile_load_failed)
 }
 private fun Result<Unit>.mapProfileError(): Result<Unit> = fold({ Result.success(Unit) }, { Result.failure(UserMessageException(it.profileError(), it)) })
+
+/**
+ * A failed profile-music change shows its own message. The generic profile-load text would hide it, except for a
+ * flood wait, which the user can act on.
+ */
+private fun Result<Unit>.mapProfileAudioError(message: Int): Result<Unit> = fold({ Result.success(Unit) }, { error ->
+    val text = error.profileError().takeIf { it == UiText.Res(R.string.err_profile_flood_wait) } ?: UiText.Res(message)
+    Result.failure(UserMessageException(text, error))
+})

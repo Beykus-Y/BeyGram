@@ -223,6 +223,8 @@
     <string name="chat_scheduled_cancel_failed">Impossible d’annuler le message programmé</string>
     <string name="chat_scheduled_edit_failed">Impossible de modifier le message programmé</string>
     <string name="chat_scheduled_empty">Aucun message programmé</string>
+    <string name="chat_scheduled_compose_action">Écrire un message</string>
+    <string name="chat_scheduled_compose_hint">Rédigez un message, puis maintenez Envoyer pour choisir l’heure d’envoi.</string>
     <string name="chat_scheduled_failed">Le message programmé n’a pas pu être envoyé</string>
     <string name="chat_scheduled_load_failed">Impossible de charger les messages programmés</string>
     <string name="chat_scheduled_retry_failed">Impossible de réessayer l’envoi</string>
@@ -253,4 +255,5 @@
     <string name="chat_video_note_processing">Traitement</string>
     <string name="chat_video_note_send_failed">Impossible d’envoyer le message vidéo</string>
     <string name="chat_you">Vous</string>
+    <string name="message_action_react">Ajouter une réaction</string>
 </resources>

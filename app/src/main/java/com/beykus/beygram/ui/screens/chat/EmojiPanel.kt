@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -123,7 +124,7 @@ private fun EmojiGroupHeader(title: String) {
 private fun EmojiCell(emoji: String, onClick: () -> Unit) {
     Box(
         Modifier.fillMaxWidth().height(48.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(styledShape(12.dp))
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {

@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -21,7 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -47,6 +49,8 @@ import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.SharedMediaWindow
+import com.beykus.beygram.ui.screens.music.ChatLibraryLink
+import com.beykus.beygram.ui.screens.music.ChatLibraryMusicRow
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -86,7 +90,9 @@ internal fun GroupProfileScreen(
     onContentOpened: (Long) -> Unit, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit,
     onManage: (() -> Unit)? = null,
     /** Repository-backed automatic download for the shared-media viewer. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    /** The chat's library tracks, shown as a row when there are some. Null hides the row. */
+    chatLibrary: ChatLibraryLink? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -146,6 +152,7 @@ internal fun GroupProfileScreen(
             item(key = "rows") {
                 Column {
                     ProfileRowsCard(profileRows(context, info, withSharedCounts = sharedMessages == null))
+                    chatLibrary?.let { link -> ChatLibraryMusicRow(info.id, link.accountId) { link.onOpen(info.id) } }
                     if (onManage != null && info.groupAdmin?.canManageAnything == true) {
                         GroupManagementEntry(info.kind, onManage)
                     }
@@ -198,7 +205,7 @@ private fun GroupStatisticsEntry(onClick: () -> Unit) {
 private fun GroupProfileToolbar(title: String, collapse: State<Float>, onBack: () -> Unit,
     onDelete: suspend () -> Result<Unit>, onDeleted: () -> Unit) {
     val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().topAppBarSurface().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
         Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).graphicsLayer { alpha = collapse.value }.semantics { heading() })
@@ -251,7 +258,7 @@ private fun GroupMembers(info: ProfileInfo, isLoading: Boolean, observeFile: (In
         }
         return
     }
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+    Column(Modifier.padding(horizontal = 16.dp).clip(styledShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
         info.memberPreview.forEachIndexed { index, member ->
             if (index > 0) HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 82.dp))
             MemberRow(member, observeFile, downloadFile) { onOpenUser(member.userId) }

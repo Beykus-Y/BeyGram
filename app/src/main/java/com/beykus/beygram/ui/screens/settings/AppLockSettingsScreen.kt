@@ -1,7 +1,7 @@
 package com.beykus.beygram.ui.screens.settings
 
+import com.beykus.beygram.ui.components.settingsIconTint
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -30,9 +30,9 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,7 +43,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -69,6 +68,11 @@ import com.beykus.beygram.security.PinField
 import com.beykus.beygram.security.rememberBiometricAuthenticator
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.listGroupShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -81,6 +85,7 @@ import kotlinx.coroutines.launch
 internal fun AppLockSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val manager = remember(context) { AppLockManager.get(context.applicationContext) }
     val store = manager.store
     val settings by store.settings.collectAsStateWithLifecycle()
@@ -113,7 +118,7 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
 
     Column(
-        Modifier.fillMaxSize().background(palette.screen)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
     ) {
         ProfileToolbar(stringResource(R.string.app_lock_title), onBack)
@@ -272,8 +277,9 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
 @Composable
 private fun SettingsCard(content: @Composable () -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(palette.surface)
+        Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape())
     ) {
         content()
     }
@@ -548,7 +554,7 @@ private fun ConfirmIdentityDialog(
                         },
                         modifier = Modifier.heightIn(min = 48.dp),
                     ) {
-                        Icon(Icons.Rounded.Fingerprint, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Rounded.Fingerprint, contentDescription = null, tint = settingsIconTint(), modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.app_lock_biometric_button), color = palette.accent)
                     }

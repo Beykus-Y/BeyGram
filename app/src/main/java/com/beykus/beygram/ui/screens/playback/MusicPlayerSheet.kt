@@ -1,7 +1,9 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import android.os.SystemClock
+import android.widget.Toast
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -48,15 +50,24 @@ import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
+import com.beykus.beygram.ui.components.sheetSurfaceColor
+import com.beykus.beygram.ui.theme.LocalBeyGramTokens
+import com.beykus.beygram.media.bgbeat.BgBeatSection
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -67,13 +78,17 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetState
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -93,6 +108,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -100,6 +118,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
@@ -117,6 +136,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -132,12 +152,58 @@ import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.beykus.beygram.data.music.MusicLibraries
+import com.beykus.beygram.data.music.toPlaylistTrack
+import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
+import com.beykus.beygram.ui.screens.music.containsTrack
+import com.beykus.beygram.ui.screens.music.rememberMusicLibrary
+import com.beykus.beygram.ui.screens.music.reportMusicOutcome
+import com.beykus.beygram.ui.screens.profile.LocalAddProfileAudio
+import com.beykus.beygram.ui.screens.profile.PROFILE_AUDIO_KEY_PREFIX
+import com.beykus.beygram.ui.text.userMessage
 
 private const val TRANSPORT_MOTION_MS = 150
 private const val SEEK_STEP_MS = 5_000L
 private val QUEUE_ROW_HEIGHT = 76.dp
 
 private enum class PlayerPanel { Player, Queue }
+
+/**
+ * Stops the sheet from taking over a list's overscroll at its end. When a list reaches its bottom, the upward
+ * leftover of a drag or fling was passed to the ModalBottomSheet's own drag, so the sheet bounced back and forth.
+ * This node sits inside the sheet and consumes only that upward leftover (negative y) after the child has scrolled.
+ * Downward leftover still reaches the sheet, so dragging it down from the top keeps dismissing it.
+ */
+internal val SheetOverscrollGuard: NestedScrollConnection = object : NestedScrollConnection {
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+        Offset(0f, available.y.coerceAtMost(0f))
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        Velocity(0f, available.y.coerceAtMost(0f))
+}
+
+/** The full player sheet. Its tokens come from the cover, so every row inside follows the tint. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CoverPlayerSheet(
+    cover: CoverTokens,
+    onDismissRequest: () -> Unit,
+    sheetState: SheetState,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
+        ModalBottomSheet(
+            onDismissRequest = onDismissRequest,
+            sheetState = sheetState,
+            containerColor = cover.surface,
+            contentColor = cover.tokens.text,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = cover.tokens.muted) }
+        ) {
+            content()
+        }
+    }
+}
 
 /**
  * Large now-playing surface. The same composable owns the queue panel so the sheet is not recreated when the user
@@ -147,27 +213,30 @@ private enum class PlayerPanel { Player, Queue }
 @Composable
 internal fun MusicPlayerSheet(
     onDismiss: () -> Unit,
-    onOpenEqualizer: (() -> Unit)? = null
+    onOpenEqualizer: (() -> Unit)? = null,
+    onOpenMusicSearch: (() -> Unit)? = null,
+    onOpenMyMusic: (() -> Unit)? = null
 ) {
     val player = rememberMusicPlayerUi()
     LaunchedEffect(player == null) { if (player == null) onDismiss() }
     val current = player ?: return
     var panel by rememberSaveable { mutableStateOf(PlayerPanel.Player) }
     val source = rememberPlaybackSourceLabel(current.item.origin)
-    val palette = beyGramPalette()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val cover = rememberCoverTokens(
+        artworkPath = current.item.artworkPath,
+        audioPath = current.item.path.takeIf { it.isNotBlank() },
+        enabled = true,
+        maxAmount = FULL_COVER_TINT,
+        base = sheetSurfaceColor()
+    )
     BackHandler(enabled = panel == PlayerPanel.Queue) { panel = PlayerPanel.Player }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = palette.surface,
-        contentColor = palette.textPrimary,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = palette.textSecondary) }
-    ) {
+    CoverPlayerSheet(cover = cover, onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.94f)
+                .nestedScroll(SheetOverscrollGuard)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                 .navigationBarsPadding()
         ) {
@@ -177,7 +246,9 @@ internal fun MusicPlayerSheet(
                         player = current,
                         source = source,
                         onCollapse = onDismiss,
-                        onOpenSource = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } }
+                        onOpenSource = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } },
+                        onOpenMusicSearch = onOpenMusicSearch?.let { open -> { onDismiss(); open() } },
+                        onOpenMyMusic = onOpenMyMusic?.let { open -> { onDismiss(); open() } }
                     )
                     PlayerBody(
                         modifier = Modifier.weight(1f),
@@ -198,7 +269,13 @@ internal fun MusicPlayerSheet(
                 PlayerPanel.Queue -> QueuePanel(
                     source = source,
                     onBack = { panel = PlayerPanel.Player },
-                    onDismiss = onDismiss
+                    onDismiss = onDismiss,
+                    onSearch = onOpenMusicSearch?.let { open ->
+                        {
+                            onDismiss()
+                            open()
+                        }
+                    }
                 )
             }
         }
@@ -210,7 +287,9 @@ private fun PlayerHeader(
     player: MusicPlayerUi,
     source: PlaybackSourceLabel,
     onCollapse: () -> Unit,
-    onOpenSource: (() -> Unit)?
+    onOpenSource: (() -> Unit)?,
+    onOpenMusicSearch: (() -> Unit)?,
+    onOpenMyMusic: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
     var speedMenu by remember { mutableStateOf(false) }
@@ -237,7 +316,7 @@ private fun PlayerHeader(
         Column(
             Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(styledShape(12.dp))
                 .then(
                     if (onOpenSource != null) Modifier.clickable(role = Role.Button, onClickLabel = openSourceLabel) { onOpenSource() }
                     else Modifier
@@ -264,11 +343,25 @@ private fun PlayerHeader(
                 textAlign = TextAlign.Center
             )
         }
+        if (onOpenMusicSearch != null) IconButton(onClick = onOpenMusicSearch) {
+            Icon(Icons.Rounded.Search, stringResource(R.string.music_search_action), tint = palette.textSecondary)
+        }
         Box {
             IconButton(onClick = { speedMenu = true }) {
                 Icon(Icons.Rounded.MoreVert, stringResource(R.string.player_menu), tint = palette.textSecondary)
             }
             DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
+                if (onOpenMyMusic != null) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.music_library_title), color = palette.textPrimary) },
+                        leadingIcon = { Icon(Icons.Rounded.MusicNote, null, tint = palette.accent) },
+                        onClick = {
+                            speedMenu = false
+                            onOpenMyMusic()
+                        }
+                    )
+                    HorizontalDivider(color = palette.divider)
+                }
                 Text(
                     stringResource(R.string.player_speed_title),
                     color = palette.textSecondary,
@@ -396,7 +489,9 @@ private fun PlayerBody(
             Box(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
                 Column(
                     Modifier
-                        .align(Alignment.TopCenter)
+                        // Center the artwork and controls when they fit; the scroll container still fills
+                        // the viewport and scrolls on short screens or at larger system font scales.
+                        .align(Alignment.Center)
                         .widthIn(max = 560.dp)
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
@@ -426,12 +521,23 @@ private fun PlayerDetails(
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?
 ) {
+    val position = rememberPlaybackPositionUi()
+    val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
+    val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
+    val played = if (duration > 0L) (position.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+
     TrackMetadata(player, reduced)
     PlayerSeekSection(player)
     Spacer(Modifier.height(6.dp))
     TransportControls(player, reduced)
-    Spacer(Modifier.height(16.dp))
-    PlayerActions(onOpenQueue, onOpenEqualizer, onShowInChat)
+    Spacer(Modifier.height(14.dp))
+    BgBeatSection(
+        item = player.item,
+        playbackFraction = played,
+        modifier = Modifier.padding(horizontal = 4.dp)
+    )
+    Spacer(Modifier.height(14.dp))
+    PlayerActions(player.item, onOpenQueue, onOpenEqualizer, onShowInChat)
 }
 
 @Composable
@@ -445,7 +551,7 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, reduced: Boolean) {
     Box(
         Modifier
             .size(size)
-            .shadow(6.dp, RoundedCornerShape(20.dp), clip = false)
+            .shadow(6.dp, styledShape(20.dp), clip = false)
             .graphicsLayer {
                 scaleX = scale.value
                 scaleY = scale.value
@@ -883,6 +989,7 @@ private fun PlayPauseButton(player: MusicPlayerUi, reduced: Boolean) {
 
 @Composable
 private fun PlayerActions(
+    item: PlaybackItem,
     onOpenQueue: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?
@@ -890,7 +997,47 @@ private fun PlayerActions(
     val queueLabel = stringResource(R.string.player_queue)
     val equalizerLabel = stringResource(R.string.player_equalizer)
     val showInChatLabel = stringResource(R.string.media_show_in_chat)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // Heart and add need a Telegram origin and a loaded library for this account; both stay hidden until then.
+    // Items of a chat with protected content are never kept in the library, so they stay hidden too. The chat is only
+    // known for the selected account; otherwise the buttons stay.
+    val protectedChat = rememberOriginChat(item.origin)?.hasProtectedContent == true
+    val track = remember(item.occurrenceId, item.origin) { item.toPlaylistTrack() }?.takeUnless { protectedChat }
+    val library = rememberMusicLibrary(item.accountId)
+    var addOpen by remember(item.occurrenceId) { mutableStateOf(false) }
+    val favorite = track != null && containsTrack(library?.favorites, track)
+    val favoriteLabel = stringResource(R.string.music_favorite_label)
+    val favoriteOnState = stringResource(R.string.music_favorite_state_on)
+    val favoriteOffState = stringResource(R.string.music_favorite_state_off)
+    val addLabel = stringResource(R.string.music_playlist_label)
+    val addToProfile = LocalAddProfileAudio.current
+    val addToProfileLabel = stringResource(R.string.player_add_to_profile)
+    val addToProfileDone = stringResource(R.string.player_add_to_profile_done)
+    // The shared player may be bound to another account; its file ids mean nothing to the active one.
+    val activeAccount = PlaybackEngine.activeAccount()
     val actions = buildList {
+        if (track != null && library != null) {
+            add(PlayerActionUi(
+                icon = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                label = favoriteLabel,
+                onClick = { scope.launch { context.reportMusicOutcome(MusicLibraries.get(context).toggleFavorite(track)) } },
+                active = favorite,
+                stateDescription = if (favorite) favoriteOnState else favoriteOffState
+            ))
+            add(PlayerActionUi(Icons.Rounded.Add, addLabel, onClick = { addOpen = true }))
+        }
+        // Only a music file the active account can see from a chat is a Telegram profile track. A track that already
+        // plays from a profile is in a profile, so the action would only add a copy.
+        if (addToProfile != null && item.isMusic && item.fileId != null && !item.systemPrivate && !protectedChat &&
+            !item.key.startsWith(PROFILE_AUDIO_KEY_PREFIX) && (activeAccount == null || item.accountId == activeAccount)
+        ) add(PlayerActionUi(Icons.Rounded.PersonAdd, addToProfileLabel, onClick = {
+            scope.launch {
+                addToProfile(item)
+                    .onSuccess { Toast.makeText(context, addToProfileDone, Toast.LENGTH_SHORT).show() }
+                    .onFailure { Toast.makeText(context, it.userMessage(context, R.string.player_add_to_profile_failed), Toast.LENGTH_SHORT).show() }
+            }
+        }))
         add(PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue))
         if (onOpenEqualizer != null) add(PlayerActionUi(Icons.Rounded.Equalizer, equalizerLabel, onOpenEqualizer))
         if (onShowInChat != null) add(PlayerActionUi(Icons.Rounded.ChatBubble, showInChatLabel, onShowInChat))
@@ -901,27 +1048,32 @@ private fun PlayerActions(
             PlayerAction(action, Modifier.weight(1f))
         }
     }
+    if (addOpen && track != null) AddToPlaylistSheet(accountId = item.accountId, track = track, onDismiss = { addOpen = false })
 }
 
 private data class PlayerActionUi(
     val icon: ImageVector,
     val label: String,
-    val onClick: () -> Unit
+    val onClick: () -> Unit,
+    val active: Boolean = false,
+    val stateDescription: String? = null
 )
 
 @Composable
 private fun PlayerAction(action: PlayerActionUi, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
+    val described = action.stateDescription
     Column(
         modifier
             .heightIn(min = 56.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(styledShape(14.dp))
             .clickable(role = Role.Button, onClick = action.onClick)
-            .padding(vertical = 7.dp),
+            .padding(vertical = 7.dp)
+            .then(if (described != null) Modifier.semantics { stateDescription = described } else Modifier),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(action.icon, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
+        Icon(action.icon, contentDescription = null, tint = if (action.active) palette.accent else palette.accentInk, modifier = Modifier.size(22.dp))
         Text(
             action.label,
             color = palette.textSecondary,
@@ -938,7 +1090,8 @@ private fun PlayerAction(action: PlayerActionUi, modifier: Modifier = Modifier) 
 private fun QueuePanel(
     source: PlaybackSourceLabel,
     onBack: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSearch: (() -> Unit)? = null
 ) {
     val queue = rememberMusicQueueUi()
     LaunchedEffect(queue == null) { if (queue == null) onDismiss() }
@@ -963,11 +1116,18 @@ private fun QueuePanel(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack, modifier = Modifier.focusRequester(backFocus)) {
+            TextButton(onClick = onBack, modifier = Modifier.focusRequester(backFocus)) {
                 Icon(
                     Icons.AutoMirrored.Rounded.ArrowBack,
-                    stringResource(R.string.common_back),
-                    tint = palette.textSecondary
+                    contentDescription = null,
+                    tint = palette.textSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    stringResource(R.string.queue_back_to_player),
+                    color = palette.textSecondary,
+                    maxLines = 1
                 )
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1042,12 +1202,22 @@ private fun QueuePanel(
             }
             if (current.upcoming.isEmpty() && !loadingOlder) {
                 item(key = "queue-empty") {
-                    Text(
-                        stringResource(R.string.queue_empty),
-                        color = palette.textSecondary,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp)
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            stringResource(R.string.queue_empty),
+                            color = palette.textSecondary,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        if (onSearch != null) {
+                            TextButton(onClick = onSearch, modifier = Modifier.padding(top = 4.dp)) {
+                                Text(stringResource(R.string.music_search_action))
+                            }
+                        }
+                    }
                 }
             }
             items(current.upcoming, key = { "${it.item.occurrenceId}:${it.index}" }) { row ->
@@ -1164,7 +1334,7 @@ private fun QueueCurrentCard(
     } else ""
     Surface(
         color = palette.accentSoft,
-        shape = RoundedCornerShape(16.dp),
+        shape = styledShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -1245,7 +1415,7 @@ private fun QueueUpcomingRow(
             .heightIn(min = QUEUE_ROW_HEIGHT)
             .zIndex(if (dragging) 1f else 0f)
             .graphicsLayer { translationY = dragOffset }
-            .clip(RoundedCornerShape(12.dp))
+            .clip(styledShape(12.dp))
             .background(if (highlighted) palette.accentSoft.copy(alpha = 0.65f) else Color.Transparent),
         verticalAlignment = Alignment.CenterVertically
     ) {

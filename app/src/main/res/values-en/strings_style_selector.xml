@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="style_preview_scene_chats">Chats</string>
+    <string name="style_preview_scene_messages">Conversation</string>
+    <string name="style_preview_scene_settings">Settings</string>
+    <string name="style_preview_description">Preview of the “%1$s” style, %2$s screen</string>
+    <string name="style_preview_glass_note">The preview shows glass without background blur. The real blur appears in the interface itself.</string>
+    <string name="style_preview_glass_fallback_note">Glass is currently drawn with a dense tint and no blur, just like in the preview.</string>
+    <string name="style_preview_search">Search</string>
+    <string name="style_preview_folder_all">All</string>
+    <string name="style_preview_folder_personal">Personal</string>
+    <string name="style_preview_folder_groups">Groups</string>
+    <string name="style_preview_archive_summary">3 chats</string>
+    <string name="style_preview_chat1_name">Anna</string>
+    <string name="style_preview_chat1_message">Sent the weekend photos</string>
+    <string name="style_preview_chat1_time">12:40</string>
+    <string name="style_preview_chat2_name">Project team</string>
+    <string name="style_preview_chat2_message">The build is ready for review</string>
+    <string name="style_preview_chat2_time">11:02</string>
+    <string name="style_preview_chat3_name">Michael</string>
+    <string name="style_preview_chat3_message">Call tonight?</string>
+    <string name="style_preview_chat3_time">Yesterday</string>
+    <string name="style_preview_chat4_name">Notes</string>
+    <string name="style_preview_chat4_message">Shopping list</string>
+    <string name="style_preview_chat4_time">Mon</string>
+    <string name="style_preview_settings_general">General</string>
+    <string name="style_preview_settings_notifications">Notifications</string>
+    <string name="style_preview_settings_sounds">Chat sounds</string>
+    <string name="style_preview_settings_privacy">Privacy</string>
+    <string name="style_preview_settings_data">Data</string>
+    <string name="style_preview_settings_autodownload">Media auto-download</string>
+    <string name="style_preview_settings_storage">Storage usage</string>
+</resources>

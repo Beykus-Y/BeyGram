@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.text.KeyboardOptions
@@ -21,6 +22,16 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
+import com.beykus.beygram.ui.design.DesignSystem
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.SurfaceTreatment
+import androidx.compose.ui.graphics.Color
+
+/**
+ * Material 3 composes the message field and its actions as tonal surfaces, so the field reads apart from the composer
+ * strip and the send/voice control is a filled tonal circle. Only that style has this treatment; the others keep theirs.
+ */
+internal val DesignSystem.composerTonal: Boolean get() = surfaces.treatment == SurfaceTreatment.Tonal
 
 @Composable
 internal fun FormattingTextField(value: String, entities: List<MessageTextEntity>, onChange: (String) -> Unit,
@@ -35,6 +46,7 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
     var link by remember { mutableStateOf("") }
     var range by remember { mutableStateOf(TextRange.Zero) }
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val formatLabel = stringResource(R.string.chat_format)
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -67,7 +79,7 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
             }, isError = isError, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             placeholder = { Text(placeholder, color = palette.textSecondary) },
             trailingIcon = trailingAction, maxLines = 5,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), colors = beyGramFilledTextFieldColors(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(design.shapes.composer), colors = composerFieldColors(design),
             visualTransformation = VisualTransformation { text ->
                 TransformedText(buildAnnotatedString {
                     append(text)
@@ -100,4 +112,25 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
             linkDialog = false
         }) { Text(stringResource(R.string.common_save)) } },
         dismissButton = { TextButton(onClick = { linkDialog = false }) { Text(stringResource(R.string.common_close)) } })
+}
+
+/** The field fill: the BeyGram field tone, or the Material 3 container ramp when the style is tonal. */
+@Composable
+private fun composerFieldColors(design: DesignSystem): TextFieldColors {
+    if (!design.composerTonal) return beyGramFilledTextFieldColors()
+    val palette = beyGramPalette()
+    val container = MaterialTheme.colorScheme.surfaceContainerHigh
+    return TextFieldDefaults.colors(
+        focusedContainerColor = container,
+        unfocusedContainerColor = container,
+        disabledContainerColor = container,
+        errorContainerColor = container,
+        focusedIndicatorColor = Color.Transparent,
+        unfocusedIndicatorColor = Color.Transparent,
+        disabledIndicatorColor = Color.Transparent,
+        errorIndicatorColor = Color.Transparent,
+        cursorColor = palette.accent,
+        focusedTextColor = palette.textPrimary,
+        unfocusedTextColor = palette.textPrimary
+    )
 }

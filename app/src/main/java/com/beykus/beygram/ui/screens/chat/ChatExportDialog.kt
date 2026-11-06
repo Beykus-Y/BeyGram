@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.app.DatePickerDialog
+import com.beykus.beygram.ui.design.styledShape
 import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,9 +21,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedButton
+import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -220,7 +221,7 @@ internal fun ChatExportDialog(
                             Spacer(Modifier.height(14.dp))
                             Column(
                                 Modifier.fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(styledShape(12.dp))
                                     .background(palette.warningSurface)
                                     .padding(12.dp)
                             ) {

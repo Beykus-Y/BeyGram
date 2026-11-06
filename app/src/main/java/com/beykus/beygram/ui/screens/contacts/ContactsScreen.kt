@@ -1,9 +1,14 @@
 package com.beykus.beygram.ui.screens.contacts
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.groupCardShape
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,7 +31,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,13 +41,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,6 +56,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -67,9 +75,17 @@ import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.components.listRowTitleWeight
+import com.beykus.beygram.ui.components.StyledListDivider
+import com.beykus.beygram.ui.components.MainTabTitle
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+
+/** Do not navigate from a delayed result belonging to a different Telegram account. */
+internal fun canUseContactResult(requestAccountId: String, activeAccountId: String): Boolean =
+    requestAccountId == activeAccountId
 
 /** Контакты из адресной книги Telegram: список, поиск, добавление, изменение, удаление и отправка. */
 @Composable
@@ -87,23 +103,32 @@ fun ContactsScreen(
     accountId: String = "legacy"
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state: ContactsScreenState = viewModel(key = "contacts:$accountId")
     val contacts = state.contacts
-    var loading by remember { mutableStateOf(true) }
-    var loadError by remember { mutableStateOf<String?>(null) }
-    var openError by remember { mutableStateOf<String?>(null) }
-    var openingUserId by remember { mutableStateOf<Long?>(null) }
-    var editingContact by remember { mutableStateOf<ContactPreview?>(null) }
-    var deletingContact by remember { mutableStateOf<ContactPreview?>(null) }
-    var sharingContact by remember { mutableStateOf<ContactPreview?>(null) }
-    var query by rememberSaveable { mutableStateOf("") }
-    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    // The composable can stay mounted while the selected Telegram account changes.
+    // Never carry searches, dialogs or pending controls into the next account.
+    var loading by remember(accountId) { mutableStateOf(true) }
+    var loadError by remember(accountId) { mutableStateOf<String?>(null) }
+    var openError by remember(accountId) { mutableStateOf<String?>(null) }
+    var openingUserId by remember(accountId) { mutableStateOf<Long?>(null) }
+    var editingContact by remember(accountId) { mutableStateOf<ContactPreview?>(null) }
+    var deletingContact by remember(accountId) { mutableStateOf<ContactPreview?>(null) }
+    var sharingContact by remember(accountId) { mutableStateOf<ContactPreview?>(null) }
+    var query by rememberSaveable(accountId) { mutableStateOf("") }
+    var showAddDialog by rememberSaveable(accountId) { mutableStateOf(false) }
+    val activeAccountId by rememberUpdatedState(accountId)
     val visible = remember(contacts, query) {
-        val needle = query.trim()
-        if (needle.isEmpty()) contacts
-        else contacts.filter { it.title.contains(needle, ignoreCase = true) || it.subtitle.contains(needle, ignoreCase = true) }
+        contacts.filter { contactMatchesQuery(it, query) }
+    }
+    val contactGroups = remember(visible) {
+        val groups = visible.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+            .groupBy { contactAlphabetGroup(it.title) }
+        // Names that start with a digit or a symbol go last, under #, as in the system address books. Sorted first they
+        // put a lone # right under the hint at the top of the list.
+        groups.filterKeys { it != CONTACT_SYMBOL_GROUP } + groups.filterKeys { it == CONTACT_SYMBOL_GROUP }
     }
     val shareChats = remember(chats) {
         chats.filter { it.canPost }.distinctBy { it.id }.sortedBy { it.title.lowercase() }
@@ -121,12 +146,20 @@ fun ContactsScreen(
     }
     fun openChat(contact: ContactPreview) {
         if (openingUserId != null) return
+        val requestAccountId = accountId
         scope.launch {
             openingUserId = contact.userId
             openError = null
             openPrivateChat(contact.userId)
-                .onSuccess { chatId -> onChatOpened(chatId) }
-                .onFailure { openError = it.userMessage(context, R.string.contacts_open_chat_failed) }
+                .onSuccess { chatId ->
+                    // An old account's async result must not navigate inside the new account.
+                    if (canUseContactResult(requestAccountId, activeAccountId)) onChatOpened(chatId)
+                }
+                .onFailure {
+                    if (canUseContactResult(requestAccountId, activeAccountId)) {
+                        openError = it.userMessage(context, R.string.contacts_open_chat_failed)
+                    }
+                }
             openingUserId = null
         }
     }
@@ -144,15 +177,15 @@ fun ContactsScreen(
         clipboard?.setPrimaryClip(ClipData.newPlainText(contact.title, contact.subtitle))
         Toast.makeText(context, R.string.contacts_username_copied, Toast.LENGTH_SHORT).show()
     }
-    LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(accountId) { reload() }
 
+    // The same screen surface as Settings: the glass style draws its glow, the others the plain screen colour.
     Column(
-        Modifier.fillMaxSize().background(palette.screen)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .imePadding()
     ) {
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.contacts_title), color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        MainTabTitle(stringResource(R.string.contacts_title), Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
             IconButton(onClick = { showAddDialog = true }) { Icon(Icons.Rounded.PersonAdd, stringResource(R.string.contacts_add_contact_description), tint = palette.accent) }
         }
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -174,20 +207,47 @@ fun ContactsScreen(
             }
             contacts.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_none), Modifier.weight(1f))
             visible.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_no_results), Modifier.weight(1f))
-            else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
-                items(visible, key = { it.userId }) { contact ->
-                    ContactRow(
-                        contact = contact,
-                        observeFile = observeFile,
-                        downloadFile = downloadFile,
-                        enabled = openingUserId == null,
-                        onClick = { openChat(contact) },
-                        onEdit = { editingContact = contact },
-                        onDelete = { deletingContact = contact },
-                        onShare = { sharingContact = contact },
-                        onCopy = { copyNumber(contact) },
-                        onCopyUsername = { copyUsername(contact) }
-                    )
+            else -> Box(
+                // The list is one group card, as a settings list is; the hint, the headings and the rows inside carry no glass.
+                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                    .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
+            ) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
+                    item(key = "contacts_actions_hint") {
+                        Text(
+                            stringResource(R.string.contacts_actions_hint),
+                            color = palette.textSecondary,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
+                        )
+                    }
+                    contactGroups.forEach { (initial, group) ->
+                        item(key = "contacts_group_$initial") {
+                            Text(
+                                initial,
+                                color = palette.accent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
+                            )
+                        }
+                        items(group, key = { it.userId }) { contact ->
+                            ContactRow(
+                                contact = contact,
+                                observeFile = observeFile,
+                                downloadFile = downloadFile,
+                                enabled = openingUserId == null,
+                                onClick = { openChat(contact) },
+                                onEdit = { editingContact = contact },
+                                onDelete = { deletingContact = contact },
+                                onShare = { sharingContact = contact },
+                                onCopy = { copyNumber(contact) },
+                                onCopyUsername = { copyUsername(contact) }
+                            )
+                            StyledListDivider()
+                        }
+                    }
                 }
             }
         }
@@ -229,6 +289,31 @@ fun ContactsScreen(
     }
 }
 
+/**
+ * Search by the displayed name/username and by the saved TDLib number, even when
+ * @username occupies the subtitle. Number matching is local and does not reveal
+ * the number in the row or query the network.
+ */
+internal fun contactMatchesQuery(contact: ContactPreview, query: String): Boolean {
+    val needle = query.trim()
+    if (needle.isEmpty()) return true
+    if (contact.title.contains(needle, ignoreCase = true) ||
+        contact.subtitle.contains(needle, ignoreCase = true)
+    ) return true
+    // Ignore separators only for phone-like input; a one-digit query would match nearly everyone.
+    if (needle.any { !it.isDigit() && it !in "+-() .\t" }) return false
+    val digits = needle.filter { it.isDigit() }
+    return digits.length >= 3 &&
+        contact.phone.filter { it.isDigit() }.contains(digits)
+}
+
+/** Heading of the names that do not start with a letter. It goes last in the list. */
+internal const val CONTACT_SYMBOL_GROUP = "#"
+
+/** Stable alphabet heading for local and non-Latin contact names; symbols go into [CONTACT_SYMBOL_GROUP]. */
+internal fun contactAlphabetGroup(title: String): String =
+    title.trim().firstOrNull()?.takeIf { it.isLetter() }?.uppercaseChar()?.toString() ?: CONTACT_SYMBOL_GROUP
+
 @Composable
 private fun ContactRow(
     contact: ContactPreview,
@@ -243,23 +328,40 @@ private fun ContactRow(
     onCopyUsername: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val contextLabel = stringResource(R.string.feature_more_actions)
     var menuOpen by remember { mutableStateOf(false) }
+    // Signature draws the row as the same rounded inset tile as a chat row; other styles keep the full-width row.
+    val main = LocalDesignSystem.current.mainScreen
     Row(
         Modifier.fillMaxWidth()
-            .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = { menuOpen = true })
-            .padding(start = 20.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+            .then(if (main.rowInset > 0.dp) Modifier.padding(horizontal = main.rowInset).clip(RoundedCornerShape(main.rowRadius)) else Modifier)
+            .combinedClickable(
+                enabled = enabled,
+                onClick = onClick,
+                onLongClickLabel = stringResource(R.string.feature_more_actions),
+                onLongClick = { menuOpen = true }
+            )
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction(contextLabel) {
+                        if (enabled) {
+                            menuOpen = true
+                            true
+                        } else false
+                    }
+                )
+            }
+            .padding(horizontal = (20.dp - main.rowInset).coerceAtLeast(0.dp), vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         TelegramAvatar(contact.initials, Color(contact.avatarColorArgb), 48.dp, contact.photo, observeFile, downloadFile)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
-            Text(contact.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(contact.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 16.sp, fontWeight = listRowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(contact.subtitle, color = palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Box {
-            IconButton(onClick = { menuOpen = true }, enabled = enabled) {
-                Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary)
-            }
+        // The row itself owns the long-press and TalkBack actions; no repeated overflow icon on every contact.
+        Box(Modifier.width(1.dp)) {
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.contacts_action_edit)) },

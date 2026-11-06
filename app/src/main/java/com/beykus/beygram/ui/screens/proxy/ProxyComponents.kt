@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.proxy
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,7 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.RadioButtonChecked
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -79,7 +81,7 @@ internal fun ProxyTopBar(
 ) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        Modifier.fillMaxWidth().topAppBarSurface().padding(start = 4.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = onBack) {
@@ -110,7 +112,7 @@ internal fun ProxyPillTabs(labels: List<String>, selectedIndex: Int, onSelect: (
                 Modifier
                     .weight(1f)
                     .height(36.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(styledShape(18.dp))
                     .background(if (selected) palette.accentSoft else palette.surface2)
                     .clickable { onSelect(index) },
                 contentAlignment = Alignment.Center
@@ -132,7 +134,7 @@ internal fun ProxyPillTabs(labels: List<String>, selectedIndex: Int, onSelect: (
 internal fun ProxySegmented(labels: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(palette.surface2).padding(4.dp),
+        Modifier.fillMaxWidth().clip(styledShape(14.dp)).background(palette.surface2).padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         labels.forEachIndexed { index, label ->
@@ -141,7 +143,7 @@ internal fun ProxySegmented(labels: List<String>, selectedIndex: Int, onSelect: 
                 Modifier
                     .weight(1f)
                     .height(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(styledShape(10.dp))
                     .background(if (selected) palette.surface else Color.Transparent)
                     .clickable { onSelect(index) },
                 contentAlignment = Alignment.Center
@@ -175,7 +177,7 @@ internal fun ProxyField(
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
-        shape = RoundedCornerShape(12.dp),
+        shape = styledShape(12.dp),
         colors = beyGramTextFieldColors()
     )
 }
@@ -187,7 +189,7 @@ internal fun ProxyCard(content: @Composable ColumnScope.() -> Unit) {
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(styledShape(20.dp))
             .background(beyGramPalette().surface)
             .padding(vertical = 4.dp),
         content = content
@@ -247,7 +249,7 @@ internal fun ProxyRadioRow(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(styledShape(8.dp))
                             .background(palette.successSurface)
                             .padding(horizontal = 6.dp, vertical = 1.dp)
                     )
@@ -273,7 +275,7 @@ internal fun ProxyPrimaryButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.fillMaxWidth().height(52.dp),
-        shape = RoundedCornerShape(16.dp),
+        shape = styledShape(16.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = palette.accent,
             contentColor = palette.onAccent,

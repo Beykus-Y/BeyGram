@@ -3,7 +3,10 @@ package com.beykus.beygram.ui.screens.theme
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.appearance.BubbleStyle
 import com.beykus.beygram.data.appearance.ChatWallpaper
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.ListDensity
+import com.beykus.beygram.data.appearance.encode
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationDirection
 import com.beykus.beygram.data.appearance.MessageAnimationEasing
@@ -11,6 +14,7 @@ import com.beykus.beygram.data.appearance.MessageAnimationMotionDirection
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.data.appearance.MessageAnimationTuning
 import com.beykus.beygram.data.appearance.MessageLineSpacing
+import com.beykus.beygram.data.appearance.NavigationPlacement
 import com.beykus.beygram.data.appearance.ThemeMode
 import com.beykus.beygram.data.appearance.ThemePreset
 import org.junit.Assert.assertEquals
@@ -64,7 +68,59 @@ class AppearanceDraftSaverTest {
         val draft = completeDraft()
         val restored = decodeAppearanceDraft(encodeAppearanceDraft(draft))
         assertEquals(draft, restored)
-        assertEquals(14, encodeAppearanceDraft(draft).size)
+        assertEquals(17, encodeAppearanceDraft(draft).size)
+    }
+
+    @Test fun designStyleAndGlassQualitySurviveActivityRecreation() {
+        val draft = completeDraft().copy(
+            designStyle = DesignStyle.LiquidGlass,
+            glassQuality = GlassQuality.Balanced
+        )
+        val restored = decodeAppearanceDraft(encodeAppearanceDraft(draft))
+        assertEquals(DesignStyle.LiquidGlass, restored?.designStyle)
+        assertEquals(GlassQuality.Balanced, restored?.glassQuality)
+    }
+
+    @Test fun navigationPlacementSurvivesActivityRecreation() {
+        val draft = completeDraft().copy(navigationPlacement = NavigationPlacement.Pinned)
+        val restored = decodeAppearanceDraft(encodeAppearanceDraft(draft))
+        assertEquals(NavigationPlacement.Pinned, restored?.navigationPlacement)
+
+        // A forced floating bar is a real choice too and must not collapse back to Auto.
+        val floating = decodeAppearanceDraft(
+            encodeAppearanceDraft(completeDraft().copy(navigationPlacement = NavigationPlacement.Floating))
+        )
+        assertEquals(NavigationPlacement.Floating, floating?.navigationPlacement)
+    }
+
+    @Test fun draftSavedBeforeThePlacementExistedKeepsTheStylePlacement() {
+        // A version-3 draft: the design style and the glass quality, but no bar placement.
+        val legacy = encodeAppearanceDraft(
+            completeDraft().copy(designStyle = DesignStyle.Signature, glassQuality = GlassQuality.High)
+        ).toMutableList()
+        legacy.removeAt(15)
+        val restored = decodeAppearanceDraft(legacy)
+        assertEquals(DesignStyle.Signature, restored?.designStyle)
+        assertEquals(GlassQuality.High, restored?.glassQuality)
+        assertEquals(NavigationPlacement.Auto, restored?.navigationPlacement)
+    }
+
+    @Test fun unknownPlacementFallsBackToFollowTheStyle() {
+        val parts = encodeAppearanceDraft(completeDraft()).toMutableList()
+        parts[15] = "DockFromTheFuture"
+        assertEquals(NavigationPlacement.Auto, decodeAppearanceDraft(parts)?.navigationPlacement)
+    }
+
+    @Test fun draftSavedBeforeTheDesignStyleExistedStillRestores() {
+        // A version-2 draft: thirteen values plus the trailing version, without the design style and glass quality.
+        val legacy = listOf(
+            "Warm", "Dark", "Rounded", "Comfortable", "", "", "preset:lavender-flow:40",
+            "16", "", "Normal", "", "", MessageAnimationConfig().encode(), "2"
+        )
+        val restored = decodeAppearanceDraft(legacy)
+        assertEquals(DesignStyle.Default, restored?.designStyle)
+        assertEquals(GlassQuality.Auto, restored?.glassQuality)
+        assertEquals(NavigationPlacement.Auto, restored?.navigationPlacement)
     }
 
     @Test fun minimalLegacyDraftStillRestoresWithCurrentDefaults() {

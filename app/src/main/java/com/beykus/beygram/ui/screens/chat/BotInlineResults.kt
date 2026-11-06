@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +48,7 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -288,6 +291,8 @@ private fun InlineResultThumbnail(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit
 ) {
+    // The result type is the only GIF signal here: an animation result's thumbnail animates after the dwell time, as in the bubble.
+    val autoplay = rememberAutoplayEligible(enabled = result.kind == InlineBotResultKind.Animation)
     val fileId = result.thumbnailFileId
     if (fileId == null) {
         InlineResultThumbnailFallback(result.kind)
@@ -300,14 +305,14 @@ private fun InlineResultThumbnail(
     }
     val path = file.localPath
     if (path == null) InlineResultThumbnailFallback(result.kind)
-    else LocalMediaImage(path, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)), maxDimension = 128)
+    else LocalMediaImage(path, Modifier.size(44.dp).clip(styledShape(10.dp)).then(autoplay.modifier), maxDimension = 128, animate = autoplay.eligible.value)
 }
 
 @Composable
 private fun InlineResultThumbnailFallback(kind: InlineBotResultKind) {
     val palette = beyGramPalette()
     Box(
-        Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(palette.surface2),
+        Modifier.size(44.dp).clip(styledShape(10.dp)).background(palette.surface2),
         contentAlignment = Alignment.Center
     ) { Icon(kind.icon(), contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(21.dp)) }
 }

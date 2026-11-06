@@ -32,10 +32,20 @@ class AttachmentComposerTest {
     @Test
     fun `every attachment type is visible without horizontal scrolling`() {
         val actions = attachmentActions(allowsPolls = true)
-        assertEquals(8, actions.size)
+        assertEquals(9, actions.size)
         assertEquals(AttachmentAction.entries.toList(), actions)
         assertTrue(AttachmentAction.Location.isChatObject)
         assertTrue(AttachmentAction.Dice.isChatObject)
+    }
+
+    @Test
+    fun `music sits with media but replaces the tray and disappears in secret chats`() {
+        assertTrue(!AttachmentAction.Music.isChatObject)
+        assertTrue(AttachmentAction.Music.replacesTray)
+        assertTrue(!AttachmentAction.Audio.replacesTray)
+        val actions = attachmentActions(allowsPolls = true, allowsMusic = false)
+        assertTrue(AttachmentAction.Music !in actions)
+        assertEquals(8, actions.size)
     }
 
     @Test
@@ -43,7 +53,7 @@ class AttachmentComposerTest {
         val actions = attachmentActions(allowsPolls = false)
         assertTrue(AttachmentAction.Poll !in actions)
         assertTrue(AttachmentAction.Dice in actions)
-        assertEquals(7, actions.size)
+        assertEquals(8, actions.size)
     }
 
     @Test

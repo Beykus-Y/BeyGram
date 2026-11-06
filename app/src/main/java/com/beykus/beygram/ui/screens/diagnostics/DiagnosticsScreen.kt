@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.diagnostics
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -28,9 +29,9 @@ import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,7 +87,7 @@ fun DiagnosticsScreen(
             Modifier.verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)
         ) {
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
+            Column(Modifier.fillMaxWidth().clip(styledShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)) {
                 AnalyticsSwitchRow()
                 HorizontalDivider(color = palette.divider, modifier = Modifier.padding(start = 56.dp))
                 MultiAccountTraceSwitchRow()

@@ -1,5 +1,10 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.animateFloat
@@ -20,6 +25,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,11 +45,18 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.ProfilePresence
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.delay
 
 /** Строка под названием чата: статус собеседника или число участников онлайн. */
 internal fun chatPresenceLine(chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, nowMillis: Long): UiText = when {
+    // Saved Messages is the user's own storage chat, not another Telegram user.
+    // Never display self-presence ("online"/last seen) below its title.
+    chat.isSavedMessages -> UiText.Res(R.string.presence_saved_messages)
     chat.isGroup -> info?.onlineMemberCount?.takeIf { it > 0 }?.let { UiText.Res(R.string.presence_online_count, listOf(it)) } ?: UiText.Res(R.string.presence_group)
     else -> info?.status?.let { presenceText(it, lastSeenStyle, nowMillis) } ?: UiText.Res(R.string.presence_private_chat)
 }
@@ -78,6 +94,27 @@ internal fun typingLabel(names: List<String>): UiText = when (names.size) {
     2 -> UiText.Res(R.string.presence_typing_two, listOf(names[0], names[1]))
     3 -> UiText.Res(R.string.presence_typing_three, listOf(names[0], names[1], names[2]))
     else -> UiText.Res(R.string.presence_typing_more, listOf(names[0], names[1], names.size - 2))
+}
+
+/**
+ * Retain the last nonempty names until the exit finishes. Without the snapshot TDLib's
+ * empty update collapses the text before the height animation, moving the composer.
+ */
+@Composable
+internal fun AnimatedTypingRow(names: List<String>) {
+    val motion = rememberMotionSpec(MotionToken.BannerChange)
+    var retainedNames by remember { mutableStateOf(emptyList<String>()) }
+    SideEffect { if (names.isNotEmpty()) retainedNames = names }
+    val displayNames = if (names.isNotEmpty()) names else retainedNames
+    AnimatedVisibility(
+        visible = names.isNotEmpty(),
+        enter = if (motion.isInstant) EnterTransition.None else
+            expandVertically(expandFrom = Alignment.Bottom, animationSpec = motion.animationSpec()) + motion.fadeEnter(),
+        exit = if (motion.isInstant) ExitTransition.None else
+            shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = motion.animationSpec()) + motion.fadeExit()
+    ) {
+        TypingRow(displayNames)
+    }
 }
 
 @Composable

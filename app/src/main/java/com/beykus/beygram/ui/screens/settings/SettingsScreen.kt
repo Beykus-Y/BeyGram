@@ -1,6 +1,6 @@
 package com.beykus.beygram.ui.screens.settings
 
-import androidx.compose.foundation.background
+import com.beykus.beygram.ui.components.settingsIconTint
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -33,6 +33,8 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Language
@@ -41,11 +43,20 @@ import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Icon
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
+import com.beykus.beygram.media.bgmix.BgMixSettingsStore
+import com.beykus.beygram.playback.TrackTransitionSettings
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -56,22 +67,28 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.MainTabTitle
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.glassScreenBackground
 
 /** Settings grouped by purpose. Routes remain owned by the caller. */
 @Composable
 fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit,
     onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit,
     onDiagnostics: () -> Unit, onUpdates: () -> Unit, onLanguage: () -> Unit, onSessions: () -> Unit,
-    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicSearch: () -> Unit = {}) {
+    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicLibrary: () -> Unit = {}) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     Column(
-        Modifier.fillMaxSize().background(palette.screen)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .verticalScroll(rememberScrollState())
     ) {
-        Text(
-            stringResource(R.string.settings_title), color = palette.textPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp).semantics { heading() }
+        MainTabTitle(
+            stringResource(R.string.settings_title),
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
         )
 
         SettingsGroup(stringResource(R.string.settings_group_interface)) {
@@ -85,10 +102,30 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsRowDivider()
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
         }
+        val transitionContext = LocalContext.current
+        remember(transitionContext) { TrackTransitionSettings.load(transitionContext) }
+        val skipSilence by TrackTransitionSettings.skipSilence.collectAsStateWithLifecycle()
+        val crossfade by TrackTransitionSettings.crossfade.collectAsStateWithLifecycle()
         SettingsGroup(stringResource(R.string.settings_group_sound_playback)) {
             SettingsLink(Icons.Rounded.GraphicEq, stringResource(R.string.settings_equalizer_title), onEqualizer)
             SettingsRowDivider()
-            SettingsLink(Icons.Rounded.MusicNote, stringResource(R.string.settings_music_title), onMusicSearch)
+            SettingsLink(Icons.Rounded.MusicNote, stringResource(R.string.settings_music_title), onMusicLibrary)
+            SettingsRowDivider()
+            SettingsToggle(
+                icon = Icons.Rounded.SkipNext,
+                title = stringResource(R.string.settings_skip_silence_title),
+                subtitle = stringResource(R.string.settings_skip_silence_desc),
+                checked = skipSilence,
+                onCheckedChange = { TrackTransitionSettings.setSkipSilence(transitionContext, it) }
+            )
+            SettingsRowDivider()
+            SettingsToggle(
+                icon = Icons.Rounded.SwapHoriz,
+                title = stringResource(R.string.settings_crossfade_title),
+                subtitle = stringResource(R.string.settings_crossfade_desc),
+                checked = crossfade,
+                onCheckedChange = { TrackTransitionSettings.setCrossfade(transitionContext, it) }
+            )
         }
         SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {
             SettingsLink(Icons.Rounded.Key, stringResource(R.string.account_security_title), onAccountSecurity)
@@ -117,6 +154,29 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
         SettingsGroup(stringResource(R.string.settings_group_updates)) {
             SettingsLink(Icons.Rounded.SystemUpdate, stringResource(R.string.updates_title), onUpdates)
         }
+        val context = LocalContext.current
+        val bgBeatSettings = remember { BgBeatSettingsStore.getInstance(context) }
+        val bgBeatEnabled by bgBeatSettings.enabled.collectAsStateWithLifecycle()
+        remember(context) { BgMixSettingsStore.load(context) }
+        val bgMixEnabled by BgMixSettingsStore.enabled.collectAsStateWithLifecycle()
+
+        SettingsGroup(stringResource(R.string.settings_group_experiments)) {
+            SettingsToggle(
+                icon = Icons.Rounded.GraphicEq,
+                title = stringResource(R.string.settings_bgbeat_title),
+                subtitle = stringResource(R.string.settings_bgbeat_desc),
+                checked = bgBeatEnabled,
+                onCheckedChange = { bgBeatSettings.setEnabled(it) }
+            )
+            SettingsRowDivider()
+            SettingsToggle(
+                icon = Icons.Rounded.SwapHoriz,
+                title = stringResource(R.string.settings_bgmix_title),
+                subtitle = stringResource(R.string.settings_bgmix_desc),
+                checked = bgMixEnabled,
+                onCheckedChange = { BgMixSettingsStore.setEnabled(context, it) }
+            )
+        }
         Spacer(Modifier.height(12.dp))
     }
 }
@@ -125,20 +185,26 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
 @Composable
 private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    // The style owns the group card: Default keeps its 20dp, Material 2 turns the card into a tight 4dp surface.
+    val groupShape = RoundedCornerShape(design.shapes.card)
     Column(Modifier.padding(bottom = 14.dp)) {
         Text(
-            title,
+            // Material 2 shouts its headings; the other styles keep the sentence case of the resource.
+            if (design.mainScreen.sectionLabelUppercase) title.uppercase() else title,
             color = palette.textSecondary,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
+            letterSpacing = design.mainScreen.sectionLabelTracking,
             modifier = Modifier.fillMaxWidth()
                 .padding(start = 22.dp, end = 22.dp, top = 4.dp, bottom = 8.dp)
                 .semantics { heading() }
         )
         Column(
             modifier = Modifier.padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(palette.surface)
+                // Material 3 groups its settings on the tonal container instead of the plain surface. The glass style
+                // draws the group as a translucent card over the ambient glow instead.
+                .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupShape)
                 .padding(vertical = 4.dp),
             content = content
         )
@@ -152,8 +218,37 @@ private fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) 
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Icon(icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
         Text(title, color = palette.textPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f).padding(start = 14.dp))
         Icon(Icons.Rounded.ChevronRight, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun SettingsToggle(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .clickable(role = Role.Switch) { onCheckedChange(!checked) }
+            .padding(horizontal = 20.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f).padding(start = 14.dp, end = 8.dp)) {
+            Text(title, color = palette.textPrimary, fontSize = 16.sp)
+            if (subtitle != null) {
+                Text(subtitle, color = palette.textSecondary, fontSize = 12.sp)
+            }
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
     }
 }

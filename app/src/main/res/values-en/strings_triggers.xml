@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Trigger word alerts. The notification shows the trigger word; the message text appears only with previews on. -->
+    <string name="trigger_channel_name">Trigger words</string>
+    <string name="trigger_channel_description">Alerts for your trigger words in muted chats</string>
+    <string name="trigger_alert_text">%1$s: %2$s</string>
+    <string name="trigger_alert_hidden">Found the word “%1$s”</string>
+
+    <!-- Settings and feed -->
+    <string name="trigger_title">Trigger words</string>
+    <string name="trigger_row_hint">Alerts when a trigger word appears in a muted chat</string>
+    <string name="trigger_intro">When a word or phrase from the list appears in a muted chat, you get a separate alert, and the match goes to the feed. It works while the app is open or background work is on.</string>
+    <string name="trigger_scope_title">Where to look</string>
+    <string name="trigger_scope_muted">Muted chats only</string>
+    <string name="trigger_scope_muted_hint">Telegram stays silent there, so a match sends an alert.</string>
+    <string name="trigger_scope_all">All chats</string>
+    <string name="trigger_scope_all_hint">In unmuted chats, matches only go to the feed, because Telegram already alerts there.</string>
+    <string name="trigger_list_title">Words</string>
+    <string name="trigger_empty">No words yet. Add a word, a phrase or a regular expression.</string>
+    <string name="trigger_add">Add a word</string>
+    <string name="trigger_feed_open">Mentions feed</string>
+    <string name="trigger_feed_count">Entries: %1$d</string>
+
+    <!-- Matching modes -->
+    <string name="trigger_mode_title">How to match</string>
+    <string name="trigger_mode_whole">Whole word</string>
+    <string name="trigger_mode_whole_hint">Matches only a whole word. For languages without spaces (Chinese, Japanese, Thai), choose “Anywhere in text”.</string>
+    <string name="trigger_mode_contains">Anywhere in text</string>
+    <string name="trigger_mode_contains_hint">Also matches inside longer words, so “test” finds “tests”.</string>
+    <string name="trigger_mode_regex">Regular expression</string>
+    <string name="trigger_mode_regex_hint">An RE2 expression, for example urgent\\p{L}*. Write letters of other alphabets as \\p{L}: \\w and \\b work only with Latin letters and digits. Lookahead and backreferences are not supported. The case setting below applies.</string>
+
+    <!-- Editor -->
+    <string name="trigger_editor_new">New word</string>
+    <string name="trigger_editor_edit">Edit word</string>
+    <string name="trigger_field_pattern">Word or phrase</string>
+    <string name="trigger_field_pattern_hint">For example: a name, a nickname, a project name</string>
+    <string name="trigger_flag_case">Ignore letter case</string>
+    <string name="trigger_flag_diacritics">Ignore diacritics</string>
+    <string name="trigger_flag_diacritics_hint">For example, é matches e. Letters that differ only by a mark also match.</string>
+    <string name="trigger_editor_save">Save</string>
+    <string name="trigger_editor_delete">Delete</string>
+    <string name="trigger_error_empty">Enter a word or a phrase.</string>
+    <string name="trigger_error_long">No more than %1$d characters.</string>
+    <string name="trigger_error_regex">The expression cannot be parsed. Check brackets and backslashes.</string>
+    <string name="trigger_error_regex_empty">The expression matches empty text, so it would fire on every message.</string>
+    <string name="trigger_error_too_many">You can save up to %1$d words.</string>
+
+    <!-- Mentions feed -->
+    <string name="trigger_mentions_title">Mentions</string>
+    <string name="trigger_mentions_empty">No matches yet.</string>
+    <string name="trigger_mentions_clear">Clear feed</string>
+    <string name="trigger_mentions_clear_title">Clear the feed?</string>
+    <string name="trigger_mentions_clear_body">Match records will be removed from this device. Messages in Telegram stay the same.</string>
+    <string name="trigger_mentions_clear_confirm">Clear</string>
+    <string name="trigger_mention_word">Word: %1$s</string>
+    <string name="trigger_mention_hidden_text">Text hidden by the preview setting</string>
+</resources>

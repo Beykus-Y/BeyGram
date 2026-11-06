@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.ui.components.topAppBarSurface
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.net.http.SslError
@@ -25,6 +26,8 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.Button
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -264,7 +267,7 @@ internal fun BotWebAppScreen(
         // Back closes the Mini App and leaves the chat underneath exactly where it was.
         Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
             Row(
-                Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 4.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().topAppBarSurface().background(palette.surface).padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (backButtonVisible) {

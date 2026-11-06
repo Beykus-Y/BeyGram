@@ -1,7 +1,8 @@
 package com.beykus.beygram.ui.screens.settings
 
+import com.beykus.beygram.ui.components.settingsIconTint
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -39,7 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,7 +53,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -69,6 +70,11 @@ import com.beykus.beygram.domain.model.PrivacySettingState
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.groupCardShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
@@ -115,10 +121,13 @@ fun PrivacySettingsScreen(
     loadPrivacy: suspend () -> Result<List<PrivacySettingState>>,
     savePrivacy: suspend (PrivacySetting, PrivacyRules) -> Result<Unit>,
     loadContacts: suspend () -> Result<List<ContactPreview>>,
+    stealthActive: Boolean,
+    onStealth: () -> Unit,
     onBlockedSenders: () -> Unit,
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var states by remember { mutableStateOf<List<PrivacySettingState>>(emptyList()) }
@@ -216,7 +225,7 @@ fun PrivacySettingsScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.privacy_title), onBack)
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         Column(
@@ -226,8 +235,9 @@ fun PrivacySettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(stringResource(R.string.privacy_intro), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
+            StealthModeLink(active = stealthActive, onClick = onStealth)
             loadError?.let { message ->
-                Surface(shape = RoundedCornerShape(16.dp), color = palette.warningSurface) {
+                Surface(shape = styledShape(16.dp), color = palette.warningSurface) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text(message, color = palette.warningText)
                         TextButton(enabled = !loading, onClick = { refresh++ }) { Text(stringResource(R.string.common_retry), color = palette.accentInk) }
@@ -281,10 +291,11 @@ private fun PrivacyGroup(
     onManageExceptions: (PrivacySettingState) -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, color = palette.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 6.dp))
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface).padding(vertical = 4.dp)
+            Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape()).padding(vertical = 4.dp)
         ) {
             states.forEachIndexed { index, state ->
                 if (index > 0) SettingsRowDivider(startInset = SettingsRowInset)
@@ -363,7 +374,7 @@ private fun PrivacySettingRow(
                 DropdownMenuItem(
                     text = { Text(audienceLabel(choice)) },
                     leadingIcon = if (choice == state.rules.choice) {
-                        { Icon(Icons.Rounded.Check, null, tint = palette.accent) }
+                        { Icon(Icons.Rounded.Check, null, tint = settingsIconTint()) }
                     } else null,
                     onClick = {
                         expanded = false
@@ -383,14 +394,36 @@ private fun PrivacySettingRow(
 }
 
 @Composable
-private fun BlockedUsersLink(onClick: () -> Unit) {
+private fun StealthModeLink(active: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(palette.surface)
+        Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Rounded.Block, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        Icon(Icons.Rounded.VisibilityOff, contentDescription = null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+            Text(stringResource(R.string.stealth_title), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(
+                stringResource(if (active) R.string.stealth_status_on else R.string.stealth_status_off),
+                color = palette.textSecondary, fontSize = 13.sp
+            )
+        }
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun BlockedUsersLink(onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    Row(
+        Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
+            .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Rounded.Block, contentDescription = null, tint = settingsIconTint(), modifier = Modifier.size(22.dp))
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
             Text(stringResource(R.string.privacy_blocked_users_title), color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Text(stringResource(R.string.privacy_blocked_users_detail), color = palette.textSecondary, fontSize = 13.sp)
@@ -562,7 +595,7 @@ private fun ContactPickerDialog(
         .filter { it.userId !in excluded }
         .filter { query.isBlank() || it.title.contains(query, ignoreCase = true) || it.subtitle.contains(query, ignoreCase = true) }
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(24.dp), color = palette.surface, modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = styledShape(24.dp), color = palette.surface, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(12.dp))

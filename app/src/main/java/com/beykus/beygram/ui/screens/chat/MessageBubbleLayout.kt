@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.AlignmentLine
+import androidx.compose.ui.layout.LastBaseline
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +36,7 @@ import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.DesignBubbleGeometry
 
 /** Отступ плашки времени от края фото, когда время стоит поверх него. */
 private val OverlayInset = 6.dp
@@ -74,12 +78,42 @@ internal fun bubbleShape(outgoing: Boolean, metrics: BubbleMetrics): RoundedCorn
 /**
  * Размеры для выбранной формы пузырей, плотности и радиуса. Скруглённые пузыри при комфортной плотности дают прежний вид.
  * [cornerRadiusDp] — радиус, выбранный в редакторе; null оставляет радиус формы.
+ * [geometry] — форма, которую задаёт выбранный стиль интерфейса; null сохраняет прежние размеры BeyGram.
+ * Форма пузыря, плотность и явный радиус пользователя по-прежнему применяются поверх неё.
  */
-internal fun bubbleMetricsFor(style: BubbleStyle, density: ListDensity, cornerRadiusDp: Int? = null): BubbleMetrics {
-    val shaped = when (style) {
-        BubbleStyle.Rounded -> BubbleMetrics()
-        BubbleStyle.Soft -> BubbleMetrics(cornerRadius = 14.dp, tailRadius = 4.dp, replyRadius = 9.dp)
-        BubbleStyle.Square -> BubbleMetrics(cornerRadius = 8.dp, tailRadius = 2.dp, replyRadius = 4.dp)
+internal fun bubbleMetricsFor(
+    style: BubbleStyle,
+    density: ListDensity,
+    cornerRadiusDp: Int? = null,
+    geometry: DesignBubbleGeometry? = null
+): BubbleMetrics {
+    val shaped = if (geometry == null) {
+        when (style) {
+            BubbleStyle.Rounded -> BubbleMetrics()
+            BubbleStyle.Soft -> BubbleMetrics(cornerRadius = 14.dp, tailRadius = 4.dp, replyRadius = 9.dp)
+            BubbleStyle.Square -> BubbleMetrics(cornerRadius = 8.dp, tailRadius = 2.dp, replyRadius = 4.dp)
+        }
+    } else {
+        val base = BubbleMetrics(
+            cornerRadius = geometry.cornerRadius,
+            tailRadius = geometry.tailRadius,
+            replyRadius = geometry.replyRadius,
+            textInset = geometry.textInset,
+            textTopInset = geometry.textTopInset
+        )
+        when (style) {
+            BubbleStyle.Rounded -> base
+            BubbleStyle.Soft -> base.copy(
+                cornerRadius = (base.cornerRadius - 6.dp).coerceAtLeast(4.dp),
+                tailRadius = (base.tailRadius - 2.dp).coerceAtLeast(2.dp),
+                replyRadius = (base.replyRadius - 3.dp).coerceAtLeast(4.dp)
+            )
+            BubbleStyle.Square -> base.copy(
+                cornerRadius = minOf(base.cornerRadius, 8.dp),
+                tailRadius = 2.dp,
+                replyRadius = minOf(base.replyRadius, 4.dp)
+            )
+        }
     }
     val cornered = if (cornerRadiusDp != null) shaped.copy(cornerRadius = cornerRadiusDp.dp) else shaped
     return when (density) {
@@ -100,6 +134,7 @@ internal fun bubbleMetricsFor(style: BubbleStyle, density: ListDensity, cornerRa
 internal fun BubbleLayout(
     modifier: Modifier,
     overlayMeta: Boolean,
+    inlineMeta: Boolean = false,
     body: @Composable () -> Unit,
     meta: @Composable () -> Unit,
     footer: @Composable () -> Unit = {},
@@ -113,11 +148,30 @@ internal fun BubbleLayout(
         val footerPlaceable = measurables[2].measure(loose)
         // Полоса сама не растягивает пузырь до максимума, но и не даёт ему стать уже своей подписи.
         val barWidth = measurables[3].maxIntrinsicWidth(loose.maxHeight)
-        val width = maxOf(bodyPlaceable.width, metaPlaceable.width, footerPlaceable.width, barWidth).coerceIn(constraints.minWidth, constraints.maxWidth)
+        val placeInline = inlineMeta && !overlayMeta &&
+            bubbleMetaFitsBesideBody(bodyPlaceable.width, metaPlaceable.width, loose.maxWidth)
+        val contentWidth = if (placeInline) bodyPlaceable.width + metaPlaceable.width else maxOf(bodyPlaceable.width, metaPlaceable.width)
+        val width = maxOf(contentWidth, footerPlaceable.width, barWidth).coerceIn(constraints.minWidth, constraints.maxWidth)
         val barPlaceable = measurables[3].measure(Constraints(minWidth = 0, maxWidth = width, minHeight = 0, maxHeight = loose.maxHeight))
         val inset = OverlayInset.roundToPx()
-        val metaTop = if (overlayMeta) bodyPlaceable.height - metaPlaceable.height - inset else bodyPlaceable.height
-        val barTop = bodyPlaceable.height + (if (overlayMeta) 0 else metaPlaceable.height)
+        // Bottom-edge alignment made the small time label appear vertically detached from
+        // the message text on some fonts and font scales. Align propagated LAST text baselines
+        // where available, and reserve the actual combined height for any status icons.
+        val lastBodyBaseline = bodyPlaceable[LastBaseline]
+        val lastMetaBaseline = metaPlaceable[LastBaseline]
+        val baselineDelta = if (lastBodyBaseline != AlignmentLine.Unspecified &&
+            lastMetaBaseline != AlignmentLine.Unspecified
+        ) lastBodyBaseline - lastMetaBaseline else null
+        val metaTop = when {
+            overlayMeta -> bodyPlaceable.height - metaPlaceable.height - inset
+            placeInline -> inlineMetadataTop(bodyPlaceable.height, metaPlaceable.height, baselineDelta)
+            else -> bodyPlaceable.height
+        }
+        val barTop = when {
+            overlayMeta -> bodyPlaceable.height
+            placeInline -> maxOf(bodyPlaceable.height, metaTop + metaPlaceable.height)
+            else -> bodyPlaceable.height + metaPlaceable.height
+        }
         val footerTop = barTop + barPlaceable.height
         val height = footerTop + footerPlaceable.height
         val metaLeft = width - metaPlaceable.width - (if (overlayMeta) inset else 0)
@@ -130,9 +184,47 @@ internal fun BubbleLayout(
     }
 }
 
+/** Safe width check for compact text timestamps. A wide or empty child keeps the separate metadata row. */
+internal fun bubbleMetaFitsBesideBody(bodyWidth: Int, metaWidth: Int, maxWidth: Int): Boolean =
+    bodyWidth > 0 && metaWidth > 0 && bodyWidth <= maxWidth && metaWidth <= maxWidth - bodyWidth
+
+/** Keep the time's text baseline aligned with the message, with a safe bottom-edge fallback. */
+internal fun inlineMetadataTop(bodyHeight: Int, metaHeight: Int, baselineDelta: Int?): Int =
+    (baselineDelta ?: (bodyHeight - metaHeight)).coerceAtLeast(0)
+
+/** Inline metadata is deliberately limited to short, simple, single-line text.
+ * Multi-line content and sender headers need their own metadata row; width alone
+ * is not a sufficient signal that inline placement would look natural.
+ */
+internal fun useInlineTextMetadata(message: ChatMessage, hasSenderHeader: Boolean, hasTranslation: Boolean): Boolean =
+    message.text.isNotBlank() &&
+        message.text.length <= 28 &&
+        '\n' !in message.text &&
+        message.entities.isEmpty() &&
+        message.media == null &&
+        message.special == null &&
+        message.reply == null &&
+        message.linkPreview == null &&
+        message.expiredMediaKind == null &&
+        message.inlineKeyboard.isEmpty() &&
+        message.sendState != MessageSendState.Failed &&
+        !hasSenderHeader &&
+        !hasTranslation
+
 /** Время, статус отправки и кнопка повтора. При [overlay] — белым на тёмной плашке поверх фото. */
 @Composable
-internal fun BubbleMeta(message: ChatMessage, isRead: Boolean, retryAvailable: Boolean, overlay: Boolean, onRetry: () -> Unit) {
+internal fun BubbleMeta(
+    message: ChatMessage,
+    isRead: Boolean,
+    retryAvailable: Boolean,
+    overlay: Boolean,
+    onRetry: () -> Unit,
+    inline: Boolean = false,
+    /** Opens the earlier texts that Chat Memory kept; the versions link shows only when the message has some and this is set. */
+    onShowVersions: (() -> Unit)? = null,
+    /** How many earlier texts the link counts; an album passes the member that kept them. */
+    versionCount: Int = message.memory?.versionCount ?: 0
+) {
     val palette = beyGramPalette()
     val failed = message.sendState == MessageSendState.Failed
     val status = if (message.isOutgoing && failed) " · " + stringResource(R.string.chat_status_not_sent) else ""
@@ -141,23 +233,39 @@ internal fun BubbleMeta(message: ChatMessage, isRead: Boolean, retryAvailable: B
         failed -> palette.warningText
         else -> palette.messageTime
     }
-    val modifier = if (overlay) Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)).padding(horizontal = 6.dp, vertical = 2.dp)
-        else Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Text((if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
-            color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-        if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText, fontSize = 12.sp,
-            modifier = Modifier.clickable(onClick = onRetry))
-        if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
-            Spacer(Modifier.width(3.dp))
-            Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = if (overlay) Color.White else palette.messageTime,
-                modifier = Modifier.size(14.dp))
+    val modifier = when {
+        overlay -> Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+        inline -> Modifier.padding(start = 4.dp, end = 8.dp, bottom = 4.dp)
+        else -> Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+    }
+    // Chat Memory marks: a kept deletion and a lost attachment. Empty for every message that Chat Memory did not keep.
+    val memory = message.memory
+    val memoryLabels = listOfNotNull(
+        if (memory?.deletedAtMillis != null) stringResource(R.string.chat_memory_deleted) else null,
+        if (memory?.attachmentNotKept == true) stringResource(R.string.chat_memory_attachment_not_kept) else null
+    )
+    val memoryPrefix = if (memoryLabels.isEmpty()) "" else memoryLabels.joinToString(" · ") + " · "
+    Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(memoryPrefix + (if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
+                color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText, fontSize = 12.sp,
+                modifier = Modifier.clickable(onClick = onRetry))
+            if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
+                Spacer(Modifier.width(3.dp))
+                Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = if (overlay) Color.White else palette.messageTime,
+                    modifier = Modifier.size(14.dp))
+            }
+            if (message.isOutgoing && message.sendState == MessageSendState.Sent) {
+                Spacer(Modifier.width(3.dp))
+                Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done,
+                    if (isRead) stringResource(R.string.chat_read_description) else stringResource(R.string.chat_sent_description),
+                    tint = if (overlay) Color.White else palette.accent, modifier = Modifier.size(16.dp))
+            }
         }
-        if (message.isOutgoing && message.sendState == MessageSendState.Sent) {
-            Spacer(Modifier.width(3.dp))
-            Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done,
-                if (isRead) stringResource(R.string.chat_read_description) else stringResource(R.string.chat_sent_description),
-                tint = if (overlay) Color.White else palette.accent, modifier = Modifier.size(16.dp))
-        }
+        // The link has a line of its own, so a long time or label can never squeeze it out at a large font size.
+        if (versionCount > 0 && onShowVersions != null) Text(stringResource(R.string.chat_memory_versions_count, versionCount),
+            color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.clickable(onClick = onShowVersions))
     }
 }

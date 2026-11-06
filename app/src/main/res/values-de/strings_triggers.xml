@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Trigger word alerts. The notification shows the trigger word; the message text appears only with previews on. -->
+    <string name="trigger_channel_name">Trigger-Wörter</string>
+    <string name="trigger_channel_description">Hinweise zu deinen Trigger-Wörtern in stummgeschalteten Chats</string>
+    <string name="trigger_alert_text">%1$s: %2$s</string>
+    <string name="trigger_alert_hidden">Wort „%1$s“ gefunden</string>
+
+    <!-- Settings and feed -->
+    <string name="trigger_title">Trigger-Wörter</string>
+    <string name="trigger_row_hint">Hinweis, wenn ein Trigger-Wort in einem stummgeschalteten Chat vorkommt</string>
+    <string name="trigger_intro">Wenn ein Wort oder eine Wendung aus der Liste in einem stummgeschalteten Chat vorkommt, erhältst du eine eigene Benachrichtigung, und der Treffer landet im Verlauf. Das funktioniert, solange die App geöffnet ist oder die Hintergrundarbeit eingeschaltet ist.</string>
+    <string name="trigger_scope_title">Wo gesucht wird</string>
+    <string name="trigger_scope_muted">Nur in stummgeschalteten Chats</string>
+    <string name="trigger_scope_muted_hint">Telegram bleibt dort still, deshalb kommt ein Treffer als Benachrichtigung.</string>
+    <string name="trigger_scope_all">In allen Chats</string>
+    <string name="trigger_scope_all_hint">In nicht stummgeschalteten Chats landen Treffer nur im Verlauf, weil Telegram dort ohnehin benachrichtigt.</string>
+    <string name="trigger_list_title">Wörter</string>
+    <string name="trigger_empty">Noch keine Wörter. Füge ein Wort, eine Wendung oder einen regulären Ausdruck hinzu.</string>
+    <string name="trigger_add">Wort hinzufügen</string>
+    <string name="trigger_feed_open">Verlauf der Treffer</string>
+    <string name="trigger_feed_count">Einträge: %1$d</string>
+
+    <!-- Matching modes -->
+    <string name="trigger_mode_title">Suchweise</string>
+    <string name="trigger_mode_whole">Ganzes Wort</string>
+    <string name="trigger_mode_whole_hint">Trifft nur ein ganzes Wort. Für Sprachen ohne Leerzeichen (Chinesisch, Japanisch, Thai) wähle „Im Text“.</string>
+    <string name="trigger_mode_contains">Im Text</string>
+    <string name="trigger_mode_contains_hint">Trifft auch innerhalb längerer Wörter, so findet „Test“ auch „Tests“.</string>
+    <string name="trigger_mode_regex">Regulärer Ausdruck</string>
+    <string name="trigger_mode_regex_hint">RE2-Ausdruck, zum Beispiel dringend\\p{L}*. Buchstaben anderer Alphabete schreibe mit \\p{L}: \\w und \\b arbeiten nur mit lateinischen Buchstaben und Ziffern. Lookahead und Rückverweise werden nicht unterstützt. Es gilt die Groß-/Kleinschreibung unten.</string>
+
+    <!-- Editor -->
+    <string name="trigger_editor_new">Neues Wort</string>
+    <string name="trigger_editor_edit">Wort bearbeiten</string>
+    <string name="trigger_field_pattern">Wort oder Wendung</string>
+    <string name="trigger_field_pattern_hint">Zum Beispiel: Name, Spitzname, Projektname</string>
+    <string name="trigger_flag_case">Groß- und Kleinschreibung ignorieren</string>
+    <string name="trigger_flag_diacritics">Diakritische Zeichen ignorieren</string>
+    <string name="trigger_flag_diacritics_hint">Zum Beispiel stimmt é mit e überein. Buchstaben, die sich nur durch ein Zeichen unterscheiden, stimmen ebenfalls überein.</string>
+    <string name="trigger_editor_save">Speichern</string>
+    <string name="trigger_editor_delete">Löschen</string>
+    <string name="trigger_error_empty">Gib ein Wort oder eine Wendung ein.</string>
+    <string name="trigger_error_long">Höchstens %1$d Zeichen.</string>
+    <string name="trigger_error_regex">Der Ausdruck lässt sich nicht lesen. Prüfe Klammern und Backslashes.</string>
+    <string name="trigger_error_regex_empty">Der Ausdruck passt auf leeren Text und würde bei jeder Nachricht anschlagen.</string>
+    <string name="trigger_error_too_many">Du kannst höchstens %1$d Wörter speichern.</string>
+
+    <!-- Mentions feed -->
+    <string name="trigger_mentions_title">Treffer</string>
+    <string name="trigger_mentions_empty">Noch keine Treffer.</string>
+    <string name="trigger_mentions_clear">Verlauf leeren</string>
+    <string name="trigger_mentions_clear_title">Verlauf leeren?</string>
+    <string name="trigger_mentions_clear_body">Die Trefferdaten werden von diesem Gerät gelöscht. Nachrichten in Telegram bleiben unverändert.</string>
+    <string name="trigger_mentions_clear_confirm">Leeren</string>
+    <string name="trigger_mention_word">Wort: %1$s</string>
+    <string name="trigger_mention_hidden_text">Text durch die Vorschau-Einstellung ausgeblendet</string>
+</resources>

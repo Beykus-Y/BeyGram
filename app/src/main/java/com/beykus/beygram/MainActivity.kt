@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -32,8 +33,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.security.AppLockActivity
 import com.beykus.beygram.security.AppLockManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.deeplink.PendingDeepLinkInbox
@@ -51,6 +55,15 @@ import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.beykus.beygram.ui.design.LocalGlassBackdrop
+import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.data.appearance.AppearanceSettingsStore
+import com.beykus.beygram.data.appearance.DesignStartupGuard
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.appearance.MAX_UNFINISHED_STARTS
+import com.beykus.beygram.data.appearance.shouldFallBackToDefault
+import com.beykus.beygram.ui.design.rememberDesign
+import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.screens.chat.LocalBubbleMetrics
 import com.beykus.beygram.ui.screens.chat.LocalChatWallpaper
 import com.beykus.beygram.ui.screens.chat.SecureWindowFlags
@@ -66,6 +79,8 @@ class MainActivity : FragmentActivity() {
     private var windowResumed = false
     private var screenSecure = false
     private var secretPlayback = false
+    /** The startup guard of this Activity, so that a quit before the first frames is recognised in [onDestroy]. */
+    private var startupGuard: DesignStartupGuard? = null
     /** Bumped when onStart hides the window, so Compose shows it again after drawing the gate. */
     private var windowVisibilityRevision by mutableIntStateOf(0)
     override fun attachBaseContext(newBase: android.content.Context) {
@@ -116,6 +131,12 @@ class MainActivity : FragmentActivity() {
         pendingDeepLink = deepLinkInbox.restore()
         enableEdgeToEdge()
 
+        // A style that crashes the app on every start must not lock the user out. The guard records the start here and
+        // is cleared once the interface has actually been drawn; a start that follows a failed one falls back to the
+        // Default style instead of repeating the crash.
+        val designStartupGuard = DesignStartupGuard(this).also { startupGuard = it }
+        val previousStartFailed = designStartupGuard.beginStart()
+
         setContent {
             val lockManager = appLock
             val locked by lockManager.locked.collectAsStateWithLifecycle()
@@ -150,9 +171,57 @@ class MainActivity : FragmentActivity() {
                 if (!gateLocked) window.decorView.visibility = View.VISIBLE
             }
             // The saved choice is read asynchronously. Nothing is drawn until it is known, so the theme never flips.
-            val config = appearance.config.collectAsState().value ?: return@setContent
+            val storedConfig = appearance.config.collectAsState().value ?: return@setContent
+            // Only the design style may be dropped: colours, wallpapers, message geometry and motion stay untouched.
+            // The fallback is a one-shot recovery: once Default is stored, the user is free to pick any style again in
+            // the same session, and that choice is not overwritten.
+            var forcedStyle by remember {
+                mutableStateOf(
+                    if (previousStartFailed && shouldFallBackToDefault(MAX_UNFINISHED_STARTS, storedConfig.designStyle)) {
+                        DesignStyle.Default
+                    } else {
+                        null
+                    }
+                )
+            }
+            val config = forcedStyle?.let { storedConfig.copy(designStyle = it) } ?: storedConfig
+            val appearanceStore = remember { AppearanceSettingsStore(applicationContext) }
+            LaunchedEffect(storedConfig, forcedStyle) {
+                val target = forcedStyle ?: return@LaunchedEffect
+                if (storedConfig.designStyle == target) {
+                    // The recovery is on disk; from here the saved choice wins again.
+                    designStartupGuard.markRecovered()
+                    forcedStyle = null
+                    return@LaunchedEffect
+                }
+                val recovered = storedConfig.copy(designStyle = target)
+                // Write first and consume the recovery only when that write actually succeeded. If it throws, the
+                // panel keeps forcing Default in this session and the guard stays pending for the next start.
+                val stored = runCatching { appearanceStore.save(recovered) }.isSuccess
+                appearance.save(recovered)
+                if (stored) {
+                    designStartupGuard.markRecovered()
+                    forcedStyle = null
+                }
+            }
+            // Nothing to replace when the saved style is already Default: the pending recovery is finished as soon as
+            // a stored Default has been read, otherwise it would linger and overwrite a style the user picks later.
+            LaunchedEffect(storedConfig) {
+                if (previousStartFailed && storedConfig.designStyle == DesignStyle.Default) {
+                    designStartupGuard.markRecovered()
+                }
+            }
+            // Two drawn frames and a short settle period prove the interface works; only then is the guard cleared.
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                withFrameNanos { }
+                delay(1200)
+                designStartupGuard.markRendered()
+            }
             val systemDark = isSystemInDarkTheme()
             val isDarkTheme = config.mode.isDark(systemDark)
+            val design = rememberDesign(config)
+            val glassBackdrop = rememberGlassBackdrop()
             // The status and navigation bar icons follow the theme in use. The bars stay transparent, so the app's own colours show through.
             SideEffect {
                 // While the gate is up, the Activity window stays hidden behind the secure
@@ -168,14 +237,16 @@ class MainActivity : FragmentActivity() {
             BeyGramTheme(
                 darkTheme = isDarkTheme,
                 tokens = resolveTokens(config, systemDark),
+                design = design,
                 messageTextSizeSp = config.messageTextSizeSp,
                 messageLineSpacing = config.messageLineSpacing
             ) {
                 // Bubble shape and list density come from the same saved choice as the colours.
                 CompositionLocalProvider(
-                    LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp),
+                    LocalBubbleMetrics provides bubbleMetricsFor(config.bubbleStyle, config.density, config.bubbleCornerRadiusDp, design.bubbles),
                     LocalChatListDensity provides chatListDensityFor(config.density),
-                    LocalChatWallpaper provides config.wallpaper
+                    LocalChatWallpaper provides config.wallpaper,
+                    LocalGlassBackdrop provides glassBackdrop
                 ) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
@@ -292,6 +363,8 @@ class MainActivity : FragmentActivity() {
      */
     override fun onDestroy() {
         SecureWindowFlags.unregisterPolicy(window)
+        // Leaving before the first frames settled is a quit, not a failed start, so it must not make the style fall back.
+        if (isFinishing) startupGuard?.abandonStart()
         super.onDestroy()
     }
 

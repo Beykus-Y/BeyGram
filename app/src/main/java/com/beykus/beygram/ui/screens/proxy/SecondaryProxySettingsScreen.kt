@@ -1,12 +1,18 @@
 package com.beykus.beygram.ui.screens.proxy
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.Button
+import com.beykus.beygram.ui.components.TextButton
+import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,19 +57,16 @@ internal fun SecondaryProxySettingsScreen(
         route = result.getOrNull()
         failed = result.isFailure
     }
-    Column(
-        Modifier.fillMaxSize().background(palette.screen).safeDrawingPadding()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
-            }
-            Text(stringResource(R.string.multi_proxy_title), fontSize = 22.sp, color = palette.textPrimary)
-        }
+    Column(Modifier.fillMaxSize().background(palette.screen).safeDrawingPadding()) {
+        // The proxy pages share one app bar, so the style's top bar reaches the per-account route page too.
+        ProxyTopBar(stringResource(R.string.multi_proxy_title), onBack)
         Column(
-            Modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(20.dp)).padding(18.dp),
+            Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+        Column(
+            Modifier.fillMaxWidth().background(palette.surface, styledShape(20.dp)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(Icons.Rounded.Shield, contentDescription = null, tint = palette.accent)
@@ -105,6 +108,7 @@ internal fun SecondaryProxySettingsScreen(
             color = palette.danger, fontSize = 13.sp
         )
         Button(onClick = onManage, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.multi_proxy_manage)) }
+        }
     }
     desiredRoute?.let { preference ->
         AlertDialog(

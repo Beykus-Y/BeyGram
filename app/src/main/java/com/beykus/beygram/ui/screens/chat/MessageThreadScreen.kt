@@ -1,6 +1,9 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,7 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,6 +68,7 @@ import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageReply
 import com.beykus.beygram.domain.model.MessageSendState
@@ -139,6 +143,7 @@ internal fun MessageThreadScreen(
     // A view-once message is deleted as soon as it is opened; keep its page for this viewer session.
     var retainedViewOnce by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
     var openedViewOnceIds by remember(channelChatId, postId) { mutableStateOf(emptySet<Long>()) }
+    val viewOnceGate = rememberViewOnceStealthGate(channelChatId to postId)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val messageLimits by conversation.messageLimits.collectAsStateWithLifecycle()
 
@@ -281,7 +286,17 @@ internal fun MessageThreadScreen(
         scope.launch { listState.animateScrollToItem(messages.lastIndex - index) }
     }
 
-    fun send() {
+    val stealthFallback = remember { StealthScheduleFallback() }
+    fun retryComment(chatId: Long, messageId: Long, sendNowConsent: Boolean) {
+        scope.launch {
+            conversation.retryMessages(chatId, listOf(messageId), sendNowConsent).onFailure { failure ->
+                if (!stealthFallback.offer(failure) { retryComment(chatId, messageId, sendNowConsent = true) }) {
+                    sendError = failure.userMessage(context, R.string.chat_retry_send_failed)
+                }
+            }
+        }
+    }
+    fun send(sendNowConsent: Boolean = false) {
         val current = thread ?: return
         if (!current.canReply || sending || text.isBlank()) return
         if (text.codePointCount(0, text.length) > messageLimits.text) {
@@ -295,12 +310,17 @@ internal fun MessageThreadScreen(
         sendError = null
         scope.launch {
             try {
-                conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo)
+                conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo, sendNowConsent)
                     .onSuccess { sent ->
-                        // TDLib may already have confirmed this comment, so the snapshot must not bring its temporary copy back.
-                        val history = conversation.observeChatHistory(current.discussionChatId).value
-                        messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history, current.discussionChatId, current.threadId)
-                        thread = current.copy(replyCount = current.replyCount + 1)
+                        if (sent != null) {
+                            // TDLib may already have confirmed this comment, so the snapshot must not bring its temporary copy back.
+                            val history = conversation.observeChatHistory(current.discussionChatId).value
+                            messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history, current.discussionChatId, current.threadId)
+                            thread = current.copy(replyCount = current.replyCount + 1)
+                        } else {
+                            // Stealth mode put the comment into Telegram's scheduled queue; it appears when the server publishes it.
+                            showStealthScheduledNotice(context)
+                        }
                         text = ""
                         entities = emptyList()
                         replyTarget = null
@@ -308,7 +328,11 @@ internal fun MessageThreadScreen(
                         onDraftChange("", emptyList(), 0L)
                         scope.launch { listState.animateScrollToItem(0) }
                     }
-                    .onFailure { sendError = it.userMessage(context, R.string.thread_comments_send_failed) }
+                    .onFailure { failure ->
+                        if (!stealthFallback.offer(failure) { send(sendNowConsent = true) }) {
+                            sendError = failure.userMessage(context, R.string.thread_comments_send_failed)
+                        }
+                    }
             } finally {
                 sending = false
             }
@@ -326,7 +350,7 @@ internal fun MessageThreadScreen(
     ) {
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         Row(
-            Modifier.fillMaxWidth().background(palette.surface).padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+            Modifier.fillMaxWidth().topAppBarSurface().background(palette.surface).padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
@@ -382,12 +406,7 @@ internal fun MessageThreadScreen(
                         onOpenProfile = onOpenProfile,
                         onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
                         onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
-                        onRetry = {
-                            scope.launch {
-                                conversation.retryMessages(message.chatId, listOf(message.id))
-                                    .onFailure { sendError = it.userMessage(context, R.string.chat_retry_send_failed) }
-                            }
-                        },
+                        onRetry = { retryComment(message.chatId, message.id, sendNowConsent = false) },
                         onActions = { reactionTarget = message.chatId to message },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {
@@ -512,7 +531,7 @@ internal fun MessageThreadScreen(
                     replyTarget?.let { target ->
                         Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(
-                                Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                                Modifier.weight(1f).clip(styledShape(12.dp))
                                     .background(palette.surface2)
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
@@ -543,14 +562,17 @@ internal fun MessageThreadScreen(
                             focusRequest = focusRequest
                         )
                         Spacer(Modifier.width(8.dp))
+                        // Material 3 sends with the tonal accent container, as the chat composer does.
+                        val tonalSend = LocalDesignSystem.current.composerTonal
                         Box(
                             Modifier.size(40.dp).clip(CircleShape)
-                                .background(palette.accent.copy(alpha = if (text.isNotBlank() && !sending) 1f else 0.4f))
+                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank() && !sending) 1f else 0.4f))
                                 .clickable(enabled = text.isNotBlank() && !sending) { send() },
                             contentAlignment = Alignment.Center
                         ) {
-                            if (sending) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
-                            else Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = palette.onAccent, modifier = Modifier.size(21.dp))
+                            val sendInk = if (tonalSend) palette.accentInk else palette.onAccent
+                            if (sending) CircularProgressIndicator(Modifier.size(20.dp), color = sendInk, strokeWidth = 2.dp)
+                            else Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = sendInk, modifier = Modifier.size(21.dp))
                         }
                     }
                 }
@@ -587,15 +609,18 @@ internal fun MessageThreadScreen(
             conversation.messageCapabilities(viewed.chatId, viewed.id).getOrNull()?.canSave == true
         } else false
     }
+    val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(it.chatId, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, it.chatId)) }
+    stealthFallback.Dialog()
+    if (viewOnceAsked != null) viewOnceGate.ConsentDialog(viewOnceAsked.chatId, viewOnceAsked.id) { selectedMediaId = null; selectedMediaChatId = 0L }
     if (viewed != null) {
         val viewedMedia = viewed.media
-        if (viewedMedia != null) {
+        if (viewedMedia != null && viewOnceAsked == null) {
             val viewerPages = MediaViewerPolicy.retainViewOncePage(
                 pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, viewed.chatId) } },
                 retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId)
             )
             MediaViewer(
-                pages = viewerPages,
+                pages = viewOnceGate.swipeable(viewerPages, viewed.chatId, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, viewed.chatId)),
                 selectedId = viewed.id,
                 onSelect = { selectedMediaId = it },
                 observeFile = observeFile,
@@ -605,7 +630,7 @@ internal fun MessageThreadScreen(
                     val once = (mediaMessages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
                     if (!once || id !in openedViewOnceIds) {
                         if (once) openedViewOnceIds = openedViewOnceIds + id
-                        conversation.openMessageContent(viewed.chatId, id)
+                        viewOnceGate.openContent(conversation, viewed.chatId, id)
                     }
                 },
                 onClose = { selectedMediaId = null; selectedMediaChatId = 0L },

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.auth
 
 import android.content.ClipData
+import com.beykus.beygram.ui.design.styledShape
 import android.content.ClipboardManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -18,12 +19,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -158,7 +159,7 @@ fun LoginPhoneScreen(
                 supportingText = if (errorMessage != null) {
                     { Text(text = errorMessage, color = palette.danger) }
                 } else null,
-                shape = RoundedCornerShape(14.dp),
+                shape = styledShape(14.dp),
                 colors = beyGramTextFieldColors()
             )
 
@@ -171,7 +172,7 @@ fun LoginPhoneScreen(
                 },
                 enabled = canContinue,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = styledShape(16.dp),
                 contentPadding = PaddingValues(vertical = 15.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = palette.accent,
@@ -236,7 +237,7 @@ private fun LoginModeTabs(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(styledShape(14.dp))
             .background(palette.surface2)
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -270,7 +271,7 @@ private fun RowScope.LoginModeButton(
         modifier = Modifier
             .weight(1f)
             .height(42.dp),
-        shape = RoundedCornerShape(11.dp),
+        shape = styledShape(11.dp),
         contentPadding = PaddingValues(0.dp),
         colors = ButtonDefaults.textButtonColors(
             containerColor = if (selected) palette.accent else Color.Transparent,
@@ -344,7 +345,7 @@ private fun QrLoginPanel(
                 Button(
                     onClick = onRetry,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = styledShape(16.dp),
                     contentPadding = PaddingValues(vertical = 14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = palette.accent,
@@ -387,7 +388,7 @@ private fun QrCodeView(link: String) {
         Box(
             modifier = Modifier
                 .size(236.dp)
-                .background(Color.White, RoundedCornerShape(18.dp)),
+                .background(Color.White, styledShape(18.dp)),
             contentAlignment = Alignment.Center
         ) {
             TelegramQrCode(

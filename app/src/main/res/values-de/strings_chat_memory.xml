@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_memory_deleted">gelöscht</string>
+    <string name="chat_memory_attachment_not_kept">Anhang nicht gespeichert</string>
+    <string name="chat_memory_versions_count">Versionen: %1$d</string>
+    <string name="chat_memory_versions_title">Frühere Versionen</string>
+    <string name="chat_memory_versions_empty">Keine früheren Versionen</string>
+    <string name="chat_memory_version_replaced">ersetzt %1$s</string>
+    <string name="chat_memory_chat_title">Chatspeicher</string>
+    <string name="chat_memory_chat_switch">Gelöschte und bearbeitete Nachrichten speichern</string>
+    <string name="chat_memory_chat_secret">Der Chatspeicher funktioniert in Geheimen Chats nicht.</string>
+    <string name="chat_memory_chat_off">Der Chatspeicher ist aus. Du kannst ihn in den Speichereinstellungen einschalten.</string>
+    <string name="chat_memory_chat_note">Gespeichert wird nur Text, keine Anhänge. Chats mit Inhaltsschutz und Chats mit Selbstzerstörungstimer werden nie gespeichert.</string>
+    <string name="chat_memory_title">Chatspeicher</string>
+    <string name="chat_memory_detail">Speichert gelöschte und bearbeitete Nachrichten auf diesem Gerät. Geheime Chats werden nie gespeichert.</string>
+    <string name="chat_memory_enable">Chatspeicher einschalten</string>
+    <string name="chat_memory_save_all">In allen Chats speichern</string>
+    <string name="chat_memory_save_all_detail">Ausschalten, um nur die Chats zu speichern, die du in ihren Einstellungen gewählt hast.</string>
+    <string name="chat_memory_limit_title">Speicherlimit</string>
+    <string name="chat_memory_limit_detail">Wenn der Speicher das Limit erreicht, werden zuerst die ältesten Einträge entfernt.</string>
+    <string name="chat_memory_usage">Nachrichten: %1$d · gelöscht: %2$d · Versionen: %3$d · %4$s belegt</string>
+    <string name="chat_memory_clear">Chatspeicher leeren</string>
+    <string name="chat_memory_clear_title">Chatspeicher leeren?</string>
+    <string name="chat_memory_clear_text">Gelöschte Nachrichten und frühere Versionen werden von diesem Gerät entfernt. Deine Chats in Telegram ändern sich nicht.</string>
+    <string name="chat_memory_footnote">Solange der Chatspeicher aus ist, werden gespeicherte Nachrichten nicht angezeigt, aber auch nicht gelöscht. Der Speicher wird beim Abmelden und beim Löschen eines Kontos geleert.</string>
+</resources>

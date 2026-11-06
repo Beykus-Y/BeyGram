@@ -21,8 +21,11 @@ zxing = "3.5.3"
 biometric = "1.1.0"
 webkit = "1.14.0"
 profileinstaller = "1.4.1"
+robolectric = "4.17"
+roborazzi = "1.75.0"
 
 [libraries]
+re2j = { group = "com.google.re2j", name = "re2j", version = "1.7" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
@@ -60,6 +63,8 @@ androidx-biometric = { group = "androidx.biometric", name = "biometric", version
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+roborazzi = { group = "io.github.takahirom.roborazzi", name = "roborazzi", version.ref = "roborazzi" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 
 [plugins]

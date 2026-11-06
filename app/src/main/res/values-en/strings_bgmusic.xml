@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgmusic_action_open">Open</string>
+    <string name="bgmusic_action_save">Save to my music</string>
+    <string name="bgmusic_action_save_copy">Save as a copy</string>
+    <string name="bgmusic_action_update">Update</string>
+    <string name="bgmusic_add_done">Track added to “%1$s”</string>
+    <string name="bgmusic_add_duplicate">This track is already in the playlist</string>
+    <string name="bgmusic_add_failed">Could not add the track</string>
+    <string name="bgmusic_add_picker_title">Add to playlist</string>
+    <string name="bgmusic_add_rejected">Track not added: the playlist is full or the track belongs to another account</string>
+    <string name="bgmusic_add_to_playlist">Add to playlist</string>
+    <string name="bgmusic_author_line">Author: %1$s</string>
+    <string name="bgmusic_close">Close</string>
+    <string name="bgmusic_download">Download</string>
+    <string name="bgmusic_export_failed">Could not prepare the file</string>
+    <string name="bgmusic_export_option_author">Include the author</string>
+    <string name="bgmusic_export_option_author_note">Your Telegram name goes into the file. Without this switch the name is not shared.</string>
+    <string name="bgmusic_export_option_links">Add post links</string>
+    <string name="bgmusic_export_option_links_note">For tracks from public channels and groups, the post address goes into the file. Private and secret chats are never included.</string>
+    <string name="bgmusic_export_preparing">Preparing the file…</string>
+    <string name="bgmusic_export_privacy_note">By default the file holds the name, the description and the track list. Links and the author name are added only when you turn them on.</string>
+    <string name="bgmusic_export_send_chat">Send to chat</string>
+    <string name="bgmusic_export_sent">Collection sent</string>
+    <string name="bgmusic_export_share">Share</string>
+    <string name="bgmusic_export_size">File size: %1$s</string>
+    <string name="bgmusic_export_title">Export collection</string>
+    <string name="bgmusic_favorites_name">Favorites</string>
+    <string name="bgmusic_import_already_saved">This collection is already saved</string>
+    <string name="bgmusic_import_failed">Could not save the collection</string>
+    <string name="bgmusic_import_newer_text">This collection is already saved, and the file has a newer version. Updating replaces the tracks of the saved copy, including your own changes to it. Or save the file as a separate copy?</string>
+    <string name="bgmusic_menu_share_collection">Share collection</string>
+    <string name="bgmusic_import_newer_title">A newer version is available</string>
+    <string name="bgmusic_import_older_text">The app already has a newer version of this collection. Save this file as a separate copy?</string>
+    <string name="bgmusic_import_older_title">The file is older than the saved collection</string>
+    <string name="bgmusic_import_saved">Collection saved to My music</string>
+    <string name="bgmusic_import_updated">Saved collection updated</string>
+    <string name="bgmusic_import_working">Saving…</string>
+    <string name="bgmusic_invalid_file">The file is damaged or is not a BeyGram collection</string>
+    <string name="bgmusic_listen_available">Listen to the available tracks</string>
+    <string name="bgmusic_open_collection">Open collection</string>
+    <string name="bgmusic_preview_available">Available tracks: %1$d of %2$d</string>
+    <string name="bgmusic_preview_default_title">BeyGram collection</string>
+    <string name="bgmusic_preview_no_account">To find the tracks, open the Telegram account whose chats contain them</string>
+    <string name="bgmusic_preview_searching">Looking for tracks in your chats…</string>
+    <string name="bgmusic_track_unavailable">Not in your chats</string>
+    <string name="bgmusic_unsupported_version">This file was made in a newer version of BeyGram. Update the app.</string>
+    <string name="bgmusic_untitled_playlist">Untitled</string>
+    <plurals name="bgmusic_tracks_count">
+        <item quantity="one">%d track</item>
+        <item quantity="other">%d tracks</item>
+    </plurals>
+</resources>

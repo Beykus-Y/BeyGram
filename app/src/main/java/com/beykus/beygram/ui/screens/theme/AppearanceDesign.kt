@@ -23,7 +23,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,9 +31,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -353,7 +353,8 @@ internal fun AppearanceApplyBar(
     hasChanges: Boolean,
     canApply: Boolean,
     blockedByContrast: Boolean,
-    onApply: () -> Unit
+    onApply: () -> Unit,
+    onCancel: () -> Unit
 ) {
     val palette = beyGramPalette()
     val compact = LocalConfiguration.current.screenHeightDp < 500
@@ -380,6 +381,9 @@ internal fun AppearanceApplyBar(
                     maxLines = 2,
                     modifier = Modifier.weight(1f)
                 )
+                TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 44.dp)) {
+                    Text(stringResource(R.string.theme_editor_cancel), fontSize = 14.sp)
+                }
                 Button(
                     onClick = onApply,
                     enabled = canApply,
@@ -397,13 +401,22 @@ internal fun AppearanceApplyBar(
                     fontSize = 12.sp,
                     lineHeight = 16.sp
                 )
-                Button(
-                    onClick = onApply,
-                    enabled = canApply,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
-                    shape = RoundedCornerShape(16.dp)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(stringResource(R.string.theme_apply), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 50.dp)) {
+                        Text(stringResource(R.string.theme_editor_cancel), fontSize = 15.sp)
+                    }
+                    Button(
+                        onClick = onApply,
+                        enabled = canApply,
+                        modifier = Modifier.weight(1f).heightIn(min = 50.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(stringResource(R.string.theme_apply), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }

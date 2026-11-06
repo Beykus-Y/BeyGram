@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_memory_deleted">удалено</string>
+    <string name="chat_memory_attachment_not_kept">вложение не сохранено</string>
+    <string name="chat_memory_versions_count">версии: %1$d</string>
+    <string name="chat_memory_versions_title">Прежние версии</string>
+    <string name="chat_memory_versions_empty">Прежних версий нет</string>
+    <string name="chat_memory_version_replaced">заменено %1$s</string>
+    <string name="chat_memory_chat_title">Память чата</string>
+    <string name="chat_memory_chat_switch">Сохранять удалённые и изменённые сообщения</string>
+    <string name="chat_memory_chat_secret">В секретных чатах память чата не работает.</string>
+    <string name="chat_memory_chat_off">Память чата выключена. Её можно включить в настройках хранилища.</string>
+    <string name="chat_memory_chat_note">Сохраняется только текст: вложения не сохраняются. Чаты с защитой содержимого и с таймером автоудаления не сохраняются.</string>
+    <string name="chat_memory_title">Память чата</string>
+    <string name="chat_memory_detail">Сохраняет на этом устройстве удалённые и изменённые сообщения. Секретные чаты не сохраняются никогда.</string>
+    <string name="chat_memory_enable">Включить память чата</string>
+    <string name="chat_memory_save_all">Сохранять во всех чатах</string>
+    <string name="chat_memory_save_all_detail">Выключите, чтобы сохранять только те чаты, которые вы выбрали в их настройках.</string>
+    <string name="chat_memory_limit_title">Лимит памяти</string>
+    <string name="chat_memory_limit_detail">Когда память достигает лимита, самые старые записи удаляются первыми.</string>
+    <string name="chat_memory_usage">Сообщений: %1$d · удалённых: %2$d · версий: %3$d · занято %4$s</string>
+    <string name="chat_memory_clear">Очистить память чата</string>
+    <string name="chat_memory_clear_title">Очистить память чата?</string>
+    <string name="chat_memory_clear_text">Удалённые сообщения и прежние версии будут стёрты с этого устройства. Переписка в Telegram не изменится.</string>
+    <string name="chat_memory_footnote">Пока память выключена, сохранённое не показывается, но и не стирается. Память стирается при выходе из аккаунта и при его удалении.</string>
+</resources>

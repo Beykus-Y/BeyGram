@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -181,7 +183,7 @@ internal fun GroupJoinRequestsScreen(
                 modifier = Modifier.fillMaxWidth().padding(24.dp)
             )
             else -> LazyColumn(
-                Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp).clip(RoundedCornerShape(20.dp)).background(palette.surface),
+                Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp).clip(styledShape(20.dp)).background(palette.surface),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
                 items(requests, key = { it.userId }) { request ->

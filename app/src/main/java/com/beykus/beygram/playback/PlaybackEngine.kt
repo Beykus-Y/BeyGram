@@ -1,10 +1,15 @@
 package com.beykus.beygram.playback
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.IntentFilter
 import android.content.Intent
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.net.Uri
 import android.os.SystemClock
 import android.view.TextureView
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -24,6 +29,8 @@ import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.media.bgmix.BgMixSettingsStore
+import com.beykus.beygram.media.bgmix.BgMixStatus
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +46,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -109,6 +117,47 @@ internal fun growingAudioSource(
 
 /** A seek requested on an unseekable growing Ogg/Opus source; applied after completion. */
 private data class DeferredGrowingSeek(val key: String, val positionMs: Long, val resume: Boolean)
+
+/**
+ * Passes ExoPlayer events to a session listener, except while BG Mix owns playback. The BG Mix values
+ * reach the session through the callbacks the engine calls directly.
+ */
+private class BgMixAwareListener(
+    private val target: Player.Listener,
+    private val bgMixOwnsPlayback: () -> Boolean
+) : Player.Listener by target {
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        if (!bgMixOwnsPlayback()) target.onIsPlayingChanged(isPlaying)
+    }
+
+    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        if (!bgMixOwnsPlayback()) target.onPlayWhenReadyChanged(playWhenReady, reason)
+    }
+
+    override fun onPlaybackStateChanged(playbackState: Int) {
+        if (!bgMixOwnsPlayback()) target.onPlaybackStateChanged(playbackState)
+    }
+
+    override fun onPositionDiscontinuity(
+        oldPosition: Player.PositionInfo,
+        newPosition: Player.PositionInfo,
+        reason: Int
+    ) {
+        if (!bgMixOwnsPlayback()) target.onPositionDiscontinuity(oldPosition, newPosition, reason)
+    }
+
+    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        if (!bgMixOwnsPlayback()) target.onMediaItemTransition(mediaItem, reason)
+    }
+
+    override fun onPlayerError(error: PlaybackException) {
+        if (!bgMixOwnsPlayback()) target.onPlayerError(error)
+    }
+
+    override fun onEvents(player: Player, events: Player.Events) {
+        if (!bgMixOwnsPlayback()) target.onEvents(player, events)
+    }
+}
 
 /**
  * Общий плеер приложения. Музыка, голосовые и кружки играют через один ExoPlayer, поэтому звук не обрывается
@@ -188,9 +237,32 @@ object PlaybackEngine {
     /** Changing this token invalidates an asynchronously delivered ENDED from the previous source. */
     private var transitionToken = 0L
     private var activeAccountId: String? = null
+    val currentAccountId: String? get() = activeAccountId
     private val prefetchedKeys = mutableSetOf<String>()
     private var prefetchPolicyJob: Job? = null
     private var prefetchPolicyAccount: String? = null
+    /** BG Mix music path: used only for eligible local music queues while the experimental flag is on. */
+    private var bgMix: BgMixQueueDriver? = null
+    /** Listeners the media session registered on the wrapper; BG Mix events go to them directly. */
+    private val bgMixListeners = mutableSetOf<Player.Listener>()
+    /** Session listener -> the copy that drops ExoPlayer events while BG Mix plays. */
+    private val bgMixFiltered = mutableMapOf<Player.Listener, Player.Listener>()
+    private var bgFocusRequest: AudioFocusRequest? = null
+    private var bgNoisyRegistered = false
+    private var bgMixJob: Job? = null
+
+    /** Key of the track that was moved past early for trailing silence. Cleared by the next media item transition. */
+    private var trailingSkippedKey: String? = null
+
+    /** Overlaps the end of a music track with the start of the next one, when the crossfade setting is on. */
+    private val crossfader = TrackCrossfader(
+        scope = scope,
+        enabled = { TrackTransitionSettings.crossfade.value },
+        busy = { bgMixActive() || deferredSeek != null },
+        newPlayer = { newCrossfadePlayer() },
+        trailingMs = { mediaId -> crossfadeTrailingMs(mediaId) },
+        nextAfter = { primary, mediaId -> crossfadeNextAfter(primary, mediaId) },
+    )
 
     /**
      * A cover thumbnail may finish downloading after playback has already started. The key carries account/origin,
@@ -249,9 +321,14 @@ object PlaybackEngine {
             }
         exo = created
         appContext = context.applicationContext
+        TrackTransitionSettings.load(context)
         _audioSessionId.value = null
         return object : ForwardingPlayer(created) {
             override fun play() {
+                if (bgMixActive()) {
+                    bgMixPlay()
+                    return
+                }
                 if (deferredSeek != null) {
                     deferredSeek = deferredSeek?.copy(resume = true)
                     _state.update { it.copy(intentPlaying = true) }
@@ -271,6 +348,10 @@ object PlaybackEngine {
             }
 
             override fun pause() {
+                if (bgMixActive()) {
+                    pauseBgMix()
+                    return
+                }
                 // System/lock-screen/headset pause must cancel a pending deferred resume as well.
                 deferredSeek = deferredSeek?.copy(resume = false)
                 _state.update { it.copy(intentPlaying = false, playing = false) }
@@ -278,6 +359,67 @@ object PlaybackEngine {
                 progress = null
                 super.pause()
             }
+
+            override fun getAvailableCommands(): Player.Commands {
+                val base = super.getAvailableCommands()
+                if (!bgMixActive()) return base
+                return Player.Commands.Builder().addAll(base)
+                    .add(Player.COMMAND_PLAY_PAUSE)
+                    .add(Player.COMMAND_SEEK_TO_NEXT)
+                    .build()
+            }
+
+            override fun isCommandAvailable(command: Int): Boolean {
+                if (bgMixActive() && (command == Player.COMMAND_PLAY_PAUSE || command == Player.COMMAND_SEEK_TO_NEXT)) {
+                    return true
+                }
+                return super.isCommandAvailable(command)
+            }
+
+            override fun seekToNext() {
+                if (bgMixActive()) bgMix?.next() else super.seekToNext()
+            }
+
+            override fun seekToPrevious() {
+                if (!bgMixActive()) super.seekToPrevious()
+            }
+
+            override fun seekTo(positionMs: Long) {
+                if (bgMixActive()) seekToPosition(positionMs) else super.seekTo(positionMs)
+            }
+
+            override fun addListener(listener: Player.Listener) {
+                bgMixListeners.add(listener)
+                bgMixFiltered.remove(listener)?.let { super.removeListener(it) }
+                val filtered = BgMixAwareListener(listener) { bgMixActive() }
+                bgMixFiltered[listener] = filtered
+                super.addListener(filtered)
+            }
+
+            override fun removeListener(listener: Player.Listener) {
+                bgMixListeners.remove(listener)
+                bgMixFiltered.remove(listener)?.let { super.removeListener(it) }
+            }
+
+            override fun isPlaying(): Boolean = if (bgMixActive()) _state.value.playing else super.isPlaying()
+
+            override fun getPlayWhenReady(): Boolean =
+                if (bgMixActive()) _state.value.intentPlaying else super.getPlayWhenReady()
+
+            override fun getPlaybackState(): Int = when {
+                !bgMixActive() -> super.getPlaybackState()
+                _state.value.ended -> Player.STATE_ENDED
+                else -> Player.STATE_READY
+            }
+
+            override fun getCurrentPosition(): Long =
+                if (bgMixActive()) _state.value.positionMs else super.getCurrentPosition()
+
+            override fun getContentPosition(): Long =
+                if (bgMixActive()) _state.value.positionMs else super.getContentPosition()
+
+            override fun getDuration(): Long =
+                if (bgMixActive()) _state.value.durationMs.takeIf { it > 0L } ?: C.TIME_UNSET else super.getDuration()
 
             override fun stop() {
                 // MediaSession "stop" closes the session completely instead of leaving a phantom notification.
@@ -341,6 +483,10 @@ object PlaybackEngine {
     ) {
         if (onStarted != null) startedCallback = item.key to onStarted
         val currentState = _state.value
+        if (bgMixActive() && currentState.item?.key == item.key) {
+            bgMixPlay()
+            return
+        }
         if (exo != null && currentState.item?.key == item.key) {
             // A file that plays without a queue (for example from the chat feed) adopts the queue of the music tab,
             // so after pause/resume it continues there. The same file from another account/message has another key
@@ -471,6 +617,8 @@ object PlaybackEngine {
         autoPlay: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
+        if (autoPlay && startPositionMs == null && startFraction <= 0f && bgMixAdmitsSource(source) && startBgMix(context, queue)) return
+        stopBgMix()
         val target = rawPlayer(context)
         transitionToken++
         syncPosition()
@@ -524,11 +672,13 @@ object PlaybackEngine {
         if (!item.systemPrivate) startPlaybackService()
         startProgress()
         prefetchNext()
+        requestSilenceMeasurement()
         loadNextQueuePage()
     }
 
     @OptIn(UnstableApi::class)
     private fun startSingle(context: Context, item: PlaybackItem, startPositionMs: Long?, startFraction: Float) {
+        stopBgMix()
         val target = rawPlayer(context)
         transitionToken++
         queuePageGeneration++
@@ -610,10 +760,14 @@ object PlaybackEngine {
     }
 
     /** The Media3 timeline is authoritative under shuffle/repeat; UI availability must match next/previous handlers. */
-    private fun PlaybackState.withTimelineNavigation(target: Player? = exo): PlaybackState = copy(
-        timelineHasNext = target?.hasNextMediaItem(),
-        timelineHasPrevious = target?.hasPreviousMediaItem()
-    )
+    private fun PlaybackState.withTimelineNavigation(target: Player? = exo): PlaybackState {
+        // BG Mix publishes its own navigation from its queue; the ExoPlayer timeline is empty then.
+        if (bgMixActive()) return this
+        return copy(
+            timelineHasNext = target?.hasNextMediaItem(),
+            timelineHasPrevious = target?.hasPreviousMediaItem()
+        )
+    }
 
     /**
      * A new playlist must get a fresh randomized order, not the sequential order Media3 derives from a previous
@@ -643,6 +797,16 @@ object PlaybackEngine {
     private fun publishResolvedSource(resolved: PlaybackItem) {
         _state.update { it.withResolvedSource(resolved) }
         PlaybackSources.update(resolved.systemMediaId, resolved)
+    }
+
+    /**
+     * A growing track whose download has finished becomes a complete file. Until this runs, the track keeps its
+     * "still loading" flag, so BG Beat says so and the silence and crossfade rules never measure it.
+     */
+    private fun settleFinishedDownload() {
+        val item = _state.value.item ?: return
+        val settled = settledGrowingItem(item) ?: return
+        publishResolvedSource(settled)
     }
 
     private fun resolvedItem(item: PlaybackItem): PlaybackItem {
@@ -714,6 +878,11 @@ object PlaybackEngine {
 
     /** Перемотка по абсолютной позиции; для растущего Ogg запрос откладывается до полной загрузки. */
     fun seekToPosition(positionMs: Long) {
+        if (bgMixActive()) {
+            // A seek during a BG Mix transition is refused by the native session; the next status tick keeps the UI honest.
+            bgMix?.seek(positionMs.coerceAtLeast(0L) / 1000.0)
+            return
+        }
         val target = exo ?: return
         val position = positionMs.coerceAtLeast(0L)
         val item = _state.value.item ?: return
@@ -744,6 +913,11 @@ object PlaybackEngine {
 
     /** Перемотка по доле длины. [fallbackDurationMs] используется, если контейнер ещё не сообщил длину. */
     fun seekTo(fraction: Float, fallbackDurationMs: Long = 0L) {
+        if (bgMixActive()) {
+            val duration = _state.value.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
+            if (duration > 0L) seekToPosition((fraction.coerceIn(0f, 1f) * duration.toFloat()).toLong())
+            return
+        }
         val target = exo ?: return
         val duration = target.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: fallbackDurationMs
         if (duration <= 0L) return
@@ -804,6 +978,7 @@ object PlaybackEngine {
         playbackOrder: List<Int>? = null
     ) {
         if (queue.isEmpty() || index !in queue.indices) return
+        if (bgMixActive()) stopBgMix()
         val target = exo ?: return
         transitionToken++
         clearDeferredSeek()
@@ -902,6 +1077,10 @@ object PlaybackEngine {
 
     /** Пауза или продолжение. Конец файла и ошибку обрабатывает обёртка плеера, поэтому системные кнопки ведут себя так же. */
     fun togglePlayPause() {
+        if (bgMixActive()) {
+            toggleBgMix()
+            return
+        }
         val target = controls ?: return
         // A deferred Ogg seek is waiting for the completed file; starting at zero here would undo it.
         if (deferredSeek != null) {
@@ -931,12 +1110,19 @@ object PlaybackEngine {
 
     /** Пауза без сброса файла: так голосовое или кружок могут остановить музыку, не теряя её места. Состояние меняем сразу: если файл ещё буферизуется, плеер не пришлёт событие о паузе. */
     fun pause() {
+        if (bgMixActive()) {
+            pauseBgMix()
+            return
+        }
         exo?.pause()
         deferredSeek = deferredSeek?.copy(resume = false)
         progress?.cancel()
         progress = null
         _state.update { it.copy(playing = false, intentPlaying = false) }
     }
+
+    /** Account the shared player is bound to. Profile music uses it to hide "add to profile" for another account's tracks. */
+    fun activeAccount(): String? = activeAccountId
 
     /** Explicit user stop: closes the session, clears the queue and removes the notification. */
     fun stop() {
@@ -957,7 +1143,260 @@ object PlaybackEngine {
     /** Alias used by UI that wants an unambiguous "clear everything" action. */
     fun clear() = stop()
 
+    private fun bgMixActive(): Boolean = bgMix?.isActive == true
+
+    /** Placeholder for the ExoPlayer timeline while BG Mix plays: the current file, never played by ExoPlayer. */
+    private fun placeholderItem(item: PlaybackItem): MediaItem = MediaItem.Builder()
+        .setMediaId(item.key)
+        .setUri(Uri.fromFile(File(item.path)))
+        .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).setArtist(item.performer).build())
+        .build()
+
+    /** Tells the media session which of its player values changed. ExoPlayer events are ignored during BG Mix. */
+    @OptIn(UnstableApi::class)
+    private fun notifyChanges(before: PlaybackState, after: PlaybackState) {
+        if (bgMixListeners.isEmpty()) return
+        val itemChanged = before.item?.key != after.item?.key
+        val playbackState = if (after.ended) Player.STATE_ENDED else Player.STATE_READY
+        val wasEnded = before.ended
+        bgMixListeners.toList().forEach { listener ->
+            if (before.playing != after.playing) listener.onIsPlayingChanged(after.playing)
+            if (before.intentPlaying != after.intentPlaying) {
+                listener.onPlayWhenReadyChanged(after.intentPlaying, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+            }
+            if (wasEnded != after.ended) listener.onPlaybackStateChanged(playbackState)
+            if (itemChanged) {
+                listener.onMediaItemTransition(
+                    after.item?.let { placeholderItem(it) },
+                    Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
+                )
+            }
+        }
+    }
+
+    /** Pauses BG Mix when another app takes audio focus or the output becomes noisy (headphones unplugged). */
+    private val bgFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+            if (bgMixActive()) pauseBgMix()
+        }
+    }
+
+    private val bgNoisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (bgMixActive()) pauseBgMix()
+        }
+    }
+
+    /** Requests audio focus and the becoming-noisy receiver. Returns true when focus was granted. */
+    private fun requestBgFocus(context: Context): Boolean {
+        var granted = false
+        val audio = context.getSystemService(AudioManager::class.java)
+        if (audio != null) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener(bgFocusListener)
+                .build()
+            granted = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            if (granted) bgFocusRequest = request
+        }
+        if (!bgNoisyRegistered) {
+            ContextCompat.registerReceiver(
+                context.applicationContext,
+                bgNoisyReceiver,
+                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            bgNoisyRegistered = true
+        }
+        return granted
+    }
+
+    private fun releaseBgFocus() {
+        val context = appContext
+        val request = bgFocusRequest
+        bgFocusRequest = null
+        if (context != null && request != null) {
+            context.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request)
+        }
+        if (context != null && bgNoisyRegistered) {
+            runCatching { context.unregisterReceiver(bgNoisyReceiver) }
+            bgNoisyRegistered = false
+        }
+    }
+
+    /**
+     * Starts [queue] through BG Mix when the experimental flag is on and every item is an eligible local file.
+     * Returns false without touching the ExoPlayer state, so the caller falls back to the regular path.
+     */
+    private fun startBgMix(context: Context, queue: PlaybackQueue): Boolean {
+        BgMixSettingsStore.load(context)
+        if (!BgMixSettingsStore.enabled.value) return false
+        // BG Mix does not repeat; a queue with repeat selected stays on ExoPlayer, which does.
+        if (_state.value.repeatMode != PlaybackRepeatMode.Off) return false
+        // BG Mix plays the queue in order; shuffle stays on ExoPlayer.
+        if (_state.value.shuffleEnabled) return false
+        if (queue.index !in queue.items.indices) return false
+        // Creates the shared player and appContext on first use, so the notification and queue paths work.
+        player(context)
+        val driver = bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }
+        // Focus comes before the driver starts: the native session plays as soon as it starts, so it must not start
+        // without focus. A refused focus keeps the queue on ExoPlayer, which asks for focus in the same way.
+        if (!requestBgFocus(context)) return false
+        if (!driver.start(queue.items, queue.index)) {
+            releaseBgFocus()
+            return false
+        }
+        val item = queue.items[queue.index]
+        val before = _state.value
+        progress?.cancel()
+        progress = null
+        exo?.let {
+            it.stop()
+            it.clearMediaItems()
+            // A paused placeholder keeps the session's current item (title, duration) and notification alive.
+            it.playWhenReady = false
+            it.setMediaItem(placeholderItem(item))
+            it.prepare()
+        }
+        transitionToken++
+        clearDeferredSeek()
+        pendingStartFraction = 0f
+        startedCallback = startedCallback?.takeIf { it.first == item.key }
+        _audioSessionId.value = null
+        _state.value = stateFor(
+            item = item,
+            queue = queue.items,
+            index = queue.index,
+            positionMs = 0L,
+            playing = false,
+            intentPlaying = true,
+            speed = 1f
+        )
+        _state.update {
+            it.copy(timelineHasNext = queue.index < queue.items.lastIndex, timelineHasPrevious = false)
+        }
+        notifyChanges(before, _state.value)
+        bgMixJob?.cancel()
+        val statusFlow = driver.status
+        val failureFlow = driver.failure
+        if (statusFlow != null && failureFlow != null) {
+            bgMixJob = scope.launch {
+                // Output that fails during the session hands the queue back to ExoPlayer. Stopping the session cancels this.
+                launch {
+                    failureFlow.first { it != null }
+                    failBgMix()
+                }
+                statusFlow.collect { status -> if (status != null) applyBgMix(status) }
+            }
+        }
+        startPlaybackService()
+        return true
+    }
+
+    /** Copies the native status into the Media state the UI and the notification read. */
+    private fun applyBgMix(status: BgMixStatus) {
+        val driver = bgMix ?: return
+        val before = _state.value
+        val playingNativeId = status.queue.firstOrNull { it.state == "playing" }?.id
+        val index = playingNativeId?.let { driver.indexOfNative(it) } ?: _state.value.queueIndex
+        val item = driver.itemAt(index) ?: return
+        val master = status.decks.getOrNull(status.master)
+        val deckPlaying = master?.playing == true
+        val finished = status.queue.isNotEmpty() &&
+            status.queue.all { it.state == "played" || it.state == "failed" } &&
+            !status.transitionActive && !deckPlaying
+        val playing = !status.paused && deckPlaying && !finished
+        val hasNext = status.queue.any { (driver.indexOfNative(it.id) ?: -1) > index }
+        _state.update { current ->
+            current.copy(
+                timelineHasNext = hasNext,
+                timelineHasPrevious = false,
+                item = item,
+                queue = driver.queueItems,
+                queueIndex = index,
+                playing = playing,
+                intentPlaying = !status.paused && !finished,
+                positionMs = ((master?.positionSeconds ?: 0.0) * 1000).toLong(),
+                durationMs = ((master?.durationSeconds ?: 0.0) * 1000).toLong(),
+                started = current.started || playing,
+                ended = finished,
+                isBuffering = false
+            )
+        }
+        if (before.item?.key != _state.value.item?.key) {
+            exo?.let { target ->
+                if (target.mediaItemCount > 0) target.replaceMediaItem(0, placeholderItem(item))
+            }
+        }
+        if (finished && !before.ended) releaseBgFocus()
+        notifyChanges(before, _state.value)
+        fireStartedCallback()
+    }
+
+    private fun toggleBgMix() {
+        val state = _state.value
+        if (!state.ended && (state.intentPlaying || state.playing)) pauseBgMix() else bgMixPlay()
+    }
+
+    /** Resumes BG Mix, or restarts the queue from its current index when it has ended. */
+    private fun bgMixPlay() {
+        if (_state.value.ended) {
+            playQueueIndex(_state.value.queueIndex)
+            return
+        }
+        val context = appContext
+        if (context != null && !requestBgFocus(context)) return
+        val before = _state.value
+        bgMix?.resume()
+        _state.update { it.copy(intentPlaying = true, ended = false) }
+        notifyChanges(before, _state.value)
+    }
+
+    private fun pauseBgMix() {
+        val before = _state.value
+        bgMix?.pause()
+        _state.update { it.copy(playing = false, intentPlaying = false) }
+        notifyChanges(before, _state.value)
+    }
+
+    private fun stopBgMix() {
+        // Only a session that was running changes what the media session shows; ExoPlayer stops are not affected.
+        val wasActive = bgMixActive()
+        val before = _state.value
+        bgMixJob?.cancel()
+        bgMixJob = null
+        bgMix?.stop()
+        releaseBgFocus()
+        if (wasActive && (before.playing || before.intentPlaying)) {
+            notifyChanges(before, before.copy(playing = false, intentPlaying = false))
+        }
+    }
+
+    /** BG Mix lost its output mid-session: the session is released, and the queue continues on ExoPlayer from the last position. */
+    private fun failBgMix() {
+        val context = appContext ?: return
+        if (!bgMixActive()) return
+        val snapshot = _state.value
+        val queue = PlaybackQueue(snapshot.queue, snapshot.queueIndex)
+        stopBgMix()
+        // A position is given, so startQueue does not offer the same queue to BG Mix again.
+        startQueue(
+            context,
+            queue,
+            queueSource,
+            startPositionMs = snapshot.positionMs,
+            startFraction = 0f,
+            autoPlay = snapshot.intentPlaying
+        )
+    }
+
     private fun haltPlayer() {
+        stopBgMix()
         progress?.cancel()
         progress = null
         clearDeferredSeek()
@@ -970,6 +1409,7 @@ object PlaybackEngine {
         prefetchPolicyAccount = null
         PlaybackSources.clear()
         exo?.let {
+            crossfader.cancel(it)
             it.stop()
             it.clearMediaItems()
         }
@@ -1000,6 +1440,10 @@ object PlaybackEngine {
     }
 
     fun next() {
+        if (bgMixActive()) {
+            bgMix?.next()
+            return
+        }
         val target = exo ?: return
         val state = _state.value
         val hasNext = target.hasNextMediaItem()
@@ -1042,6 +1486,16 @@ object PlaybackEngine {
     }
 
     fun playQueueIndex(index: Int) {
+        if (bgMixActive()) {
+            val context = appContext
+            val queue = PlaybackQueue(_state.value.queue, index)
+            if (context != null && bgMixAdmitsSource(queueSource) && startBgMix(context, queue)) return
+            stopBgMix()
+            if (context != null) {
+                startQueue(context, queue, queueSource, startPositionMs = null, startFraction = 0f)
+                return
+            }
+        }
         val snapshot = _state.value
         if (!canSelectQueueIndex(snapshot, index)) return
         val target = exo ?: return
@@ -1059,6 +1513,7 @@ object PlaybackEngine {
     }
 
     fun previous() {
+        if (bgMixActive()) return
         val target = exo ?: return
         val state = _state.value
         // Previous restarts the current track when it is already a few seconds in; otherwise it goes to the previous item.
@@ -1280,6 +1735,7 @@ object PlaybackEngine {
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (bgMixActive()) return
             _state.update {
                 it.copy(
                     playing = isPlaying,
@@ -1297,6 +1753,7 @@ object PlaybackEngine {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (bgMixActive()) return
             val pendingDeferredResume = deferredSeek?.resume == true &&
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST
             _state.update {
@@ -1312,6 +1769,7 @@ object PlaybackEngine {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (bgMixActive()) return
             updateAudioSessionId()
             if (playbackState == Player.STATE_READY) applyPendingStartFraction()
             val endedNow = playbackState == Player.STATE_ENDED
@@ -1338,10 +1796,13 @@ object PlaybackEngine {
 
         // Перемотку с уведомления или экрана блокировки делает сам плеер, минуя PlaybackEngine: позицию обновляем и на паузе.
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            if (bgMixActive()) return
             syncPosition()
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (bgMixActive()) return
+            trailingSkippedKey = null
             val mediaId = mediaItem?.mediaId
             val snapshot = _state.value
             if (mediaId != null && reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
@@ -1367,6 +1828,7 @@ object PlaybackEngine {
                             intentPlaying = exo?.playWhenReady ?: it.intentPlaying
                         ).withTimelineNavigation(exo)
                     }
+                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) exo?.let { skipLeadingSilence(it, item) }
                     startedCallback = startedCallback?.takeIf { it.first == item.key }
                     if (exo?.isPlaying == true) fireStartedCallback()
                 }
@@ -1374,11 +1836,13 @@ object PlaybackEngine {
             updateAudioSessionId()
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                 prefetchNext()
+                requestSilenceMeasurement()
                 loadNextQueuePage()
             }
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            if (bgMixActive()) return
             progress?.cancel()
             clearDeferredSeek()
             _state.update { it.copy(playing = false, intentPlaying = false, failed = true, isBuffering = false).withTimelineNavigation(exo) }
@@ -1480,7 +1944,10 @@ object PlaybackEngine {
         progress = scope.launch {
             while (true) {
                 syncPosition()
+                settleFinishedDownload()
                 val target = exo ?: break
+                crossfader.watch(target)
+                skipTrailingSilence(target)
                 if (!target.isPlaying && target.playbackState != Player.STATE_BUFFERING) break
                 delay(PROGRESS_INTERVAL_MS)
             }
@@ -1535,6 +2002,118 @@ object PlaybackEngine {
                 }
             }
         }
+    }
+
+    /**
+     * Asks for silence measurements of the playing track and of the track ExoPlayer plays next, in playback order.
+     * The work runs on a background thread, so playback never waits for it.
+     */
+    private fun requestSilenceMeasurement() {
+        if (!TrackTransitionSettings.skipSilence.value && !TrackTransitionSettings.crossfade.value) return
+        val context = appContext ?: return
+        val state = _state.value
+        val target = exo ?: return
+        if (state.queue.isEmpty()) return
+        val nextIndex = target.nextMediaItemIndex
+        val nextMediaId = if (nextIndex != C.INDEX_UNSET) target.getMediaItemAt(nextIndex).mediaId else null
+        val next = nextMediaId?.let { id -> state.queue.firstOrNull { it.systemMediaId == id } }
+        val candidates = listOfNotNull(state.item, next).map { withResolvedSource(it) }
+        SilenceAnalyzer.request(context, candidates)
+    }
+
+    /** The local path of a queue item, for measuring only. Nothing is published and TDLib is not asked for a download. */
+    private fun withResolvedSource(item: PlaybackItem): PlaybackItem {
+        settledGrowingItem(item)?.let { return it }
+        val resolved = PlaybackSources.handle(item.systemMediaId)?.resolve() ?: return item
+        return if (resolved.growing == null) item.copy(path = resolved.path) else item
+    }
+
+    /**
+     * Moves on early when the rest of the current track is silence, and starts the next track after its own leading
+     * silence. Runs on the progress tick, and only in the last [SILENCE_SCAN_MS] of a measured track.
+     */
+    private fun skipTrailingSilence(target: ExoPlayer) {
+        if (bgMixActive() || deferredSeek != null || !TrackTransitionSettings.skipSilence.value) return
+        if (!target.isPlaying || target.repeatMode == Player.REPEAT_MODE_ONE || !target.hasNextMediaItem()) return
+        val duration = target.duration
+        if (duration == C.TIME_UNSET || duration <= 0L) return
+        val position = target.currentPosition
+        if (duration - position > SILENCE_SCAN_MS) return
+        val state = _state.value
+        val current = state.item ?: return
+        // The engine's item lags the player by one callback; act only when the player is on the same track.
+        if (target.currentMediaItem?.mediaId != current.systemMediaId) return
+        // A crossfade that is watching this track owns its end; the silence skip must not move the track early.
+        if (crossfader.isWatching(current.systemMediaId)) return
+        if (state.queue.size < 2 || current.key == trailingSkippedKey) return
+        val edges = SilenceAnalyzer.cachedEdges(withResolvedSource(current)) ?: return
+        if (!trailingSkipDue(position, duration, edges.trailingMs)) return
+        val nextIndex = target.nextMediaItemIndex
+        if (nextIndex == C.INDEX_UNSET) return
+        val nextId = target.getMediaItemAt(nextIndex).mediaId
+        val next = state.queue.firstOrNull { it.systemMediaId == nextId } ?: return
+        val startMs = SilenceAnalyzer.cachedEdges(withResolvedSource(next))
+            ?.let { leadingSkipStartMs(it.leadingMs) } ?: 0L
+        // One early move per track: a tick that runs before ExoPlayer reports the new index must not move again.
+        trailingSkippedKey = current.key
+        target.seekTo(nextIndex, startMs)
+    }
+
+    /** A natural move to the next track starts after that track's leading silence. Repeat One keeps the same start. */
+    private fun skipLeadingSilence(target: ExoPlayer, item: PlaybackItem) {
+        if (bgMixActive() || !TrackTransitionSettings.skipSilence.value) return
+        if (target.repeatMode == Player.REPEAT_MODE_ONE) return
+        val startMs = SilenceAnalyzer.cachedEdges(withResolvedSource(item))?.let { leadingSkipStartMs(it.leadingMs) } ?: 0L
+        if (startMs > 0L) target.seekTo(startMs)
+    }
+
+    /** The second player of a crossfade. It plays the outgoing tail and never takes audio focus, because the primary holds it. */
+    @OptIn(UnstableApi::class)
+    private fun newCrossfadePlayer(): ExoPlayer? {
+        val context = appContext ?: return null
+        return ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(PlaybackDataSourceFactory(context)))
+            .setAudioAttributes(
+                AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
+                /* handleAudioFocus = */ false
+            )
+            .setHandleAudioBecomingNoisy(false)
+            .build()
+    }
+
+    /** Measured trailing silence of a queue item, once it is known. */
+    private fun crossfadeTrailingMs(mediaId: String): Long? {
+        val item = _state.value.queue.firstOrNull { it.systemMediaId == mediaId } ?: return null
+        return SilenceAnalyzer.cachedEdges(withResolvedSource(item))?.trailingMs
+    }
+
+    /**
+     * The track ExoPlayer plays after [mediaId], when that transition can be a crossfade: music from the queue, both as
+     * complete local files. Null keeps the transition a plain cut.
+     */
+    private fun crossfadeNextAfter(primary: ExoPlayer, mediaId: String): CrossfadeNext? {
+        val state = _state.value
+        if (state.queue.size < 2 || primary.repeatMode == Player.REPEAT_MODE_ONE || !primary.hasNextMediaItem()) return null
+        val current = state.queue.firstOrNull { it.systemMediaId == mediaId } ?: return null
+        if (!isCrossfadeMusic(current)) return null
+        val index = primary.nextMediaItemIndex
+        if (index == C.INDEX_UNSET) return null
+        val nextId = primary.getMediaItemAt(index).mediaId
+        val next = state.queue.firstOrNull { it.systemMediaId == nextId } ?: return null
+        if (!isCrossfadeMusic(next)) return null
+        val startMs = if (TrackTransitionSettings.skipSilence.value) {
+            SilenceAnalyzer.cachedEdges(withResolvedSource(next))?.let { leadingSkipStartMs(it.leadingMs) } ?: 0L
+        } else {
+            0L
+        }
+        return CrossfadeNext(index, nextId, startMs)
+    }
+
+    /** Music from a complete local file: never a voice message, a video note, secret media or a file that is still downloading. */
+    private fun isCrossfadeMusic(item: PlaybackItem): Boolean {
+        if (!item.isMusic || item.systemPrivate) return false
+        val resolved = withResolvedSource(item)
+        return resolved.growing == null && resolved.path.isNotBlank()
     }
 
     /**

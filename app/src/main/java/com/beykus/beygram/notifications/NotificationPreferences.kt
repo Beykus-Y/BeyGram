@@ -14,9 +14,10 @@ internal fun notificationPreferencesName(accountId: String): String {
 
 class NotificationPreferencesStore(
     context: Context,
-    accountId: String = "legacy"
+    private val accountId: String = "legacy"
 ) {
-    private val preferences = context.applicationContext.getSharedPreferences(
+    private val appContext = context.applicationContext
+    private val preferences = appContext.getSharedPreferences(
         notificationPreferencesName(accountId), Context.MODE_PRIVATE
     )
     private val _state = MutableStateFlow(read())
@@ -28,8 +29,12 @@ class NotificationPreferencesStore(
     @Synchronized private fun rotateReplyToken() { preferences.edit().putString("reply_token", java.util.UUID.randomUUID().toString()).apply() }
     private fun read() = NotificationPreferences(preferences.getBoolean("enabled", true), preferences.getBoolean("background", true), preferences.getBoolean("previews", true))
     fun update(value: NotificationPreferences) {
+        val previewsWereOn = preferences.getBoolean("previews", true)
         preferences.edit().putBoolean("enabled", value.enabled).putBoolean("background", value.background).putBoolean("previews", value.previews).apply()
         _state.value = value
+        // Trigger alerts posted while previews were on still show their text. Turning previews off removes them from the tray;
+        // the feed keeps the matches, and its text stays hidden.
+        if (previewsWereOn && !value.previews) TriggerAlerts.cancelAccount(appContext, accountId)
     }
     var permissionAsked: Boolean
         get() = preferences.getBoolean("permission_asked", false)

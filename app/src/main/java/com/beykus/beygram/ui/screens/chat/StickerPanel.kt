@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.animation.core.Animatable
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.activity.compose.BackHandler
@@ -43,7 +44,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.Button
+import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,7 +55,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -91,6 +92,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.AnimationItem
 import com.beykus.beygram.domain.model.AnimationPage
@@ -104,6 +106,7 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CoroutineScope
@@ -844,7 +847,7 @@ private fun StickerPanelSearchHeader(
                 }
             } else null,
             singleLine = true,
-            shape = RoundedCornerShape(14.dp),
+            shape = styledShape(14.dp),
             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = palette.accent,
@@ -867,7 +870,7 @@ private fun StickerPanelTabs(selected: StickerPanelTab, onSelect: (StickerPanelT
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(styledShape(14.dp))
             .background(palette.surface2)
             .padding(4.dp)
     ) {
@@ -896,7 +899,7 @@ private fun StickerPanelTabs(selected: StickerPanelTab, onSelect: (StickerPanelT
 private fun PanelTab(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
     val palette = beyGramPalette()
     Box(
-        modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
+        modifier.heightIn(min = 48.dp).clip(styledShape(12.dp))
             .background(if (selected) palette.accent else Color.Transparent)
             .selectable(selected = selected, role = Role.Tab, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -1038,7 +1041,7 @@ private fun PackChip(
     val description = stringResource(R.string.sticker_panel_pack_description, summary.title, summary.size)
     Column(
         Modifier.width(72.dp).heightIn(min = 64.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(styledShape(14.dp))
             .background(if (selected) palette.accentSoft else palette.surface2)
             .combinedClickable(
                 role = Role.Button,
@@ -1059,7 +1062,7 @@ private fun PackChip(
             // Covers are downloaded by the chip itself only while the strip is visible.
             StickerPanelArtwork(
                 item = cover,
-                modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)),
+                modifier = Modifier.size(44.dp).clip(styledShape(10.dp)),
                 observeFile = observeFile,
                 downloadFile = downloadFile,
                 maxDimension = 128,
@@ -1067,7 +1070,7 @@ private fun PackChip(
             )
         } else {
             Box(
-                Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(palette.accentSoft),
+                Modifier.size(44.dp).clip(styledShape(10.dp)).background(palette.accentSoft),
                 contentAlignment = Alignment.Center
             ) {
                 Text(summary.title.take(1), color = palette.accentInk, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
@@ -1278,7 +1281,7 @@ private fun StickerPanelCell(
         "$baseDescription, ${stringResource(R.string.sticker_panel_premium_badge)}"
     } else baseDescription
     Box(
-        Modifier.size(76.dp).clip(RoundedCornerShape(14.dp))
+        Modifier.size(76.dp).clip(styledShape(14.dp))
             .combinedClickable(
                 role = Role.Button,
                 onClickLabel = stringResource(R.string.common_send),
@@ -1312,7 +1315,8 @@ private fun StickerPanelArtwork(
     thumbnailOnly: Boolean = false
 ) {
     val palette = beyGramPalette()
-    val motion = systemMotionEnabled()
+    // Animated stickers play only after they have been on screen for the autoplay dwell time.
+    val autoplay = rememberAutoplayEligible(enabled = item.format != StickerFileFormat.Webm)
     val file by remember(item.fileId) { observeFile(item.fileId) }.collectAsStateWithLifecycle()
     val thumbnail = rememberPanelFile(item.thumbnailFileId, observeFile)
     LaunchedEffect(item.fileId, item.thumbnailFileId, item.format, thumbnailOnly) {
@@ -1323,16 +1327,19 @@ private fun StickerPanelArtwork(
     val emoji = item.emoji.ifBlank { "🙂" }
     val thumbnailPath = thumbnail.localPath.takeIf { item.thumbnailIsStatic }
     val fullPath = file.localPath
-    Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
+    Box(modifier.clipToBounds().then(autoplay.modifier), contentAlignment = Alignment.Center) {
         val fallback: @Composable () -> Unit = {
             if (thumbnailPath != null) LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension)
             else Text(emoji, fontSize = 24.sp, textAlign = TextAlign.Center)
         }
         when {
             fullPath != null && item.format == StickerFileFormat.Tgs ->
-                TgsSticker(fullPath, Modifier.fillMaxSize(), playing = motion, fallback = fallback)
+                TgsSticker(
+                    fullPath, Modifier.fillMaxSize(), playing = autoplay.eligible.value,
+                    poster = if (thumbnailPath != null) fallback else null, fallback = fallback
+                )
             fullPath != null && item.format != StickerFileFormat.Webm ->
-                LocalMediaImage(fullPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension)
+                LocalMediaImage(fullPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension, animate = autoplay.eligible.value)
             thumbnailPath != null ->
                 LocalMediaImage(thumbnailPath, Modifier.fillMaxSize(), fit = true, maxDimension = maxDimension)
             file.isDownloading || thumbnail.isDownloading ->
@@ -1390,7 +1397,7 @@ private fun GifPanelCell(
     val name = item.fileName.ifBlank { stringResource(R.string.gif_panel_label) }
     val description = stringResource(R.string.gif_panel_item_description, name)
     Box(
-        Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(RoundedCornerShape(12.dp))
+        Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(styledShape(12.dp))
             .background(palette.surface2)
             .combinedClickable(
                 role = Role.Button,
@@ -1408,7 +1415,7 @@ private fun GifPanelCell(
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
-                .clip(RoundedCornerShape(6.dp)).background(palette.accent.copy(alpha = 0.88f))
+                .clip(styledShape(6.dp)).background(palette.accent.copy(alpha = 0.88f))
                 .padding(horizontal = 5.dp, vertical = 2.dp)
         )
         if (item.durationSeconds > 0) {
@@ -1417,7 +1424,7 @@ private fun GifPanelCell(
                 color = palette.textPrimary,
                 fontSize = 10.sp,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
-                    .clip(RoundedCornerShape(6.dp)).background(palette.surface.copy(alpha = 0.84f))
+                    .clip(styledShape(6.dp)).background(palette.surface.copy(alpha = 0.84f))
                     .padding(horizontal = 5.dp, vertical = 2.dp)
             )
         }
@@ -1438,13 +1445,16 @@ private fun GifPanelArtwork(
     val fullFile = rememberPanelFile(item.fileId, observeFile)
     LaunchedEffect(item.thumbnailFileId) { item.thumbnailFileId?.let(downloadFile) }
     val path = thumbnail.localPath ?: fullFile.localPath
-    Box(modifier, contentAlignment = Alignment.Center) {
+    // A GIF animates only after it has been on screen for the autoplay dwell time; until then its first frame shows.
+    val autoplay = rememberAutoplayEligible()
+    Box(modifier.then(autoplay.modifier), contentAlignment = Alignment.Center) {
         when {
             path != null -> LocalMediaImage(
                 path, Modifier.fillMaxSize(), fit = true, maxDimension = 320,
                 allowVideoFrame = true,
                 fallbackVideoPath = if (path != fullFile.localPath) fullFile.localPath else null,
-                fallbackMinithumbnail = item.minithumbnail
+                fallbackMinithumbnail = item.minithumbnail,
+                animate = autoplay.eligible.value
             )
             item.minithumbnail != null -> MinithumbnailImage(item.minithumbnail, Modifier.fillMaxSize())
             thumbnail.isDownloading -> CircularProgressIndicator(Modifier.size(20.dp), color = palette.accent, strokeWidth = 2.dp)
@@ -1565,7 +1575,7 @@ private fun StickerPanelOverlayContent(
 ) {
     val palette = beyGramPalette()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = palette.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = sheetSurfaceColor()) {
         when (overlay) {
             is StickerPanelOverlay.Sticker -> StickerPreviewContent(
                 item = overlay.item,
@@ -1631,7 +1641,7 @@ private fun StickerPreviewContent(
         Spacer(Modifier.height(10.dp))
         Box(
             Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 240.dp)
-                .clip(RoundedCornerShape(18.dp)).background(palette.surface2.copy(alpha = 0.45f)),
+                .clip(styledShape(18.dp)).background(palette.surface2.copy(alpha = 0.45f)),
             contentAlignment = Alignment.Center
         ) {
             StickerPanelArtwork(
@@ -1747,7 +1757,7 @@ private fun GifPreviewContent(
         }
         Spacer(Modifier.height(10.dp))
         Box(
-            Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(18.dp)).background(palette.surface2),
+            Modifier.fillMaxWidth().height(200.dp).clip(styledShape(18.dp)).background(palette.surface2),
             contentAlignment = Alignment.Center
         ) {
             GifPanelArtwork(item, Modifier.fillMaxSize(), observeFile, downloadFile)
@@ -1808,14 +1818,14 @@ private fun PackPreviewContent(
         if (cover != null) {
             StickerPanelArtwork(
                 item = cover,
-                modifier = Modifier.size(96.dp).clip(RoundedCornerShape(20.dp)),
+                modifier = Modifier.size(96.dp).clip(styledShape(20.dp)),
                 observeFile = observeFile,
                 downloadFile = downloadFile,
                 maxDimension = 256
             )
         } else {
             Box(
-                Modifier.size(96.dp).clip(RoundedCornerShape(20.dp)).background(palette.accentSoft),
+                Modifier.size(96.dp).clip(styledShape(20.dp)).background(palette.accentSoft),
                 contentAlignment = Alignment.Center
             ) {
                 Text(summary.title.take(1), color = palette.accentInk, fontSize = 34.sp, fontWeight = FontWeight.SemiBold)

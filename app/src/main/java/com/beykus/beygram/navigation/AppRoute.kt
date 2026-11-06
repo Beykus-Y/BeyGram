@@ -30,6 +30,7 @@ enum class AppRoute {
     NavigationSettings,
     LastSeenSettings,
     PrivacySettings,
+    StealthSettings,
     BlockedSenders,
     Updates,
     VideoMessageSettings,
@@ -52,7 +53,11 @@ enum class AppRoute {
     CreateGroup,
     CreateChannel,
     Stories,
-    StoryPublisher
+    StoryPublisher,
+    MyMusic,
+    MusicPlaylist,
+    TriggerWords,
+    TriggerMentions
 }
 
 /**

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="style_preview_scene_chats">Chats</string>
+    <string name="style_preview_scene_messages">Conversación</string>
+    <string name="style_preview_scene_settings">Ajustes</string>
+    <string name="style_preview_description">Vista previa del estilo «%1$s», pantalla «%2$s»</string>
+    <string name="style_preview_glass_note">La vista previa muestra el cristal sin desenfoque de fondo. El desenfoque real aparece en la propia interfaz.</string>
+    <string name="style_preview_glass_fallback_note">Ahora el cristal se dibuja con un tinte denso y sin desenfoque, igual que en la vista previa.</string>
+    <string name="style_preview_search">Buscar</string>
+    <string name="style_preview_folder_all">Todos</string>
+    <string name="style_preview_folder_personal">Personales</string>
+    <string name="style_preview_folder_groups">Grupos</string>
+    <string name="style_preview_archive_summary">3 chats</string>
+    <string name="style_preview_chat1_name">Ana</string>
+    <string name="style_preview_chat1_message">Te mandé las fotos del finde</string>
+    <string name="style_preview_chat1_time">12:40</string>
+    <string name="style_preview_chat2_name">Equipo del proyecto</string>
+    <string name="style_preview_chat2_message">La compilación está lista para revisar</string>
+    <string name="style_preview_chat2_time">11:02</string>
+    <string name="style_preview_chat3_name">Miguel</string>
+    <string name="style_preview_chat3_message">¿Hablamos esta noche?</string>
+    <string name="style_preview_chat3_time">Ayer</string>
+    <string name="style_preview_chat4_name">Notas</string>
+    <string name="style_preview_chat4_message">Lista de la compra</string>
+    <string name="style_preview_chat4_time">lun</string>
+    <string name="style_preview_settings_general">General</string>
+    <string name="style_preview_settings_notifications">Notificaciones</string>
+    <string name="style_preview_settings_sounds">Sonidos de chat</string>
+    <string name="style_preview_settings_privacy">Privacidad</string>
+    <string name="style_preview_settings_data">Datos</string>
+    <string name="style_preview_settings_autodownload">Descarga automática</string>
+    <string name="style_preview_settings_storage">Uso de almacenamiento</string>
+</resources>

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -40,7 +41,7 @@ internal fun PlaybackSpeedMenu(modifier: Modifier = Modifier) {
             color = palette.accentInk,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(palette.accentSoft)
+            modifier = Modifier.clip(styledShape(10.dp)).background(palette.accentSoft)
                 .clickable { expanded = true }.padding(horizontal = 8.dp, vertical = 5.dp)
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

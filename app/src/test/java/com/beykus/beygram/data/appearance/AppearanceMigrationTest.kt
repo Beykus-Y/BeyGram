@@ -18,4 +18,18 @@ class AppearanceMigrationTest {
     @Test fun noLegacySwitchMeansNothingToMigrate() {
         assertNull(migratedThemeMode(hasStoredMode = false, legacyDarkTheme = null))
     }
+
+    @Test fun missingOrDamagedPlacementFollowsTheStyle() {
+        assertEquals(NavigationPlacement.Auto, navigationPlacementFromStored(null))
+        assertEquals(NavigationPlacement.Auto, navigationPlacementFromStored(""))
+        assertEquals(NavigationPlacement.Auto, navigationPlacementFromStored("Dock"))
+        assertEquals(NavigationPlacement.Pinned, navigationPlacementFromStored("Pinned"))
+        assertEquals(NavigationPlacement.Floating, navigationPlacementFromStored("Floating"))
+    }
+
+    @Test fun autoIsNotAForcedPlacementOfItsOwn() {
+        assertNull(NavigationPlacement.Auto.forced)
+        assertEquals(NavigationPlacement.Pinned, NavigationPlacement.Pinned.forced)
+        assertEquals(NavigationPlacement.Floating, NavigationPlacement.Floating.forced)
+    }
 }

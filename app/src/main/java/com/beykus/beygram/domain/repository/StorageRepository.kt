@@ -1,6 +1,7 @@
 package com.beykus.beygram.domain.repository
 
 import com.beykus.beygram.domain.model.CachePolicy
+import com.beykus.beygram.domain.model.ChatMemoryStats
 import com.beykus.beygram.domain.model.StorageCategory
 import com.beykus.beygram.domain.model.StorageUsage
 
@@ -17,4 +18,13 @@ interface StorageRepository {
 
     /** Приводит файлы к лимитам: лишнее удаляется. Возвращает, сколько байт освобождено. */
     suspend fun applyCachePolicy(policy: CachePolicy): Result<Long>
+
+    /** Что память чата хранит для аккаунта: сообщения, удалённые, прежние версии и занятое место. */
+    suspend fun chatMemoryStats(): ChatMemoryStats = ChatMemoryStats()
+
+    /** Сразу приводит память чата к лимиту. Настройки не меняются. */
+    suspend fun trimChatMemory() {}
+
+    /** Стирает всё, что память чата хранит для аккаунта. Переключатели остаются как были, переписка не меняется. */
+    suspend fun clearChatMemory() {}
 }

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_section_style">Style de l\'interface</string>
+    <string name="appearance_style_title">Style de l\'interface</string>
+    <string name="appearance_style_summary">%1$s</string>
+    <string name="appearance_style_note">Le style modifie les formes, la typographie, la navigation et les surfaces de toute l\'application. La palette, la luminosité, le fond d\'écran, la taille du texte et les animations restent inchangés.</string>
+    <string name="appearance_style_selected">Style « %1$s » sélectionné</string>
+    <string name="appearance_style_quality_section">Qualité du verre</string>
+    <string name="appearance_style_quality_detail">Le verre complet floute l\'arrière-plan derrière les panneaux. Si l\'appareil ne suit pas, BeyGram réduit l\'effet de lui-même.</string>
+    <string name="appearance_style_quality_auto">Automatique</string>
+    <string name="appearance_style_quality_auto_detail">Selon l\'appareil et le système</string>
+    <string name="appearance_style_quality_high">Maximale</string>
+    <string name="appearance_style_quality_high_detail">Flou réel de l\'arrière-plan derrière les panneaux</string>
+    <string name="appearance_style_quality_high_unavailable">Le flou n\'est pas disponible sur cet appareil : les panneaux sont dessinés comme en mode « Équilibrée »</string>
+    <string name="appearance_style_quality_balanced">Équilibrée</string>
+    <string name="appearance_style_quality_balanced_detail">Teinte et bords lumineux sans flou</string>
+    <string name="appearance_style_quality_lite">Économe</string>
+    <string name="appearance_style_quality_lite_detail">Surface mate dense, lisibilité maximale</string>
+    <string name="appearance_navigation_placement_section">Position de la barre inférieure</string>
+    <string name="appearance_navigation_placement_detail">La position change indépendamment du style : la forme des onglets, les couleurs et le rendu restent identiques.</string>
+    <string name="appearance_navigation_placement_auto">Selon le style</string>
+    <string name="appearance_navigation_placement_auto_detail">Comme le décide le style choisi</string>
+    <string name="appearance_navigation_placement_pinned">Fixée en bas</string>
+    <string name="appearance_navigation_placement_pinned_detail">Toute la largeur, sans marge flottante</string>
+    <string name="appearance_navigation_placement_floating">Flottante</string>
+    <string name="appearance_navigation_placement_floating_detail">Une capsule séparée avec des marges au-dessus des discussions</string>
+    <string name="design_style_default">BeyGram standard</string>
+    <string name="design_style_default_detail">L\'apparence habituelle de l\'application, inchangée</string>
+    <string name="design_style_material2">Material 2</string>
+    <string name="design_style_material2_detail">Material Design classique : formes strictes, ombres et typographie dense</string>
+    <string name="design_style_material3">Material 3</string>
+    <string name="design_style_material3_detail">Material You : surfaces tonales, formes douces et couleurs dynamiques</string>
+    <string name="design_style_liquid_glass">Liquid Glass</string>
+    <string name="design_style_liquid_glass_detail">Panneaux de verre flottants avec flou de l\'arrière-plan et bords lumineux</string>
+    <string name="design_style_signature">BeyGram Signature</string>
+    <string name="design_style_signature_detail">Le langage propre de BeyGram : la discussion d\'abord, une profondeur calme et son propre dock</string>
+</resources>

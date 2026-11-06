@@ -2,11 +2,15 @@ package com.beykus.beygram.ui.screens.theme
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -27,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,14 +51,20 @@ import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.data.appearance.WallpaperFiles
 import com.beykus.beygram.data.settings.ChatAnimationSettings
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.motion.MotionSettings
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.theme.contrastIssues
 import com.beykus.beygram.ui.theme.resolveTokens
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 internal enum class AppearancePage {
     Overview,
+    Style,
     Colors,
     Messages,
     Animations,
@@ -80,6 +91,11 @@ fun ThemeSettingsScreen(
     onSave: (AppearanceConfig) -> Unit,
     onBack: () -> Unit,
     manageWallpaperFiles: Boolean = true,
+    /**
+     * The page the editor opens on. Empty means the overview. It exists for the debug screenshot harness and for
+     * deep links into one section; a normal visit always starts on the overview.
+     */
+    initialPageName: String = "",
     motion: MotionSettings = MotionSettings(),
     onMotionChange: (MotionSettings) -> Unit = {},
     chatAnimations: ChatAnimationSettings = ChatAnimationSettings(),
@@ -88,12 +104,17 @@ fun ThemeSettingsScreen(
 ) {
     val palette = beyGramPalette()
     val systemDark = isSystemInDarkTheme()
-    var pageName by rememberSaveable { mutableStateOf(AppearancePage.Overview.name) }
+    var pageName by rememberSaveable {
+        mutableStateOf(AppearancePage.entries.firstOrNull { it.name == initialPageName }?.name ?: AppearancePage.Overview.name)
+    }
     var previewReturnName by rememberSaveable { mutableStateOf(AppearancePage.Overview.name) }
     var replayKey by rememberSaveable { mutableIntStateOf(0) }
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
     var confirmResetAll by rememberSaveable { mutableStateOf(false) }
     val page = AppearancePage.entries.firstOrNull { it.name == pageName } ?: AppearancePage.Overview
+    val pushMotion = rememberMotionSpec(MotionToken.NavigationPush)
+    val applyMotion = rememberMotionSpec(MotionToken.BannerChange)
+    val popMotion = rememberMotionSpec(MotionToken.NavigationPop)
     val previewReturn = AppearancePage.entries.firstOrNull { it.name == previewReturnName } ?: AppearancePage.Overview
     val draftTokens = resolveTokens(draft, systemDark)
     val issues = contrastIssues(
@@ -149,6 +170,14 @@ fun ThemeSettingsScreen(
         if (!manageWallpaperFiles) return
         val keep = photoKeepSet(includeDraft)
         scope.launch { runCatching { WallpaperFiles.deleteAllExcept(context, keep) } }
+    }
+
+    // Drops every unapplied change and returns the draft to the saved appearance. Trial photos are removed.
+    fun cancelDraft() {
+        history.clear()
+        undoCoalescer.reset()
+        onDraftChange(saved)
+        cleanupPhotos(includeDraft = false)
     }
 
     fun finishAppearance() {
@@ -240,9 +269,22 @@ fun ThemeSettingsScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 transitionSpec = {
                     val forward = targetState.depth >= initialState.depth
+                    val motion = if (forward) pushMotion else popMotion
                     val direction = if (forward) 1 else -1
-                    (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { direction * it / 12 }) togetherWith
-                        (fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { -direction * it / 12 })
+                    // Respect Motion Off, disabled Navigation and system reduced-motion.
+                    // Instant transitions do not render a transparent intermediate frame.
+                    if (motion.isInstant) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        (fadeIn(motion.animationSpec()) +
+                            slideInHorizontally(motion.animationSpec()) {
+                                (direction * it * motion.intensity / 12f).roundToInt()
+                            }) togetherWith
+                            (fadeOut(motion.animationSpec()) +
+                                slideOutHorizontally(motion.animationSpec()) {
+                                    (-direction * it * motion.intensity / 12f).roundToInt()
+                                })
+                    }
                 },
                 label = "appearancePage"
             ) { target ->
@@ -256,6 +298,12 @@ fun ThemeSettingsScreen(
                                 draft = draft,
                                 systemDark = systemDark,
                                 onOpenPage = ::openPage,
+                                onOpenPreview = { openPage(AppearancePage.Preview) }
+                            )
+                            AppearancePage.Style -> AppearanceStylePage(
+                                draft = draft,
+                                systemDark = systemDark,
+                                onDraftChange = ::changeDraft,
                                 onOpenPreview = { openPage(AppearancePage.Preview) }
                             )
                             AppearancePage.Colors -> AppearanceColorsPage(
@@ -312,18 +360,30 @@ fun ThemeSettingsScreen(
                 }
             }
         }
-        if (page != AppearancePage.Preview) {
+        // Keep the draft/Apply workflow, but do not reserve a footer when everything is saved.
+        // The full preview stays free of editing controls. The bar keeps its last content while it slides out.
+        val barVisible = page != AppearancePage.Preview && applyState.hasChanges
+        var lastApplyState by remember { mutableStateOf(applyState) }
+        SideEffect { if (applyState.hasChanges) lastApplyState = applyState }
+        AnimatedVisibility(
+            visible = barVisible,
+            enter = if (applyMotion.isInstant) EnterTransition.None else
+                applyMotion.fadeEnter() + slideInVertically(applyMotion.animationSpec()) { (it / 2 * applyMotion.intensity).roundToInt() },
+            exit = if (applyMotion.isInstant) ExitTransition.None else
+                applyMotion.fadeExit() + slideOutVertically(applyMotion.animationSpec()) { (it / 2 * applyMotion.intensity).roundToInt() }
+        ) {
             AppearanceApplyBar(
-                hasChanges = applyState.hasChanges,
-                canApply = applyState.canApply,
-                blockedByContrast = applyState.blockedByContrast,
+                hasChanges = lastApplyState.hasChanges,
+                canApply = lastApplyState.canApply,
+                blockedByContrast = lastApplyState.blockedByContrast,
                 onApply = {
                     (draft.wallpaper as? ChatWallpaper.Photo)?.fileName?.let(retainedAppliedPhotos::add)
                     cleanupPhotos(includeDraft = true)
                     onSave(draft)
                     history.clear()
                     undoCoalescer.reset()
-                }
+                },
+                onCancel = ::cancelDraft
             )
         }
     }
@@ -345,6 +405,7 @@ fun ThemeSettingsScreen(
 
 private fun AppearancePage.titleRes(): Int = when (this) {
     AppearancePage.Overview -> R.string.theme_title
+    AppearancePage.Style -> R.string.appearance_style_title
     AppearancePage.Colors -> R.string.appearance_colors_title
     AppearancePage.Messages -> R.string.appearance_messages_title
     AppearancePage.Animations -> R.string.theme_animations_title

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.notifications
 
 import android.Manifest
+import com.beykus.beygram.ui.design.styledShape
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -19,6 +20,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.Button
+import com.beykus.beygram.ui.components.TextButton
+import com.beykus.beygram.ui.components.OutlinedButton
+import com.beykus.beygram.ui.components.Switch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +72,7 @@ fun NotificationSettingsScreen(
     connectionState: TelegramConnectionState,
     onBack: () -> Unit,
     onDiagnostics: () -> Unit,
+    onTriggers: () -> Unit = {},
     accountPreferences: NotificationPreferencesStore = runtime.preferences,
     accountId: String = "legacy"
 ) {
@@ -133,7 +139,7 @@ fun NotificationSettingsScreen(
             Text(if (allowed) stringResource(R.string.notif_permission_granted) else stringResource(R.string.notif_permission_denied), color = if (allowed) palette.textPrimary else palette.warningText)
             Text(if (running) stringResource(R.string.notif_background_running) else stringResource(R.string.notif_background_stopped), color = palette.textSecondary)
             if (messagesBlocked) Text(stringResource(R.string.notif_messages_channel_blocked), color = palette.warningText)
-            if (!allowed) Button(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), onClick = {
+            if (!allowed) Button(shape = styledShape(16.dp), onClick = {
                 if (Build.VERSION.SDK_INT >= 33 && !runtime.preferences.permissionAsked) { runtime.preferences.permissionAsked = true; AppLockManager.get(context).expectExternalActivity(); permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
                 else open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
             }) { Text(stringResource(R.string.notif_allow_notifications)) }
@@ -152,6 +158,14 @@ fun NotificationSettingsScreen(
             }) { Text(stringResource(R.string.notif_allow_background_work)) }
             Text(stringResource(R.string.notif_battery_note), color = palette.textSecondary, fontSize = 13.sp)
             error?.let { Text(it.resolve(), color = palette.danger) }
+            HorizontalDivider(color = palette.divider)
+            Row(Modifier.fillMaxWidth().clickable(onClick = onTriggers), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.trigger_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.trigger_row_hint), color = palette.textSecondary)
+                }
+                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary)
+            }
             HorizontalDivider(color = palette.divider)
             Row(Modifier.fillMaxWidth().clickable(onClick = onDiagnostics), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

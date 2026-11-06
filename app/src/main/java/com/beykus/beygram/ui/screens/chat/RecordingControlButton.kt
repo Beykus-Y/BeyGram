@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -57,6 +58,8 @@ internal fun RecordingControlButton(
     onDragOffset: (Float, Float) -> Unit = { _, _ -> }
 ) {
     val palette = beyGramPalette()
+    // Material 3 draws the idle voice control as a filled tonal circle, apart from the grey field beside it.
+    val tonal = LocalDesignSystem.current.composerTonal
     val dragX = remember { mutableFloatStateOf(0f) }
     val dragY = remember { mutableFloatStateOf(0f) }
     val tap by rememberUpdatedState(onTap)
@@ -157,10 +160,20 @@ internal fun RecordingControlButton(
             }
         }, contentAlignment = Alignment.Center) {
         Box(Modifier.size(48.dp).graphicsLayer { translationX = dragX.floatValue; translationY = dragY.floatValue }
-            .clip(CircleShape).background(if (active || canceling) palette.danger else palette.surface2), contentAlignment = Alignment.Center) {
+            .clip(CircleShape).background(
+                when {
+                    active || canceling -> palette.danger
+                    tonal -> palette.accentSoft
+                    else -> palette.surface2
+                }
+            ), contentAlignment = Alignment.Center) {
             Icon(if (mode == ComposerRecordingMode.Voice) Icons.Rounded.Mic else Icons.Rounded.Videocam,
                 contentDescription = null,
-                tint = if (active || canceling) Color.White else palette.textSecondary, modifier = Modifier.size(23.dp))
+                tint = when {
+                    active || canceling -> Color.White
+                    tonal -> palette.accentInk
+                    else -> palette.textSecondary
+                }, modifier = Modifier.size(23.dp))
         }
     }
 }

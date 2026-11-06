@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,6 +9,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.TextButton
+import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,7 +104,7 @@ fun ActiveSessionsScreen(
             }
             error?.let { message ->
                 item {
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                    Surface(shape = styledShape(16.dp), color = MaterialTheme.colorScheme.errorContainer) {
                         Column(Modifier.fillMaxWidth().padding(16.dp)) {
                             Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
                             TextButton(enabled = !loading, onClick = { refresh++ }) {
@@ -215,13 +218,13 @@ private fun DeviceSessionRow(
     val detail = listOf(session.application.takeIf { it.isNotBlank() && it != title }, session.location.takeIf { it.isNotBlank() }, session.ip.takeIf { it.isNotBlank() })
         .filterNotNull().joinToString(" · ")
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = styledShape(18.dp),
         color = palette.surface,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Box(
-                Modifier.size(44.dp).background(palette.accentSoft, RoundedCornerShape(14.dp)),
+                Modifier.size(44.dp).background(palette.accentSoft, styledShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(title.take(1).uppercase(), style = MaterialTheme.typography.titleMedium, color = palette.accentInk)

@@ -1,11 +1,19 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.ui.design.ComposerVariant
+import com.beykus.beygram.ui.design.signatureChrome
+import com.beykus.beygram.ui.design.HairlineEdge
 import android.content.ClipData
+import com.beykus.beygram.ui.design.styledShape
 import android.content.ClipboardManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,12 +41,19 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.SurfaceTreatment
+import com.beykus.beygram.ui.design.TopBarVariant
+import com.beykus.beygram.ui.design.squareSendButton
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
@@ -49,6 +64,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -89,12 +105,17 @@ import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackQueueSource
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.LocalPlaybackAccountId
+import com.beykus.beygram.data.music.PlaylistTrack
+import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
 import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.ui.accessibility.accessibleTouchTarget
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.motionEntrance
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
@@ -221,8 +242,8 @@ fun ChatScreen(
     var capabilitiesError by remember { mutableStateOf<String?>(null) }
     var capabilitiesAttempt by remember { mutableIntStateOf(0) }
     var selectedMediaId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
-    // Window bounds of media bubbles, read once when the viewer opens. A plain map: it must not recompose on scroll.
-    val mediaOrigins = remember { HashMap<Long, Rect>() }
+    // Window bounds of the newest media bubbles, read when the viewer opens. A plain map: it must not recompose on scroll.
+    val mediaOrigins = remember { BoundedLruMap<Long, Rect>(MEDIA_ORIGIN_LIMIT) }
     // Sticker messages open their set instead of the generic media viewer. Zero means "not in a set" and gets a
     // friendly placeholder from StickerSetSheet rather than a failed TDLib request.
     var openStickerSetId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
@@ -308,6 +329,8 @@ fun ChatScreen(
     }
     var error by remember { mutableStateOf<String?>(null) }
     var copyLinks by remember(chat.id) { mutableStateOf<List<String>>(emptyList()) }
+    // The audio message whose More menu asked to save it to a playlist. Clearing it closes the sheet.
+    var playlistTrack by remember(accountId) { mutableStateOf<PlaylistTrack?>(null) }
     var botCommandMenu by remember(chat.id) { mutableStateOf<BotCommandMenu?>(null) }
     var botCommandMenuOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
     var inlineSending by remember(chat.id) { mutableStateOf(false) }
@@ -315,11 +338,13 @@ fun ChatScreen(
     var pendingWebApp by remember(chat.id) { mutableStateOf<PendingBotWebApp?>(null) }
     var webAppOpening by remember(chat.id) { mutableStateOf(false) }
     var reactionOptions by remember(conversation, chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
+    var reactionPickerOpen by remember(chat.id) { mutableStateOf(false) }
     val paidReactions = rememberPaidReactions(conversation)
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     // Each forum topic keeps its own list position.
     val scrollPosition: ChatScrollPositionViewModel = viewModel(key = "chat-scroll-$accountId-${chat.id}-$forumTopicId")
     val listState = rememberLazyListState(scrollPosition.firstVisibleItemIndex, scrollPosition.firstVisibleItemScrollOffset)
@@ -449,12 +474,6 @@ fun ChatScreen(
     }
     // Chip taps leave the user's recent reactions alone; only a reaction picked from the extended menu is added there.
     fun react(messageId: Long, reaction: ReactionOption) = setReaction(messageId, reaction, addToRecent = false)
-    fun retryFailedMessages(messageIds: List<Long>) {
-        scope.launch {
-            val result = conversation.retryMessages(chat.id, messageIds)
-            result.exceptionOrNull()?.let { error = it.message ?: context.getString(R.string.chat_retry_send_failed) }
-        }
-    }
     fun capturedRecording(media: OutgoingMedia, previewFirst: Boolean) {
         if (previewFirst) recordingRecovery.showPreview(listOf(media))
         else sendRecordedMedia(listOf(media))
@@ -462,27 +481,40 @@ fun ChatScreen(
     val attachments = rememberAttachmentState(
         chatId = chat.id,
         sendMedia = { media, caption, options ->
+            val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
             else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
-            if (result.isSuccess) clearReply()
+            if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
         },
         sendSticker = { sticker, options ->
+            val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = conversation.sendSticker(chat.id, sticker, replyId, forumTopicId = forumTopicId, options = options)
-            if (result.isSuccess) clearReply()
+            if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
         },
         sendExtra = { draft, options ->
+            val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = when (draft) {
                 is MessageExtraDraft.Poll -> conversation.sendPoll(chat.id, draft.poll, replyId, forumTopicId = forumTopicId, options = options)
                 is MessageExtraDraft.Location -> conversation.sendLocation(chat.id, draft.point, false, replyId, forumTopicId = forumTopicId, options = options)
                 is MessageExtraDraft.Contact -> conversation.sendContactCard(chat.id, draft.userId, replyId, forumTopicId = forumTopicId, options = options)
                 is MessageExtraDraft.Dice -> conversation.sendDice(chat.id, draft.emoji, replyId, forumTopicId = forumTopicId, options = options)
+                is MessageExtraDraft.MusicFile, is MessageExtraDraft.MusicBotResult -> conversation.sendMusicDraft(chat.id, draft, replyId, forumTopicId, options)
             }
-            if (result.isSuccess) clearReply()
+            if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
         }
     )
+    fun retryFailedMessages(messageIds: List<Long>, sendNowConsent: Boolean = false) {
+        scope.launch {
+            val result = conversation.retryMessages(chat.id, messageIds, sendNowConsent)
+            val failure = result.exceptionOrNull() ?: return@launch
+            // A resend that stealth mode cannot keep scheduled goes out only after the user agrees.
+            if (attachments.stealthFallback.offer(failure) { retryFailedMessages(messageIds, sendNowConsent = true) }) return@launch
+            error = failure.message ?: context.getString(R.string.chat_retry_send_failed)
+        }
+    }
     // View-once is a regular-private-chat photo/video feature. TDLib rejects per-message self-destruct in secret chats,
     // groups, channels and Saved Messages, so those keep only the separate chat-wide TTL controls.
     val allowViewOnce = !chat.isSecret && !chat.isGroup && !chat.isChannel && !chat.isSavedMessages
@@ -494,7 +526,7 @@ fun ChatScreen(
         chat.isGroup || chat.isChannel -> chat.canSendPolls
         else -> chat.canSendPolls || info?.kind == ProfileKind.Bot
     }
-    ComposerExtraPickers(chat.id, pollsAllowed, conversation, attachments)
+    ComposerExtraPickers(chat.id, pollsAllowed, conversation, attachments, remember(accountId, chat.isSecret) { if (chat.isSecret) null else ComposerMusicSource(accountId, observeFile, onDownloadFile) })
     val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, accountId = accountId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.
@@ -608,9 +640,11 @@ fun ChatScreen(
     }
     // Sender picker is built from the loaded history; no extra TDLib member request is needed in the search bar.
     val searchSenders = remember(messages) { chatSearchSenders(messages) }
+    // Album grouping reads only the messages, so a pending video note does not regroup the whole loaded history.
+    val albumItems = remember(messages) { groupTelegramMediaAlbums(messages) }
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
-    val rawMessageItems = remember(messages, pendingVideoNotes) {
-        pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + groupTelegramMediaAlbums(messages)
+    val rawMessageItems = remember(albumItems, pendingVideoNotes) {
+        pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + albumItems
     }
     val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
         scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
@@ -736,7 +770,7 @@ fun ChatScreen(
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
-    fun closeActions() { actionsId = null; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
+    fun closeActions() { actionsId = null; reactionPickerOpen = false; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     fun enterSelection(message: ChatMessage? = null) {
         closeActions()
         selectionMode = true
@@ -761,11 +795,15 @@ fun ChatScreen(
         selectionDeleteBusy = false
         selectionDeleteError = null
     }
-    // A long press on a bubble starts multi-select with that message already picked. The one-message action sheet stays
-    // reachable from the selection bar while the selection is exactly the pressed message or its album.
-    fun selectOnLongPress(messageId: Long) {
+    // A long press opens message actions and its reaction picker directly.
+    // Multi-select remains a deliberate action within MessageActionsBar.
+    fun openActionsOnLongPress(messageId: Long) {
+        if (selectionMode) return
+        // Remember the same anchor used by SelectionActionBar's single-message More action.
+        // Entering Select from the action menu must not lose the original message context.
         selectionAnchorId = messageId
-        messages.firstOrNull { it.id == messageId }?.let { enterSelection(it) }
+        actionsId = messageId
+        reactionPickerOpen = false
     }
     val singleActionTarget = selectionAnchorId?.takeIf { selectionIds == selectionGroupIds(messages, it) }
     fun toggleSelection(message: ChatMessage) {
@@ -1056,19 +1094,21 @@ fun ChatScreen(
         audioNote.stopForRecovery()
     }
 
+    // The sent-message ids are rebuilt only when the history changes, not on every scroll frame of the receipt check.
+    val sentMessageIds = remember(messages) { messages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id } }
+    val currentSentMessageIds by rememberUpdatedState(sentMessageIds)
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
     LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             snapshotFlow {
                 if (!window.isWindowFocused || searching || threadOpen || attachments.cameraOpen || attachments.editor != null || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
-                    val eligible = currentMessages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id }
                     layout.visibleItemsInfo.filter { item ->
                         val visible = minOf(item.offset + item.size, layout.viewportEndOffset) - maxOf(item.offset, layout.viewportStartOffset)
                         visible >= minOf(item.size / 2, minimumVisible).coerceAtLeast(1)
                     }.flatMap { visibleItem ->
                         currentMessageItemsByKey[visibleItem.key as? String]?.messages.orEmpty().map { it.id }
-                    }.filter { it in eligible }.distinct().sorted()
+                    }.filter { it in currentSentMessageIds }.distinct().sorted()
                 }
             }.debounce(350).distinctUntilChanged().collect { ids -> if (ids.isNotEmpty()) conversation.messagesVisible(chat.id, ids) }
         }
@@ -1348,6 +1388,12 @@ fun ChatScreen(
         onFocusHandled()
     }
 
+    // Composer sends confirm first while hidden presence warns about sending; asked once per chat screen (see StealthSendGuard).
+    val sendGuard = rememberStealthSendGuard(chat.id, conversation)
+    val delayed = rememberDelayedSend(chat.id, forumTopicId, conversation)
+    // A plain text send that came before the account's delay was read. It is sent again once that is known, if the composer still
+    // holds it; see below.
+    var sendWaitingForDelay by remember(chat.id, forumTopicId) { mutableStateOf<HeldDelayedSend?>(null) }
     /**
      * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
      * the choice applies to this send only and is not kept for the next one.
@@ -1370,8 +1416,24 @@ fun ChatScreen(
         }
         val outgoingAnimation = messageAnimations.direction(outgoing = true)
         val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
+        // Stealth mode hands the message to Telegram's scheduled queue (#541), or waits out a short lead itself; the local
+        // delay is a separate convenience and is skipped then, so stealth sending is the only thing that holds the message.
+        val stealthScheduled = stealthWillSchedule(conversation, effectiveOptions)
+        val stealthHolds = effectiveOptions.scheduledAtSeconds == null && conversation.stealthHoldsSends()
+        // A delayed text is stored first and only then cleared from the composer. A bot's forced reply is always sent directly.
+        val delayable = !stealthScheduled && !stealthHolds && !effectiveOptions.sendNowConsent && botKeyboard?.forceReply != true
+        when (if (delayable) delayed.route(outgoing.text, effectiveOptions) else DelayedSendRoute.SendNow) {
+            // The delay is not read yet: the text waits for it, instead of going out as if no delay were set.
+            DelayedSendRoute.Hold -> { sendWaitingForDelay = HeldDelayedSend(effectiveOptions, composerDraft); return }
+            DelayedSendRoute.Queue -> {
+                // Only the text that was stored leaves the composer: text typed while the write ran stays.
+                delayed.enqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { current -> draftAfterDelayedQueue(current, storedText = draft) } })
+                return
+            }
+            DelayedSendRoute.SendNow -> Unit
+        }
         // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
-        val launch = if (effectiveOptions.scheduledAtSeconds == null && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
+        val launch = if (effectiveOptions.scheduledAtSeconds == null && !stealthScheduled && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
             composerFieldBounds?.let { source ->
                 composerLaunchCounter += 1
                 ComposerLaunch(
@@ -1389,21 +1451,34 @@ fun ChatScreen(
                 }
             }
         } else null
+        // A stealth lead too short for the server is waited out by the repository and outlives this screen, so the draft is
+        // taken now: a later success must not clear text typed meanwhile. A failure puts it back if the composer is still empty.
+        val stealthWaitsLocally = stealthHolds && !stealthScheduled && !effectiveOptions.sendNowConsent
+        val submitted = composerDraft
+        if (stealthWaitsLocally) updateDraft { MessageDraft() }
         sending = true; error = null
         scope.launch {
             var delivered = false
             try {
-                val result = conversation.sendMessage(chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId, options = effectiveOptions)
+                val result = conversation.sendMessage(
+                    chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId,
+                    clearDraft = !stealthWaitsLocally, options = effectiveOptions
+                )
+                if (stealthWaitsLocally && result.isFailure) updateDraft { current -> if (current.text.isEmpty()) submitted else current }
                 if (result.isSuccess) {
                     delivered = true
-                    updateDraft { MessageDraft() }
+                    if (!stealthWaitsLocally) updateDraft { MessageDraft() }
                     launch?.awaitingSend = false
                     if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
                     if (effectiveOptions.scheduledAtSeconds != null) {
                         Toast.makeText(context, context.getString(R.string.chat_schedule_success), Toast.LENGTH_SHORT).show()
+                    } else if (stealthScheduled) {
+                        showStealthScheduledNotice(context)
                     }
-                } else error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
+                } else if (!attachments.stealthFallback.offer(result.exceptionOrNull()) { sendCurrentDraft(effectiveOptions.copy(sendNowConsent = true)) }) {
+                    error = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed)
+                }
             } finally {
                 launch?.awaitingSend = false
                 if (!delivered) {
@@ -1415,6 +1490,22 @@ fun ChatScreen(
         }
     }
 
+    // A send held while the account's delay was read goes through the same path once that is known, if the composer still holds
+    // the text that was sent. An edit made meanwhile cancels it: nothing else goes out, and the composer keeps what is there.
+    LaunchedEffect(delayed.ready) {
+        val held = sendWaitingForDelay
+        if (delayed.ready && held != null) {
+            sendWaitingForDelay = null
+            if (!heldSendStillMatches(held.draft, composerDraft, attachments.active, pendingSticker != null)) {
+                Toast.makeText(context, R.string.delayed_send_edited_while_waiting, Toast.LENGTH_LONG).show()
+            } else if (draft.isNotBlank()) {
+                sendCurrentDraft(held.options)
+            }
+        }
+    }
+
+    // Reported by PinnedMessagesBar: while the preview sits under the header, Liquid Glass keeps one hairline for both.
+    var pinnedPreviewShown by remember(chat.id, forumTopicId) { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (selectionMode) SelectionActionBar(
@@ -1457,6 +1548,7 @@ fun ChatScreen(
                     closeActions()
                 }
             },
+            onReactions = if (reactionOwner != null && reactionOptions.isNotEmpty()) { { reactionPickerOpen = true } } else null,
             onCopyEntity = if (actionMessage.isViewOnce || chat.hasProtectedContent) null else copyableMessageLinks(actionMessage.text, actionMessage.entities)
                 .takeIf { it.isNotEmpty() }
                 ?.let { values -> { copyLinks = values; closeActions() } },
@@ -1469,7 +1561,8 @@ fun ChatScreen(
             } else null,
             onReport = if (!actionMessage.isOutgoing && !chat.isSecret) {
                 { reportMessageId = actionMessage.id; closeActions() }
-            } else null
+            } else null,
+            onAddToPlaylist = if (chat.hasProtectedContent) null else playlistTrackOf(actionMessage, accountId, { id -> observeFile(id).value }, context.getString(R.string.media_kind_audio))?.let { track -> { playlistTrack = track; closeActions() } }
         ) else if (searching) ChatSearchBar(
             query = searchQuery,
             onQueryChange = { searchQuery = it },
@@ -1494,8 +1587,12 @@ fun ChatScreen(
             onChatSettings = { chatSettingsOpen = true },
             onStatistics = onStatistics,
             onExport = { exportOpen = true },
-            secretChat = secretChat
+            secretChat = secretChat,
+            pinnedBelow = pinnedPreviewShown
         )
+        // Keep playback accessible below the chat header, not between messages and the composer.
+        // The input/IME and reply controls should remain adjacent to the message list.
+        NowPlayingBar()
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
         if (translationTargetMessage != null && TranslationPolicy.canTranslate(chat.isSecret, translationTargetMessage.text.isNotBlank())) {
@@ -1518,7 +1615,7 @@ fun ChatScreen(
                 onDismiss = { reportMessageId = null }
             )
         }
-        reactionOwner?.takeIf { !deleting }?.let { owner ->
+        reactionOwner?.takeIf { !deleting && reactionPickerOpen }?.let { owner ->
             MessageReactionPicker(reactionOptions, owner.reactions.filter { it.isChosen && !it.isPaid }.mapTo(hashSetOf()) { it.option }, conversation::observeCustomEmoji, observeFile, onDownloadFile) { option ->
                 setReaction(owner.id, option, addToRecent = true)
                 closeActions()
@@ -1533,7 +1630,8 @@ fun ChatScreen(
             }
         }
         PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected,
-            ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary, forumTopicId = forumTopicId)
+            ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary, forumTopicId = forumTopicId,
+            onPreviewShownChange = { pinnedPreviewShown = it })
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1574,7 +1672,7 @@ fun ChatScreen(
                                 MessageAlbumBubble(listItem.messages, observeFile, onDownloadFile,
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                     highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
-                                    onOpen = { selectedMediaId = it }, onActions = ::selectOnLongPress, onReplyClick = ::jump,
+                                    onOpen = { selectedMediaId = it }, onActions = ::openActionsOnLongPress, onReplyClick = ::jump,
                                     onMediaBounds = { rect -> listItem.messages.forEach { mediaOrigins[it.id] = rect } }, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                     onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
                                     selectionMode = selectionMode,
@@ -1585,7 +1683,8 @@ fun ChatScreen(
                                     },
                                     onAutoDownloadFile = onAutoDownloadFile,
                                     showSenderHeader = senderHeaderByKey[listItem.key] == true,
-                                    onOpenMessageEntity = onOpenMessageEntity)
+                                    onOpenMessageEntity = onOpenMessageEntity,
+                                    onLoadVersions = { chatId, messageId -> conversation.messageVersions(chatId, messageId) })
                             }
                         }
                     }
@@ -1626,7 +1725,7 @@ fun ChatScreen(
                             if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
                             else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
                             else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
-                                highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { selectOnLongPress(message.id) }, longPressSelects = true, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { openActionsOnLongPress(message.id) }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                 onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                                 onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, ::requestBotWebApp) },
                                 onBubblePositioned = bubblePosition,
@@ -1669,6 +1768,7 @@ fun ChatScreen(
                                 onLoadPollVoters = { messageId, optionIndex, offset ->
                                     conversation.pollVoters(chat.id, messageId, optionIndex, offset)
                                 },
+                                onLoadVersions = { chatId, messageId -> conversation.messageVersions(chatId, messageId) },
                                 onAddPollOption = { messageId, text ->
                                     conversation.addPollOption(chat.id, messageId, text)
                                 },
@@ -1750,16 +1850,34 @@ fun ChatScreen(
             }
         }
         if (!searching) FloatingMessageDate(listState, messageListItems, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
-        val away by remember { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
-        if (away || history.hasNewerMessages) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp).clip(RoundedCornerShape(50)).background(palette.surface)
-            .border(1.dp, palette.divider, RoundedCornerShape(50)).heightIn(min = 48.dp).clickable(role = Role.Button) {
-                if (history.hasNewerMessages) { if (forumTopicId > 0L) conversation.loadForumTopicHistory(chat.id, forumTopicId) else conversation.loadLatestMessages(chat.id); scope.launch { listState.scrollToItem(0) } }
-                else scope.launch { listState.animateScrollToItem(0) }
-            }
-            .padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.ArrowDownward, null, tint = palette.accent, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(stringResource(R.string.chat_jump_to_latest), color = palette.accentInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        val away by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
+        val jumpMotion = rememberMotionSpec(MotionToken.BannerChange)
+        // Qualify the top-level animation: the outer chat ColumnScope overload is not valid in this BoxScope.
+        // The list box ends above the composer and the keyboard, so a bottom-end control stays clear of both.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = away || history.hasNewerMessages,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
+            enter = if (jumpMotion.isInstant) EnterTransition.None else
+                jumpMotion.fadeEnter() + slideInVertically(jumpMotion.animationSpec()) { it / 2 },
+            exit = if (jumpMotion.isInstant) ExitTransition.None else
+                jumpMotion.fadeExit() + slideOutVertically(jumpMotion.animationSpec()) { it / 2 }
+        ) {
+            JumpToLatestButton(unread = if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount, onClick = {
+                val hasNewerMessages = history.hasNewerMessages
+                if (hasNewerMessages) {
+                    if (forumTopicId > 0L) conversation.loadForumTopicHistory(chat.id, forumTopicId)
+                    else conversation.loadLatestMessages(chat.id)
+                }
+                scope.launch {
+                    // Honor Motion Off / system reduced motion for the scroll itself,
+                    // not only for the button's entrance and exit.
+                    if (shouldAnimateJumpToLatest(jumpMotion.isInstant, hasNewerMessages)) {
+                        listState.animateScrollToItem(0)
+                    } else {
+                        listState.scrollToItem(0)
+                    }
+                }
+            })
         }
         if (searching) ChatSearchResults(
             query = searchQuery,
@@ -1822,6 +1940,11 @@ fun ChatScreen(
                 }
             }
         )
+        // Keep presence above the entire composer, including any staged attachment tray.
+        // Never place it between attachment previews and the caption/keyboard.
+        key(chat.id) {
+            AnimatedTypingRow(if (!deleting && !searching && !selectionMode) typingNames else emptyList())
+        }
         val replyTarget = messages.firstOrNull { it.id == replyId }
         if (deleting && actionMessage != null) {
             val caps = capabilities
@@ -1839,8 +1962,6 @@ fun ChatScreen(
             ChatComposerPanel(
                 stickerPanelOpen = stickerPanelOpen,
                 attachments = attachments,
-                draft = draft,
-                captionLimit = limits.caption,
                 conversation = conversation,
                 observeFile = observeFile,
                 onDownloadFile = onDownloadFile,
@@ -1866,7 +1987,7 @@ fun ChatScreen(
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )
             if (replyId != null) Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).border(1.dp, palette.accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                Column(Modifier.weight(1f).clip(styledShape(12.dp)).border(1.dp, palette.accent.copy(alpha = 0.45f), styledShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
                     Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Text(replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable), color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
                 }
@@ -1894,14 +2015,15 @@ fun ChatScreen(
         val recordingLocked = if (recordingMode == ComposerRecordingMode.Voice) audioNote.locked else videoNote.locked
         val recordingCanceling = if (recordingMode == ComposerRecordingMode.Voice) audioNote.canceling else videoNote.canceling
         val showRecord = recordingActive || (!editing && !attachments.active && fieldText.isBlank())
-        if (!deleting && !searching && !selectionMode && typingNames.isNotEmpty()) TypingRow(typingNames)
-        // Мини-плеер стоит над полем ввода и остаётся на месте при поиске и при выборе сообщений. Без поля ввода он внизу экрана, поэтому отступает от системной навигации.
-        NowPlayingBar(bottomInset = deleting || searching || selectionMode)
         // Chats the user cannot write to get no composer, only a plain notice, as in Telegram.
         if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar(
             if (secretChatClosed) stringResource(R.string.secret_chat_closed_composer) else stringResource(R.string.chat_read_only)
         )
-        if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().imePadding()) {
+        if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().then(
+            // Signature keeps the composer on the canvas behind one hairline; the field itself is the only filled plane.
+            if (design.components.composer == ComposerVariant.Signature) Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
+            else Modifier.background(palette.surface)
+        ).navigationBarsPadding().imePadding()) {
         // A bot with no outgoing message in its whole history gets an explicit /start action, independent of inline mode or Mini Apps.
         if (info?.kind == ProfileKind.Bot && !editing && !recordingActive && !attachments.active &&
             !history.isLoading && !history.hasOlderMessages && history.messages.none { it.isOutgoing }
@@ -1931,6 +2053,7 @@ fun ChatScreen(
                 if (replyId != null) clearReply()
             }
         )
+        delayed.Strip(composerEmpty = draft.isEmpty() && replyId == null, onRestoreDraft = { restored -> updateDraft { restored } })
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) {
@@ -1942,12 +2065,13 @@ fun ChatScreen(
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
             else if (videoNote.active) VideoNoteRecordingDock(videoNote, Modifier.weight(1f), onCancel = videoNote::discardLocked)
-            else FormattingTextField(displayedFieldText, displayedFieldEntities,
+            else Column(Modifier.weight(1f)) {
+                FormattingTextField(displayedFieldText, displayedFieldEntities,
                 onChange = { if (!hidingComposerForLaunch) { if (stickerPanelOpen) stickerPanelOpen = false; if (editing) editText = it else typedDraft(it) } },
                 onEntitiesChange = { if (!hidingComposerForLaunch) { if (editing) editEntities = it else updateDraft { state -> state.copy(entities = it) } } },
                 placeholder = if (hidingComposerForLaunch) "" else if (attachments.active && attachments.extra == null) stringResource(R.string.chat_caption_placeholder) else botKeyboard?.placeholder?.takeIf { it.isNotBlank() } ?: stringResource(R.string.chat_message),
                 locked = busy || hidingComposerForLaunch, isError = false,
-                modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused && stickerPanelOpen) stickerPanelOpen = false }.onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
+                modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused && stickerPanelOpen) stickerPanelOpen = false }.onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
                 focusRequest = replyFocusRequest, cursor = composerCursor,
                 // One entry to Emoji / Stickers / GIF, inside the input and before Record/Send.
                 trailingAction = if (!editing) {
@@ -1966,6 +2090,17 @@ fun ChatScreen(
                         )
                     }
                 } else null)
+                // Caption belongs to this text field, not to the thumbnail tray above it.
+                if (!editing && attachments.active && attachments.extra == null) {
+                    val count = attachmentCaptionLength(draft)
+                    Text(
+                        "$count / ${limits.caption}",
+                        color = if (count > limits.caption) palette.danger else palette.textSecondary,
+                        fontSize = 11.sp,
+                        modifier = Modifier.align(Alignment.End).padding(end = 12.dp, top = 2.dp)
+                    )
+                }
+            }
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
             // cancels its gesture coroutine immediately after onStart changes active to true.
@@ -2012,7 +2147,7 @@ fun ChatScreen(
                             } finally { editBusy = false }
                         }
                     } else {
-                        sendCurrentDraft(MessageSendOptions())
+                        sendGuard.run { sendCurrentDraft(MessageSendOptions()) }
                     }
                 }
                 .semantics {
@@ -2020,11 +2155,7 @@ fun ChatScreen(
                     sendState?.let { stateDescription = it }
                 },
                 contentAlignment = Alignment.Center) {
-                Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent.copy(alpha = if (canSend || busy) 1f else 0.4f)), contentAlignment = Alignment.Center) {
-                    if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = palette.onAccent, strokeWidth = 2.dp)
-                    else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
-                        tint = palette.onAccent.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
-                }
+                SendControlFace(busy = busy, canSend = canSend, editing = editing)
             }
         }
         if (!recordingActive && overLimit) Text(
@@ -2102,14 +2233,17 @@ fun ChatScreen(
     // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
     val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
         ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id) } })
-    if (viewed != null && viewed.media != null) MediaViewer(
-        pages = viewerPages, selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigins[viewed.id],
+    val viewOnceGate = rememberViewOnceStealthGate(chat.id)
+    val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(chat.id, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)) }
+    if (viewOnceAsked != null) viewOnceGate.ConsentDialog(chat.id, viewOnceAsked.id) { selectedMediaId = null }
+    if (viewed != null && viewed.media != null && viewOnceAsked == null) MediaViewer(
+        pages = viewOnceGate.swipeable(viewerPages, chat.id, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)), selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigins[viewed.id],
         observeFile = observeFile, downloadFile = onDownloadFile,
         onViewed = { id ->
             val once = (messages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
             if (!once || id !in openedViewOnceIds) {
                 if (once) openedViewOnceIds = openedViewOnceIds + id
-                conversation.openMessageContent(chat.id, id)
+                viewOnceGate.openContent(conversation, chat.id, id)
             }
         }, onClose = { selectedMediaId = null },
         title = if (viewed.isOutgoing) stringResource(R.string.chat_you) else viewed.senderName.ifBlank { chat.title }, subtitle = listOfNotNull(viewed.time, viewerPosition?.let { stringResource(R.string.chat_media_position, it.number, it.total) }).joinToString(" · "),
@@ -2197,6 +2331,7 @@ fun ChatScreen(
         onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
     )
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }
+    playlistTrack?.let { track -> AddToPlaylistSheet(accountId = accountId, track = track, onDismiss = { playlistTrack = null }) }
     if (copyLinks.isNotEmpty()) MessageLinkCopyDialog(
         links = copyLinks,
         onCopy = { value ->
@@ -2217,17 +2352,23 @@ fun ChatScreen(
         },
         dismissButton = { TextButton(onClick = { pinConfirm = false }) { Text(stringResource(R.string.common_cancel)) } }
     )
+    sendGuard.Dialog()
+    attachments.stealthFallback.Dialog()
     if (sendOptionsOpen) SendOptionsDialog(
         canSchedule = !chat.isSecret,
         onDismiss = { sendOptionsOpen = false; pendingSticker = null },
-        onSendNow = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions()) },
-        onSendSilently = { sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(disableNotification = true)) },
-        onSchedule = { at -> sendOptionsOpen = false; sendCurrentDraft(MessageSendOptions(scheduledAtSeconds = at)) }
+        onSendNow = { sendOptionsOpen = false; sendGuard.run({ pendingSticker = null }) { sendCurrentDraft(MessageSendOptions()) } },
+        onSendSilently = { sendOptionsOpen = false; sendGuard.run({ pendingSticker = null }) { sendCurrentDraft(MessageSendOptions(disableNotification = true)) } },
+        onSchedule = { at -> sendOptionsOpen = false; sendGuard.run({ pendingSticker = null }) { sendCurrentDraft(MessageSendOptions(scheduledAtSeconds = at)) } }
     )
     if (scheduledMessagesOpen) ScheduledMessagesDialog(
         chatId = chat.id,
         conversation = conversation,
-        onClose = { scheduledMessagesOpen = false }
+        onClose = { scheduledMessagesOpen = false },
+        onCompose = if (canPostHere) ({
+            scheduledMessagesOpen = false
+            replyFocusRequest++
+        }) else null
     )
     if (chatSettingsOpen) ChatSettingsSheet(
         chatId = chat.id,
@@ -2276,6 +2417,55 @@ fun ChatScreen(
 }
 
 /**
+ * The return-to-latest control: a 48dp round floating button with an arrow and, when there are unread messages, the
+ * chat's unread count on its edge. It sits over the message list, so the composer and the keyboard never cover it.
+ */
+@Composable
+private fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val label = stringResource(R.string.chat_jump_to_latest)
+    Box(
+        Modifier.size(48.dp).semantics(mergeDescendants = true) { contentDescription = label },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier.fillMaxSize().shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
+                .clickable(role = Role.Button, onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+        }
+        // The badge sits outside the clipped circle so the corner offset does not crop it.
+        if (unread > 0) Box(
+            Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)
+                .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                .clip(CircleShape).background(palette.accent).padding(horizontal = 4.dp)
+                .clearAndSetSemantics {},
+            contentAlignment = Alignment.Center
+        ) {
+            Text(if (unread > 99) "99+" else unread.toString(), color = palette.onAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * The round send control: a checkmark while editing, a spinner while sending. Material 3 fills it with the tonal accent
+ * container; the other styles keep the solid accent, and Material 2 keeps its rounded square.
+ */
+@Composable
+private fun SendControlFace(busy: Boolean, canSend: Boolean, editing: Boolean) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val fill = if (design.composerTonal) palette.accentSoft else palette.accent
+    val ink = if (design.composerTonal) palette.accentInk else palette.onAccent
+    Box(Modifier.size(40.dp).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(fill.copy(alpha = if (canSend || busy) 1f else 0.4f)), contentAlignment = Alignment.Center) {
+        if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = ink, strokeWidth = 2.dp)
+        else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
+            tint = ink.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
+    }
+}
+
+/**
  * Box/Column are inline, so their content is compiled into the caller. ChatScreen is close to the
  * JVM method size limit; passing the content through these wrappers compiles it as a separate lambda.
  */
@@ -2294,8 +2484,6 @@ private fun ChatScreenColumn(modifier: Modifier, content: @Composable ColumnScop
 private fun ChatComposerPanel(
     stickerPanelOpen: Boolean,
     attachments: AttachmentState,
-    draft: String,
-    captionLimit: Int,
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
@@ -2338,8 +2526,6 @@ private fun ChatComposerPanel(
     } else {
         AttachmentPanel(
             state = attachments,
-            caption = draft,
-            captionLimit = captionLimit,
             observeFile = observeFile,
             onDownloadFile = onDownloadFile,
             allowViewOnce = allowViewOnce
@@ -2361,14 +2547,25 @@ private fun ChatTopBar(
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
     hasUnread: Boolean = false, onSelectMessages: () -> Unit = {}, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
     onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onStatistics: (() -> Unit)? = null,
-    onExport: () -> Unit = {}, secretChat: SecretChatDetails? = null
+    onExport: () -> Unit = {}, secretChat: SecretChatDetails? = null,
+    /** The pinned preview is drawn directly under this header, so it closes the group with the one hairline. */
+    pinnedBelow: Boolean = false
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     var menuOpen by remember { mutableStateOf(false) }
     // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
     val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
     val chatInfoLabel = stringResource(R.string.a11y_chat_info)
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    Column(Modifier.fillMaxWidth().then(
+        when (design.components.topBar) {
+            TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
+            TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.78f)))
+            // Signature: the header shares the canvas with the messages, one hairline marks where it ends.
+            TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
+            TopBarVariant.Flat -> Modifier.background(palette.surface)
+        }
+    )) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
             // Avatar and title share one focus stop: TalkBack should not visit the same "chat info" target twice.
@@ -2402,7 +2599,8 @@ private fun ChatTopBar(
                     )
                 }
             }
-            if (!chat.isSecret) IconButton(onClick = onScheduled) { Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_scheduled_title), tint = palette.textSecondary) }
+            // Scheduled messages stay accessible from overflow, without permanently consuming
+            // an entire title-width action slot in every ordinary chat.
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
             Box {
                 IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary) }
@@ -2411,6 +2609,11 @@ private fun ChatTopBar(
                         text = { Text(stringResource(R.string.chat_jump_to_unread)) },
                         enabled = hasUnread,
                         onClick = { menuOpen = false; onJumpUnread() }
+                    )
+                    if (!chat.isSecret) DropdownMenuItem(
+                        text = { Text(stringResource(R.string.chat_scheduled_title)) },
+                        leadingIcon = { Icon(Icons.Rounded.Schedule, contentDescription = null, tint = palette.textSecondary) },
+                        onClick = { menuOpen = false; onScheduled() }
                     )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.chat_mark_unread)) },
@@ -2435,7 +2638,8 @@ private fun ChatTopBar(
                 }
             }
         }
-        HorizontalDivider(color = palette.divider)
+        // Liquid Glass with the pinned preview below: the preview's own hairline is the single edge of the group.
+        if (!(pinnedBelow && design.components.topBar == TopBarVariant.Glass)) HorizontalDivider(color = palette.divider)
     }
 }
 
@@ -2510,10 +2714,18 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     animateSpecial: Boolean = false,
     diceAnimationId: Long = 0L,
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
-    paidContent: PaidContentActions? = null
+    paidContent: PaidContentActions? = null,
+    /** Loads the earlier texts that Chat Memory kept for this message; without it a bubble shows no versions link. */
+    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
+    val glassBubbles = LocalDesignSystem.current.surfaces.treatment == SurfaceTreatment.Glass
+    // The versions sheet belongs to the bubble that opened it, and is composed only while it is open.
+    var showVersions by remember(message.id) { mutableStateOf(false) }
+    val loadVersions = onLoadVersions
+    if (showVersions && loadVersions != null) ChatMemoryVersionsSheet(message, loadVersions, onDismiss = { showVersions = false })
+    val openVersions: () -> Unit = { showVersions = true }
     val shape = bubbleShape(message.isOutgoing, metrics)
     val hasText = message.text.isNotBlank()
     val special = message.special
@@ -2537,6 +2749,11 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
+    val inlineMeta = useInlineTextMetadata(
+        message,
+        hasSenderHeader = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank(),
+        hasTranslation = translation != null
+    )
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
     val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
     val longPressLabel = stringResource(if (longPressSelects) R.string.message_action_select else R.string.a11y_message_actions)
@@ -2548,10 +2765,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
             // Голосовое и кружок управляются своими элементами в пузыре и не открывают просмотрщик.
             Box(swipe) {
                 BubbleLayout(
-                    Modifier.widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
+                    Modifier.testTag("message-bubble:${message.id}")
+                        .widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
                         .then(if (message.media != null && !circle && !sticker)
                              Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
+                        .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                         .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
                         .then(if (onMediaBounds != null && message.media != null) Modifier.onGloballyPositioned { onMediaBounds(it.boundsInWindow()) } else Modifier)
@@ -2579,6 +2798,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             onLongClick = if (selectionMode) onToggleSelection else onActions
                         ),
                     overlayMeta = overlayMeta,
+                    // Short one-line text only: prevent awkward bubble width on formatted or wrapped text.
+                    inlineMeta = inlineMeta,
                     body = {
                     Column {
                         if (showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -2620,14 +2841,16 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     stickerMedia?.let { stickerMedia ->
                                         { if (selectionMode) onToggleSelection() else callback(stickerMedia) }
                                     }
-                                })
+                                }, selectionActive = selectionMode)
                         }
                         message.expiredMediaKind?.let { kind -> ExpiredMediaCard(kind) }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (showText || renderedSpecial != null || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
-                                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(metrics.replyRadius))
-                                    .border(1.dp, palette.accent, RoundedCornerShape(metrics.replyRadius))
+                                // Liquid Glass: the quote is a tint of its own bubble, not a second outline inside it.
+                                val quoteShape = RoundedCornerShape(metrics.replyRadius)
+                                Column(Modifier.padding(vertical = 4.dp).clip(quoteShape)
+                                    .then(if (glassBubbles) Modifier.background(palette.accent.copy(alpha = 0.12f)) else Modifier.border(1.dp, palette.accent, quoteShape))
                                     .clickable { if (selectionMode) onToggleSelection() else onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
                                     Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                     Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -2670,9 +2893,22 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 },
                 meta = {
                     if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
-                        overlay = overlayMeta, onRetry = onRetry)
+                        overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta,
+                        onShowVersions = if (onLoadVersions != null) openVersions else null)
                 },
-                footer = inlineContent,
+                footer = {
+                    // Inline keyboards and reactions must stack, never paint over one another.
+                    Column {
+                        inlineContent()
+                        // Reactions stay inside the clipped bubble and close to its bottom edge.
+                        // Compact pills keep their Compose-expanded touch targets.
+                        if (!selectionMode) MessageReactionChips(
+                            message.reactions, observeCustomEmoji, observeFile, onDownloadFile,
+                            onToggle = { onReaction(message.id, it) },
+                            modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 2.dp)
+                        )
+                    }
+                },
                 bottomBar = { if (!circle && !sticker) commentsBar?.invoke() }
             )
                 // Media previews own tap gestures (play, open, video note). In selection mode a transparent overlay
@@ -2693,8 +2929,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
             Box(Modifier.padding(top = 2.dp).width(244.dp).clip(RoundedCornerShape(metrics.replyRadius))
                 .background(if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)) { bar() }
         }
-        MessageReactionChips(message.reactions, observeCustomEmoji, observeFile, onDownloadFile, onToggle = { onReaction(message.id, it) }, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
-    }
+     }
 }
 
 
@@ -2707,7 +2942,7 @@ private fun CallMessageChip(text: String, time: String) {
         horizontalArrangement = Arrangement.Center
     ) {
         Row(
-            Modifier.clip(RoundedCornerShape(16.dp))
+            Modifier.clip(styledShape(16.dp))
                 .background(palette.surface.copy(alpha = 0.92f))
                 .padding(horizontal = 14.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -2733,7 +2968,7 @@ internal fun ServiceMessageChip(text: String, userId: Long = 0L, onOpenUser: (Lo
             color = palette.textSecondary,
             fontSize = 12.sp,
             lineHeight = 17.sp,
-            modifier = Modifier.clip(RoundedCornerShape(14.dp))
+            modifier = Modifier.clip(styledShape(14.dp))
                 .background(palette.surface.copy(alpha = 0.87f))
                 .then(if (userId > 0L) Modifier.clickable { onOpenUser(userId) } else Modifier)
                 .padding(horizontal = 13.dp, vertical = 7.dp)
