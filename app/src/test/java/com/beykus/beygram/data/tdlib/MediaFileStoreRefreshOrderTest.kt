@@ -39,12 +39,13 @@ class MediaFileStoreRefreshOrderTest {
     }
 
     @Test fun anAnswerToAnEarlierQuestionDoesNotRollBackWhenTheFileWasAskedAgain() {
-        val store = MediaFileStore(maxEntries = 1, refreshFile = { asked += it })
-        // The first read asks question 1 about file 1. Reading file 2 evicts the idle file 1, and reading file 1 again asks question 2.
+        val store = MediaFileStore(maxEntries = 4, refreshFile = { asked += it })
+        // The first read asks question 1 about file 1. Four more files fill the store, so the idle file 1 is evicted when the fifth
+        // is read. Reading file 1 again asks question 2.
         assertEquals(0L, store.observe(1).value.size)
-        assertEquals(0L, store.observe(2).value.size)
+        for (id in 2..5) assertEquals(0L, store.observe(id).value.size)
         assertEquals(0L, store.observe(1).value.size)
-        assertEquals(listOf(1, 2, 1), asked)
+        assertEquals(2, asked.count { it == 1 })
         // Answer 1 arrives first and is no news. Then the download finishes, and answer 2, built before that update, arrives.
         store.refresh(MediaFileState(1, size = 100))
         store.update(MediaFileState(1, size = 100, localPath = "/done.mp4", downloadedBytes = 100))
@@ -53,12 +54,13 @@ class MediaFileStoreRefreshOrderTest {
     }
 
     @Test fun aQuestionThatFailedDoesNotHideTheNextAnswer() {
-        val store = MediaFileStore(maxEntries = 1, refreshFile = { asked += it })
+        val store = MediaFileStore(maxEntries = 4, refreshFile = { asked += it })
         assertEquals(0L, store.observe(1).value.size)
         store.update(MediaFileState(1, size = 100, localPath = "/done.mp4", downloadedBytes = 100))
         // TDLib answered the question with an error. The update above must not be counted against a later answer.
         store.refreshFailed(1)
-        assertEquals(0L, store.observe(2).value.size)
+        // Four more files fill the store, so the idle file 1 is evicted, and reading it again asks a new question.
+        for (id in 2..5) assertEquals(0L, store.observe(id).value.size)
         assertEquals(0L, store.observe(1).value.size)
         store.refresh(MediaFileState(1, size = 100, localPath = "/done.mp4", downloadedBytes = 100))
         assertEquals("/done.mp4", store.observe(1).value.localPath)
