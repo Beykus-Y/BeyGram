@@ -7,6 +7,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -151,7 +152,8 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
      * deleted go first, least recently seen first; deleted messages go last, oldest deletion first.
      * Returns how many messages were removed.
      */
-    @Synchronized
+    // Runs on the writer only, so no other write changes the store between the batches. Only the delete of a batch holds the
+    // lock, so a read of a chat waits for one batch and not for the whole trim.
     fun trim(limitBytes: Long): Int {
         val db = helper.writableDatabase
         var removed = 0
@@ -169,15 +171,17 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
                 chosen += victim
                 freed += victim.bytes
             }
-            db.beginTransaction()
-            try {
-                for (victim in chosen) {
-                    db.delete("versions", WHERE_MESSAGE, keyArgs(victim.chatId, victim.messageId))
-                    db.delete("messages", WHERE_MESSAGE, keyArgs(victim.chatId, victim.messageId))
+            synchronized(this) {
+                db.beginTransaction()
+                try {
+                    for (victim in chosen) {
+                        db.delete("versions", WHERE_MESSAGE, keyArgs(victim.chatId, victim.messageId))
+                        db.delete("messages", WHERE_MESSAGE, keyArgs(victim.chatId, victim.messageId))
+                    }
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
                 }
-                db.setTransactionSuccessful()
-            } finally {
-                db.endTransaction()
             }
             removed += chosen.size
         }
@@ -192,6 +196,28 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
         try {
             db.delete("versions", null, null)
             db.delete("messages", null, null)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /**
+     * Drops the copies of [messageIds] that are not kept as deleted: the user deleted those messages, so neither their text nor
+     * their earlier texts stay. A copy the other side deleted is left alone.
+     */
+    @Synchronized
+    fun forget(chatId: Long, messageIds: Collection<Long>) {
+        if (messageIds.isEmpty()) return
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            for (messageId in messageIds) {
+                val row = readRowLocked(db, chatId, messageId) ?: continue
+                if (row.deletedAtMillis != null) continue
+                db.delete("versions", WHERE_MESSAGE, keyArgs(chatId, messageId))
+                db.delete("messages", WHERE_MESSAGE, keyArgs(chatId, messageId))
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -318,11 +344,23 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
             }
         }
 
-        /** Closes the store of a removed account and deletes its database files. */
+        /**
+         * Closes the store of a removed account and deletes its database files. The writes queued for the account are stored
+         * first, so none of them creates the database again. Throws when a writer is still busy or a file cannot be deleted,
+         * so that the caller keeps its tombstone and the cleanup runs again.
+         */
         fun deleteAccountFiles(context: Context, accountId: String) {
+            if (!ChatMemoryRecorder.stopAccount(accountId, STOP_WAIT_MILLIS)) {
+                throw IOException("Chat memory of a removed account is still being written")
+            }
             stores.remove(accountId)?.close()
             val file = databaseFile(context.applicationContext, accountId)
-            listOf("", "-wal", "-shm", "-journal").forEach { suffix -> File(file.path + suffix).delete() }
+            val stuck = listOf("", "-wal", "-shm", "-journal").map { File(file.path + it) }.filter { candidate ->
+                candidate.exists() && !candidate.delete() && candidate.exists()
+            }
+            if (stuck.isNotEmpty()) {
+                throw IOException("Chat memory files of a removed account could not be deleted: ${stuck.joinToString { it.name }}")
+            }
         }
 
         /** Whether the account has a database on disk. Checking does not create one. */
@@ -350,6 +388,9 @@ internal class ChatMemoryDatabase(context: Context, path: String) : SQLiteOpenHe
 private const val SCHEMA_VERSION = 1
 private const val QUERY_CHUNK = 500
 private const val MAX_EVICTION_BATCH = 5000L
+
+/** How long removing an account waits for the writes already queued for it. */
+private const val STOP_WAIT_MILLIS = 5_000L
 
 /** A fixed cost per stored row, added to the text sizes so that many short messages count for what they take. */
 private const val ROW_OVERHEAD_BYTES = 64L
