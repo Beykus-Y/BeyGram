@@ -222,6 +222,10 @@ class BgBeatManager(
         ) {
             BgBeatRerun.Wait -> return
             BgBeatRerun.ShowFailed -> {
+                // Another track may still be analysed: its job is cancelled and its callbacks are invalidated first, so
+                // they cannot overwrite the state of this track.
+                cancelCurrentAnalysis()
+                sequenceId.incrementAndGet()
                 if (failed != null && _uiState.value != failed.second) _uiState.value = failed.second
                 return
             }
