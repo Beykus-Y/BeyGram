@@ -18,4 +18,5 @@
     <string name="delayed_send_clear_composer">Clear the message field first</string>
     <string name="delayed_send_queue_full">Too many delayed messages. Wait for one to be sent or cancel one.</string>
     <string name="delayed_send_queue_failed">Couldn\'t delay the message. The text is still in the field.</string>
+    <string name="delayed_send_edited_while_waiting">Not sent: the text changed while the delay was loading</string>
 </resources>

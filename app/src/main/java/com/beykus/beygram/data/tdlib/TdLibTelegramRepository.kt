@@ -71,6 +71,7 @@ import com.beykus.beygram.domain.model.StickerSetContent
 import com.beykus.beygram.domain.model.StickerSetSummary
 import com.beykus.beygram.domain.model.normalizedPublicUsername
 import com.beykus.beygram.data.media.VideoNoteSendTracking
+import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.media.AutoDownloadDecision
 import com.beykus.beygram.data.media.AutoDownloadNetwork
 import com.beykus.beygram.data.media.AutoDownloadNetworkMonitor
@@ -3004,6 +3005,8 @@ class TdLibTelegramRepository private constructor(
                 cacheMaintenance.signedOut()
                 // The kept messages belong to the account that signed out.
                 chatMemory.clearAll()
+                // The legacy account's music library goes with its session, so the next login does not inherit it.
+                if (isLegacyAccount) authScope.launch { runCatching { MusicLibraries.get(appContext).clearAccount(accountId) } }
                 // Chat ids of private chats repeat across accounts, so the timers of this account must not reach the next one.
                 chatAutoDeleteTimers.clear()
                 // The chat exceptions name chats of the account that left, so they go. The switches stay: this state also

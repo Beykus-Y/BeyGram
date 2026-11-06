@@ -18,4 +18,5 @@
     <string name="delayed_send_clear_composer">Leeren Sie zuerst das Eingabefeld</string>
     <string name="delayed_send_queue_full">Zu viele verzögerte Nachrichten. Warten Sie, bis eine gesendet ist, oder brechen Sie eine ab.</string>
     <string name="delayed_send_queue_failed">Die Nachricht konnte nicht verzögert werden. Der Text bleibt im Eingabefeld.</string>
+    <string name="delayed_send_edited_while_waiting">Nicht gesendet: Der Text wurde geändert, während die Verzögerung geladen wurde</string>
 </resources>

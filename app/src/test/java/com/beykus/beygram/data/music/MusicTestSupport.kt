@@ -52,7 +52,8 @@ internal class FakeClock(var now: Long = 1_000L)
 internal fun repositoryFor(
     persistence: MusicLibraryPersistence,
     clock: FakeClock,
-    coverRoot: File? = null
+    coverRoot: File? = null,
+    coverOwners: MusicCoverOwners = MemoryMusicCoverOwners()
 ): MusicLibraryRepository {
     var counter = 0
     return MusicLibraryRepository(
@@ -60,7 +61,8 @@ internal fun repositoryFor(
         coverRoot = coverRoot,
         clock = { clock.now },
         newId = { "id-${++counter}" },
-        ioDispatcher = Dispatchers.Unconfined
+        ioDispatcher = Dispatchers.Unconfined,
+        coverOwners = coverOwners
     )
 }
 

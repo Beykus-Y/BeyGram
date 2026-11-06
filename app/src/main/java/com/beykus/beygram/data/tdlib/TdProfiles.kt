@@ -19,6 +19,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val users = mutableMapOf<Long, TdApi.User>()
     private val userFull = mutableMapOf<Long, TdApi.UserFullInfo>()
     private val profileAudios = mutableMapOf<Long, List<ProfileAudio>>()
+    /** Orders the answers about a user's profile music, so an answer that arrives late cannot put back an older list. */
+    private val profileAudioAnswers = NewestAnswers<Long>()
     private val groups = mutableMapOf<Long, TdApi.BasicGroup>()
     private val groupFull = mutableMapOf<Long, TdApi.BasicGroupFullInfo>()
     private val supers = mutableMapOf<Long, TdApi.Supergroup>()
@@ -402,6 +404,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
      * available" answer clears the cached tracks; any other failure keeps the list the user already sees.
      */
     private suspend fun loadProfileAudiosQuietly(userId: Long) {
+        val ticket = profileAudioAnswers.start()
         try {
             when (val answer = ask(TdApi.GetUserProfileAudios(userId, 0, PROFILE_AUDIO_PAGE_LIMIT))) {
                 is TdApi.Audios -> {
@@ -409,10 +412,15 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                         files.register(track.audio.toMediaFileState())
                         track.toProfileAudio()
                     }
-                    synchronized(lock) { profileAudios[userId] = tracks; publish() }
+                    // An answer that a newer load or a change of the list has overtaken must not show the list as it was before.
+                    synchronized(lock) {
+                        if (profileAudioAnswers.accept(userId, ticket)) { profileAudios[userId] = tracks; publish() }
+                    }
                 }
                 is TdApi.Error -> if (answer.code in profileAudioHiddenCodes) {
-                    synchronized(lock) { profileAudios.remove(userId); publish() }
+                    synchronized(lock) {
+                        if (profileAudioAnswers.accept(userId, ticket)) { profileAudios.remove(userId); publish() }
+                    }
                 }
                 else -> Unit
             }
@@ -434,7 +442,12 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
      */
     private suspend fun changeProfileAudios(failure: Int, change: suspend () -> Unit): Result<Unit> {
         val result = runCatching { change() }.mapProfileAudioError(failure)
-        if (result.isSuccess) loadProfileAudiosQuietly(myUserId())
+        if (result.isSuccess) {
+            val me = myUserId()
+            // Answers to loads that started before this change must not show the list as it was before it.
+            profileAudioAnswers.change(me)
+            loadProfileAudiosQuietly(me)
+        }
         return result
     }
 

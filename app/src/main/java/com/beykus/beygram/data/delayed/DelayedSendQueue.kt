@@ -29,6 +29,13 @@ import java.util.concurrent.ConcurrentHashMap
 internal class DelayedSendQueueFullException : IllegalStateException("Too many delayed messages")
 
 /**
+ * Options for a stored message when it is sent. Only a message the user sent with «Send now» carries that agreement, so the
+ * stealth policy still decides for an automatic send.
+ */
+internal fun delayedDispatchOptions(entry: DelayedSendEntry, explicitSend: Boolean): MessageSendOptions =
+    MessageSendOptions(disableNotification = entry.disableNotification, sendNowConsent = explicitSend)
+
+/**
  * Delayed sending for one account. [enqueue] stores a message on disk before the composer is cleared. A stored message is
  * sent through [ConversationRepository.sendMessage] when its time has come, and only while a chat of the account is open
  * ([attach]). Requests run one at a time. A message is marked [DelayedSendStatus.Dispatching] on disk before its request,
@@ -217,7 +224,7 @@ internal class DelayedSendQueue private constructor(context: Context, private va
     /** Returns false when the message could not be marked as dispatching, in which case it is not sent. */
     private suspend fun dispatch(entry: DelayedSendEntry, conversation: ConversationRepository): Boolean {
         // Marked on disk before the request: a restart in the middle of it shows the message as Uncertain.
-        val sending = synchronized(lock) {
+        val (sending, explicitSend) = synchronized(lock) {
             val current = _entries.value.firstOrNull { it.id == entry.id } ?: return false
             if (current.status != DelayedSendStatus.Queued) return false
             val marked = current.copy(status = DelayedSendStatus.Dispatching)
@@ -227,7 +234,7 @@ internal class DelayedSendQueue private constructor(context: Context, private va
                 return false
             }
             replaceLocked(marked)
-            marked
+            marked to (marked.id in explicitIds)
         }
         val result = try {
             conversation.sendMessage(
@@ -237,7 +244,7 @@ internal class DelayedSendQueue private constructor(context: Context, private va
                 entities = sending.entities,
                 forumTopicId = sending.topicId,
                 clearDraft = false,
-                options = MessageSendOptions(disableNotification = sending.disableNotification)
+                options = delayedDispatchOptions(sending, explicitSend)
             )
         } catch (error: CancellationException) {
             // Cancelled with the queue: the message stays Dispatching on disk and reads as Uncertain after a restart.

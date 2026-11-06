@@ -79,6 +79,8 @@ class MainActivity : FragmentActivity() {
     private var windowResumed = false
     private var screenSecure = false
     private var secretPlayback = false
+    /** The startup guard of this Activity, so that a quit before the first frames is recognised in [onDestroy]. */
+    private var startupGuard: DesignStartupGuard? = null
     /** Bumped when onStart hides the window, so Compose shows it again after drawing the gate. */
     private var windowVisibilityRevision by mutableIntStateOf(0)
     override fun attachBaseContext(newBase: android.content.Context) {
@@ -132,7 +134,7 @@ class MainActivity : FragmentActivity() {
         // A style that crashes the app on every start must not lock the user out. The guard records the start here and
         // is cleared once the interface has actually been drawn; a start that follows a failed one falls back to the
         // Default style instead of repeating the crash.
-        val designStartupGuard = DesignStartupGuard(this)
+        val designStartupGuard = DesignStartupGuard(this).also { startupGuard = it }
         val previousStartFailed = designStartupGuard.beginStart()
 
         setContent {
@@ -361,6 +363,8 @@ class MainActivity : FragmentActivity() {
      */
     override fun onDestroy() {
         SecureWindowFlags.unregisterPolicy(window)
+        // Leaving before the first frames settled is a quit, not a failed start, so it must not make the style fall back.
+        if (isFinishing) startupGuard?.abandonStart()
         super.onDestroy()
     }
 

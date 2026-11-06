@@ -59,36 +59,71 @@ private val NoDelayedSendEntries: StateFlow<List<DelayedSendEntry>> = MutableSta
 
 private val NoDelayedSendSeconds: StateFlow<Int> = MutableStateFlow(0).asStateFlow()
 
+/** The account's queue and delay setting, read from disk together. A null queue means there is no TDLib account to send through. */
+internal class DelayedSendSetup(val queue: DelayedSendQueue?, val delay: StateFlow<Int>)
+
+private val NoDelayedSendSetup = DelayedSendSetup(queue = null, delay = NoDelayedSendSeconds)
+
+/** What the composer does with a plain text send. */
+internal enum class DelayedSendRoute {
+    /** The account's queue and delay are still being read: the send waits for them. */
+    Hold,
+
+    /** The message is stored and goes out after the delay. */
+    Queue,
+
+    /** The message goes out at once. */
+    SendNow
+}
+
 /**
- * The delayed-send state of one chat screen. [tryEnqueue] takes a plain text send from the composer when a delay is set,
- * and [Strip] lists this chat's waiting messages above the composer. Without a TDLib account, or with the delay off, every
+ * The composer's decision for a plain text send. Until the queue and the delay are read, the send is held: a delay that is
+ * not read yet must not be taken for "off". Without a queue, or with the delay off, the send goes out at once.
+ */
+internal fun delayedSendRoute(setupRead: Boolean, hasQueue: Boolean, delaySeconds: Int, eligible: Boolean): DelayedSendRoute = when {
+    !setupRead -> DelayedSendRoute.Hold
+    hasQueue && eligible && delaySeconds > 0 -> DelayedSendRoute.Queue
+    else -> DelayedSendRoute.SendNow
+}
+
+/**
+ * A plain text send that waits for the account's delay to be read, with the composer as it was when it was sent. It goes out only
+ * while the composer still holds that text.
+ */
+internal class HeldDelayedSend(val options: MessageSendOptions, val draft: MessageDraft)
+
+/**
+ * Whether a held send still matches the composer: the text is the same, and no attachment or sticker was added since. Anything else
+ * cancels the send, so nothing goes out that the user did not send.
+ */
+internal fun heldSendStillMatches(held: MessageDraft, now: MessageDraft, attachmentsActive: Boolean, stickerPending: Boolean): Boolean =
+    held == now && !attachmentsActive && !stickerPending
+
+/**
+ * The delayed-send state of one chat screen. [route] tells the composer what a plain text send does, [enqueue] stores one that
+ * waits, and [Strip] lists this chat's waiting messages above the composer. Without a TDLib account, or with the delay off, every
  * send goes out at once. The messages wait on the device, and sending them does not hide that the account was online.
  */
 internal class DelayedSendController(
-    private val queue: DelayedSendQueue?,
-    private val delayFlow: StateFlow<Int>,
+    /** Null while the queue and the delay are still read from disk. */
+    private val setup: DelayedSendSetup?,
     private val chatId: Long,
     private val forumTopicId: Long,
     private val scope: CoroutineScope,
     private val context: Context
 ) {
+    private val queue: DelayedSendQueue? get() = setup?.queue
+
     // Read and written on the main thread only: by the composer, and by the callback that ends the store.
     private var storing = false
 
-    /**
-     * Returns false when the send must go out now. Returns true when the delayed path took it: [onQueued] runs once the message
-     * is stored, and nothing is sent now. When the store fails, the draft stays and an error is shown.
-     */
-    fun tryEnqueue(
-        text: String,
-        entities: List<MessageTextEntity>,
-        replyTo: Long?,
-        topicId: Long,
-        options: MessageSendOptions,
-        onQueued: () -> Unit
-    ): Boolean {
-        val store = queue ?: return false
-        val delaySeconds = delayFlow.value
+    /** Whether the queue and the delay have been read. Until they have, [route] holds every plain text send. */
+    val ready: Boolean get() = setup != null
+
+    /** What a plain text send from the composer does. Stealth scheduling and the other send paths are decided by the caller. */
+    fun route(text: String, options: MessageSendOptions): DelayedSendRoute {
+        val current = setup
+        val delaySeconds = current?.delay?.value ?: 0
         val eligible = !options.viewOnce && delayedSendEligible(
             delaySeconds = delaySeconds,
             hasAttachments = false,
@@ -97,9 +132,31 @@ internal class DelayedSendController(
             hasSticker = false,
             text = text
         )
-        if (!eligible) return false
+        return delayedSendRoute(
+            setupRead = current != null,
+            hasQueue = current?.queue != null,
+            delaySeconds = delaySeconds,
+            eligible = eligible
+        )
+    }
+
+    /**
+     * Stores a message that [route] sent to the queue. [onQueued] runs once the message is stored, and only then may the caller
+     * clear the composer. When the store fails, the draft stays and an error is shown.
+     */
+    fun enqueue(
+        text: String,
+        entities: List<MessageTextEntity>,
+        replyTo: Long?,
+        topicId: Long,
+        options: MessageSendOptions,
+        onQueued: () -> Unit
+    ) {
+        val current = setup ?: return
+        val store = current.queue ?: return
+        val delaySeconds = current.delay.value
         // A second tap while the first message is being stored must not store the same text again.
-        if (storing) return true
+        if (storing) return
         storing = true
         scope.launch {
             // Not cancellable: once the message is stored it will be sent, so leaving the chat in between must still
@@ -113,7 +170,6 @@ internal class DelayedSendController(
                 }
             }
         }
-        return true
     }
 
     /** Sends a waiting message now. */
@@ -207,28 +263,33 @@ private fun DelayedSendRow(entry: DelayedSendEntry, onCancel: () -> Unit, onDisc
 }
 
 /**
- * The chat screen's delayed sending. The account is the conversation's TDLib account; without one, or with the delay off,
- * every send goes out at once. The account's queue is attached to [conversation] when this screen opens and stays attached after it closes.
+ * The chat screen's delayed sending. The account is the conversation's TDLib account; without one, every send goes out at once.
+ * The account's queue is attached to [conversation] when this screen opens and stays attached after it closes.
  */
 @Composable
 internal fun rememberDelayedSend(chatId: Long, forumTopicId: Long, conversation: ConversationRepository): DelayedSendController {
     val context = LocalContext.current
     val accountId = (conversation as? TdLibTelegramRepository)?.accountId
-    // The first use of an account reads its stored queue and settings from disk, so it happens off the main thread.
-    val queue by produceState<DelayedSendQueue?>(null, accountId) {
-        value = accountId?.let { withContext(Dispatchers.IO) { DelayedSendQueue.forAccount(context, it) } }
+    // The queue and the delay setting are read from disk together, off the main thread. Until that is done the setup is null,
+    // and the composer holds its sends: "not read yet" must not look like "delay off". Without a TDLib account there is nothing to read.
+    val setup by produceState<DelayedSendSetup?>(if (accountId == null) NoDelayedSendSetup else null, accountId) {
+        value = accountId?.let { id ->
+            withContext(Dispatchers.IO) {
+                DelayedSendSetup(
+                    queue = DelayedSendQueue.forAccount(context, id),
+                    delay = DelayedSendSettingsStore.forAccount(context, id).delaySeconds
+                )
+            }
+        } ?: NoDelayedSendSetup
     }
-    val delayFlow by produceState(NoDelayedSendSeconds, accountId) {
-        value = accountId?.let { withContext(Dispatchers.IO) { DelayedSendSettingsStore.forAccount(context, it).delaySeconds } } ?: NoDelayedSendSeconds
-    }
-    DisposableEffect(queue, conversation) {
-        queue?.attach(conversation)
+    DisposableEffect(setup?.queue, conversation) {
+        setup?.queue?.attach(conversation)
         // Kept attached after the chat closes: a message queued just before leaving must still go out on time.
         // The next chat screen of this account attaches its own repository.
         onDispose { }
     }
     val scope = rememberCoroutineScope()
-    return remember(queue, delayFlow, chatId, forumTopicId, scope) {
-        DelayedSendController(queue, delayFlow, chatId, forumTopicId, scope, context)
+    return remember(setup, chatId, forumTopicId, scope) {
+        DelayedSendController(setup, chatId, forumTopicId, scope, context)
     }
 }

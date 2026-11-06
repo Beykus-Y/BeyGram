@@ -36,6 +36,8 @@ class DesignStartupGuard(context: Context) {
             .putBoolean(KEY_RENDERED, false)
             .putInt(KEY_UNFINISHED, previousUnfinished + 1)
             .apply()
+        unfinishedBeforeStart = previousUnfinished
+        startPending = true
         // A recovery that could not be written to disk last time stays pending: the style on disk is still the one
         // that crashed, so it must be replaced on this start as well.
         recoveryRequired = preferences.getBoolean(KEY_RECOVERY_PENDING, false) ||
@@ -57,13 +59,28 @@ class DesignStartupGuard(context: Context) {
 
     /** Call after the first frames have been drawn: the style in use is proven to work. */
     fun markRendered() {
+        startPending = false
         preferences.edit().putBoolean(KEY_RENDERED, true).putInt(KEY_UNFINISHED, 0).apply()
+    }
+
+    /**
+     * Call when the user leaves before the interface has settled, for example with Back in the first second. That is a quit, not
+     * a start that failed to draw, so this start is not counted: the count goes back to what it was before this start.
+     */
+    fun abandonStart() {
+        if (!startPending) return
+        startPending = false
+        preferences.edit().putInt(KEY_UNFINISHED, unfinishedBeforeStart).apply()
     }
 
     private companion object {
         /** Reset by the process: an Activity recreation keeps them, a new process starts from them fresh. */
         var beganThisProcess = false
         var recoveryRequired = false
+        /** True from the start's marker until the interface has settled or the start is abandoned. */
+        var startPending = false
+        /** The unfinished count before this start, which an abandoned start restores. */
+        var unfinishedBeforeStart = 0
     }
 }
 
