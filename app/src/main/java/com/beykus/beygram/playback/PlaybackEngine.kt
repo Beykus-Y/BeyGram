@@ -1120,6 +1120,9 @@ object PlaybackEngine {
         _state.update { it.copy(playing = false, intentPlaying = false) }
     }
 
+    /** Account the shared player is bound to. Profile music uses it to hide "add to profile" for another account's tracks. */
+    fun activeAccount(): String? = activeAccountId
+
     /** Explicit user stop: closes the session, clears the queue and removes the notification. */
     fun stop() {
         cancelSleepTimer()

@@ -18,6 +18,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
     private val chats = mutableMapOf<Long, TdApi.Chat>()
     private val users = mutableMapOf<Long, TdApi.User>()
     private val userFull = mutableMapOf<Long, TdApi.UserFullInfo>()
+    private val profileAudios = mutableMapOf<Long, List<ProfileAudio>>()
     private val groups = mutableMapOf<Long, TdApi.BasicGroup>()
     private val groupFull = mutableMapOf<Long, TdApi.BasicGroupFullInfo>()
     private val supers = mutableMapOf<Long, TdApi.Supergroup>()
@@ -150,6 +151,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
                 val full = request(TdApi.GetUserFullInfo(user.id))
                 synchronized(lock) { userFull[user.id] = full; publish() }
                 loadPersonalChatIfPresent(full.personalChatId)
+                loadProfileAudiosQuietly(user.id)
                 val option = request(TdApi.GetOption("bio_length_max"))
                 if (option is TdApi.OptionValueInteger) _bioLimit.value = option.value.toInt().coerceIn(1, 4096)
             } }
@@ -279,6 +281,7 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         val full = request(TdApi.GetUserFullInfo(id))
         synchronized(lock) { userFull[id] = full }
         loadPersonalChatIfPresent(full.personalChatId)
+        loadProfileAudiosQuietly(id)
     }
 
     /** Missing/hidden linked channels are optional profile content and must not fail the profile refresh. */
@@ -394,6 +397,47 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         Unit
     }.mapProfileError()
 
+    /**
+     * Profile music is a separate TDLib request. A hidden or missing list (privacy, no Premium) must not fail the
+     * profile, so an error only clears the cached tracks.
+     */
+    private suspend fun loadProfileAudiosQuietly(userId: Long) {
+        try { loadProfileAudios(userId) } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            synchronized(lock) { profileAudios.remove(userId); publish() }
+        }
+    }
+
+    private suspend fun loadProfileAudios(userId: Long) {
+        val page = request(TdApi.GetUserProfileAudios(userId, 0, PROFILE_AUDIO_PAGE_LIMIT))
+        val tracks = page.audios.map { track ->
+            files.register(track.audio.toMediaFileState())
+            track.toProfileAudio()
+        }
+        synchronized(lock) { profileAudios[userId] = tracks; publish() }
+    }
+
+    private suspend fun refreshOwnProfileAudios() = loadProfileAudios(myUserId())
+
+    /** Adds a track from a chat to the start of the own profile list. The file must be known to TDLib for this account. */
+    suspend fun addProfileAudio(fileId: Int, title: String, performer: String, durationSeconds: Int): Result<Unit> = runCatching {
+        // The file is already known to TDLib from a chat, so its id is enough; the binding in app/libs takes the fields flat.
+        request(TdApi.AddProfileAudio(TdApi.InputFileId(fileId), durationSeconds, title, performer))
+        refreshOwnProfileAudios()
+    }.mapProfileError()
+
+    suspend fun removeProfileAudio(fileId: Int): Result<Unit> = runCatching {
+        request(TdApi.RemoveProfileAudio(fileId))
+        refreshOwnProfileAudios()
+    }.mapProfileError()
+
+    /** Position 0 means the first place in the list, as TDLib defines it. */
+    suspend fun moveProfileAudioToFront(fileId: Int): Result<Unit> = runCatching {
+        request(TdApi.SetProfileAudioPosition(fileId, 0))
+        refreshOwnProfileAudios()
+    }.mapProfileError()
+
     private fun publish() {
         users[myId]?.let { _me.value = _me.value.copy(info = userInfo(it)) }
         details.forEach { (id, state) -> state.value = state.value.copy(info = chatInfo(id)) }
@@ -454,7 +498,8 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
             personalChatId = full?.personalChatId?.toLong() ?: 0L,
             personalChatTitle = full?.personalChatId?.let { chats[it]?.title }.orEmpty(),
             isSelf = user.id == myId, isPremium = user.isPremium, isVerified = user.verificationStatus?.isVerified == true,
-            isBlocked = user.id != myId && full?.blockList is TdApi.BlockListMain
+            isBlocked = user.id != myId && full?.blockList is TdApi.BlockListMain,
+            profileAudios = profileAudios[user.id].orEmpty()
         )
     }
     private fun chatInfo(id: Long): ProfileInfo? = chatProfile(id)?.copy(

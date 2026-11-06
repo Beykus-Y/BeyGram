@@ -93,7 +93,9 @@ data class ProfileInfo(
     val personalChatId: Long = 0L,
     val personalChatTitle: String = "",
     /** TDLib's main block list contains this user; the profile menu must offer Unblock, not Block. */
-    val isBlocked: Boolean = false
+    val isBlocked: Boolean = false,
+    /** Profile music from TDLib, in the owner's order; empty when hidden by privacy, absent, or for groups and channels. */
+    val profileAudios: List<ProfileAudio> = emptyList()
 ) {
     val initials: String get() = initialsOf(title)
 }

@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.playback
 import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
 import android.os.SystemClock
+import android.widget.Toast
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -64,6 +65,7 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AlertDialog
@@ -157,6 +159,8 @@ import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
 import com.beykus.beygram.ui.screens.music.containsTrack
 import com.beykus.beygram.ui.screens.music.rememberMusicLibrary
 import com.beykus.beygram.ui.screens.music.reportMusicOutcome
+import com.beykus.beygram.ui.screens.profile.LocalAddProfileAudio
+import com.beykus.beygram.ui.text.userMessage
 
 private const val TRANSPORT_MOTION_MS = 150
 private const val SEEK_STEP_MS = 5_000L
@@ -1006,6 +1010,11 @@ private fun PlayerActions(
     val favoriteOnState = stringResource(R.string.music_favorite_state_on)
     val favoriteOffState = stringResource(R.string.music_favorite_state_off)
     val addLabel = stringResource(R.string.music_playlist_label)
+    val addToProfile = LocalAddProfileAudio.current
+    val addToProfileLabel = stringResource(R.string.player_add_to_profile)
+    val addToProfileDone = stringResource(R.string.player_add_to_profile_done)
+    // The shared player may be bound to another account; its file ids mean nothing to the active one.
+    val activeAccount = PlaybackEngine.activeAccount()
     val actions = buildList {
         if (track != null && library != null) {
             add(PlayerActionUi(
@@ -1017,6 +1026,16 @@ private fun PlayerActions(
             ))
             add(PlayerActionUi(Icons.Rounded.Add, addLabel, onClick = { addOpen = true }))
         }
+        // Only a music file the active account can see from a chat is a Telegram profile track.
+        if (addToProfile != null && item.isMusic && item.fileId != null && !item.systemPrivate && !protectedChat &&
+            (activeAccount == null || item.accountId == activeAccount)
+        ) add(PlayerActionUi(Icons.Rounded.PersonAdd, addToProfileLabel, onClick = {
+            scope.launch {
+                addToProfile(item)
+                    .onSuccess { Toast.makeText(context, addToProfileDone, Toast.LENGTH_SHORT).show() }
+                    .onFailure { Toast.makeText(context, it.userMessage(context, R.string.player_add_to_profile_failed), Toast.LENGTH_SHORT).show() }
+            }
+        }))
         add(PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue))
         if (onOpenEqualizer != null) add(PlayerActionUi(Icons.Rounded.Equalizer, equalizerLabel, onOpenEqualizer))
         if (onShowInChat != null) add(PlayerActionUi(Icons.Rounded.ChatBubble, showInChatLabel, onShowInChat))

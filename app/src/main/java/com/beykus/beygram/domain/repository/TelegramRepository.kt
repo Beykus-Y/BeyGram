@@ -148,6 +148,12 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     fun refreshMyProfile()
     suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit>
     suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit>
+    /** Profile music: the track is added to the first place of the own list. The file must already be known to TDLib from a chat. */
+    suspend fun addProfileAudio(fileId: Int, title: String, performer: String, durationSeconds: Int): Result<Unit>
+    /** Profile music: removes one track from the own profile list. */
+    suspend fun removeProfileAudio(fileId: Int): Result<Unit>
+    /** Profile music: moves one track to the first place of the own profile list. */
+    suspend fun moveProfileAudioToFront(fileId: Int): Result<Unit>
     /** Only available TDLib photo history, fetched on demand, never as part of ProfileInfo. */
     suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.ProfilePhotosPage>
     /** Delete the selected own Telegram profile photo, by its TDLib photo id. */

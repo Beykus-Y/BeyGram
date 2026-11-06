@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_music_title">Music on profile</string>
+    <string name="profile_music_play">Play</string>
+    <string name="profile_music_pause">Pause</string>
+    <string name="profile_music_open_list">All profile tracks</string>
+    <string name="profile_music_track_count">Track %1$d of %2$d</string>
+    <string name="profile_music_make_first">Move to first</string>
+    <string name="profile_music_remove">Remove from profile</string>
+    <string name="profile_music_failed">Could not update profile music</string>
+    <string name="player_add_to_profile">To profile</string>
+    <string name="player_add_to_profile_done">Track added to profile</string>
+    <string name="player_add_to_profile_failed">Could not add the track to the profile</string>
+</resources>
