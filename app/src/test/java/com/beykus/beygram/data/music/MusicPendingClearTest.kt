@@ -100,4 +100,54 @@ class MusicPendingClearTest {
         assertEquals(MusicFailure.StorageUnavailable, repository.createPlaylist("Late").failureOf())
         assertFalse(persistence.stored.containsKey(TEST_ACCOUNT))
     }
+
+    @Test
+    fun aRemovalThatDidNotReachTheDiskKeepsTheAccountOwedAndUnwritable() = runTest {
+        val marks = FlakyRemovalPendingClears()
+        val repository = repositoryFor(persistence, FakeClock(), pendingClears = marks)
+        repository.setActiveAccount(TEST_ACCOUNT)
+        repository.createPlaylist("Old mix").doneValue()
+        repository.markClearOwed(TEST_ACCOUNT)
+        marks.failRemovals = true
+
+        assertEquals(MusicFailure.StorageUnavailable, repository.clearOwed(TEST_ACCOUNT).failureOf())
+
+        // The library is gone, but the mark is still on disk: nothing may be saved while a restart would clear it again.
+        assertEquals(MusicFailure.StorageUnavailable, repository.createPlaylist("Late").failureOf())
+        assertFalse(persistence.stored.containsKey(TEST_ACCOUNT))
+        assertTrue(marks.onDisk.contains(TEST_ACCOUNT))
+
+        marks.failRemovals = false
+        repository.setActiveAccount(TEST_ACCOUNT)
+
+        assertFalse(marks.onDisk.contains(TEST_ACCOUNT))
+        assertFalse(repository.storageError.value)
+        repository.createPlaylist("New").doneValue()
+        assertTrue(persistence.stored.getValue(TEST_ACCOUNT).playlists.any { it.title == "New" })
+    }
+}
+
+/**
+ * Marks as SharedPreferences keeps them: a change shows at once in memory, and reaches the disk only when its commit succeeds.
+ * [failRemovals] makes a removal fail the way a failed commit does.
+ */
+private class FlakyRemovalPendingClears : MusicPendingClears {
+    val onDisk = HashSet<String>()
+    private val inMemory = HashSet<String>()
+    var failRemovals = false
+
+    override fun isMarked(accountId: String): Boolean = accountId in inMemory
+
+    override fun mark(accountId: String): Boolean {
+        inMemory.add(accountId)
+        onDisk.add(accountId)
+        return true
+    }
+
+    override fun unmark(accountId: String): Boolean {
+        inMemory.remove(accountId)
+        if (failRemovals) return false
+        onDisk.remove(accountId)
+        return true
+    }
 }
