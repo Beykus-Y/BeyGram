@@ -58,23 +58,49 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_TOCKEN || secrets.GH_TOKEN || secrets.BG_MEDIA_TOKEN || github.token }}
+          # The build runs code from the PR: the token must not stay in .git/config, where that code could read it.
+          persist-credentials: false
           submodules: false
 
       - name: Checkout BG Media submodule
         env:
           BG_MEDIA_PAT: ${{ secrets.BG_MEDIA_TOKEN }}
+          # A main build without BG Media would ship the stub native library, with BG Mix and BG Beat disabled.
+          REQUIRE_BG_MEDIA: ${{ github.event_name == 'push' }}
         run: |
           if [ -n "$BG_MEDIA_PAT" ]; then
             echo "Configuring submodule authentication for BG Media..."
             git config --global url."https://${BG_MEDIA_PAT}@github.com/".insteadOf "https://github.com/"
             git submodule update --init --depth 1 third_party/bg-media
             git config --global --unset-all url."https://${BG_MEDIA_PAT}@github.com/".insteadOf || true
+          elif [ "$REQUIRE_BG_MEDIA" = "true" ]; then
+            echo "::error::BG_MEDIA_TOKEN is not set, so BG Media cannot be checked out. A main release is not built without it." >&2
+            exit 1
           else
             echo "::warning::No BG_MEDIA token configured. Submodule third_party/bg-media skipped."
+          fi
+          if [ "$REQUIRE_BG_MEDIA" = "true" ] && [ ! -f third_party/bg-media/CMakeLists.txt ]; then
+            echo "::error::BG Media is missing from the main build." >&2
+            exit 1
           fi
 
       - name: Test release notes validator
         run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
+      - name: Fetch the PR base for the changelog check
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # The checkout keeps no credentials, so this fetch authenticates itself. The token is in this step only:
+          # the steps after it run code from the PR.
+          FETCH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth=$(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}" \
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
 
       - name: Require changelog when a PR changes the Stable version
         if: github.event_name == 'pull_request'
@@ -82,7 +108,6 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
           if git diff --quiet "$BASE_SHA" HEAD -- release-version.properties; then
             echo '::notice::Stable version unchanged; no new release changelog required.'
           else
