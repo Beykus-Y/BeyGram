@@ -34,7 +34,9 @@ class MusicLibraryRepository(
     private val coverRoot: File? = null,
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val newId: () -> String = { UUID.randomUUID().toString() },
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** The covers each account's library used when it was last written. They are deleted with the account, even if its library is unreadable. */
+    private val coverOwners: MusicCoverOwners = MemoryMusicCoverOwners()
 ) {
     private val mutex = Mutex()
     private val _library = MutableStateFlow(MusicLibrary(accountId = "", playlists = emptyList()))
@@ -90,6 +92,8 @@ class MusicLibraryRepository(
                 _library.value = loaded.library.withFavorites(clock())
                 writable = true
                 _storageError.value = false
+                // A library written before covers were recorded gets its record now.
+                coverOwners.replace(accountId, coverPathsOf(loaded.library))
             }
             MusicLibraryLoad.Empty -> {
                 _library.value = MusicLibrary.empty(accountId, clock())
@@ -110,8 +114,8 @@ class MusicLibraryRepository(
     suspend fun clearAccount(accountId: String): MusicOutcome<Unit> = mutex.withLock { clearLocked(accountId) }
 
     private suspend fun clearLocked(accountId: String): MusicOutcome<Unit> {
-        // The cover paths are read first: once the library file is gone they cannot be found again.
-        val covers = storedCoverPaths(accountId)
+        // The covers are read first: once the library file is gone, only the recorded covers are still known.
+        val covers = storedCoverPaths(accountId) + withContext(ioDispatcher) { coverOwners.covers(accountId) }
         // Not cancellable from here on, so the stored file, the cover files and the published library change together.
         return withContext<MusicOutcome<Unit>>(NonCancellable) {
             try {
@@ -119,12 +123,15 @@ class MusicLibraryRepository(
             } catch (failure: IOException) {
                 return@withContext MusicOutcome.Failed(MusicFailure.StorageUnavailable)
             }
-            deleteCoverFiles(covers)
+            val coversGone = deleteCoverFiles(covers)
             if (_library.value.accountId == accountId) {
                 _library.value = MusicLibrary.empty(accountId, clock())
                 writable = true
                 _storageError.value = false
             }
+            // The record stays while a cover is left behind, so that the next clear can still find it.
+            if (!coversGone) return@withContext MusicOutcome.Failed(MusicFailure.StorageUnavailable)
+            withContext(ioDispatcher) { coverOwners.forget(accountId) }
             MusicOutcome.Done(Unit)
         }
     }
@@ -292,13 +299,23 @@ class MusicLibraryRepository(
         }
     }
 
-    /** Writes [next]. Only if that succeeded is it published, and the cover files it no longer uses are deleted. */
+    /**
+     * Writes [next]. Only if that succeeded is it published, and the cover files it no longer uses are deleted. The covers of
+     * [next] are recorded before the write, so a failed or interrupted write never leaves a cover without a record.
+     */
     private suspend fun <T> saveAndPublish(current: MusicLibrary, next: MusicLibrary, value: T): MusicOutcome<T> {
+        if (!recordCovers(next)) return MusicOutcome.Failed(MusicFailure.StorageUnavailable)
         if (!save(next)) return MusicOutcome.Failed(MusicFailure.StorageUnavailable)
         _library.value = next
         deleteCoverFiles(coversNoLongerUsed(current, next))
         return MusicOutcome.Done(value)
     }
+
+    private suspend fun recordCovers(library: MusicLibrary): Boolean =
+        withContext(ioDispatcher) { coverOwners.replace(library.accountId, coverPathsOf(library)) }
+
+    private fun coverPathsOf(library: MusicLibrary): Set<String> =
+        library.playlists.mapNotNullTo(HashSet<String>()) { it.coverPath }
 
     /** Cover paths that [before] used and [after] no longer uses. Only called once [after] is on disk. */
     private fun coversNoLongerUsed(before: MusicLibrary, after: MusicLibrary): List<String> {
@@ -351,13 +368,19 @@ class MusicLibraryRepository(
         }
     }
 
-    /** Deletes the given cover files that lie inside [coverRoot]. A file that cannot be deleted is left behind and never referenced. */
-    private suspend fun deleteCoverFiles(paths: List<String>) {
-        if (paths.isEmpty()) return
-        withContext(ioDispatcher) {
-            paths.distinct().forEach { path ->
-                if (isInsideCoverRootNow(path)) File(path).delete()
+    /**
+     * Deletes the given cover files that lie inside [coverRoot]. Returns false when one of them is still there afterwards. A file
+     * that cannot be deleted is never referenced again, but the caller learns that it stayed.
+     */
+    private suspend fun deleteCoverFiles(paths: List<String>): Boolean {
+        if (paths.isEmpty()) return true
+        return withContext(ioDispatcher) {
+            // Every file is tried, even after a failure, so one locked file does not keep the others.
+            val gone = paths.distinct().filter { isInsideCoverRootNow(it) }.map { path ->
+                val file = File(path)
+                !file.exists() || file.delete() || !file.exists()
             }
+            gone.all { it }
         }
     }
 }

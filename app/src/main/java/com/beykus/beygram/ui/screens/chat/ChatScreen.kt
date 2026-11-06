@@ -1391,6 +1391,8 @@ fun ChatScreen(
     // Composer sends confirm first while hidden presence warns about sending; asked once per chat screen (see StealthSendGuard).
     val sendGuard = rememberStealthSendGuard(chat.id, conversation)
     val delayed = rememberDelayedSend(chat.id, forumTopicId, conversation)
+    // A plain text send that came before the account's delay was read. It is sent again once that is known, see below.
+    var sendWaitingForDelay by remember(chat.id, forumTopicId) { mutableStateOf<MessageSendOptions?>(null) }
     /**
      * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
      * the choice applies to this send only and is not kept for the next one.
@@ -1418,8 +1420,16 @@ fun ChatScreen(
         val stealthScheduled = stealthWillSchedule(conversation, effectiveOptions)
         val stealthHolds = effectiveOptions.scheduledAtSeconds == null && conversation.stealthHoldsSends()
         // A delayed text is stored first and only then cleared from the composer. A bot's forced reply is always sent directly.
-        if (!stealthScheduled && !stealthHolds && !effectiveOptions.sendNowConsent && botKeyboard?.forceReply != true &&
-            delayed.tryEnqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { MessageDraft() } })) return
+        val delayable = !stealthScheduled && !stealthHolds && !effectiveOptions.sendNowConsent && botKeyboard?.forceReply != true
+        when (if (delayable) delayed.route(outgoing.text, effectiveOptions) else DelayedSendRoute.SendNow) {
+            // The delay is not read yet: the text waits for it, instead of going out as if no delay were set.
+            DelayedSendRoute.Hold -> { sendWaitingForDelay = effectiveOptions; return }
+            DelayedSendRoute.Queue -> {
+                delayed.enqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { MessageDraft() } })
+                return
+            }
+            DelayedSendRoute.SendNow -> Unit
+        }
         // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
         val launch = if (effectiveOptions.scheduledAtSeconds == null && !stealthScheduled && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
             composerFieldBounds?.let { source ->
@@ -1475,6 +1485,15 @@ fun ChatScreen(
                 }
                 sending = false
             }
+        }
+    }
+
+    // A send held while the account's delay was read goes through the same path once that is known.
+    LaunchedEffect(delayed.ready) {
+        val waiting = sendWaitingForDelay
+        if (delayed.ready && waiting != null) {
+            sendWaitingForDelay = null
+            if (draft.isNotBlank()) sendCurrentDraft(waiting)
         }
     }
 

@@ -28,6 +28,10 @@ internal class MediaFileStore(
     private val origins = HashMap<Int, TrafficOrigin>()
     /** Cancelled transfers whose final TDLib update may still add bytes; released after that update. */
     private val settled = HashSet<Int>()
+    /** Files whose state was asked of TDLib after a read created their entry, and whose answer has not arrived yet. */
+    private val refreshAsked = HashSet<Int>()
+    /** Files that an update changed while such a question was open. TDLib's answer may have been built before that update. */
+    private val updatedWhileAsked = HashSet<Int>()
     private val states = EvictableStateMap<Int, MediaFileState>(
         lock = lock,
         maxEntries = maxEntries,
@@ -37,8 +41,17 @@ internal class MediaFileStore(
             verified.remove(id)
             origins.remove(id)
             settled.remove(id)
+            refreshAsked.remove(id)
+            updatedWhileAsked.remove(id)
         },
-        onCreatedByRead = refreshFile
+        onCreatedByRead = { id ->
+            // Recorded before TDLib is asked, so an update that comes later is known to be newer than the answer.
+            synchronized(lock) {
+                refreshAsked += id
+                updatedWhileAsked -= id
+            }
+            refreshFile(id)
+        }
     )
 
     fun observe(id: Int): StateFlow<MediaFileState> = states.observe(id)
@@ -60,6 +73,7 @@ internal class MediaFileStore(
 
     fun update(file: MediaFileState) = synchronized(lock) {
         verified += file.id
+        if (file.id in refreshAsked) updatedWhileAsked += file.id
         val state = states.stateLocked(file.id)
         val previous = state.value
         state.value = file
@@ -98,6 +112,11 @@ internal class MediaFileStore(
      * transfer in flight: the transfer's own update reports it.
      */
     fun refresh(file: MediaFileState) = synchronized(lock) {
+        val asked = refreshAsked.remove(file.id)
+        val updatedSinceAsked = updatedWhileAsked.remove(file.id)
+        // An update that arrived after the question is newer than the answer, which TDLib may have built before it. Applying the
+        // answer would roll the file back, for example from a finished download to no local copy. The update already holds the state.
+        if (asked && updatedSinceAsked) return@synchronized
         verified += file.id
         val current = states.stateLocked(file.id).value
         val inFlight = current.isDownloading || current.isUploading
