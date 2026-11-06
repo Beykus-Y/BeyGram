@@ -28,10 +28,16 @@ internal class MediaFileStore(
     private val origins = HashMap<Int, TrafficOrigin>()
     /** Cancelled transfers whose final TDLib update may still add bytes; released after that update. */
     private val settled = HashSet<Int>()
-    /** Files whose state was asked of TDLib after a read created their entry, and whose answer has not arrived yet. */
-    private val refreshAsked = HashSet<Int>()
-    /** Files that an update changed while such a question was open. TDLib's answer may have been built before that update. */
-    private val updatedWhileAsked = HashSet<Int>()
+    /**
+     * Questions asked of TDLib about a file after a read created its entry, oldest first, whose answers have not arrived yet. Each
+     * one is its position in [sequence]. TDLib answers the questions about one file in the order they were asked. A question stays
+     * open through an eviction of its entry, because its answer may still arrive for the file.
+     */
+    private val openQuestions = HashMap<Int, ArrayDeque<Long>>()
+    /** Position in [sequence] of the latest update of a file, while questions about it are open. */
+    private val latestUpdate = HashMap<Int, Long>()
+    /** Orders the questions and the updates against each other. Guarded by [lock]. */
+    private var sequence = 0L
     private val states = EvictableStateMap<Int, MediaFileState>(
         lock = lock,
         maxEntries = maxEntries,
@@ -41,15 +47,10 @@ internal class MediaFileStore(
             verified.remove(id)
             origins.remove(id)
             settled.remove(id)
-            refreshAsked.remove(id)
-            updatedWhileAsked.remove(id)
         },
         onCreatedByRead = { id ->
             // Recorded before TDLib is asked, so an update that comes later is known to be newer than the answer.
-            synchronized(lock) {
-                refreshAsked += id
-                updatedWhileAsked -= id
-            }
+            synchronized(lock) { askLocked(id) }
             refreshFile(id)
         }
     )
@@ -72,8 +73,14 @@ internal class MediaFileStore(
     }
 
     fun update(file: MediaFileState) = synchronized(lock) {
+        sequence += 1
+        if (openQuestions[file.id]?.isNotEmpty() == true) latestUpdate[file.id] = sequence
+        applyLocked(file)
+    }
+
+    /** Applies [file] as TDLib's state of the file. Called for an update, and for an answer that no update overtook. */
+    private fun applyLocked(file: MediaFileState) {
         verified += file.id
-        if (file.id in refreshAsked) updatedWhileAsked += file.id
         val state = states.stateLocked(file.id)
         val previous = state.value
         state.value = file
@@ -112,17 +119,45 @@ internal class MediaFileStore(
      * transfer in flight: the transfer's own update reports it.
      */
     fun refresh(file: MediaFileState) = synchronized(lock) {
-        val asked = refreshAsked.remove(file.id)
-        val updatedSinceAsked = updatedWhileAsked.remove(file.id)
-        // An update that arrived after the question is newer than the answer, which TDLib may have built before it. Applying the
-        // answer would roll the file back, for example from a finished download to no local copy. The update already holds the state.
-        if (asked && updatedSinceAsked) return@synchronized
+        // The answer belongs to the oldest question still open for the file. An update that arrived after that question is newer
+        // than the answer, which TDLib may have built before it. Applying the answer would roll the file back, for example from a
+        // finished download to no local copy. The update already holds the state.
+        val answeredAt = openQuestions[file.id]?.firstOrNull()
+        val updatedSinceAsked = answeredAt != null && (latestUpdate[file.id] ?: 0L) > answeredAt
+        closeQuestionLocked(file.id)
+        if (updatedSinceAsked) return@synchronized
         verified += file.id
         val current = states.stateLocked(file.id).value
         val inFlight = current.isDownloading || current.isUploading
         val idle = !file.isDownloading && !file.isUploading
         if (inFlight && idle && addsNothing(file, current)) return@synchronized
-        update(file)
+        applyLocked(file)
+    }
+
+    /**
+     * Closes the question about [fileId] when TDLib answered it with an error, so that the question does not stay open and
+     * make the answers that come later look older than the updates.
+     */
+    fun refreshFailed(fileId: Int) = synchronized(lock) {
+        closeQuestionLocked(fileId)
+    }
+
+    /** Records a question about [id] before it is sent, so an update that comes later is known to be newer than its answer. */
+    private fun askLocked(id: Int) {
+        sequence += 1
+        val questions = openQuestions.getOrPut(id) { ArrayDeque() }
+        if (questions.size >= MAX_OPEN_QUESTIONS) questions.removeFirst()
+        questions.addLast(sequence)
+    }
+
+    /** Closes the oldest open question about [id]. Once none is left, the file's bookkeeping for questions goes too. */
+    private fun closeQuestionLocked(id: Int) {
+        val questions = openQuestions[id] ?: return
+        questions.removeFirstOrNull()
+        if (questions.isEmpty()) {
+            openQuestions.remove(id)
+            latestUpdate.remove(id)
+        }
     }
 
     /** Whether [file] has no local copy and no bytes beyond what [current] already knows. */
@@ -196,5 +231,8 @@ internal class MediaFileStore(
 
     companion object {
         const val MAX_ENTRIES = 2_000
+
+        /** Questions about one file that may be open at once. A question whose answer never came is dropped past this count. */
+        private const val MAX_OPEN_QUESTIONS = 8
     }
 }

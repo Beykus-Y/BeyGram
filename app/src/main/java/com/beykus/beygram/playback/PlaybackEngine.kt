@@ -617,7 +617,7 @@ object PlaybackEngine {
         autoPlay: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
-        if (autoPlay && startPositionMs == null && startFraction <= 0f && startBgMix(context, queue)) return
+        if (autoPlay && startPositionMs == null && startFraction <= 0f && bgMixAdmitsSource(source) && startBgMix(context, queue)) return
         stopBgMix()
         val target = rawPlayer(context)
         transitionToken++
@@ -1489,7 +1489,7 @@ object PlaybackEngine {
         if (bgMixActive()) {
             val context = appContext
             val queue = PlaybackQueue(_state.value.queue, index)
-            if (context != null && startBgMix(context, queue)) return
+            if (context != null && bgMixAdmitsSource(queueSource) && startBgMix(context, queue)) return
             stopBgMix()
             if (context != null) {
                 startQueue(context, queue, queueSource, startPositionMs = null, startFraction = 0f)

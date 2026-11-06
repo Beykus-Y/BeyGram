@@ -775,6 +775,8 @@ class TdLibTelegramRepository private constructor(
             } catch (failure: Throwable) {
                 ownDeletions.restoreClear(chatId, previousCutoff)
                 throw failure
+            } finally {
+                ownDeletions.endClear(chatId)
             }
         } else {
             // Groups and channels cannot be cleared for self only, and TDLib rejects that call, so the user leaves them.
@@ -2275,9 +2277,14 @@ class TdLibTelegramRepository private constructor(
      * GetFile is answered from TDLib's own database, so it costs no network traffic.
      */
     private fun refreshFileState(fileId: Int) {
-        if (fileId <= 0) return
+        if (fileId <= 0) {
+            // Nothing is asked of TDLib, so the question the store recorded for this file is closed here.
+            mediaFiles.refreshFailed(fileId)
+            return
+        }
         client.send(TdApi.GetFile(fileId), Client.ResultHandler { result ->
-            if (result is TdApi.File) mediaFiles.refresh(result.toMediaFileState())
+            // An error answer closes the question too, so it does not hold back the answers that come later.
+            if (result is TdApi.File) mediaFiles.refresh(result.toMediaFileState()) else mediaFiles.refreshFailed(fileId)
         })
     }
 
@@ -3033,10 +3040,16 @@ class TdLibTelegramRepository private constructor(
                 }
                 conversationEffects.signedOut()
                 cacheMaintenance.signedOut()
-                // The kept messages belong to the account that signed out.
+                // The kept messages belong to the account that signed out, and so do the deletions this app made for it.
                 chatMemory.clearAll()
-                // The legacy account's music library goes with its session, so the next login does not inherit it.
-                if (isLegacyAccount) authScope.launch { runCatching { MusicLibraries.get(appContext).clearAccount(accountId) } }
+                ownDeletions.forgetAll()
+                // The legacy account's music library goes with its session, so the next login does not inherit it. The clear is
+                // marked first: if it fails or never runs, the next selection of the account clears the library before showing it.
+                if (isLegacyAccount) {
+                    val musicLibrary = MusicLibraries.get(appContext)
+                    musicLibrary.markClearOwed(accountId)
+                    authScope.launch { runCatching { musicLibrary.clearOwed(accountId) } }
+                }
                 // Chat ids of private chats repeat across accounts, so the timers of this account must not reach the next one.
                 chatAutoDeleteTimers.clear()
                 // The chat exceptions name chats of the account that left, so they go. The switches stay: this state also

@@ -37,4 +37,30 @@ class MediaFileStoreRefreshOrderTest {
         assertEquals(40L, store.observe(3).value.downloadedBytes)
         assertTrue(store.observe(3).value.isDownloading)
     }
+
+    @Test fun anAnswerToAnEarlierQuestionDoesNotRollBackWhenTheFileWasAskedAgain() {
+        val store = MediaFileStore(maxEntries = 1, refreshFile = { asked += it })
+        // The first read asks question 1 about file 1. Reading file 2 evicts the idle file 1, and reading file 1 again asks question 2.
+        assertEquals(0L, store.observe(1).value.size)
+        assertEquals(0L, store.observe(2).value.size)
+        assertEquals(0L, store.observe(1).value.size)
+        assertEquals(listOf(1, 2, 1), asked)
+        // Answer 1 arrives first and is no news. Then the download finishes, and answer 2, built before that update, arrives.
+        store.refresh(MediaFileState(1, size = 100))
+        store.update(MediaFileState(1, size = 100, localPath = "/done.mp4", downloadedBytes = 100))
+        store.refresh(MediaFileState(1, size = 100))
+        assertEquals("/done.mp4", store.observe(1).value.localPath)
+    }
+
+    @Test fun aQuestionThatFailedDoesNotHideTheNextAnswer() {
+        val store = MediaFileStore(maxEntries = 1, refreshFile = { asked += it })
+        assertEquals(0L, store.observe(1).value.size)
+        store.update(MediaFileState(1, size = 100, localPath = "/done.mp4", downloadedBytes = 100))
+        // TDLib answered the question with an error. The update above must not be counted against a later answer.
+        store.refreshFailed(1)
+        assertEquals(0L, store.observe(2).value.size)
+        assertEquals(0L, store.observe(1).value.size)
+        store.refresh(MediaFileState(1, size = 100, localPath = "/done.mp4", downloadedBytes = 100))
+        assertEquals("/done.mp4", store.observe(1).value.localPath)
+    }
 }
