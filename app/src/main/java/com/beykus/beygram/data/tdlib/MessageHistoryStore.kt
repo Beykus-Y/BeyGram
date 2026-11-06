@@ -280,6 +280,11 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
         keepCached(chatId)
     }
 
+    /** Chat Memory keeps nothing now, in any loaded chat: every kept message and version mark leaves the screen. */
+    fun dropAllChatMemory() {
+        for (chatId in chatsWithChatMemoryMarks()) dropChatMemory(chatId)
+    }
+
     private fun ChatMessage.withoutChatMemory(): ChatMessage = if (memory == null) this else copy(memory = null)
 
     private fun markChanged(chatId: Long, messageId: Long) {
@@ -335,6 +340,12 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
     )
 
     /**
+     * Whether a retired id keeps [message] out. A copy that Chat Memory keeps as deleted is let in: that is how a deletion the
+     * other side made stays on screen, marked, after its id was retired from the history.
+     */
+    private fun Set<Long>.blocks(message: ChatMessage): Boolean = message.id in this && message.memory?.deletedAtMillis == null
+
+    /**
      * [current] with [incoming] merged in: one copy per ID, the newer copy wins, and retired IDs are left out. The result is
      * in [compareMessageOrder] order. A small batch into a list that is already in that order takes the fast path.
      */
@@ -352,7 +363,7 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
      * [update] does not sort. This is the reference that [spliceBatch] has to equal.
      */
     private fun mergeAll(current: List<ChatMessage>, incoming: List<ChatMessage>, retired: Set<Long>): List<ChatMessage> =
-        (current + incoming).filterNot { it.id in retired }.associateBy { it.id }.values
+        (current + incoming).filterNot { retired.blocks(it) }.associateBy { it.id }.values
             .sortedWith(compareBy<ChatMessage> { it.dateSeconds }.thenBy { it.sendState == MessageSendState.Sending }.thenBy { it.id })
 
     /**
@@ -361,9 +372,9 @@ internal class MessageHistoryStore(private val maxCachedChats: Int = 16, maxStat
      */
     private fun spliceBatch(current: List<ChatMessage>, incoming: List<ChatMessage>, retired: Set<Long>): List<ChatMessage> {
         val merged = ArrayList<ChatMessage>(current.size + incoming.size)
-        if (retired.isEmpty()) merged.addAll(current) else current.filterNotTo(merged) { it.id in retired }
+        if (retired.isEmpty()) merged.addAll(current) else current.filterNotTo(merged) { retired.blocks(it) }
         for (message in incoming) {
-            if (message.id in retired) continue
+            if (retired.blocks(message)) continue
             val older = indexOfId(merged, message.id)
             if (older >= 0) merged.removeAt(older)
             merged.add(insertionIndex(merged, message), message)

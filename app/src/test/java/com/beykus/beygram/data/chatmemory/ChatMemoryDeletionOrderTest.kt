@@ -35,9 +35,11 @@ class ChatMemoryDeletionOrderTest {
     @Test
     fun deletionOfAMessThatIsStillBeingRecordedIsKept() {
         settings.update { it.copy(enabled = true) }
-        // The message is queued for storing and deleted straight after. The deletion has to wait for the store.
+        // The message is queued for storing and deleted straight after. The deletion is queued behind the store, so a read
+        // that waits for the queued writes sees it.
         recorder.recordSeen(listOf(observation(1L)))
         recorder.markDeleted(CHAT, listOf(1L), fallback = emptyMap())
+        recorder.awaitWrites()
 
         assertEquals(listOf(1L), recorder.deletedBetween(CHAT, 1L, 1L).map { it.messageId })
     }
