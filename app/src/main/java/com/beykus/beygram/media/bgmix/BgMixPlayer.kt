@@ -45,6 +45,14 @@ class BgMixPlayer(private val cacheDir: File) {
     private val _status = MutableStateFlow<BgMixStatus?>(null)
     val status: StateFlow<BgMixStatus?> = _status.asStateFlow()
 
+    private val _failure = MutableStateFlow<String?>(null)
+
+    /**
+     * Set once, when the output stops working (AudioTrack refused a write). From then on nothing is rendered, and the
+     * owner releases this session and continues on another path.
+     */
+    val failure: StateFlow<String?> = _failure.asStateFlow()
+
     val isRunning: Boolean get() = running
 
     /** Creates the native session and starts output. Returns false when BG Mix is unavailable. */
@@ -167,6 +175,9 @@ class BgMixPlayer(private val cacheDir: File) {
             val written = at.write(buffer, 0, frames * CHANNELS, AudioTrack.WRITE_BLOCKING)
             if (written < 0) {
                 Log.w(TAG, "AudioTrack write failed: $written")
+                // The output is dead: nothing is rendered from now on, and the status tick stops with it.
+                running = false
+                _failure.value = "AudioTrack write failed: $written"
                 break
             }
         }

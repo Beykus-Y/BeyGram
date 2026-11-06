@@ -84,4 +84,30 @@ class BgBeatManagerPolicyTest {
         val growingDownload = regularMusic.copy(growing = growingSource)
         assertTrue("Actively downloading media must be detected", growingDownload.growing != null)
     }
+
+    @Test
+    fun unsuccessfulAnalysisIsNotRunAgainOnEveryPlaybackUpdate() {
+        val file = bgBeatIdentity()
+        val replaced = bgBeatIdentity(fileLastModified = 1700000999L)
+
+        // Playback reports every 250 ms: the outcome of a failed analysis of this exact file is shown, not re-run.
+        assertEquals(BgBeatRerun.ShowFailed, bgBeatRerun(file, active = null, completed = null, readyNow = false, failed = file))
+        // A changed file is a new identity, so it is analysed.
+        assertEquals(BgBeatRerun.Start, bgBeatRerun(replaced, active = null, completed = null, readyNow = false, failed = file))
+        // Without an earlier failure the analysis starts.
+        assertEquals(BgBeatRerun.Start, bgBeatRerun(file, active = null, completed = null, readyNow = false, failed = null))
+        // An analysis in flight, and a finished one that is still shown, are waited for, as before.
+        assertEquals(BgBeatRerun.Wait, bgBeatRerun(file, active = file, completed = null, readyNow = false, failed = null))
+        assertEquals(BgBeatRerun.Wait, bgBeatRerun(file, active = null, completed = file, readyNow = true, failed = null))
+        // A finished analysis that is no longer shown is analysed again, as before.
+        assertEquals(BgBeatRerun.Start, bgBeatRerun(file, active = null, completed = file, readyNow = false, failed = null))
+    }
+
+    private fun bgBeatIdentity(fileLastModified: Long = 1700000000L) = BgBeatAnalysisIdentity(
+        accountId = "acc1",
+        itemKey = "item_100",
+        filePath = "/data/user/0/com.beykus.beygram/files/song.mp3",
+        fileLength = 5_000_000L,
+        fileLastModified = fileLastModified
+    )
 }

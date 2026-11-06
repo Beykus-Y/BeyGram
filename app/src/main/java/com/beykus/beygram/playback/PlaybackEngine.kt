@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -1243,7 +1244,13 @@ object PlaybackEngine {
         // Creates the shared player and appContext on first use, so the notification and queue paths work.
         player(context)
         val driver = bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }
-        if (!driver.start(queue.items, queue.index)) return false
+        // Focus comes before the driver starts: the native session plays as soon as it starts, so it must not start
+        // without focus. A refused focus keeps the queue on ExoPlayer, which asks for focus in the same way.
+        if (!requestBgFocus(context)) return false
+        if (!driver.start(queue.items, queue.index)) {
+            releaseBgFocus()
+            return false
+        }
         val item = queue.items[queue.index]
         val before = _state.value
         progress?.cancel()
@@ -1274,11 +1281,16 @@ object PlaybackEngine {
             it.copy(timelineHasNext = queue.index < queue.items.lastIndex, timelineHasPrevious = false)
         }
         notifyChanges(before, _state.value)
-        requestBgFocus(context)
         bgMixJob?.cancel()
         val statusFlow = driver.status
-        if (statusFlow != null) {
+        val failureFlow = driver.failure
+        if (statusFlow != null && failureFlow != null) {
             bgMixJob = scope.launch {
+                // Output that fails during the session hands the queue back to ExoPlayer. Stopping the session cancels this.
+                launch {
+                    failureFlow.first { it != null }
+                    failBgMix()
+                }
                 statusFlow.collect { status -> if (status != null) applyBgMix(status) }
             }
         }
@@ -1363,6 +1375,24 @@ object PlaybackEngine {
         if (wasActive && (before.playing || before.intentPlaying)) {
             notifyChanges(before, before.copy(playing = false, intentPlaying = false))
         }
+    }
+
+    /** BG Mix lost its output mid-session: the session is released, and the queue continues on ExoPlayer from the last position. */
+    private fun failBgMix() {
+        val context = appContext ?: return
+        if (!bgMixActive()) return
+        val snapshot = _state.value
+        val queue = PlaybackQueue(snapshot.queue, snapshot.queueIndex)
+        stopBgMix()
+        // A position is given, so startQueue does not offer the same queue to BG Mix again.
+        startQueue(
+            context,
+            queue,
+            queueSource,
+            startPositionMs = snapshot.positionMs,
+            startFraction = 0f,
+            autoPlay = snapshot.intentPlaying
+        )
     }
 
     private fun haltPlayer() {
