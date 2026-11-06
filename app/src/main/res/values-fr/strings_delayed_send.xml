@@ -18,4 +18,5 @@
     <string name="delayed_send_clear_composer">Videz d’abord le champ de saisie</string>
     <string name="delayed_send_queue_full">Trop de messages différés. Attendez l’envoi de l’un d’eux ou annulez-en un.</string>
     <string name="delayed_send_queue_failed">Impossible de différer le message. Le texte reste dans le champ de saisie.</string>
+    <string name="delayed_send_edited_while_waiting">Non envoyé : le texte a changé pendant le chargement du délai</string>
 </resources>

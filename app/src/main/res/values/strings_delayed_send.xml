@@ -18,4 +18,5 @@
     <string name="delayed_send_clear_composer">Сначала очистите поле ввода</string>
     <string name="delayed_send_queue_full">Слишком много отложенных сообщений. Дождитесь отправки одного или отмените его.</string>
     <string name="delayed_send_queue_failed">Не удалось отложить сообщение. Текст остался в поле ввода.</string>
+    <string name="delayed_send_edited_while_waiting">Не отправлено: текст изменился, пока загружалась задержка</string>
 </resources>

@@ -87,6 +87,19 @@ internal fun delayedSendRoute(setupRead: Boolean, hasQueue: Boolean, delaySecond
 }
 
 /**
+ * A plain text send that waits for the account's delay to be read, with the composer as it was when it was sent. It goes out only
+ * while the composer still holds that text.
+ */
+internal class HeldDelayedSend(val options: MessageSendOptions, val draft: MessageDraft)
+
+/**
+ * Whether a held send still matches the composer: the text is the same, and no attachment or sticker was added since. Anything else
+ * cancels the send, so nothing goes out that the user did not send.
+ */
+internal fun heldSendStillMatches(held: MessageDraft, now: MessageDraft, attachmentsActive: Boolean, stickerPending: Boolean): Boolean =
+    held == now && !attachmentsActive && !stickerPending
+
+/**
  * The delayed-send state of one chat screen. [route] tells the composer what a plain text send does, [enqueue] stores one that
  * waits, and [Strip] lists this chat's waiting messages above the composer. Without a TDLib account, or with the delay off, every
  * send goes out at once. The messages wait on the device, and sending them does not hide that the account was online.

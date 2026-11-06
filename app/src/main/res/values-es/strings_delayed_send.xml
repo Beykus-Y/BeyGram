@@ -18,4 +18,5 @@
     <string name="delayed_send_clear_composer">Primero borra el campo de texto</string>
     <string name="delayed_send_queue_full">Hay demasiados mensajes retrasados. Espera a que se envíe uno o cancela uno.</string>
     <string name="delayed_send_queue_failed">No se pudo retrasar el mensaje. El texto sigue en el campo de texto.</string>
+    <string name="delayed_send_edited_while_waiting">No enviado: el texto cambió mientras se cargaba el retraso</string>
 </resources>

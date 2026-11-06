@@ -516,4 +516,28 @@ class MusicLibraryRepositoryTest {
         assertEquals(MusicFailure.StorageUnavailable, covers.clearAccount(TEST_ACCOUNT).failureOf())
         assertEquals(setOf(cover.absolutePath), owners.covers(TEST_ACCOUNT))
     }
+
+    @Test
+    fun aCoverLeftByAFailedClearIsStillDeletedByALaterClear() = runTest {
+        val root = tempFolder.newFolder("covers")
+        val owners = MemoryMusicCoverOwners()
+        val covers = repositoryFor(persistence, clock, coverRoot = root, coverOwners = owners)
+        covers.setActiveAccount(TEST_ACCOUNT)
+        val id = covers.createPlaylist("Stuck").doneValue().id
+        val cover = File(root, "stuck.jpg").apply { writeText("x") }
+        covers.setCover(id, cover.absolutePath).doneValue()
+        // The cover cannot be deleted yet: it is a directory with a file inside.
+        cover.delete()
+        cover.mkdir()
+        val inside = File(cover, "inside.jpg").apply { writeText("y") }
+        assertEquals(MusicFailure.StorageUnavailable, covers.clearAccount(TEST_ACCOUNT).failureOf())
+        // A library write after the failed clear must keep the record of the cover that stayed.
+        covers.createPlaylist("Later").doneValue()
+        assertEquals(setOf(cover.absolutePath), owners.covers(TEST_ACCOUNT))
+        // Once the cover can be deleted, the next clear removes it and its record.
+        inside.delete()
+        covers.clearAccount(TEST_ACCOUNT).doneValue()
+        assertFalse(cover.exists())
+        assertEquals(emptySet<String>(), owners.covers(TEST_ACCOUNT))
+    }
 }
