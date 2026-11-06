@@ -620,6 +620,8 @@
     <string name="player_menu">Player-Aktionen</string>
     <string name="player_queue">Warteschlange</string>
     <string name="player_equalizer">Equalizer</string>
+    <string name="player_share_timecode">Mit Zeitmarke teilen</string>
+    <string name="player_share_failed">Titel konnte nicht gesendet werden</string>
     <string name="player_buffering">Puffern…</string>
     <string name="player_failed">Wiedergabe nicht möglich</string>
     <string name="player_ended">Titel beendet</string>

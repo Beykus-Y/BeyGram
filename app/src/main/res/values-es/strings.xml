@@ -620,6 +620,8 @@
     <string name="player_menu">Acciones del reproductor</string>
     <string name="player_queue">Cola</string>
     <string name="player_equalizer">Ecualizador</string>
+    <string name="player_share_timecode">Compartir con marca de tiempo</string>
+    <string name="player_share_failed">No se pudo enviar la pista</string>
     <string name="player_buffering">Cargando en búfer…</string>
     <string name="player_failed">No se pudo reproducir</string>
     <string name="player_ended">Pista finalizada</string>
