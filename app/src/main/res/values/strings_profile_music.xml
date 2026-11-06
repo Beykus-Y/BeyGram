@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_music_title">Музыка в профиле</string>
+    <string name="profile_music_play">Воспроизвести</string>
+    <string name="profile_music_pause">Пауза</string>
+    <string name="profile_music_open_list">Все треки профиля</string>
+    <string name="profile_music_track_count">Трек %1$d из %2$d</string>
+    <string name="profile_music_make_first">Сделать первым</string>
+    <string name="profile_music_remove">Удалить из профиля</string>
+    <string name="profile_music_failed">Не удалось обновить музыку в профиле</string>
+    <string name="player_add_to_profile">В профиль</string>
+    <string name="player_add_to_profile_done">Трек добавлен в профиль</string>
+    <string name="player_add_to_profile_failed">Не удалось добавить трек в профиль</string>
+</resources>

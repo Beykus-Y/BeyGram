@@ -108,7 +108,11 @@ fun ProfileScreen(
     protectedContent: Boolean = false,
     onSecretChatOpened: (Long) -> Unit = {},
     /** The chat's library tracks, shown as a row when there are some. Null hides the row. */
-    chatLibrary: ChatLibraryLink? = null
+    chatLibrary: ChatLibraryLink? = null,
+    /** Own profile music: removes one track from the account list. Other profiles never call it. */
+    removeProfileAudio: suspend (Int) -> Result<Unit> = { Result.failure(IllegalStateException("Profile music unavailable")) },
+    /** Own profile music: moves one track to the first place of the account list. */
+    moveProfileAudioToFront: suspend (Int) -> Result<Unit> = { Result.failure(IllegalStateException("Profile music unavailable")) }
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -163,6 +167,14 @@ fun ProfileScreen(
                     ) {
                         TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
                             Modifier.clearAndSetSemantics {})
+                    }
+                    if (info.profileAudios.isNotEmpty()) {
+                        Spacer(Modifier.height(14.dp))
+                        ProfileMusicBar(
+                            ownerId = info.id, tracks = info.profileAudios, own = isOwnProfile,
+                            observeFile = observeFile, downloadFile = downloadFile, autoDownloadFile = autoDownloadFile,
+                            removeTrack = removeProfileAudio, moveTrackToFront = moveProfileAudioToFront
+                        )
                     }
                     Spacer(Modifier.height(16.dp))
                     Text(info.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,

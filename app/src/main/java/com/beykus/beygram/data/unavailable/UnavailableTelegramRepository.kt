@@ -193,6 +193,9 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun refreshMyProfile() {}
     override suspend fun updateMyProfile(edit: ProfileEdit): Result<Unit> = unavailable()
     override suspend fun setMyProfilePhoto(photo: OutgoingMedia): Result<Unit> = unavailable()
+    override suspend fun addProfileAudio(fileId: Int, title: String, performer: String, durationSeconds: Int): Result<Unit> = unavailable()
+    override suspend fun removeProfileAudio(fileId: Int): Result<Unit> = unavailable()
+    override suspend fun moveProfileAudioToFront(fileId: Int): Result<Unit> = unavailable()
     override suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int): Result<com.beykus.beygram.domain.model.ProfilePhotosPage> = unavailable()
     override suspend fun deleteMyProfilePhoto(photoId: Long): Result<Unit> = unavailable()
     override suspend fun setPreviousProfilePhoto(photoId: Long): Result<Unit> = unavailable()

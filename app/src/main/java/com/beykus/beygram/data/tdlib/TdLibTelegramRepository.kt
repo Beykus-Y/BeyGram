@@ -1718,6 +1718,10 @@ class TdLibTelegramRepository private constructor(
     override suspend fun loadProfilePhotos(profileId: Long, offset: Int, limit: Int) =
         profiles.loadProfilePhotos(profileId, offset, limit)
     override suspend fun deleteMyProfilePhoto(photoId: Long) = profiles.deleteMyPhoto(photoId)
+    override suspend fun addProfileAudio(fileId: Int, title: String, performer: String, durationSeconds: Int) =
+        profiles.addProfileAudio(fileId, title, performer, durationSeconds)
+    override suspend fun removeProfileAudio(fileId: Int) = profiles.removeProfileAudio(fileId)
+    override suspend fun moveProfileAudioToFront(fileId: Int) = profiles.moveProfileAudioToFront(fileId)
     override suspend fun setPreviousProfilePhoto(photoId: Long) = profiles.setPreviousPhoto(photoId)
 
     override suspend fun premiumInfo(): Result<PremiumInfo> = payments.premiumInfo()

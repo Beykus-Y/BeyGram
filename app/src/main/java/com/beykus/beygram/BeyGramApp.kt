@@ -157,7 +157,9 @@ import com.beykus.beygram.ui.screens.profile.ChatMembersScreen
 import com.beykus.beygram.ui.screens.profile.GiftsScreen
 import com.beykus.beygram.ui.screens.profile.PremiumScreen
 import com.beykus.beygram.ui.screens.profile.GroupManagementScreen
+import com.beykus.beygram.ui.screens.profile.LocalAddProfileAudio
 import com.beykus.beygram.ui.screens.profile.ProfileScreen
+import com.beykus.beygram.ui.screens.profile.addPlaybackItemToProfile
 import com.beykus.beygram.ui.screens.profile.StarsScreen
 import com.beykus.beygram.ui.screens.theme.AppearanceDraftSaver
 import com.beykus.beygram.ui.screens.theme.ThemeSettingsScreen
@@ -2149,6 +2151,7 @@ private fun BeyGramAppContent(
         LocalAutoDownloadFile provides repository::autoDownloadFile,
         LocalBackgroundMediaDownload provides repository::downloadFileInBackground,
         LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name },
+        LocalAddProfileAudio provides repository::addPlaybackItemToProfile,
         LocalOpenMusicSearch provides {
             musicSearchReturnRouteName = routeName
             routeName = AppRoute.MusicSearch.name
@@ -2405,6 +2408,8 @@ private fun BeyGramAppContent(
                         onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
                         loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
             setPreviousProfilePhoto = repository::setPreviousProfilePhoto,
+                        removeProfileAudio = repository::removeProfileAudio,
+                        moveProfileAudioToFront = repository::moveProfileAudioToFront,
                         onNotifications = { openNotifications(AppRoute.MyProfile) },
                         hiddenTabs = MainTab.entries.filter { !tabVisibility.isVisible(it) },
                         onOpenTab = { tab -> openTab(tab, AppRoute.MyProfile) },
