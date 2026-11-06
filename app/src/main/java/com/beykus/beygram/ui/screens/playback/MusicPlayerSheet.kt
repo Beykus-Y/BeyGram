@@ -106,6 +106,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -131,6 +134,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -159,6 +163,20 @@ private const val SEEK_STEP_MS = 5_000L
 private val QUEUE_ROW_HEIGHT = 76.dp
 
 private enum class PlayerPanel { Player, Queue }
+
+/**
+ * Stops the sheet from taking over a list's overscroll at its end. When a list reaches its bottom, the upward
+ * leftover of a drag or fling was passed to the ModalBottomSheet's own drag, so the sheet bounced back and forth.
+ * This node sits inside the sheet and consumes only that upward leftover (negative y) after the child has scrolled.
+ * Downward leftover still reaches the sheet, so dragging it down from the top keeps dismissing it.
+ */
+internal val SheetOverscrollGuard: NestedScrollConnection = object : NestedScrollConnection {
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+        Offset(0f, available.y.coerceAtMost(0f))
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        Velocity(0f, available.y.coerceAtMost(0f))
+}
 
 /** The full player sheet. Its tokens come from the cover, so every row inside follows the tint. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -213,6 +231,7 @@ internal fun MusicPlayerSheet(
             Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.94f)
+                .nestedScroll(SheetOverscrollGuard)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                 .navigationBarsPadding()
         ) {
