@@ -78,6 +78,8 @@ internal fun ProfileMusicBar(
     val playLabel = stringResource(R.string.profile_music_play)
     val pauseLabel = stringResource(R.string.profile_music_pause)
     val subtitle = if (tracks.size > 1) stringResource(R.string.profile_music_track_count, index + 1, tracks.size) else shown.performer
+    // The list also opens for a single track on the own profile, because a track is removed from there.
+    val canOpenList = own || tracks.size > 1
 
     fun play(start: Int) {
         val queue = tracks.map { track ->
@@ -94,7 +96,7 @@ internal fun ProfileMusicBar(
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .background(palette.accentSoft.copy(alpha = 0.6f))
-            .clickable(role = Role.Button) { if (tracks.size > 1) listOpen = true else togglePlayback() }
+            .clickable(role = Role.Button) { if (canOpenList) listOpen = true else togglePlayback() }
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -132,7 +134,7 @@ internal fun ProfileMusicBar(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        if (tracks.size > 1) Icon(
+        if (canOpenList) Icon(
             Icons.Rounded.ChevronRight,
             contentDescription = null,
             tint = palette.textSecondary,
