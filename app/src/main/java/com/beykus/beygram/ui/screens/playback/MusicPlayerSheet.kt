@@ -165,15 +165,17 @@ private val QUEUE_ROW_HEIGHT = 76.dp
 private enum class PlayerPanel { Player, Queue }
 
 /**
- * Stops the sheet from taking over a list's overscroll. At the end of a scrollable tab, the leftover delta and fling
- * of the drag were passed up to the ModalBottomSheet's own drag, so the sheet bounced back and forth. This node sits
- * inside the sheet and consumes only the leftover after the child has scrolled. Pre-scroll still reaches the sheet,
- * so dragging the sheet down from the top keeps working.
+ * Stops the sheet from taking over a list's overscroll at its end. When a list reaches its bottom, the upward
+ * leftover of a drag or fling was passed to the ModalBottomSheet's own drag, so the sheet bounced back and forth.
+ * This node sits inside the sheet and consumes only that upward leftover (negative y) after the child has scrolled.
+ * Downward leftover still reaches the sheet, so dragging it down from the top keeps dismissing it.
  */
 internal val SheetOverscrollGuard: NestedScrollConnection = object : NestedScrollConnection {
-    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset = available
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+        Offset(0f, available.y.coerceAtMost(0f))
 
-    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        Velocity(0f, available.y.coerceAtMost(0f))
 }
 
 /** The full player sheet. Its tokens come from the cover, so every row inside follows the tint. */
