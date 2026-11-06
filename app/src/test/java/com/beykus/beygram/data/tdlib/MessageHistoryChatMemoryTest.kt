@@ -69,5 +69,6 @@ class MessageHistoryChatMemoryTest {
 
     private companion object {
         const val CHAT = 77L
+        const val OTHER_CHAT = 78L
     }
 }
