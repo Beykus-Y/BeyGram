@@ -160,6 +160,7 @@ import com.beykus.beygram.ui.screens.music.containsTrack
 import com.beykus.beygram.ui.screens.music.rememberMusicLibrary
 import com.beykus.beygram.ui.screens.music.reportMusicOutcome
 import com.beykus.beygram.ui.screens.profile.LocalAddProfileAudio
+import com.beykus.beygram.ui.screens.profile.PROFILE_AUDIO_KEY_PREFIX
 import com.beykus.beygram.ui.text.userMessage
 
 private const val TRANSPORT_MOTION_MS = 150
@@ -1026,9 +1027,10 @@ private fun PlayerActions(
             ))
             add(PlayerActionUi(Icons.Rounded.Add, addLabel, onClick = { addOpen = true }))
         }
-        // Only a music file the active account can see from a chat is a Telegram profile track.
+        // Only a music file the active account can see from a chat is a Telegram profile track. A track that already
+        // plays from a profile is in a profile, so the action would only add a copy.
         if (addToProfile != null && item.isMusic && item.fileId != null && !item.systemPrivate && !protectedChat &&
-            (activeAccount == null || item.accountId == activeAccount)
+            !item.key.startsWith(PROFILE_AUDIO_KEY_PREFIX) && (activeAccount == null || item.accountId == activeAccount)
         ) add(PlayerActionUi(Icons.Rounded.PersonAdd, addToProfileLabel, onClick = {
             scope.launch {
                 addToProfile(item)

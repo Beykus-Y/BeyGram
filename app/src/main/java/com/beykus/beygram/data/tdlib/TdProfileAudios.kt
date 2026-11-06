@@ -6,6 +6,9 @@ import org.drinkless.tdlib.TdApi
 /** Максимум треков в одном запросе `getUserProfileAudios`; больший список в интерфейсе не нужен. */
 internal const val PROFILE_AUDIO_PAGE_LIMIT = 100
 
+/** TDLib answers 400, 403 or 404 when the list is hidden or not available. Other errors keep the list on screen. */
+internal val profileAudioHiddenCodes = setOf(400, 403, 404)
+
 internal fun TdApi.Audio.toProfileAudio(): ProfileAudio = ProfileAudio(
     fileId = audio.id,
     title = title.orEmpty(),

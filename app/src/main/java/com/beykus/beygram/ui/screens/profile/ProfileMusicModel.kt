@@ -5,12 +5,15 @@ import com.beykus.beygram.domain.model.ProfileAudio
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.playback.PlaybackItem
 
+/** Префикс ключей треков профиля. По нему плеер не предлагает добавить в профиль трек, который уже оттуда играет. */
+internal const val PROFILE_AUDIO_KEY_PREFIX = "profile|"
+
 /**
  * Ключ трека профиля в общем плеере. Включает аккаунт и владельца профиля: один и тот же файл, показанный
  * в профиле двух людей или двух аккаунтов, остаётся разными треками.
  */
 internal fun profileAudioPlaybackKey(accountId: String, ownerId: Long, fileId: Int): String =
-    "profile|$accountId|$ownerId|$fileId"
+    "$PROFILE_AUDIO_KEY_PREFIX$accountId|$ownerId|$fileId"
 
 /**
  * Трек профиля как элемент общего плеера. [path] пустой, пока файл не скачан: плеер сам запросит его у TDLib
