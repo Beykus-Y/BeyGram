@@ -581,8 +581,14 @@ internal class TdConversationActions(
     /**
      * Deletes all [messageIds] with one DeleteMessages request. Every message is checked for the chosen scope first:
      * TDLib applies one revoke flag to the whole batch, so a mixed batch must not silently delete more or less than asked.
+     * [beforeSend] runs right before the DeleteMessages request goes out, and not at all when a check above fails first.
      */
-    suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, deleteScope: DeleteMessageScope): Result<Unit> = conversationResult {
+    suspend fun deleteMessages(
+        chatId: Long,
+        messageIds: List<Long>,
+        deleteScope: DeleteMessageScope,
+        beforeSend: () -> Unit = {}
+    ): Result<Unit> = conversationResult {
         val ids = messageIds.distinct().sorted()
         require(ids.isNotEmpty()) { "Нет сообщений для удаления" }
         if (ids.size > MAX_MESSAGE_BATCH_SIZE) throw UserMessageException(
@@ -596,6 +602,7 @@ internal class TdConversationActions(
         if (blocked) throw UserMessageException(UiText.Res(
             if (ids.size == 1) R.string.err_delete_option_unavailable else R.string.err_messages_cannot_delete
         ))
+        beforeSend()
         request(deleteMessagesRequest(chatId, ids, deleteScope == DeleteMessageScope.ForEveryone))
         history.delete(chatId, ids)
     }

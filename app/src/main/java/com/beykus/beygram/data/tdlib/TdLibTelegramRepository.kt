@@ -1625,10 +1625,15 @@ class TdLibTelegramRepository private constructor(
     override suspend fun deleteMessage(chatId: Long, messageId: Long, scope: DeleteMessageScope): Result<Unit> =
         deleteMessages(chatId, listOf(messageId), scope)
     override suspend fun deleteMessages(chatId: Long, messageIds: List<Long>, scope: DeleteMessageScope): Result<Unit> {
-        // Marked before the request goes out, since TDLib reports the deletion as it happens. A request that fails takes the marks back.
-        ownDeletions.expect(chatId, messageIds)
-        return conversationActions.deleteMessages(chatId, messageIds, scope)
-            .onFailure { ownDeletions.forget(chatId, messageIds) }
+        // Marked right before the request goes out, since TDLib reports the deletion as it happens. A request cancelled before that
+        // marks nothing. A request that fails takes its marks back, except on a timeout: TDLib may still delete the messages, and
+        // that deletion must not be taken for the other side's. A request cancelled after it went out keeps its marks for the same reason.
+        var marked = false
+        return conversationActions.deleteMessages(chatId, messageIds, scope, beforeSend = {
+            ownDeletions.expect(chatId, messageIds)
+            marked = true
+        })
+            .onFailure { failure -> if (marked && failure.cause !is TimeoutCancellationException) ownDeletions.forget(chatId, messageIds) }
             .onSuccess { messageIds.forEach { conversationEffects.uploadFinished(chatId, it) } }
     }
     override suspend fun forwardMessage(
@@ -2503,9 +2508,10 @@ class TdLibTelegramRepository private constructor(
         conversationActions.newerMessages(chatId, forumTopicId, afterMessageId)
 
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
+        // Taken before the wait, so a latest load or another jump that starts meanwhile supersedes this one.
+        val request = nextHistoryRequest(chatId)
         // The window is read on this coroutine, not on the TDLib thread, so it may wait for the Chat Memory writes queued so far.
         if (chatMemory.enabled) withContext(Dispatchers.IO) { chatMemory.awaitWrites() }
-        val request = nextHistoryRequest(chatId)
         return conversationActions.window(chatId, messageId).map { messages ->
             // A newer jump or latest load started meanwhile, so this window must not replace its result.
             if (historyRequests[chatId] != request) false else {

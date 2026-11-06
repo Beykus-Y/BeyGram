@@ -15,9 +15,9 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * Chat Memory of one account as the repository uses it. Writes that follow TDLib updates and history pages are queued on
  * one background thread, so they apply in the order TDLib produced them. Nothing on the TDLib update thread waits for that
- * queue: a deletion is queued and not waited for, and a read sees what is stored so far. A caller that must see the queued
- * writes calls [awaitWrites] first, from a thread that may wait. A storage failure is logged and skipped; it never breaks
- * the chat that was being kept.
+ * queue: a deletion is queued and not waited for, and a read sees what is stored plus the deletions still queued. A caller
+ * that must see the other queued writes calls [awaitWrites] first, from a thread that may wait. A storage failure is logged
+ * and skipped; it never breaks the chat that was being kept.
  */
 internal class ChatMemoryRecorder(
     private val context: Context,
@@ -33,6 +33,10 @@ internal class ChatMemoryRecorder(
 
     // The thread the writer runs on, so that a caller on the writer knows it must not wait for the writer.
     private val writerThread = AtomicReference<Thread?>(null)
+
+    // The deletions queued for the writer, as the store will show them once it has stored them. A read sees them at once, so a
+    // page read before the writer runs still shows them. An entry is removed only by the write that added it.
+    private val queuedDeletions = ConcurrentHashMap<Pair<Long, Long>, QueuedDeletion>()
 
     // Set when the repository is disposed or its account is removed. Reads stop then, so no database is opened again.
     @Volatile private var stopped = false
@@ -76,12 +80,22 @@ internal class ChatMemoryRecorder(
      * still being recorded is stored before it is marked. The caller does not wait for it.
      */
     fun markDeleted(chatId: Long, messageIds: Collection<Long>, fallback: Map<Long, MemoryObservation>) {
-        if (messageIds.isEmpty()) return
+        if (messageIds.isEmpty() || stopped) return
         val now = System.currentTimeMillis()
-        enqueue {
-            store.markDeleted(chatId, messageIds, fallback, now)
+        // Shown at once, the way the store will show it, so a read before the writer runs does not lose the deletion.
+        val queued = messageIds.mapNotNull { id ->
+            queuedDeletionOf(chatId, id, fallback[id], now)?.let { (chatId to id) to it }
+        }
+        queued.forEach { (key, deletion) -> queuedDeletions[key] = deletion }
+        val accepted = enqueue {
+            try {
+                store.markDeleted(chatId, messageIds, fallback, now)
+            } finally {
+                unqueue(queued)
+            }
             emptyMap()
         }
+        if (!accepted) unqueue(queued)
     }
 
     /**
@@ -97,11 +111,19 @@ internal class ChatMemoryRecorder(
     }
 
     /**
-     * The deleted messages of [chatId] within the id range, oldest first. This reads what is stored now; call [awaitWrites]
-     * first to include the deletions still queued. Empty when the store cannot be read.
+     * The deleted messages of [chatId] within the id range, oldest first, including the deletions still queued. Empty when the
+     * store cannot be read or the recorder is stopped.
      */
-    fun deletedBetween(chatId: Long, lowestId: Long, highestId: Long): List<MemorizedMessage> =
-        read(emptyList()) { store.deletedMessages(chatId, lowestId, highestId) }
+    fun deletedBetween(chatId: Long, lowestId: Long, highestId: Long): List<MemorizedMessage> {
+        if (stopped) return emptyList()
+        // The queued ones are taken first: a deletion the writer stores in between is then found in the store, not missed.
+        val queued = queuedDeletions
+            .filterKeys { (queuedChat, id) -> queuedChat == chatId && id in lowestId..highestId }
+            .values.map { it.message }
+        val stored = read(emptyList()) { store.deletedMessages(chatId, lowestId, highestId) }
+        val storedIds = stored.mapTo(HashSet()) { it.messageId }
+        return (stored + queued.filter { it.messageId !in storedIds }).sortedBy { it.messageId }
+    }
 
     /** The number of earlier texts kept for each of [messageIds] that has any. */
     fun versionCounts(chatId: Long, messageIds: Collection<Long>): Map<Long, Int> =
@@ -158,6 +180,13 @@ internal class ChatMemoryRecorder(
      */
     fun stopWriting() {
         stopped = true
+        // The writer's last task takes this recorder out of the registry, so a disposed repository is not kept alive by it. The
+        // task runs after the writes already queued, so the account's files are never removed under a queued write.
+        try {
+            writer.execute { running[accountId]?.remove(this) }
+        } catch (e: RejectedExecutionException) {
+            // Already stopped: the task was queued by the first call.
+        }
         writer.shutdown()
     }
 
@@ -179,10 +208,10 @@ internal class ChatMemoryRecorder(
 
     /**
      * Queues [write] on the writer, after the writes already queued. A failure is logged, never thrown. Once the writer is shut
-     * down, nothing more is queued: the write is simply not made.
+     * down, nothing more is queued: the write is simply not made, and false is returned.
      */
-    private fun enqueue(write: () -> Map<Pair<Long, Long>, Int>) {
-        try {
+    private fun enqueue(write: () -> Map<Pair<Long, Long>, Int>): Boolean {
+        return try {
             writer.execute {
                 writerThread.set(Thread.currentThread())
                 try {
@@ -193,10 +222,46 @@ internal class ChatMemoryRecorder(
                 }
                 trimIfDue(force = false)
             }
+            true
         } catch (e: RejectedExecutionException) {
             // The writer is shut down, so the repository or its account is gone: nothing more is written for it.
+            false
         }
     }
+
+    /**
+     * The copy the store will show once it has stored the deletion of [messageId]: a stored message gets its deletion mark, and a
+     * message not stored yet gets the copy on screen. A message of ours is never kept, and a message already deleted needs no copy.
+     */
+    private fun queuedDeletionOf(chatId: Long, messageId: Long, onScreen: MemoryObservation?, nowMillis: Long): QueuedDeletion? {
+        val stored = read(null) { store.memorized(chatId, messageId) }
+        if (stored != null) {
+            return if (stored.isOutgoing || stored.deletedAtMillis != null) null
+            else QueuedDeletion(stored.copy(deletedAtMillis = nowMillis))
+        }
+        val known = onScreen?.takeUnless { it.isOutgoing } ?: return null
+        return QueuedDeletion(
+            MemorizedMessage(
+                chatId = chatId,
+                messageId = messageId,
+                isOutgoing = false,
+                dateSeconds = known.dateSeconds,
+                senderId = known.senderId,
+                senderName = known.senderName,
+                text = known.snapshot.text,
+                hasAttachment = known.snapshot.hasAttachment,
+                deletedAtMillis = nowMillis,
+                versionCount = 0
+            )
+        )
+    }
+
+    private fun unqueue(queued: List<Pair<Pair<Long, Long>, QueuedDeletion>>) {
+        queued.forEach { (key, deletion) -> queuedDeletions.remove(key, deletion) }
+    }
+
+    // A deletion on its way to the store. It is compared by identity, so a write removes only the entry it added.
+    private class QueuedDeletion(val message: MemorizedMessage)
 
     /**
      * Runs [block] on the writer, after the writes already queued, and returns its result, or [fallback] when it fails. On the
@@ -264,6 +329,9 @@ internal class ChatMemoryRecorder(
 
         // The recorders that are alive, by account. Removing an account stops them and waits for their writers first.
         private val running = ConcurrentHashMap<String, MutableSet<ChatMemoryRecorder>>()
+
+        /** How many recorders of [accountId] are still registered. Tests read it to see that a stopped recorder is released. */
+        internal fun registeredCount(accountId: String): Int = running[accountId]?.size ?: 0
 
         /**
          * Stops the recorders of [accountId] and waits up to [waitMillis] for their writers, so that the writes already queued

@@ -117,6 +117,49 @@ class ChatMemoryRecorderLifecycleTest {
         assertEquals(2, recorder.usage().messages)
     }
 
+    @Test
+    fun aDeletionThatIsStillQueuedIsReadAtOnceAndAppearsOnceWhenStored() {
+        settings.update { it.copy(enabled = true) }
+        recorder.recordSeen(listOf(observation(1L)))
+        recorder.awaitWrites()
+        writer.execute { gate.await() }
+        recorder.markDeleted(CHAT, listOf(1L), fallback = emptyMap())
+
+        // The writer is held, so the deletion is not stored yet. A read that does not wait for the writer already shows it.
+        assertEquals(listOf(1L), recorder.deletedBetween(CHAT, 1L, 1L).map { it.messageId })
+
+        gate.countDown()
+        recorder.awaitWrites()
+        assertEquals(listOf(1L), recorder.deletedBetween(CHAT, 1L, 1L).map { it.messageId })
+    }
+
+    @Test
+    fun aDeletionOfAMessageOnScreenIsReadAtOnceWhileItsCopyIsStillQueued() {
+        settings.update { it.copy(enabled = true) }
+        writer.execute { gate.await() }
+        recorder.recordSeen(listOf(observation(1L)))
+        recorder.markDeleted(CHAT, listOf(1L), fallback = mapOf(1L to observation(1L)))
+
+        // Neither the copy nor the deletion is stored yet, so the copy on screen is what a read shows.
+        assertEquals(listOf(1L), recorder.deletedBetween(CHAT, 1L, 1L).map { it.messageId })
+
+        gate.countDown()
+        recorder.awaitWrites()
+        assertEquals(listOf(1L), recorder.deletedBetween(CHAT, 1L, 1L).map { it.messageId })
+    }
+
+    @Test
+    fun aStoppedRecorderIsReleasedOnceItsQueuedWritesAreDone() {
+        settings.update { it.copy(enabled = true) }
+        recorder.recordSeen(listOf(observation(1L)))
+        assertEquals(1, ChatMemoryRecorder.registeredCount(accountId))
+
+        recorder.stopWriting()
+
+        assertTrue(writer.awaitTermination(5, TimeUnit.SECONDS))
+        assertEquals(0, ChatMemoryRecorder.registeredCount(accountId))
+    }
+
     private fun observation(messageId: Long) = MemoryObservation(
         chatId = CHAT,
         messageId = messageId,

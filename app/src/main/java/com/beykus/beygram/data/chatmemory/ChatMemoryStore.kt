@@ -82,6 +82,14 @@ internal class ChatMemoryStore internal constructor(private val helper: SQLiteOp
         ).use { cursor -> readMessages(cursor) }
     }
 
+    /** The message as the store has it now, or null when it is not stored. */
+    @Synchronized
+    fun memorized(chatId: Long, messageId: Long): MemorizedMessage? =
+        helper.writableDatabase.rawQuery(
+            "SELECT $COLUMNS FROM messages WHERE chat_id = ? AND message_id = ?",
+            keyArgs(chatId, messageId)
+        ).use { cursor -> readMessages(cursor).firstOrNull() }
+
     /** The earlier texts of one message, oldest first. */
     @Synchronized
     fun versions(chatId: Long, messageId: Long): List<MemorizedVersion> =
