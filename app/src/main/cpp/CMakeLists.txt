@@ -32,9 +32,14 @@ else()
 
     if(BGMEDIA_AUTH_TOKEN)
         include(FetchContent)
+        # The token reaches git through an insteadOf rule in the environment. The repository URL that FetchContent
+        # writes into the build tree stays free of it.
+        set(ENV{GIT_CONFIG_COUNT} "1")
+        set(ENV{GIT_CONFIG_KEY_0} "url.https://${BGMEDIA_AUTH_TOKEN}@github.com/.insteadOf")
+        set(ENV{GIT_CONFIG_VALUE_0} "https://github.com/")
         FetchContent_Declare(
             bgmedia
-            GIT_REPOSITORY "https://${BGMEDIA_AUTH_TOKEN}@github.com/Beykus-Y/BG-Media.git"
+            GIT_REPOSITORY "https://github.com/Beykus-Y/BG-Media.git"
             GIT_TAG        ${BGMEDIA_PINNED_COMMIT}
             GIT_SHALLOW    TRUE
         )

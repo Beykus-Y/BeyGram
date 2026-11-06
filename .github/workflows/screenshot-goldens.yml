@@ -74,13 +74,36 @@ jobs:
           ./gradlew --no-daemon :app:testDevDebugUnitTest -Pscreenshots=record \
             --tests 'com.beykus.beygram.ui.screenshots.*'
 
+      - name: Save recorded goldens
+        # The record step ran code from the PR, which may have left hooks or git settings in this tree. Only the golden
+        # files leave it, as an archive, and the commit step unpacks them into a fresh clone.
+        run: |
+          set -euo pipefail
+          if [ -n "$(find app/src/test/screenshots -type l -print -quit)" ]; then
+            echo "::error::Symbolic links are not allowed among the screenshot goldens." >&2
+            exit 1
+          fi
+          tar -C app/src/test -cf "$RUNNER_TEMP/goldens.tar" screenshots
+
       - name: Commit changed goldens
         env:
           # Branch names reach the script only through the environment, never interpolated into it.
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PUSH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # A fresh repository holds only the labeled commit, so nothing the record step wrote to .git runs here.
+          work="$RUNNER_TEMP/goldens-commit"
+          rm -rf "$work"
+          mkdir -p "$work"
+          cd "$work"
+          git init -q .
+          git remote add origin "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch -q --depth=1 origin "$HEAD_SHA"
+          git checkout -q --detach FETCH_HEAD
+          rm -rf app/src/test/screenshots
+          tar -C app/src/test -xf "$RUNNER_TEMP/goldens.tar"
           git add -A app/src/test/screenshots
           if git diff --cached --quiet; then
             echo "::notice::Goldens unchanged."
@@ -88,9 +111,9 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Record screenshot goldens"
+          git commit -q -m "Record screenshot goldens"
           # Not forced: if the branch moved since the label, the push fails instead of overwriting newer commits.
-          git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${HEAD_REF}"
+          git push -q origin "HEAD:refs/heads/${HEAD_REF}"
 
       - name: Remove the label
         if: always()

@@ -23,6 +23,9 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     /** Native status stream for the current session; null when stopped. */
     val status: StateFlow<BgMixStatus?>? get() = statusSource
 
+    /** Set when the native output fails during the current session; null while it works or when stopped. */
+    val failure: StateFlow<String?>? get() = player?.failure
+
     /** Queue snapshot the current session was started with. */
     val queueItems: List<PlaybackItem> get() = items
 
@@ -31,25 +34,24 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     fun indexOfNative(id: Long): Int? = indexByNativeId[id]
 
     /**
-     * Starts [items] from [startIndex]. Returns false when the native session cannot start or no file is accepted;
-     * the caller then keeps the ExoPlayer path.
+     * Starts [items] from [startIndex]. Returns false when the native session cannot start, or when BG Mix cannot take
+     * the whole rest of the queue; the caller then keeps the ExoPlayer path.
      */
     fun start(items: List<PlaybackItem>, startIndex: Int): Boolean {
         stop()
-        // The tapped track must play itself; starting a different track would be silent substitution.
-        if (items.getOrNull(startIndex)?.let { isEligible(it) } != true) return false
-        val accepted = items.withIndex().filter { it.index >= startIndex && isEligible(it.value) }
-        if (accepted.isEmpty()) return false
+        // Every item from the tapped one on has to be a local BG Mix file. Skipping one here would drop it from the
+        // queue without a word, so the whole queue stays on ExoPlayer instead.
+        val tail = bgMixQueueTail(items, startIndex) { isEligible(it) } ?: return false
         val created = BgMixPlayer(cacheDir)
         if (!created.start()) return false
-        val ids = created.setQueue(accepted.map { File(it.value.path) })
-        val mapping = ids.zip(accepted).filter { it.first != 0L }.associate { it.first to it.second.index }
-        if (mapping.isEmpty()) {
+        val ids = created.setQueue(tail.map { File(items[it].path) })
+        // A file the decoder rejects is the same loss, so it refuses the queue as a whole too.
+        if (ids.size != tail.size || ids.any { it == 0L }) {
             created.release()
             return false
         }
         this.items = items
-        indexByNativeId = mapping
+        indexByNativeId = ids.zip(tail).associate { (id, index) -> id to index }
         statusSource = created.status
         player = created
         created.play()
@@ -94,4 +96,18 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
                 item.path.substringAfterLast('.', "").lowercase() in EXTENSIONS &&
                 File(item.path).isFile
     }
+}
+
+/**
+ * Indexes from [startIndex] to the end of [items], or null when BG Mix cannot take all of them: the start index is out
+ * of range, or one of the items from there on fails [eligible].
+ */
+internal fun bgMixQueueTail(
+    items: List<PlaybackItem>,
+    startIndex: Int,
+    eligible: (PlaybackItem) -> Boolean
+): List<Int>? {
+    if (startIndex !in items.indices) return null
+    val tail = (startIndex until items.size).toList()
+    return if (tail.all { eligible(items[it]) }) tail else null
 }

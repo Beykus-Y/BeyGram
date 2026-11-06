@@ -50,6 +50,26 @@ data class BgBeatAnalysisIdentity(
     val maxBpm: Double = 200.0
 )
 
+/** What [BgBeatManager] does when playback reports a file identity again. */
+internal enum class BgBeatRerun { Start, Wait, ShowFailed }
+
+/**
+ * Decides what a playback update for [identity] means. [failed] is the identity of the last analysis that ended without
+ * a result: its outcome is shown again and it is not run again, until the file changes or the analysis is requested anew.
+ */
+internal fun bgBeatRerun(
+    identity: BgBeatAnalysisIdentity,
+    active: BgBeatAnalysisIdentity?,
+    completed: BgBeatAnalysisIdentity?,
+    readyNow: Boolean,
+    failed: BgBeatAnalysisIdentity?
+): BgBeatRerun = when {
+    active == identity -> BgBeatRerun.Wait
+    completed == identity && readyNow -> BgBeatRerun.Wait
+    failed == identity -> BgBeatRerun.ShowFailed
+    else -> BgBeatRerun.Start
+}
+
 /**
  * Coordinates BG Beat music analysis with PlaybackEngine and account isolation.
  * - Single source of observation via Flow combine to prevent duplicate parallel triggers.
@@ -95,6 +115,10 @@ class BgBeatManager(
     @Volatile
     private var completedIdentity: BgBeatAnalysisIdentity? = null
 
+    /** The last analysis that ended without a result (UNSUPPORTED, ERROR or an exception), with the state it showed. */
+    @Volatile
+    private var failedAnalysis: Pair<BgBeatAnalysisIdentity, BgBeatUiState>? = null
+
     init {
         // Observe both playback and settings in a single unified flow to prevent duplicate runs
         scope.launch {
@@ -115,6 +139,7 @@ class BgBeatManager(
             sequenceId.incrementAndGet()
             activeIdentity = null
             completedIdentity = null
+            failedAnalysis = null
             _uiState.value = BgBeatUiState.Disabled
             return
         }
@@ -183,14 +208,24 @@ class BgBeatManager(
             fileLastModified = file.lastModified()
         )
 
-        // Deduplicate: If an analysis for this exact file identity is already in flight, do nothing
-        if (activeIdentity == identity) {
-            return
-        }
-
-        // Deduplicate: If this exact file identity is already completed and shown, do nothing
-        if (completedIdentity == identity && _uiState.value is BgBeatUiState.Ready) {
-            return
+        // Deduplicate by file identity. Playback reports every 250 ms, so each case must stop here: an analysis in flight,
+        // a finished one that is still shown, and an unsuccessful one, whose outcome is shown again instead of re-run.
+        val failed = failedAnalysis
+        when (
+            bgBeatRerun(
+                identity = identity,
+                active = activeIdentity,
+                completed = completedIdentity,
+                readyNow = _uiState.value is BgBeatUiState.Ready,
+                failed = failed?.first
+            )
+        ) {
+            BgBeatRerun.Wait -> return
+            BgBeatRerun.ShowFailed -> {
+                if (failed != null && _uiState.value != failed.second) _uiState.value = failed.second
+                return
+            }
+            BgBeatRerun.Start -> Unit
         }
 
         // File is fully ready or download finished: start analysis automatically
@@ -232,6 +267,7 @@ class BgBeatManager(
 
         cancelCurrentAnalysis()
         completedIdentity = null
+        failedAnalysis = null
         startAnalysis(currentItem, file, currentAccount, identity, force = true)
     }
 
@@ -306,14 +342,18 @@ class BgBeatManager(
                         _uiState.value = BgBeatUiState.Idle(itemKey, accountId)
                     }
                     BgBeatStatus.UNSUPPORTED -> {
-                        _uiState.value = BgBeatUiState.Ineligible(BgBeatIneligibleReason.UnsupportedFormat, itemKey, accountId)
+                        val outcome = BgBeatUiState.Ineligible(BgBeatIneligibleReason.UnsupportedFormat, itemKey, accountId)
+                        failedAnalysis = identity to outcome
+                        _uiState.value = outcome
                     }
                     BgBeatStatus.ERROR -> {
-                        _uiState.value = BgBeatUiState.Error(
+                        val outcome = BgBeatUiState.Error(
                             result.message.ifBlank { "Ошибка анализа музыки" },
                             itemKey,
                             accountId
                         )
+                        failedAnalysis = identity to outcome
+                        _uiState.value = outcome
                     }
                 }
             } catch (ce: CancellationException) {
@@ -322,7 +362,9 @@ class BgBeatManager(
             } catch (e: Exception) {
                 if (sequenceId.get() == reqSeq && activeIdentity == identity) {
                     Log.e(TAG, "Analysis exception for item $itemKey", e)
-                    _uiState.value = BgBeatUiState.Error("Исключение: ${e.localizedMessage}", itemKey, accountId)
+                    val outcome = BgBeatUiState.Error("Исключение: ${e.localizedMessage}", itemKey, accountId)
+                    failedAnalysis = identity to outcome
+                    _uiState.value = outcome
                 }
             } finally {
                 BgBeatNative.nativeDestroyCancelToken(cancelToken)
