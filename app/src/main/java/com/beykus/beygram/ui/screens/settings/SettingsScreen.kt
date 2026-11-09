@@ -67,7 +67,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.MainTabHeader
 import com.beykus.beygram.ui.components.MainTabTitle
+import com.beykus.beygram.ui.components.mainTabInsets
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassCard
@@ -83,13 +85,15 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
     val design = LocalDesignSystem.current
     Column(
         Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-            .verticalScroll(rememberScrollState())
+            .mainTabInsets()
     ) {
-        MainTabTitle(
-            stringResource(R.string.settings_title),
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
-        )
+        MainTabHeader {
+            MainTabTitle(
+                stringResource(R.string.settings_title),
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
+            )
+        }
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
 
         SettingsGroup(stringResource(R.string.settings_group_interface)) {
             SettingsLink(Icons.Rounded.Language, stringResource(R.string.feature_language), onLanguage)
@@ -178,6 +182,7 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             )
         }
         Spacer(Modifier.height(12.dp))
+        }
     }
 }
 

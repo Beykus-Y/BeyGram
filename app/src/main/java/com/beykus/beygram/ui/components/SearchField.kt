@@ -64,7 +64,8 @@ internal fun SearchField(
             palette.surface2
         }
         SearchFieldVariant.Outlined -> palette.surface
-        SearchFieldVariant.Glass -> palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.55f))
+        // A sunken wash of the text colour: the pane under the field has the surface colour, a surface fill would vanish.
+        SearchFieldVariant.Glass -> palette.textPrimary.copy(alpha = 0.07f)
     }
     BasicTextField(
         value = query,
@@ -80,6 +81,8 @@ internal fun SearchField(
             .then(
                 if (design.components.search == SearchFieldVariant.Outlined) {
                     Modifier.border(1.dp, palette.divider, shape)
+                } else if (design.components.search == SearchFieldVariant.Glass) {
+                    Modifier.border(1.dp, palette.textSecondary.copy(alpha = 0.18f), shape)
                 } else {
                     Modifier
                 }

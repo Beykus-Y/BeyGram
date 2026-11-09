@@ -60,7 +60,9 @@ import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.groupCardShape
 import com.beykus.beygram.ui.components.listRowTitleWeight
 import com.beykus.beygram.ui.components.StyledListDivider
+import com.beykus.beygram.ui.components.MainTabHeader
 import com.beykus.beygram.ui.components.MainTabTitle
+import com.beykus.beygram.ui.components.mainTabInsets
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -103,12 +105,14 @@ fun CallsScreen(
     // The same screen and group surfaces as Settings: the glass style gets its glow, the others the plain screen colour.
     Column(
         Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+            .mainTabInsets()
     ) {
-        MainTabTitle(
-            stringResource(R.string.calls_title),
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
-        )
+        MainTabHeader {
+            MainTabTitle(
+                stringResource(R.string.calls_title),
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
+            )
+        }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         when {
             calls.isEmpty() && loading -> Spacer(Modifier.weight(1f))
