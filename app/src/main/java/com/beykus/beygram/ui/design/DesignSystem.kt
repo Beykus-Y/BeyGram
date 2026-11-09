@@ -280,6 +280,17 @@ data class GlassStyle(
 ) {
     /** The backdrop is sampled and blurred only at the full level; lower levels keep the layout and the tint. */
     val samplesBackdrop: Boolean get() = quality == GlassQuality.High && blurRadiusDp > 0.dp
+
+    /**
+     * Balanced frosts the backdrop without a render effect: the content is redrawn at 1/[FrostDownscale] size and
+     * stretched back, which softens it on any Android version. Lite stays a plain dense tint.
+     */
+    val samplesFrosted: Boolean get() = quality == GlassQuality.Balanced
+
+    companion object {
+        /** The backdrop of a frosted panel is drawn at 1/this of its size, then stretched back. */
+        const val FrostDownscale = 8f
+    }
 }
 
 /** The style's multiplier for motion, applied on top of the user's own motion settings and never against them. */

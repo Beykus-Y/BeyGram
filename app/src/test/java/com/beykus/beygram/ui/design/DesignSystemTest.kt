@@ -176,6 +176,14 @@ class DesignSystemTest {
         assertEquals(1f, designFor(DesignStyle.LiquidGlass, GlassQuality.Lite).surfaces.surfaceAlpha)
     }
 
+    @Test fun balancedFrostsTheBackdropAndLiteStaysDense() {
+        val balanced = designFor(DesignStyle.LiquidGlass, GlassQuality.Balanced).surfaces.glass!!
+        assertTrue(balanced.samplesFrosted)
+        assertTrue(balanced.tintAlpha < 0.8f)
+        assertFalse(designFor(DesignStyle.LiquidGlass, GlassQuality.Lite).surfaces.glass!!.samplesFrosted)
+        assertFalse(designFor(DesignStyle.LiquidGlass, GlassQuality.High).surfaces.glass!!.samplesFrosted)
+    }
+
     @Test fun anExplicitQualityChoiceIsKeptAndAutoUsesTheDetectedLevel() {
         assertEquals(GlassQuality.Lite, resolveGlassQuality(GlassQuality.Lite))
         assertEquals(GlassQuality.Balanced, resolveGlassQuality(GlassQuality.Balanced, autoLevel = GlassQuality.High))

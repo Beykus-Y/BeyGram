@@ -24,12 +24,12 @@ the crash guard live in [design-system-v2.md](design-system-v2.md#liquid-glass).
 
 One pane of glass is, from back to front:
 
-1. **Sample** (High only): the content behind the pane, recorded by `glassBackdropSource` and blurred by a real
+1. **Sample** (High: real blur; Balanced: frosting without a render effect, the content redrawn at 1/8 size and stretched back): the content behind the pane, recorded by `glassBackdropSource` and blurred by a real
    `RenderEffect` (Android 12+) with a 1.35 saturation lift, so colours behind the pane stay alive. The sample is drawn over an opaque base (`backdropBase` of `GlassPanel`, the screen
    colour on the chat list and the dock), so a list without its own background never shows sharp content through the
    pane. A frame without a finished sample draws a dense mask instead, so the light tint of real glass never shows sharp
    text through the pane.
-2. **Tint**: the surface colour at the style's `tintAlpha` over a sample (0.48 at High), at least 0.93 without one.
+2. **Tint**: the surface colour at the style's `tintAlpha` over a sample (0.48 at High, 0.76 at Balanced), at least 0.93 without one.
 3. **Outline**: one 1dp stroke around a floating pane or a list card, low contrast: the caller's edge colour at
    `outlineTopAlpha` 0.18 at the top, fading to `outlineBottomAlpha` 0.04 at the bottom. It is the only border of
    that layer. Rows and content inside never add a stroke of their own; fill, light and depth carry them.
@@ -45,8 +45,9 @@ the edge that meets the content.
   Self-reference is a native `SIGSEGV` in RenderThread (#623). `GlassBackdrop.recording` is the second guard.
 * A screen whose chrome samples its own list provides its **own** `GlassBackdrop` that records the list only. Nesting
   that inside the window-level source is safe: the outer layer records the already drawn chrome, it never samples it.
-* Nothing is recorded unless something really blurs it: `DesignSystem.recordsGlassBackdrop` is true only for High on
-  Android 12+. Balanced, Lite, other styles and old Android never pay for a record pass.
+* Nothing is recorded unless the panel samples it: `DesignSystem.recordsGlassBackdrop` is true for High on Android 12+
+  and for Balanced on any Android (the cheap 1/8 frosting). Lite, other styles and High below Android 12 never pay for a
+  record pass. The frame cost of Balanced on a weak device is still to be measured.
 * Message content is never sampled: chat header and composer stay tinted.
 
 ## Quality levels
@@ -54,7 +55,7 @@ the edge that meets the content.
 | Level | Sample + blur | Tint | Rim | Highlight | Shadow |
 | --- | --- | --- | --- | --- | --- |
 | High | 30dp + saturation 1.35, Android 12+ | 0.48 | 0.50 | 0.14 | 5dp |
-| Balanced | no | 0.93 | 0.55 | 0.18 | 4dp |
+| Balanced | frosted 1/8 | 0.76 | 0.55 | 0.18 | 4dp |
 | Lite | no | 0.96 | 0.40 | 0.08 | 2dp |
 
 `Auto` picks Balanced without render effects, Lite under reduced transparency (animations off), Balanced in battery
