@@ -1,6 +1,9 @@
 package com.beykus.beygram.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -85,7 +88,8 @@ fun StyledListDivider(startIndent: Dp = 82.dp) {
  */
 @Composable
 fun Modifier.mainTabInsets(): Modifier {
-    val glass = LocalDesignSystem.current.usesGlassPanels
+    val design = LocalDesignSystem.current
+    val glass = design.usesGlassPanels || design.style == DesignStyle.Material2
     return windowInsetsPadding(
         WindowInsets.safeDrawing.only(if (glass) WindowInsetsSides.Horizontal else WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
     )
@@ -100,6 +104,15 @@ fun Modifier.mainTabInsets(): Modifier {
 @Composable
 fun MainTabHeader(content: @Composable () -> Unit) {
     val design = LocalDesignSystem.current
+    if (design.style == DesignStyle.Material2) {
+        // The classic raised app bar: a surface with a 4dp shadow that also covers the status bar, as on nested screens.
+        Box(
+            Modifier.fillMaxWidth().zIndex(1f).shadow(4.dp).background(beyGramPalette().surface)
+        ) {
+            Box(Modifier.windowInsetsPadding(WindowInsets.statusBars)) { content() }
+        }
+        return
+    }
     if (!design.usesGlassPanels) {
         content()
         return

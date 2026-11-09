@@ -2533,10 +2533,10 @@ private fun BeyGramAppContent(
                     connectionState = connectionState,
                     onBack = { routeName = AppRoute.Notifications.name }
                 )
-                AppRoute.Calls -> MainTabsScaffold("${selectedAccountId}:${MainTab.Calls.route.name}", MainTab.Calls, tabVisibility, selectTab, tabStateHolder) {
+                AppRoute.Calls -> MainTabsScaffold("${selectedAccountId}:${MainTab.Calls.route.name}", MainTab.Calls, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
                     CallsScreen(loadCalls = repository::loadCallHistory, observeFile = repository::observeFile, downloadFile = repository::downloadFile, accountId = selectedAccountId)
                 }
-                AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder) {
+                AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
                     val contactChats by repository.chats.collectAsStateWithLifecycle()
                     ContactsScreen(
                         accountId = selectedAccountId,
@@ -2556,7 +2556,7 @@ private fun BeyGramAppContent(
                         }
                     )
                 }
-                AppRoute.Settings -> MainTabsScaffold("${selectedAccountId}:${MainTab.Settings.route.name}", MainTab.Settings, tabVisibility, selectTab, tabStateHolder) {
+                AppRoute.Settings -> MainTabsScaffold("${selectedAccountId}:${MainTab.Settings.route.name}", MainTab.Settings, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
                     SettingsScreen(
                         onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
                         onAppearance = { appearanceDraft = appearance; appearanceReturnRouteName = AppRoute.Settings.name; routeName = AppRoute.Appearance.name },

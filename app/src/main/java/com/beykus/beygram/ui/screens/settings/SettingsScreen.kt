@@ -69,6 +69,8 @@ import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.MainTabHeader
 import com.beykus.beygram.ui.components.MainTabTitle
+import com.beykus.beygram.ui.components.LocalNavigationDock
+import com.beykus.beygram.ui.components.scrollClearance
 import com.beykus.beygram.ui.components.mainTabInsets
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.LocalDesignSystem
@@ -181,7 +183,7 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
                 onCheckedChange = { BgMixSettingsStore.setEnabled(context, it) }
             )
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(12.dp + LocalNavigationDock.current.scrollClearance))
         }
     }
 }

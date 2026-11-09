@@ -62,6 +62,8 @@ import com.beykus.beygram.ui.components.listRowTitleWeight
 import com.beykus.beygram.ui.components.StyledListDivider
 import com.beykus.beygram.ui.components.MainTabHeader
 import com.beykus.beygram.ui.components.MainTabTitle
+import com.beykus.beygram.ui.components.LocalNavigationDock
+import com.beykus.beygram.ui.components.scrollClearance
 import com.beykus.beygram.ui.components.mainTabInsets
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
@@ -80,6 +82,7 @@ fun CallsScreen(
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
+    val dockInset = LocalNavigationDock.current.scrollClearance
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state: CallsScreenState = viewModel(key = "calls:$accountId")
@@ -129,10 +132,10 @@ fun CallsScreen(
             }
             else -> Box(
                 // The history is one group card, as a settings list is; the rows inside carry no glass of their own.
-                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = if (dockInset > 0.dp) 0.dp else 16.dp)
                     .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
             ) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp + dockInset)) {
                     items(calls, key = { "${it.chatId}:${it.messageId}" }) { call ->
                         CallRow(call, observeFile, downloadFile)
                         StyledListDivider()

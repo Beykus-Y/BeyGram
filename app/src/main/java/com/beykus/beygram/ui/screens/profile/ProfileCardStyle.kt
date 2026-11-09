@@ -1,15 +1,15 @@
 package com.beykus.beygram.ui.screens.profile
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.LocalDesignSystem
 
 /** Shared card rhythm for the profile, Premium, Stars and gifts screens. */
@@ -29,6 +29,5 @@ internal fun Modifier.profileCardSurface(color: Color = groupSurfaceColor()): Mo
     val elevation = design.surfaces.cardElevation
     return padding(horizontal = CardScreenInset, vertical = CardGap / 2)
         .then(if (elevation > 0.dp) Modifier.shadow(elevation, shape, clip = false) else Modifier)
-        .clip(shape)
-        .background(color)
+        .glassCard(design, color, beyGramPalette().textSecondary, shape)
 }

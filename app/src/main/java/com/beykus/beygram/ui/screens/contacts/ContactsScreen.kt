@@ -80,6 +80,8 @@ import com.beykus.beygram.ui.components.listRowTitleWeight
 import com.beykus.beygram.ui.components.StyledListDivider
 import com.beykus.beygram.ui.components.MainTabHeader
 import com.beykus.beygram.ui.components.MainTabTitle
+import com.beykus.beygram.ui.components.LocalNavigationDock
+import com.beykus.beygram.ui.components.scrollClearance
 import com.beykus.beygram.ui.components.mainTabInsets
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
@@ -106,6 +108,7 @@ fun ContactsScreen(
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
+    val dockInset = LocalNavigationDock.current.scrollClearance
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state: ContactsScreenState = viewModel(key = "contacts:$accountId")
@@ -215,10 +218,10 @@ fun ContactsScreen(
             visible.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_no_results), Modifier.weight(1f))
             else -> Box(
                 // The list is one group card, as a settings list is; the hint, the headings and the rows inside carry no glass.
-                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = if (dockInset > 0.dp) 0.dp else 16.dp)
                     .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
             ) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp + dockInset)) {
                     item(key = "contacts_actions_hint") {
                         Text(
                             stringResource(R.string.contacts_actions_hint),
