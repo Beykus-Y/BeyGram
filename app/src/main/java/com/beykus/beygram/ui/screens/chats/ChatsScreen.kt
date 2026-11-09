@@ -585,7 +585,11 @@ fun ChatsScreen(
     val chatList: @Composable (Modifier, Dp) -> Unit = { modifier, topPadding ->
         LazyColumn(
             state = listState,
-            modifier = modifier.nestedScroll(pullConnection).chatListEdgeFade(topPadding, fadeBottom = dock.floating && dock.contentInset == 0.dp) { topEdgeFade },
+            // Under glass chrome the rows run on beneath the pane and are blurred there: dissolving them on a 24 dp strip
+            // first would cut a row off before it reaches the glass (topPadding > 0 only in the glass layout).
+            modifier = modifier.nestedScroll(pullConnection).chatListEdgeFade(topPadding, fadeBottom = dock.floating && dock.contentInset == 0.dp) {
+                if (topPadding > 0.dp) 0f else topEdgeFade
+            },
             // Keep the last conversation accessible above the overlay button, measured from the button itself. Under
             // glass chrome the list also starts below the header it scrolls beneath.
             contentPadding = PaddingValues(top = topPadding, bottom = fabPlacement.listClearance)
@@ -733,8 +737,9 @@ fun ChatsScreen(
                 WindowInsets.safeDrawing.only(
                     // In the two-pane layout the pane's right edge is in the middle of the window:
                     // the end inset belongs to the chat pane, not to the list.
-                    if (compactHeader) WindowInsetsSides.Top + WindowInsetsSides.Start
-                    else WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                    // Glass chrome draws under the status bar itself (the inset moves into the header pane).
+                    if (compactHeader) (if (glassChrome) WindowInsetsSides.Start else WindowInsetsSides.Top + WindowInsetsSides.Start)
+                    else (if (glassChrome) WindowInsetsSides.Horizontal else WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
                 )
             )
     ) {
@@ -763,7 +768,8 @@ fun ChatsScreen(
                   modifier = Modifier.fillMaxWidth().onSizeChanged { glassHeaderHeightPx = it.height }
                       .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
               ) {
-                  chatsHeader(Modifier)
+                  // The pane covers the status bar, so the title still starts below it and no seam shows at the edge.
+                  chatsHeader(Modifier.windowInsetsPadding(WindowInsets.statusBars))
               }
           }
       } else {
@@ -1097,6 +1103,8 @@ internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int
             // The underlined tab keeps the neutral surface in both states: its accent label would be unreadable on an
             // accent fill, and the rule under it is what marks the selection.
             main.chipSelection == ChipSelectionTone.Underlined -> palette.surface2
+            // On a glass pane a surface2 chip is the pane's own colour; a sunken wash of the text colour stays visible.
+            !selected && design.usesGlassPanels -> palette.textPrimary.copy(alpha = 0.08f)
             !selected -> palette.surface2
             main.chipSelection == ChipSelectionTone.Tonal -> palette.accentSoft
             else -> palette.accent
