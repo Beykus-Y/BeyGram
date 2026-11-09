@@ -1099,6 +1099,12 @@ fun ChatScreen(
         audioNote.stopForRecovery()
     }
 
+    val chatGlass = design.usesGlassPanels
+    val chatBackdrop = if (chatGlass && design.recordsGlassBackdrop) rememberGlassBackdrop() else null
+    var topChromePx by remember { mutableIntStateOf(0) }
+    var bottomChromePx by remember { mutableIntStateOf(0) }
+    // With glass chrome the list also runs under the header and composer; those strips do not count as seen.
+    val coveredByChrome by rememberUpdatedState(if (chatBackdrop != null) topChromePx to bottomChromePx else 0 to 0)
     // The sent-message ids are rebuilt only when the history changes, not on every scroll frame of the receipt check.
     val sentMessageIds = remember(messages) { messages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id } }
     val currentSentMessageIds by rememberUpdatedState(sentMessageIds)
@@ -1109,7 +1115,9 @@ fun ChatScreen(
                 if (!window.isWindowFocused || searching || threadOpen || attachments.cameraOpen || attachments.editor != null || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
                     layout.visibleItemsInfo.filter { item ->
-                        val visible = minOf(item.offset + item.size, layout.viewportEndOffset) - maxOf(item.offset, layout.viewportStartOffset)
+                        // Reverse list: the main axis starts at the composer, so the bottom strip is the start side.
+                        val visible = minOf(item.offset + item.size, layout.viewportEndOffset - coveredByChrome.first) -
+                            maxOf(item.offset, layout.viewportStartOffset + coveredByChrome.second)
                         visible >= minOf(item.size / 2, minimumVisible).coerceAtLeast(1)
                     }.flatMap { visibleItem ->
                         currentMessageItemsByKey[visibleItem.key as? String]?.messages.orEmpty().map { it.id }
@@ -1511,10 +1519,6 @@ fun ChatScreen(
 
     // Reported by PinnedMessagesBar: while the preview sits under the header, Liquid Glass keeps one hairline for both.
     var pinnedPreviewShown by remember(chat.id, forumTopicId) { mutableStateOf(false) }
-    val chatGlass = design.usesGlassPanels
-    val chatBackdrop = if (chatGlass && design.recordsGlassBackdrop) rememberGlassBackdrop() else null
-    var topChromePx by remember { mutableIntStateOf(0) }
-    var bottomChromePx by remember { mutableIntStateOf(0) }
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ChatChromeHost(chatGlass, GlassEdge.BottomHairline, chatBackdrop, { topChromePx = it }) {
