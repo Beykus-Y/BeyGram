@@ -102,7 +102,7 @@ internal fun ChatSearchBar(
 ) {
     val palette = beyGramPalette()
     var filterDialogOpen by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).background(palette.surface)) {
+    Column(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).chatChromeBackground(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.search_close_description), tint = palette.textPrimary) }
             Box(Modifier.weight(1f)) { SearchField(query, onQueryChange, placeholder = stringResource(R.string.search_placeholder)) }

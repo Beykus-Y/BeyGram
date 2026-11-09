@@ -116,7 +116,7 @@ internal fun PinnedMessagesBar(
     } else if (shown != null) {
         // Liquid Glass: the preview takes the header's translucent fill, so the two read as one block with no seam.
         val rowFill = if (design.components.topBar == TopBarVariant.Glass) palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.78f)) else palette.surface
-        Row(Modifier.fillMaxWidth().background(rowFill), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().chatChromeBackground(rowFill), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).clickable { onOpen(shown) }.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.PushPin, null, tint = palette.accent, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(10.dp))

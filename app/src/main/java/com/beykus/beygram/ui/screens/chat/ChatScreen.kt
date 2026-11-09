@@ -53,6 +53,11 @@ import androidx.compose.ui.draw.shadow
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.SurfaceTreatment
 import com.beykus.beygram.ui.design.TopBarVariant
+import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.rememberGlassBackdrop
+import com.beykus.beygram.ui.design.recordsGlassBackdrop
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.design.squareSendButton
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
@@ -1094,6 +1099,12 @@ fun ChatScreen(
         audioNote.stopForRecovery()
     }
 
+    val chatGlass = design.usesGlassPanels
+    val chatBackdrop = if (chatGlass && design.recordsGlassBackdrop) rememberGlassBackdrop() else null
+    var topChromePx by remember { mutableIntStateOf(0) }
+    var bottomChromePx by remember { mutableIntStateOf(0) }
+    // With glass chrome the list also runs under the header and composer; those strips do not count as seen.
+    val coveredByChrome by rememberUpdatedState(if (chatBackdrop != null) topChromePx to bottomChromePx else 0 to 0)
     // The sent-message ids are rebuilt only when the history changes, not on every scroll frame of the receipt check.
     val sentMessageIds = remember(messages) { messages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id } }
     val currentSentMessageIds by rememberUpdatedState(sentMessageIds)
@@ -1104,7 +1115,9 @@ fun ChatScreen(
                 if (!window.isWindowFocused || searching || threadOpen || attachments.cameraOpen || attachments.editor != null || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
                     layout.visibleItemsInfo.filter { item ->
-                        val visible = minOf(item.offset + item.size, layout.viewportEndOffset) - maxOf(item.offset, layout.viewportStartOffset)
+                        // Reverse list: the main axis starts at the composer, so the bottom strip is the start side.
+                        val visible = minOf(item.offset + item.size, layout.viewportEndOffset - coveredByChrome.first) -
+                            maxOf(item.offset, layout.viewportStartOffset + coveredByChrome.second)
                         visible >= minOf(item.size / 2, minimumVisible).coerceAtLeast(1)
                     }.flatMap { visibleItem ->
                         currentMessageItemsByKey[visibleItem.key as? String]?.messages.orEmpty().map { it.id }
@@ -1508,6 +1521,7 @@ fun ChatScreen(
     var pinnedPreviewShown by remember(chat.id, forumTopicId) { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        ChatChromeHost(chatGlass, GlassEdge.BottomHairline, chatBackdrop, { topChromePx = it }) {
         if (selectionMode) SelectionActionBar(
             count = selectionIds.size,
             busy = selectionBusy || forwardBusy,
@@ -1641,11 +1655,16 @@ fun ChatScreen(
             Text(stringResource(R.string.chat_network_waiting), color = palette.warningText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
         // Non-inline wrappers keep these large blocks out of ChatScreen's own bytecode (JVM 64 KB method limit).
+        }
         ChatScreenBox(Modifier.fillMaxWidth().weight(1f)) {
+        ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { if (chatBackdrop != null) bottomChromePx else 0 }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
         ChatWallpaperLayer(chatWallpaper)
         val metrics = LocalBubbleMetrics.current
+        val chromeDensity = LocalDensity.current
+        val chromeTopPad = if (chatBackdrop != null) with(chromeDensity) { topChromePx.toDp() } else 0.dp
+        val chromeBottomPad = if (chatBackdrop != null) with(chromeDensity) { bottomChromePx.toDp() } else 0.dp
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = metrics.listPadding), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
+            contentPadding = PaddingValues(top = metrics.listPadding + chromeTopPad, bottom = metrics.listPadding + chromeBottomPad), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }) { listItem ->
                 if (listItem.unreadSeparator) {
                     UnreadMessagesSeparator()
@@ -1849,6 +1868,7 @@ fun ChatScreen(
                 Text(stringResource(R.string.chat_history_empty), color = palette.textSecondary, modifier = Modifier.padding(8.dp))
             }
         }
+        }
         if (!searching) FloatingMessageDate(listState, messageListItems, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         val away by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex > 3 } }
         val jumpMotion = rememberMotionSpec(MotionToken.BannerChange)
@@ -1893,6 +1913,7 @@ fun ChatScreen(
         )
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
+        ChatChromeHost(chatGlass, GlassEdge.TopHairline, chatBackdrop, { bottomChromePx = it }) {
         error?.let { failure -> Row(Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(failure, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { error = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.warningText) }
@@ -1986,7 +2007,7 @@ fun ChatScreen(
                 onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )
-            if (replyId != null) Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (replyId != null) Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).chatChromeBackground(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clip(styledShape(12.dp)).border(1.dp, palette.accent.copy(alpha = 0.45f), styledShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
                     Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Text(replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable), color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
@@ -2021,7 +2042,8 @@ fun ChatScreen(
         )
         if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().then(
             // Signature keeps the composer on the canvas behind one hairline; the field itself is the only filled plane.
-            if (design.components.composer == ComposerVariant.Signature) Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
+            if (chatGlass) Modifier
+            else if (design.components.composer == ComposerVariant.Signature) Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
             else Modifier.background(palette.surface)
         ).navigationBarsPadding().imePadding()) {
         // A bot with no outgoing message in its whole history gets an explicit /start action, independent of inline mode or Mini Apps.
@@ -2164,6 +2186,7 @@ fun ChatScreen(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
         )
         if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation, ::requestBotWebApp)
+        }
         }
     }
     ComposerLaunchOverlay(
@@ -2536,7 +2559,7 @@ private fun ChatComposerPanel(
 @Composable
 private fun ReadOnlyChatBar(message: String) {
     val palette = beyGramPalette()
-    Box(Modifier.fillMaxWidth().background(palette.surface).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().chatChromeBackground(palette.surface).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
         Text(message, color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
     }
 }
@@ -2557,8 +2580,9 @@ private fun ChatTopBar(
     // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
     val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
     val chatInfoLabel = stringResource(R.string.a11y_chat_info)
+    val onGlass = LocalChatChromeOnGlass.current
     Column(Modifier.fillMaxWidth().then(
-        when (design.components.topBar) {
+        if (onGlass) Modifier else when (design.components.topBar) {
             TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
             TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.78f)))
             // Signature: the header shares the canvas with the messages, one hairline marks where it ends.
@@ -2639,7 +2663,7 @@ private fun ChatTopBar(
             }
         }
         // Liquid Glass with the pinned preview below: the preview's own hairline is the single edge of the group.
-        if (!(pinnedBelow && design.components.topBar == TopBarVariant.Glass)) HorizontalDivider(color = palette.divider)
+        if (!onGlass && !(pinnedBelow && design.components.topBar == TopBarVariant.Glass)) HorizontalDivider(color = palette.divider)
     }
 }
 

@@ -274,7 +274,7 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatin
         Modifier
             .fillMaxWidth()
             .then(
-                if (floatingDock) Modifier else when (design.components.topBar) {
+                if (floatingDock || com.beykus.beygram.ui.screens.chat.LocalChatChromeOnGlass.current) Modifier else when (design.components.topBar) {
                     TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
                     TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.86f)))
                     TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)

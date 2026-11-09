@@ -118,7 +118,9 @@ enum class GlassEdge {
     /** A floating pane: one light rim around the whole shape. */
     Rim,
     /** Full-width chrome at the top of a screen: square window edges and one hairline where it meets the content. */
-    BottomHairline
+    BottomHairline,
+    /** Full-width chrome at the bottom of a screen (the chat composer): one hairline where it meets the content. */
+    TopHairline
 }
 
 @Composable
@@ -218,12 +220,12 @@ fun GlassPanel(
         if (glass != null) {
             // One light edge, brightest where the light falls and fading towards the bottom. A uniform frame plus a
             // heavy shadow read as a plastic tray rather than a pane of glass.
-            if (edge == GlassEdge.BottomHairline) Box(
+            if (edge == GlassEdge.BottomHairline || edge == GlassEdge.TopHairline) Box(
                 Modifier.matchParentSize().drawBehind {
                     val stroke = 1.dp.toPx()
                     drawRect(
                         color = rim.copy(alpha = glass.rimAlpha * 0.6f),
-                        topLeft = Offset(0f, size.height - stroke),
+                        topLeft = Offset(0f, if (edge == GlassEdge.TopHairline) 0f else size.height - stroke),
                         size = Size(size.width, stroke)
                     )
                 }

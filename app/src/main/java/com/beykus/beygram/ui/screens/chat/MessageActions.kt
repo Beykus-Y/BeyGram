@@ -90,7 +90,7 @@ internal fun MessageActionsBar(
     var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
     val translate = onTranslate
     val react = onReactions
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    Column(Modifier.fillMaxWidth().chatChromeBackground(palette.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.textPrimary) }
             Text(stringResource(R.string.message_title), color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -226,7 +226,7 @@ internal fun DeleteConfirmPanel(
     onConfirm: () -> Unit
 ) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 20.dp, vertical = 12.dp)) {
+    Column(Modifier.fillMaxWidth().chatChromeBackground(palette.surface).padding(horizontal = 20.dp, vertical = 12.dp)) {
         Text(stringResource(R.string.message_delete_title), color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         if (capabilities.canDeleteForSelf) DeleteChoice(stringResource(R.string.message_delete_only_me), !everyone, !busy) { onChoose(false) }
@@ -260,7 +260,7 @@ private fun DeleteChoice(text: String, selected: Boolean, enabled: Boolean, onSe
 @Composable
 internal fun EditBanner(original: String, isCaption: Boolean, count: Int, limit: Int, error: String?, onClose: () -> Unit) {
     val palette = beyGramPalette()
-    Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).background(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).chatChromeBackground(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.Edit, null, tint = palette.accent, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(if (isCaption) stringResource(R.string.message_edit_caption_banner) else stringResource(R.string.message_edit_banner), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
