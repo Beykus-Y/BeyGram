@@ -76,7 +76,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.TabVisibility
-import com.beykus.beygram.ui.design.DesignStyle
+import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.ui.design.DesignSystem
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
