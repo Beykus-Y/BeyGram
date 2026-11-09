@@ -26,7 +26,11 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.graphics.ColorMatrix as ComposeColorMatrix
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -142,11 +146,46 @@ fun GlassPanel(
     // Boolean does not invalidate composition.
     val samplesBackdrop = glass != null && glass.samplesBackdrop &&
         backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val samplesFrosted = !samplesBackdrop && glass != null && glass.samplesFrosted && backdrop != null
+    val frostLayer = rememberGraphicsLayer()
     Box(
         modifier
             .onGloballyPositioned { originInWindow = it.positionInWindow() }
             .clip(shape)
     ) {
+        if (samplesFrosted) {
+            val base = if (backdropBase != Color.Unspecified) backdropBase else tint.copy(alpha = 1f)
+            val frostFilter = ColorFilter.colorMatrix(
+                ComposeColorMatrix(vibrancyMatrix(darkSurface = tint.luminance() < 0.5f).array)
+            )
+            Box(
+                Modifier.matchParentSize().drawBehind {
+                    drawRect(base)
+                    val sampled = backdrop
+                    val source = sampled?.layer
+                    if (sampled == null || source == null || !sampled.hasContent || sampled.recording) {
+                        drawRect(tint.copy(alpha = GlassUnsampledMaskAlpha))
+                        return@drawBehind
+                    }
+                    val ds = GlassStyle.FrostDownscale
+                    val small = IntSize(
+                        (size.width / ds).toInt().coerceAtLeast(1),
+                        (size.height / ds).toInt().coerceAtLeast(1)
+                    )
+                    val delta = sampled.originInWindow - originInWindow
+                    // The copy is rasterised at its own small size; stretching it back with filtering is the blur.
+                    frostLayer.compositingStrategy = CompositingStrategy.Offscreen
+                    frostLayer.colorFilter = frostFilter
+                    frostLayer.record(small) {
+                        withTransform({
+                            translate(delta.x / ds, delta.y / ds)
+                            scale(1f / ds, 1f / ds, pivot = Offset.Zero)
+                        }) { drawLayer(source) }
+                    }
+                    withTransform({ scale(ds, ds, pivot = Offset.Zero) }) { drawLayer(frostLayer) }
+                }
+            )
+        }
         if (samplesBackdrop) {
             val blurPx = with(density) { glass!!.blurRadiusDp.toPx() }
             // The opaque floor of the sampled pane: a list without its own background records transparent gaps, and
@@ -174,7 +213,7 @@ fun GlassPanel(
         // The tint is what makes glass readable: it is always drawn, blurred or not. Over a real blurred sample the
         // style's own tint is enough; without one the panel stays dense, so labels never fight sharp content below.
         val tintAlpha = glass?.tintAlpha?.coerceIn(0f, 1f) ?: 0f
-        val baseAlpha = if (samplesBackdrop) tintAlpha else maxOf(tintAlpha, 0.93f)
+        val baseAlpha = if (samplesBackdrop || samplesFrosted) tintAlpha else maxOf(tintAlpha, 0.93f)
         Box(Modifier.matchParentSize().background(tint.copy(alpha = baseAlpha)))
         if (glass != null) {
             // One light edge, brightest where the light falls and fading towards the bottom. A uniform frame plus a
@@ -318,11 +357,14 @@ private const val GlassSampleSaturation = 1.35f
 private const val GlassUnsampledMaskAlpha = 0.65f
 
 /**
- * True when glass panels on this device really sample a backdrop. Only then is recording the content worth its cost:
- * Balanced, Lite, other styles and Android versions without render effects never record anything.
+ * True when glass panels on this device really sample a backdrop: High with render effects (Android 12+) and Balanced
+ * frosting on any version. Lite, other styles and High below Android 12 never record anything.
  */
 val DesignSystem.recordsGlassBackdrop: Boolean
-    get() = usesGlass && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    get() = surfaces.glass.let { glass ->
+        style == DesignStyle.LiquidGlass && glass != null &&
+            (glass.samplesFrosted || (glass.samplesBackdrop && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S))
+    }
 
 /** True when the style draws glass at all (any quality), which decides whether a panel is framed like glass. */
 val DesignSystem.usesGlassPanels: Boolean get() = style == DesignStyle.LiquidGlass && surfaces.glass != null
