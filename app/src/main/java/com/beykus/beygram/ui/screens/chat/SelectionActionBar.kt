@@ -62,7 +62,7 @@ internal fun SelectionActionBar(
 ) {
     val palette = beyGramPalette()
     val countLabel = stringResource(R.string.message_selection_count, count)
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    Column(Modifier.fillMaxWidth().chatChromeBackground(palette.surface)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically

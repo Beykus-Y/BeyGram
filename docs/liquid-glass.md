@@ -12,7 +12,7 @@ the crash guard live in [design-system-v2.md](design-system-v2.md#liquid-glass).
 | Pinned (full-width) navigation | glass tint, specular wash, top hairline; no sample | nothing but the window is behind it, so a blur would be fake |
 | Chat list top chrome (title, search, folders) | glass, samples its own chat list | the list scrolls under it |
 | Search field inside glass chrome | inner glass (lighter fill on the pane) | one layer of glass, not a second pane |
-| Chat header and composer | tinted glass, no sample | the backdrop is private message content; it is never blurred into chrome |
+| Chat header and composer | one glass pane each (header stack on top, composer stack below), sampling the chat's own wallpaper and bubbles | the message list and wallpaper run under both panes; the screen records its own backdrop (`ChatChromeHost`, `underChatChrome`), and the panes stay outside the recorded subtree |
 | Message bubbles, message text, photos, video | opaque | readability wins over decoration |
 | Chat rows, long lists | opaque | dense text, scrolled constantly; rows are painted with the screen colour for swipe actions, which is also the background around them, so the list is one surface |
 | Settings group cards, attachment tiles | subtle glass tint (0.55 fill) and one thin outer stroke, no highlight | a gloss inside a list card reads as plastic |
@@ -48,7 +48,7 @@ the edge that meets the content.
 * Nothing is recorded unless the panel samples it: `DesignSystem.recordsGlassBackdrop` is true for High on Android 12+
   and for Balanced on any Android (the cheap 1/8 frosting). Lite, other styles and High below Android 12 never pay for a
   record pass. The frame cost of Balanced on a weak device is still to be measured.
-* Message content is never sampled: chat header and composer stay tinted.
+* The chat is the user's own screen, so its header and composer sample the chat's wallpaper and messages like the chat list does. Bars inside the panes (selection, message actions, search, pinned preview, now playing, reply strip) draw no fill of their own (`chatChromeBackground`), so the header stays glass while searching, selecting or acting on a message.
 
 ## Quality levels
 
