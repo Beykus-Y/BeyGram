@@ -49,6 +49,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.draw.shadow
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.SurfaceTreatment
@@ -1520,7 +1524,23 @@ fun ChatScreen(
     // Reported by PinnedMessagesBar: while the preview sits under the header, Liquid Glass keeps one hairline for both.
     var pinnedPreviewShown by remember(chat.id, forumTopicId) { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    // The system bar bands take the colour of the bar next to them (header on top, composer at the bottom), so the edges
+    // of the screen are not two-toned. In Liquid Glass that is the pane tint over the screen colour.
+    val systemBarDensity = LocalDensity.current
+    val statusBarPx = WindowInsets.statusBars.getTop(systemBarDensity).toFloat()
+    val navBarPx = WindowInsets.navigationBars.getBottom(systemBarDensity).toFloat()
+    val glassBandFill = palette.surface.copy(alpha = 0.72f).compositeOver(palette.screen)
+    val topBandFill = if (chatGlass) glassBandFill else palette.surface
+    val bottomBandFill = when {
+        chatGlass -> glassBandFill
+        design.components.composer == ComposerVariant.Signature -> palette.screen
+        else -> palette.surface
+    }
+    Column(Modifier.fillMaxSize().drawBehind {
+        drawRect(palette.screen)
+        drawRect(topBandFill, size = Size(size.width, statusBarPx))
+        drawRect(bottomBandFill, topLeft = Offset(0f, size.height - navBarPx), size = Size(size.width, navBarPx))
+    }.windowInsetsPadding(WindowInsets.safeDrawing)) {
         ChatChromeHost(chatGlass, GlassEdge.BottomHairline, chatBackdrop, { topChromePx = it }) {
         if (selectionMode) SelectionActionBar(
             count = selectionIds.size,
@@ -2452,8 +2472,12 @@ private fun JumpToLatestButton(unread: Int, onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Box(
-            Modifier.fillMaxSize().shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
-                .clickable(role = Role.Button, onClick = onClick),
+            Modifier.fillMaxSize().let { m ->
+                // Liquid Glass: a translucent disc with a hairline rim instead of a solid disc with a shadow.
+                if (LocalDesignSystem.current.usesGlassPanels) m.clip(CircleShape).background(palette.surface.copy(alpha = 0.72f))
+                    .border(0.5.dp, palette.textSecondary.copy(alpha = 0.35f), CircleShape)
+                else m.shadow(elevation = 4.dp, shape = CircleShape).clip(CircleShape).background(palette.surface)
+            }.clickable(role = Role.Button, onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
             Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))

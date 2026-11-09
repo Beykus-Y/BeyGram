@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ChatWallpaper
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.usesGlassPanels
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import java.time.Instant
@@ -37,6 +39,7 @@ internal fun FloatingMessageDate(listState: LazyListState, items: List<ChatMessa
     val context = LocalContext.current
     // The pill is opaque, so the text always reads. On a light wallpaper the thin divider line vanishes into the photo,
     // so the edge gets the secondary text colour while a wallpaper is set.
+    val glass = LocalDesignSystem.current.usesGlassPanels
     val onWallpaper = LocalChatWallpaper.current != ChatWallpaper.None
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(listState) {
@@ -53,8 +56,8 @@ internal fun FloatingMessageDate(listState: LazyListState, items: List<ChatMessa
     if (visible && shownDay != null) Text(
         formatFloatingDay(context, shownDay, LocalDate.now(), stringResource(R.string.chat_date_today), stringResource(R.string.chat_date_yesterday)),
         color = palette.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
-        modifier = modifier.clip(RoundedCornerShape(50)).background(palette.surface)
-            .border(1.dp, if (onWallpaper) palette.textSecondary.copy(alpha = 0.6f) else palette.divider, RoundedCornerShape(50))
+        modifier = modifier.clip(RoundedCornerShape(50)).background(if (glass) palette.surface.copy(alpha = 0.72f) else palette.surface)
+            .border(if (glass) 0.5.dp else 1.dp, if (onWallpaper) palette.textSecondary.copy(alpha = 0.6f) else if (glass) palette.textSecondary.copy(alpha = 0.35f) else palette.divider, RoundedCornerShape(50))
             .padding(horizontal = 12.dp, vertical = 4.dp)
     )
 }
