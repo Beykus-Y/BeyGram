@@ -282,7 +282,8 @@ internal fun MainTabItem(
         label = "mainTabPress"
     )
     val tint = when {
-        !selected -> palette.textSecondary
+        // On glass the inactive ink is the primary colour at reduced alpha: it stays readable over bright backdrops.
+        !selected -> if (design.style == DesignStyle.LiquidGlass) palette.textPrimary.copy(alpha = 0.72f) else palette.textSecondary
         spec.selectedInk -> palette.textPrimary
         else -> palette.accentInk
     }

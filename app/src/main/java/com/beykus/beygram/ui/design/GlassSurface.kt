@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -153,7 +154,7 @@ fun GlassPanel(
             val base = if (backdropBase != Color.Unspecified) backdropBase else tint.copy(alpha = 1f)
             Box(
                 Modifier.matchParentSize()
-                    .graphicsLayerWithBlur(blurPx, shape)
+                    .graphicsLayerWithBlur(blurPx, shape, darkSurface = tint.luminance() < 0.5f)
                     .drawBehind {
                         drawRect(base)
                         val sampled = backdrop
@@ -202,7 +203,7 @@ fun GlassPanel(
 }
 
 /** Render-effect wrapper, kept separate so an unsupported API level simply draws nothing instead of failing. */
-private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape): Modifier =
+private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape, darkSurface: Boolean): Modifier =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         graphicsLayer {
             clip = true
@@ -212,7 +213,7 @@ private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape): Modif
             // a dark translucent card.
             val blur = RenderEffect.createBlurEffect(radiusPx, radiusPx, Shader.TileMode.CLAMP)
             val vibrancy = RenderEffect.createColorFilterEffect(
-                ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(GlassSampleSaturation) })
+                ColorMatrixColorFilter(vibrancyMatrix(darkSurface))
             )
             renderEffect = RenderEffect.createChainEffect(vibrancy, blur).asComposeRenderEffect()
         }
@@ -285,6 +286,30 @@ fun Modifier.glassSheet(design: DesignSystem, fill: Color, rim: Color): Modifier
             )
         }
 }
+
+/**
+ * Saturation lift plus a brightness clamp for the blurred sample. On a dark surface the sample is scaled down, on a light
+ * one pulled towards white, so a bright photo or avatar behind the pane can never push labels below readable contrast
+ * while the tint stays light and the colours stay alive.
+ */
+private fun vibrancyMatrix(darkSurface: Boolean): ColorMatrix {
+    val matrix = ColorMatrix().apply { setSaturation(GlassSampleSaturation) }
+    val k = GlassSampleLuminanceScale
+    val offset = if (darkSurface) 0f else 255f * (1f - k)
+    val clamp = ColorMatrix(
+        floatArrayOf(
+            k, 0f, 0f, 0f, offset,
+            0f, k, 0f, 0f, offset,
+            0f, 0f, k, 0f, offset,
+            0f, 0f, 0f, 1f, 0f
+        )
+    )
+    matrix.postConcat(clamp)
+    return matrix
+}
+
+/** Share of the sample's brightness range kept by the clamp (towards the surface colour). */
+private const val GlassSampleLuminanceScale = 0.6f
 
 /** Saturation applied to the blurred sample (1 keeps the colours as they are). */
 private const val GlassSampleSaturation = 1.35f
