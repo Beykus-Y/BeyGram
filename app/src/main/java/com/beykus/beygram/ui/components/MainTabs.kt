@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.TabVisibility
+import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.ui.design.DesignSystem
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
@@ -282,7 +283,8 @@ internal fun MainTabItem(
         label = "mainTabPress"
     )
     val tint = when {
-        !selected -> palette.textSecondary
+        // On glass the inactive ink is the primary colour at reduced alpha: it stays readable over bright backdrops.
+        !selected -> if (design.style == DesignStyle.LiquidGlass) palette.textPrimary.copy(alpha = 0.72f) else palette.textSecondary
         spec.selectedInk -> palette.textPrimary
         else -> palette.accentInk
     }
