@@ -257,6 +257,8 @@ internal fun MusicSearchScreen(
 
     fun playBotTrack(result: InlineBotResult) {
         val selection = latestSelection.incrementAndGet()
+        // The queue is the list the user tapped in; a new query while the track downloads must not change it.
+        val tappedResults = publicResults
         val resultKey = "${result.queryId}:${result.id}"
         loadingBotKey = resultKey
         scope.launch {
@@ -300,7 +302,7 @@ internal fun MusicSearchScreen(
                 // The tapped result plays now; the other visible results follow and are fetched when their turn comes.
                 BotTrackResolver.configure { queryId, resultId -> conversation.musicBotTrack(queryId, resultId) }
                 BotTrackResolver.reset()
-                val queue = publicResults.map { other ->
+                val queue = tappedResults.map { other ->
                     if (other.queryId == result.queryId && other.id == result.id) item else botQueueItem(other)
                 }
                 val startIndex = queue.indexOfFirst { it.key == itemKey }.coerceAtLeast(0)
