@@ -1570,11 +1570,12 @@ private fun QueuePlayedRow(row: QueueItemUi, onPlay: () -> Unit) {
     }
 }
 
+private val queueSaveScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+
 /** Asks for a name and saves the queue's music, in the current order, as a new playlist. */
 @Composable
 private fun SaveQueueDialog(rows: List<QueueItemUi>, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val appContext = LocalContext.current.applicationContext
     val defaultTitle = stringResource(R.string.queue_title)
     var title by remember { mutableStateOf(defaultTitle) }
     AlertDialog(
@@ -1594,14 +1595,18 @@ private fun SaveQueueDialog(rows: List<QueueItemUi>, onDismiss: () -> Unit) {
                     val tracks = rows.mapNotNull { it.item.toPlaylistTrack() }
                     val name = title.trim()
                     onDismiss()
-                    scope.launch {
-                        val repository = MusicLibraries.get(context)
+                    // The dialog leaves composition at once, so the work runs in a scope that outlives it.
+                    queueSaveScope.launch {
+                        val repository = MusicLibraries.get(appContext)
                         when (val created = repository.createPlaylist(name)) {
                             is MusicOutcome.Done -> {
-                                context.reportMusicOutcome(repository.addTracks(created.value.id, tracks))
-                                Toast.makeText(context, context.getString(R.string.queue_saved_as_playlist), Toast.LENGTH_SHORT).show()
+                                when (val added = repository.addTracks(created.value.id, tracks)) {
+                                    is MusicOutcome.Done ->
+                                        Toast.makeText(appContext, appContext.getString(R.string.queue_saved_as_playlist), Toast.LENGTH_SHORT).show()
+                                    is MusicOutcome.Failed -> appContext.reportMusicOutcome(added)
+                                }
                             }
-                            is MusicOutcome.Failed -> context.reportMusicOutcome(created)
+                            is MusicOutcome.Failed -> appContext.reportMusicOutcome(created)
                         }
                     }
                 }
