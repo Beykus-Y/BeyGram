@@ -613,12 +613,17 @@ fun ChatScreen(
         if (granted) Toast.makeText(context, context.getString(R.string.voice_recorder_permission_granted_retry), Toast.LENGTH_SHORT).show()
         else error = context.getString(R.string.voice_recorder_permission_denied)
     }
+    // Recording takes the microphone, so music pauses for it and continues after the message is sent or cancelled.
+    val recordingInterruptionOwner = remember { Any() }
+    val recordingActive = videoNote.active || audioNote.active
+    LaunchedEffect(recordingActive) { if (!recordingActive) PlaybackEngine.endInterruption(recordingInterruptionOwner) }
+    DisposableEffect(recordingInterruptionOwner) { onDispose { PlaybackEngine.endInterruption(recordingInterruptionOwner) } }
     fun startRecording() {
         if (videoNote.active || audioNote.active) return
         // Микрофон записывает и звук из общего плеера, поэтому музыку ставим на паузу, когда запись начинается.
         if (recordingMode == ComposerRecordingMode.Voice) {
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                PlaybackEngine.pause()
+                PlaybackEngine.beginInterruption(recordingInterruptionOwner)
                 audioNote.press()
             } else {
                 AppLockManager.get(context).expectExternalActivity()
@@ -627,7 +632,7 @@ fun ChatScreen(
         } else if (!VIDEO_NOTE_RECORDING_ENABLED) {
             error = context.getString(R.string.recorder_video_note_unavailable)
         } else if (videoNoteAllowed(context)) {
-            PlaybackEngine.pause()
+            PlaybackEngine.beginInterruption(recordingInterruptionOwner)
             videoNote.press()
         } else {
             AppLockManager.get(context).expectExternalActivity()

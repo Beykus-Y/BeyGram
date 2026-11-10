@@ -715,7 +715,7 @@
     <string name="music_public_unavailable">La source publique est indisponible pour le moment. Vos résultats s’affichent ci-dessus.</string>
     <string name="settings_group_experiments">Expériences</string>
     <string name="settings_bgbeat_title">BG Beat (analyse musicale)</string>
-    <string name="settings_bgbeat_desc">Analyse du rythme, BPM et structure propulsée par le moteur C++20 BG Media</string>
+    <string name="settings_bgbeat_desc">Affiche le rythme et la forme d’onde du morceau</string>
     <string name="bgbeat_reason_not_music">BG Beat : uniquement pour la musique</string>
     <string name="bgbeat_reason_private_media">BG Beat : les médias privés sont exclus</string>
     <string name="bgbeat_reason_still_downloading">BG Beat : l\'analyse commence après le téléchargement du fichier</string>
@@ -723,10 +723,10 @@
     <string name="bgbeat_reason_unsupported_format">BG Beat : ce format audio n\'est pas pris en charge</string>
     <string name="settings_skip_silence_title">Ignorer le silence entre les morceaux</string>
     <string name="settings_crossfade_title">Transition en fondu entre morceaux</string>
-    <string name="settings_crossfade_desc">Les 4 dernières secondes d\'un morceau se superposent au début du suivant. Musique uniquement ; désactivé par défaut.</string>
-    <string name="settings_skip_silence_desc">Le silence en fin de morceau et au début du suivant. Mesuré en arrière-plan, uniquement en Wi-Fi ou pendant la charge.</string>
+    <string name="settings_crossfade_desc">Enchaîne en douceur la fin d’un morceau avec le début du suivant. Musique uniquement, désactivé par défaut.</string>
+    <string name="settings_skip_silence_desc">Supprime les silences en fin et en début de morceau.</string>
     <string name="settings_bgmix_title">BG Mix (transitions entre morceaux)</string>
-    <string name="settings_bgmix_desc">Transitions fluides entre les morceaux de musique via le cœur C++ de BG Media. Expérimental ; les messages vocaux et vidéo ne sont pas concernés.</string>
+    <string name="settings_bgmix_desc">Transitions fluides et sans coupure entre les morceaux. Fonctionne seulement quand toute la file est téléchargée. Expérimental ; les messages vocaux et vidéo ne sont pas concernés.</string>
     <string name="chat_settings_scope_note">Modifie le fond d’écran de cette conversation uniquement</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Touchez pour révéler</string>
@@ -816,4 +816,6 @@
     <string name="profile_chat_music_row">Musique de ce chat dans votre bibliothèque · %1$s</string>
     <string name="player_waiting_network">Pas de connexion, la lecture reprendra dès son retour</string>
     <string name="playback_track_skipped">Ce fichier ne s’ouvre pas, le morceau est ignoré</string>
+    <string name="player_closed">Lecteur fermé</string>
+    <string name="player_closed_undo">Annuler</string>
 </resources>

@@ -1544,12 +1544,15 @@ private fun LocalVideo(
     }
     // Играет только текущая страница; соседнее видео, которое увели свайпом, ставим на паузу.
     // Звук видео не идёт поверх музыки из общего плеера: когда видео становится активным, музыка на паузе.
+    val interruptionOwner = remember { Any() }
+    DisposableEffect(interruptionOwner) { onDispose { PlaybackEngine.endInterruption(interruptionOwner) } }
     LaunchedEffect(active, player) {
         if (active) {
-            // Анимация без звука музыку не прерывает.
-            if (!loop) PlaybackEngine.pause()
+            // Анимация без звука музыку не прерывает. Когда просмотр закрывается, музыка продолжается сама.
+            if (!loop) PlaybackEngine.beginInterruption(interruptionOwner)
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) play()
         } else {
+            PlaybackEngine.endInterruption(interruptionOwner)
             player.pause()
         }
     }

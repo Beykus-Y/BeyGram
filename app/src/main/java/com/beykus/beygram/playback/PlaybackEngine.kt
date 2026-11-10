@@ -21,6 +21,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.data.media.AutoDownloadDecision
 import com.beykus.beygram.data.media.AutoDownloadNetwork
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
@@ -59,6 +62,8 @@ private val DIRECT_AUDIO_MIME = setOf(
 )
 private val MP4_AUDIO_MIME = setOf("audio/mp4", "audio/m4a", "audio/x-m4a")
 /** Ogg/Opus seek tables live at the end; an advertised total length makes Media3 read that page first. */
+private const val LATE_MEASURE_MS = 30_000L
+
 private val UNKNOWN_LENGTH_AUDIO_MIME = setOf("audio/ogg", "audio/opus")
 
 /**
@@ -171,6 +176,11 @@ private class BgMixAwareListener(
  */
 object PlaybackEngine {
     private const val PROGRESS_INTERVAL_MS = 250L
+    private const val SLEEP_FADE_STEP_MS = 100L
+    private const val UNDO_CLOSE_MS = 5_000L
+    private const val INTERRUPTION_RESUME_LIMIT_MS = 2 * 60_000L
+    private const val INTERRUPTION_STALE_MS = 15 * 60_000L
+    private const val INTERRUPTION_FADE_IN_MS = 400L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
@@ -186,16 +196,80 @@ object PlaybackEngine {
     /** A sleep timer survives track changes inside one account, but never a switch to another account. */
     fun setSleepTimer(minutes: Int?) {
         cancelSleepTimer()
-        if (minutes == null || minutes !in SLEEP_TIMER_MINUTES) return
+        if (minutes == null || minutes !in 1..SLEEP_TIMER_MAX_MINUTES) return
         val current = _state.value.item?.takeIf { it.isMusic && !it.systemPrivate } ?: return
         val deadline = SystemClock.elapsedRealtime() + minutes * 60_000L
-        val session = SleepTimerState(current.accountId, deadline)
+        startSleepTimer(SleepTimerState(current.accountId, deadline))
+    }
+
+    /** The timer ends with the playing track instead of after a fixed time. */
+    fun setSleepTimerUntilTrackEnd() {
+        cancelSleepTimer()
+        val current = _state.value.item?.takeIf { it.isMusic && !it.systemPrivate } ?: return
+        startSleepTimer(SleepTimerState(current.accountId, deadlineElapsedMs = 0L, untilTrackEnd = true, trackKey = current.key))
+    }
+
+    /** Adds [minutes] to a running timer; without one, starts a timer of that length. */
+    fun extendSleepTimer(minutes: Int) {
+        val running = _sleepTimer.value
+        if (running == null || running.untilTrackEnd) {
+            setSleepTimer(minutes)
+            return
+        }
+        _sleepTimer.value = running.copy(deadlineElapsedMs = running.deadlineElapsedMs + minutes * 60_000L)
+    }
+
+    private fun startSleepTimer(session: SleepTimerState) {
         _sleepTimer.value = session
         sleepTimerJob = scope.launch {
-            delay(minutes * 60_000L)
-            if (_sleepTimer.value == session) {
-                if (_state.value.item?.accountId == session.accountId) stop() else cancelSleepTimer()
+            // The deadline is compared with elapsedRealtime on every second, so a pause of the handler clock while
+            // the processor sleeps only delays the check and never moves the deadline.
+            while (true) {
+                val timer = _sleepTimer.value ?: return@launch
+                val state = _state.value
+                if (state.item?.accountId != timer.accountId) {
+                    cancelSleepTimer()
+                    return@launch
+                }
+                val remaining = if (timer.untilTrackEnd) {
+                    if (state.item.key != timer.trackKey) {
+                        cancelSleepTimer()
+                        return@launch
+                    }
+                    val target = exo
+                    val duration = target?.duration ?: C.TIME_UNSET
+                    if (target == null || duration == C.TIME_UNSET) Long.MAX_VALUE else duration - target.currentPosition
+                } else {
+                    timer.deadlineElapsedMs - SystemClock.elapsedRealtime()
+                }
+                if (remaining <= SLEEP_FADE_MS) {
+                    fadeOutAndPause(remaining.coerceAtLeast(0L))
+                    cancelSleepTimer()
+                    return@launch
+                }
+                delay(minOf(1_000L, remaining - SLEEP_FADE_MS))
             }
+        }
+    }
+
+    /** Lowers the volume smoothly, then pauses. The queue and the saved place stay, so the music can continue later. */
+    private suspend fun fadeOutAndPause(fadeMs: Long) {
+        val target = exo
+        if (target == null || bgMixActive() || !(_state.value.playing || _state.value.intentPlaying)) {
+            pause()
+            return
+        }
+        val original = target.volume
+        val steps = (fadeMs / SLEEP_FADE_STEP_MS).toInt().coerceAtLeast(1)
+        try {
+            for (step in 1..steps) {
+                target.volume = original * (1f - step.toFloat() / steps)
+                delay(SLEEP_FADE_STEP_MS)
+            }
+            pause()
+        } finally {
+            // A cancelled fade or a finished one both give the volume back, so the next play is not silent.
+            target.volume = original
         }
     }
 
@@ -230,6 +304,7 @@ object PlaybackEngine {
     /** Lazily resolves not-yet-downloaded queue items for the current account. */
     private var queueSource: PlaybackQueueSource? = null
     private var queuePageJob: Job? = null
+    private var persistence: MusicSessionPersistence? = null
     private var queuePageRetryJob: Job? = null
     private var queuePageRetries = 0
     /** Tracks skipped in a row without one starting; see [MAX_CONSECUTIVE_SKIPS]. */
@@ -297,11 +372,16 @@ object PlaybackEngine {
         val index = (0 until target.mediaItemCount).firstOrNull {
             target.getMediaItemAt(it).mediaId == current.systemMediaId
         } ?: return
+        val replacement = mediaItemFor(current)
+        // Only the metadata changed. Media3 updates an item with the same address in place, so the playhead is not
+        // touched: an explicit seek here would flush the decoder buffers and cause a glitch in a fresh track.
+        val existingUri = target.getMediaItemAt(index).localConfiguration?.uri
+        val sameSource = existingUri == replacement.localConfiguration?.uri
         val position = target.currentPosition
         val wasPlaying = target.isPlaying
-        target.replaceMediaItem(index, mediaItemFor(current))
-        if (index == target.currentMediaItemIndex) {
-            // Replacing metadata must not move the playhead; Media3 may re-open the current source.
+        target.replaceMediaItem(index, replacement)
+        if (!sameSource && index == target.currentMediaItemIndex) {
+            // A genuinely different source for the playing item is reopened at the same position.
             target.seekTo(position)
             if (wasPlaying) target.play()
         }
@@ -325,6 +405,8 @@ object PlaybackEngine {
                 /* handleAudioFocus = */ true
             )
             .setHandleAudioBecomingNoisy(true)
+            // Keeps the CPU and Wi-Fi awake while a track plays or loads, so a locked screen cannot stall the queue.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .also {
                 it.addListener(listener)
@@ -334,6 +416,7 @@ object PlaybackEngine {
             }
         exo = created
         appContext = context.applicationContext
+        persistence = MusicSessionPersistence(context.applicationContext, _state).also { it.start(scope) }
         TrackTransitionSettings.load(context)
         _audioSessionId.value = null
         return object : ForwardingPlayer(created) {
@@ -669,6 +752,7 @@ object PlaybackEngine {
         queueSource = source
         queuePageGeneration++
         resetErrorPolicy()
+        dropClosedPlayer()
         queuePageJob?.cancel()
         queuePageJob = null
         _queuePageLoading.value = false
@@ -725,6 +809,7 @@ object PlaybackEngine {
         transitionToken++
         queuePageGeneration++
         resetErrorPolicy()
+        dropClosedPlayer()
         queuePageJob?.cancel()
         queuePageJob = null
         _queuePageLoading.value = false
@@ -851,6 +936,22 @@ object PlaybackEngine {
         val item = _state.value.item ?: return
         val settled = settledGrowingItem(item) ?: return
         publishResolvedSource(settled)
+        // A track that finished downloading while it plays has no measurement yet; ask for it right away.
+        requestSilenceMeasurement()
+    }
+
+    /** Key of the track whose neighbours were measured again shortly before its end. */
+    private var lateMeasureKey: String? = null
+
+    /** Thirty seconds before the end, a next track that downloaded in the meantime is measured before the transition. */
+    private fun measureBeforeTransition(target: ExoPlayer) {
+        if (!TrackTransitionSettings.skipSilence.value && !TrackTransitionSettings.crossfade.value) return
+        val duration = target.duration
+        if (duration == C.TIME_UNSET || duration <= 0L || duration - target.currentPosition > LATE_MEASURE_MS) return
+        val key = _state.value.item?.key ?: return
+        if (lateMeasureKey == key) return
+        lateMeasureKey = key
+        requestSilenceMeasurement()
     }
 
     private fun resolvedItem(item: PlaybackItem): PlaybackItem {
@@ -1165,24 +1266,149 @@ object PlaybackEngine {
         _state.update { it.copy(playing = false, intentPlaying = false) }
     }
 
+    private class Interruption(
+        val owners: MutableSet<Any>,
+        val wasPlaying: Boolean,
+        val startedAt: Long,
+        val itemKey: String?
+    )
+
+    private var interruption: Interruption? = null
+
+    /**
+     * A video, a story with sound or a recording needs the speakers or the microphone for a while. Music that was
+     * playing is paused and remembered; [endInterruption] by the last owner continues it, unless the listener took
+     * over in the meantime (another track, play pressed) or the break was longer than [INTERRUPTION_RESUME_LIMIT_MS].
+     */
+    fun beginInterruption(owner: Any) {
+        val now = SystemClock.elapsedRealtime()
+        val existing = interruption
+        if (existing != null && now - existing.startedAt < INTERRUPTION_STALE_MS) {
+            existing.owners += owner
+            return
+        }
+        val state = _state.value
+        val item = state.item
+        val music = item != null && item.isMusic && !item.systemPrivate
+        val wasPlaying = music && (state.playing || state.intentPlaying) && !state.waitingForNetwork
+        interruption = Interruption(mutableSetOf(owner), wasPlaying, now, item?.key)
+        if (wasPlaying) pause()
+    }
+
+    fun endInterruption(owner: Any) {
+        val current = interruption ?: return
+        if (!current.owners.remove(owner) || current.owners.isNotEmpty()) return
+        interruption = null
+        if (!current.wasPlaying) return
+        val state = _state.value
+        val longBreak = SystemClock.elapsedRealtime() - current.startedAt > INTERRUPTION_RESUME_LIMIT_MS
+        if (longBreak || state.item?.key != current.itemKey || state.intentPlaying || state.playing) return
+        val target = exo ?: return
+        // The music returns with a short fade-in, so it does not hit the ears at full volume.
+        val original = target.volume
+        target.volume = 0f
+        controls?.play()
+        scope.launch {
+            try {
+                val steps = INTERRUPTION_FADE_IN_MS / SLEEP_FADE_STEP_MS
+                for (step in 1..steps) {
+                    target.volume = original * step.toFloat() / steps
+                    delay(SLEEP_FADE_STEP_MS)
+                }
+            } finally {
+                target.volume = original
+            }
+        }
+    }
+
     /** Account the shared player is bound to. Profile music uses it to hide "add to profile" for another account's tracks. */
     fun activeAccount(): String? = activeAccountId
 
     /** Explicit user stop: closes the session, clears the queue and removes the notification. */
     fun stop() {
-        cancelSleepTimer()
-        _queuePageLoading.value = false
         _state.value.item?.accountId?.let { owner ->
             appContext?.let { context -> MusicSessionStore(context).clear(owner) }
         }
+        closedPlayer = null
+        undoJob?.cancel()
+        _undoClose.value = false
+        releaseQueueAndHalt()
+    }
+
+    private fun releaseQueueAndHalt() {
+        cancelSleepTimer()
+        _queuePageLoading.value = false
         interruptedMusic = null
         queueSource = null
         queuePageGeneration++
         resetErrorPolicy()
+        dropClosedPlayer()
         queuePageJob?.cancel()
         queuePageJob = null
         prefetchedKeys.clear()
         haltPlayer()
+    }
+
+    /** Any new playback or an explicit stop ends the chance to undo the last close. */
+    private fun dropClosedPlayer() {
+        closedPlayer = null
+        undoJob?.cancel()
+        _undoClose.value = false
+    }
+
+    private class ClosedPlayer(val state: PlaybackState, val source: PlaybackQueueSource?)
+
+    private var closedPlayer: ClosedPlayer? = null
+    private var undoJob: Job? = null
+    private val _undoClose = MutableStateFlow(false)
+    /** True for a few seconds after the mini-player was closed, while "Вернуть" can still bring the queue back. */
+    val undoClose: StateFlow<Boolean> = _undoClose.asStateFlow()
+
+    /**
+     * Hides the player, pauses the music and removes the notification, but keeps the queue and the place: the saved
+     * session stays on disk, and for [UNDO_CLOSE_MS] the exact queue can be brought back with [undoClose]. Anything
+     * that is not music is simply stopped.
+     */
+    fun close() {
+        val snapshot = _state.value
+        val item = snapshot.item
+        if (item == null || !item.isMusic || item.systemPrivate) {
+            stop()
+            return
+        }
+        syncPosition()
+        val frozen = _state.value
+        persistence?.flush()
+        closedPlayer = ClosedPlayer(frozen, queueSource)
+        releaseQueueAndHalt()
+        _undoClose.value = true
+        undoJob?.cancel()
+        undoJob = scope.launch {
+            delay(UNDO_CLOSE_MS)
+            _undoClose.value = false
+            closedPlayer = null
+        }
+    }
+
+    /** Brings back the queue that [close] hid, paused at the same place. */
+    fun undoClose(context: Context) {
+        val closed = closedPlayer ?: return
+        closedPlayer = null
+        undoJob?.cancel()
+        _undoClose.value = false
+        val frozen = closed.state
+        val queue = frozen.queue.ifEmpty { listOfNotNull(frozen.item) }
+        val index = frozen.queueIndex.takeIf { it in queue.indices } ?: return
+        _state.update { it.copy(shuffleEnabled = frozen.shuffleEnabled, repeatMode = frozen.repeatMode) }
+        queueSource = closed.source
+        startQueue(
+            context,
+            PlaybackQueue(queue, index),
+            closed.source,
+            startPositionMs = frozen.positionMs,
+            startFraction = 0f,
+            autoPlay = false
+        )
     }
 
     /** Alias used by UI that wants an unambiguous "clear everything" action. */
@@ -1823,7 +2049,26 @@ object PlaybackEngine {
     /** Сервис нужен для уведомления и экрана блокировки. Фоновый запуск может не пройти, тогда звук всё равно играет. */
     private fun startPlaybackService() {
         val context = appContext ?: return
-        runCatching { context.startService(Intent(context, PlaybackService::class.java)) }
+        val intent = Intent(context, PlaybackService::class.java)
+        try {
+            context.startService(intent)
+        } catch (error: Exception) {
+            // Android 8+ refuses a plain start from the background. While audio plays the service may still be
+            // started as a foreground one, and a failure is written to the diagnostics instead of being swallowed.
+            val recovered = exo?.isPlaying == true &&
+                runCatching { ContextCompat.startForegroundService(context, intent) }.isSuccess
+            recordAppEvent(
+                kind = EventKind.ERROR,
+                code = "playback_service_start_failed",
+                text = "Музыка: сервис воспроизведения не запустился",
+                severity = Severity.WARNING,
+                attrs = mapOf(
+                    "error" to error.javaClass.simpleName,
+                    "foreground" to foreground.toString(),
+                    "recovered" to recovered.toString()
+                )
+            )
+        }
     }
 
     /** Explicit stop must remove the foreground notification instead of leaving a phantom session. */
@@ -2066,7 +2311,18 @@ object PlaybackEngine {
             stop()
             return
         }
+        // The last loaded track ended while the next queue page is still loading (or about to be retried). The page
+        // restarts playback, and Android would refuse to start the service again from the background, so it stays up.
+        if (queuePageJob?.isActive == true || queuePageRetryJob?.isActive == true) return
         // ExoPlayer already advanced through Repeat/Next when it could; ENDED means the session is finished.
+        stopPlaybackService()
+        _audioSessionId.value = null
+    }
+
+    /** A page request that brought no new tracks leaves the queue ended, so the service it kept alive can stop. */
+    private fun stopServiceIfQueueStillEnded() {
+        if (queuePageRetryJob?.isActive == true || interruptedMusic != null) return
+        if (exo?.playbackState != Player.STATE_ENDED) return
         stopPlaybackService()
         _audioSessionId.value = null
     }
@@ -2134,6 +2390,7 @@ object PlaybackEngine {
                 settleFinishedDownload()
                 val target = exo ?: break
                 crossfader.watch(target)
+                measureBeforeTransition(target)
                 skipTrailingSilence(target)
                 if (!target.isPlaying && target.playbackState != Player.STATE_BUFFERING) break
                 delay(PROGRESS_INTERVAL_MS)
@@ -2188,6 +2445,7 @@ object PlaybackEngine {
                 if (generation == queuePageGeneration) {
                     queuePageJob = null
                     _queuePageLoading.value = false
+                    stopServiceIfQueueStillEnded()
                 }
             }
         }

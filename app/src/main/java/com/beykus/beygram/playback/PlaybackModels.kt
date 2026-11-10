@@ -267,9 +267,24 @@ internal fun queueForPlayback(items: List<PlaybackItem>, index: Int): PlaybackQu
 }
 
 /** Sleep is based on elapsed real time (not wall clock), so changing the phone clock cannot extend playback. */
-val SLEEP_TIMER_MINUTES: Set<Int> = setOf(15, 30, 60)
+val SLEEP_TIMER_MINUTES: Set<Int> = setOf(5, 15, 30, 45, 60, 90)
 
-data class SleepTimerState(val accountId: String, val deadlineElapsedMs: Long)
+/** A custom sleep time may be anything from one minute to twelve hours. */
+const val SLEEP_TIMER_MAX_MINUTES: Int = 720
+
+/** Volume fades out over this long before the timer pauses the music. */
+const val SLEEP_FADE_MS: Long = 8_000L
+
+/**
+ * [untilTrackEnd] ends the timer with the track [trackKey] instead of at [deadlineElapsedMs]; the deadline then only
+ * serves as a placeholder and is not shown.
+ */
+data class SleepTimerState(
+    val accountId: String,
+    val deadlineElapsedMs: Long,
+    val untilTrackEnd: Boolean = false,
+    val trackKey: String? = null
+)
 
 fun sleepTimerRemainingMinutes(deadlineElapsedMs: Long, nowElapsedMs: Long): Int =
     ((deadlineElapsedMs - nowElapsedMs).coerceAtLeast(0L) + 59_999L).div(60_000L).toInt()

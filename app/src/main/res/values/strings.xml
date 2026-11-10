@@ -2237,7 +2237,7 @@
     <string name="music_public_unavailable">Публичный источник сейчас недоступен. Попробуйте повторить поиск позже.</string>
     <string name="settings_group_experiments">Эксперименты</string>
     <string name="settings_bgbeat_title">BG Beat (анализ музыки)</string>
-    <string name="settings_bgbeat_desc">Анализ ритма, BPM и структуры на C++20 ядре BG Media</string>
+    <string name="settings_bgbeat_desc">Показывает ритм и волну трека</string>
     <string name="bgbeat_reason_not_music">BG Beat: только для музыки</string>
     <string name="bgbeat_reason_private_media">BG Beat: приватное медиа исключено</string>
     <string name="bgbeat_reason_still_downloading">BG Beat: анализ начнётся после загрузки файла</string>
@@ -2245,10 +2245,10 @@
     <string name="bgbeat_reason_unsupported_format">BG Beat: формат аудио не поддерживается</string>
     <string name="settings_skip_silence_title">Пропускать тишину между треками</string>
     <string name="settings_crossfade_title">Плавный переход между треками</string>
-    <string name="settings_crossfade_desc">Последние 4 секунды трека накладываются на начало следующего. Только для музыки, по умолчанию выключено.</string>
-    <string name="settings_skip_silence_desc">Тишина в конце трека и в начале следующего. Замер идёт в фоне, только на Wi-Fi или при зарядке.</string>
+    <string name="settings_crossfade_desc">Плавно сводит конец одного трека с началом следующего. Только для музыки, по умолчанию выключено.</string>
+    <string name="settings_skip_silence_desc">Убирает паузы в конце и начале треков.</string>
     <string name="settings_bgmix_title">BG Mix (переходы между треками)</string>
-    <string name="settings_bgmix_desc">Плавные переходы между музыкальными треками на C++ ядре BG Media. Экспериментально, голосовые и видеосообщения не затрагиваются.</string>
+    <string name="settings_bgmix_desc">Плавные переходы между треками без пауз. Работает только когда вся очередь скачана. Экспериментально, голосовые и видеосообщения не затрагиваются.</string>
     <string name="chat_settings_scope_note">Меняет обои только в этом чате</string>
     <string name="media_spoiler_title">Спойлер</string>
     <string name="media_spoiler_reveal">Нажмите, чтобы открыть</string>
@@ -2343,4 +2343,6 @@
     <string name="profile_chat_music_row">Музыка из этого чата в библиотеке · %1$s</string>
     <string name="player_waiting_network">Нет сети, продолжим, когда появится</string>
     <string name="playback_track_skipped">Файл не открывается, пропускаем трек</string>
+    <string name="player_closed">Плеер закрыт</string>
+    <string name="player_closed_undo">Вернуть</string>
 </resources>

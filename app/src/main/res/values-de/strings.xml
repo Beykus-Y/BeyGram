@@ -689,7 +689,7 @@
     <string name="music_public_unavailable">Die öffentliche Quelle ist gerade nicht verfügbar. Deine Ergebnisse stehen oben.</string>
     <string name="settings_group_experiments">Experimente</string>
     <string name="settings_bgbeat_title">BG Beat (Musikanalyse)</string>
-    <string name="settings_bgbeat_desc">Rhythmus-, BPM- und Strukturanalyse mit dem BG Media C++20-Kern</string>
+    <string name="settings_bgbeat_desc">Zeigt Rhythmus und Wellenform eines Titels</string>
     <string name="bgbeat_reason_not_music">BG Beat: nur für Musik</string>
     <string name="bgbeat_reason_private_media">BG Beat: private Medien sind ausgeschlossen</string>
     <string name="bgbeat_reason_still_downloading">BG Beat: Die Analyse startet nach dem Download der Datei</string>
@@ -697,10 +697,10 @@
     <string name="bgbeat_reason_unsupported_format">BG Beat: Dieses Audioformat wird nicht unterstützt</string>
     <string name="settings_skip_silence_title">Stille zwischen Titeln überspringen</string>
     <string name="settings_crossfade_title">Sanfter Übergang zwischen Titeln</string>
-    <string name="settings_crossfade_desc">Die letzten 4 Sekunden eines Titels überlagern den Anfang des nächsten. Nur für Musik, standardmäßig aus.</string>
-    <string name="settings_skip_silence_desc">Stille am Ende eines Titels und am Anfang des nächsten. Wird im Hintergrund nur über WLAN oder beim Laden gemessen.</string>
+    <string name="settings_crossfade_desc">Blendet das Ende eines Titels weich in den Anfang des nächsten über. Nur für Musik, standardmäßig aus.</string>
+    <string name="settings_skip_silence_desc">Entfernt die Pausen am Ende und am Anfang von Titeln.</string>
     <string name="settings_bgmix_title">BG Mix (Übergänge zwischen Titeln)</string>
-    <string name="settings_bgmix_desc">Weiche Übergänge zwischen Musiktiteln auf dem C++-Kern von BG Media. Experimentell; Sprach- und Videonachrichten bleiben unverändert.</string>
+    <string name="settings_bgmix_desc">Weiche, lückenlose Übergänge zwischen Titeln. Funktioniert nur, wenn die ganze Warteschlange geladen ist. Experimentell; Sprach- und Videonachrichten bleiben unberührt.</string>
     <string name="chat_settings_scope_note">Ändert das Hintergrundbild nur für diesen Chat</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Zum Anzeigen tippen</string>
@@ -790,4 +790,6 @@
     <string name="profile_chat_music_row">Musik aus diesem Chat in deiner Bibliothek · %1$s</string>
     <string name="player_waiting_network">Keine Verbindung, es geht weiter, sobald sie zurück ist</string>
     <string name="playback_track_skipped">Diese Datei lässt sich nicht öffnen, Titel wird übersprungen</string>
+    <string name="player_closed">Player geschlossen</string>
+    <string name="player_closed_undo">Rückgängig</string>
 </resources>

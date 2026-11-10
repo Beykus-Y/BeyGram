@@ -748,28 +748,9 @@ private fun BeyGramAppContent(
         val owner = selectedAccountId
         PlaybackEngine.setActiveAccount(owner)
         val saved = musicSessionStore.load(owner)
-        var pendingRestore = false
+        // Writing is done by the playback layer for the whole process; this effect only restores after sign-in.
         if (saved != null && PlaybackEngine.state.value.item == null) {
-            pendingRestore = !restoreMusicSession(context, repositorySelection, saved)
-        }
-        var lastWritten = saved
-        while (true) {
-            delay(5_000L)
-            val snapshot = PlaybackEngine.state.value
-            when {
-                snapshot.item == null && !pendingRestore && lastWritten != null -> {
-                    musicSessionStore.clear(owner)
-                    lastWritten = null
-                }
-                snapshot.item?.accountId == owner && snapshot.item.isMusic -> {
-                    val next = saveableMusicSession(snapshot, owner)
-                    if (next != null && next != lastWritten) {
-                        musicSessionStore.save(next)
-                        lastWritten = next
-                        pendingRestore = false
-                    }
-                }
-            }
+            restoreMusicSession(context, repositorySelection, saved)
         }
     }
     LaunchedEffect(Unit) {
