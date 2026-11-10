@@ -816,4 +816,6 @@
     <string name="queue_save_confirm">Save</string>
     <string name="queue_played">Played</string>
     <string name="player_mini_open_library">My music</string>
+    <string name="music_bot_save_favorite">Save to Favorites</string>
+    <string name="music_bot_saved_favorite">Saved to Favorites</string>
 </resources>

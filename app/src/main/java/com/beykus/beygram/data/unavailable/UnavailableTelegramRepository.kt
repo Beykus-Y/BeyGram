@@ -68,6 +68,7 @@ import com.beykus.beygram.domain.model.BotWebAppSource
 import com.beykus.beygram.domain.model.BotWebAppTheme
 import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.MusicBotTrack
+import com.beykus.beygram.domain.model.SavedMusicBotTrack
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.StickerItem
 import com.beykus.beygram.domain.model.StickerSearchPage
@@ -394,6 +395,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults?> = unavailable()
     override suspend fun musicBotSearch(query: String, offset: String, contextChatId: Long): Result<InlineBotResults?> = unavailable()
     override suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> = unavailable()
+    override suspend fun saveMusicBotTrack(queryId: Long, resultId: String): Result<SavedMusicBotTrack?> = unavailable()
     override suspend fun sendInlineBotResult(
         chatId: Long,
         queryId: Long,

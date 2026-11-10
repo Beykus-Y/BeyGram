@@ -53,6 +53,7 @@ import com.beykus.beygram.domain.model.BotWebAppSource
 import com.beykus.beygram.domain.model.BotWebAppTheme
 import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.MusicBotTrack
+import com.beykus.beygram.domain.model.SavedMusicBotTrack
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.GroupAdministratorRights
 import com.beykus.beygram.domain.model.GroupInviteLink
@@ -1499,6 +1500,8 @@ class TdLibTelegramRepository private constructor(
         botFeatures.musicBotSearch(query, offset, contextChatId)
     override suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> =
         botFeatures.musicBotTrack(queryId, resultId, musicBotCacheDir)
+    override suspend fun saveMusicBotTrack(queryId: Long, resultId: String): Result<SavedMusicBotTrack?> =
+        botFeatures.saveMusicBotTrack(queryId, resultId)
     override suspend fun sendInlineBotResult(
         chatId: Long,
         queryId: Long,

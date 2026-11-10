@@ -141,6 +141,42 @@ internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> In
     }
 
     /**
+     * Keeps a music bot track: the result goes to Saved Messages and stays there. Returns where it lives, so the track has
+     * an address a playlist or the favorites can keep. A result that is not audio is removed again.
+     */
+    suspend fun saveMusicBotTrack(queryId: Long, resultId: String): Result<SavedMusicBotTrack?> = requestResult {
+        val savedMessagesChatId = request(TdApi.GetMe()).id
+        val savedDraft = request(TdApi.GetChat(savedMessagesChatId)).draftMessage
+        val sent = withContext(NonCancellable) {
+            request(TdApi.SendInlineQueryResultMessage().apply {
+                chatId = savedMessagesChatId
+                this.queryId = queryId
+                this.resultId = resultId
+                hideViaBot = false
+            })
+        }
+        try {
+            val audio = (sent.content as? TdApi.MessageAudio)?.audio
+            val messageId = if (sent.sendingState == null) sent.id else awaitConfirmedId(sent.id)
+            if (audio == null || messageId == null) {
+                if (audio == null && messageId != null) {
+                    withContext(NonCancellable) { runCatching { request(TdApi.DeleteMessages(savedMessagesChatId, longArrayOf(messageId), true)) } }
+                }
+                return@requestResult null
+            }
+            SavedMusicBotTrack(
+                chatId = savedMessagesChatId,
+                messageId = messageId,
+                title = audio.title.orEmpty(),
+                performer = audio.performer.orEmpty(),
+                durationSeconds = audio.duration
+            )
+        } finally {
+            withContext(NonCancellable) { runCatching { restoreSavedMessagesDraft(savedMessagesChatId, savedDraft) } }
+        }
+    }
+
+    /**
      * TDLib deletes a downloaded file together with the message it came from, so the track is copied into the app
      * cache first. The cache keeps the copy until the player has it and removes it once the player no longer uses it.
      */

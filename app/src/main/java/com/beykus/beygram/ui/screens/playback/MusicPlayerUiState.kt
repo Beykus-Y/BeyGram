@@ -300,6 +300,7 @@ private fun PlaybackState.currentQueueStatus(): QueueItemStatus = when {
 private fun upcomingQueueStatus(item: PlaybackItem): QueueItemStatus = when {
     item.systemPrivate -> QueueItemStatus.Unavailable
     item.path.isNotBlank() || item.growing != null -> QueueItemStatus.Ready
+    com.beykus.beygram.playback.BotTrackResolver.isBotKey(item.key) -> QueueItemStatus.Loading
     item.fileId != null -> QueueItemStatus.Loading
     else -> QueueItemStatus.Unavailable
 }
