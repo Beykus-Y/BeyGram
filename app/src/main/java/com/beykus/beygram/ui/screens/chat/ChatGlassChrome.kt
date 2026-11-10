@@ -48,7 +48,8 @@ internal fun ChatChromeHost(
     content: @Composable ColumnScope.() -> Unit
 ) {
     if (!glass) {
-        Column(Modifier.fillMaxWidth(), content = content)
+        // The top stack is drawn above the message list, so a header shadow (Material 2) is not painted over by it.
+        Column(Modifier.fillMaxWidth().zIndex(if (edge == GlassEdge.BottomHairline) 1f else 0f), content = content)
         return
     }
     val palette = beyGramPalette()
