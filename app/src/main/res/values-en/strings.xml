@@ -792,4 +792,13 @@
     <string name="playback_track_skipped">This file will not open, skipping the track</string>
     <string name="player_closed">Player closed</string>
     <string name="player_closed_undo">Undo</string>
+    <string name="queue_add_to_end">Add to end of queue</string>
+    <string name="queue_added_next">Will play next</string>
+    <string name="queue_added_end">Added to the queue</string>
+    <string name="music_bot_failed">Could not get the track</string>
+    <string name="bgbeat_bpm_caption">%1$s BPM</string>
+    <string name="bgbeat_reanalyze">Analyze the rhythm again</string>
+    <string name="player_more">More</string>
+    <string name="player_bgmix_badge">BG Mix</string>
+    <string name="player_bgmix_explain">Smooth transitions mode is playing. Shuffle, repeat, speed and the Previous button switch the queue to the regular player at the same place.</string>
 </resources>

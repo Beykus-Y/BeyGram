@@ -133,6 +133,8 @@ data class PlaybackState(
     val failed: Boolean = false,
     /** The queue lost the network and continues from the same position as soon as it returns. */
     val waitingForNetwork: Boolean = false,
+    /** The queue plays through BG Mix, which has no shuffle, repeat or speed; those buttons hand the queue to the regular player. */
+    val bgMixActive: Boolean = false,
     /** Плеер хотя бы раз сообщил, что файл реально играет. Отметка «прослушано» ставится по этому флагу, а не по нажатию. */
     val started: Boolean = false,
     /** Файл доиграл до конца. Кружок в ленте сворачивается, а новый запуск начинает файл сначала. */

@@ -2345,4 +2345,13 @@
     <string name="playback_track_skipped">Файл не открывается, пропускаем трек</string>
     <string name="player_closed">Плеер закрыт</string>
     <string name="player_closed_undo">Вернуть</string>
+    <string name="queue_add_to_end">В конец очереди</string>
+    <string name="queue_added_next">Будет играть следующим</string>
+    <string name="queue_added_end">Добавлено в очередь</string>
+    <string name="music_bot_failed">Не удалось получить трек</string>
+    <string name="bgbeat_bpm_caption">%1$s уд./мин</string>
+    <string name="bgbeat_reanalyze">Повторить анализ ритма</string>
+    <string name="player_more">Ещё</string>
+    <string name="player_bgmix_badge">BG Mix</string>
+    <string name="player_bgmix_explain">Сейчас играет режим плавных переходов. Перемешивание, повтор, скорость и кнопка «Назад» переключат очередь на обычный плеер с того же места.</string>
 </resources>

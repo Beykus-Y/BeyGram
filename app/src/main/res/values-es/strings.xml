@@ -792,4 +792,13 @@
     <string name="playback_track_skipped">Este archivo no se abre, se omite la pista</string>
     <string name="player_closed">Reproductor cerrado</string>
     <string name="player_closed_undo">Deshacer</string>
+    <string name="queue_add_to_end">Añadir al final de la cola</string>
+    <string name="queue_added_next">Sonará a continuación</string>
+    <string name="queue_added_end">Añadido a la cola</string>
+    <string name="music_bot_failed">No se pudo obtener la pista</string>
+    <string name="bgbeat_bpm_caption">%1$s BPM</string>
+    <string name="bgbeat_reanalyze">Analizar el ritmo de nuevo</string>
+    <string name="player_more">Más</string>
+    <string name="player_bgmix_badge">BG Mix</string>
+    <string name="player_bgmix_explain">Está sonando el modo de transiciones suaves. Aleatorio, repetir, velocidad y «Anterior» pasan la cola al reproductor normal en el mismo punto.</string>
 </resources>

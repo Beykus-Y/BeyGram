@@ -84,7 +84,9 @@ internal fun MessageActionsBar(
     onSelect: () -> Unit = {},
     onTranslate: (() -> Unit)? = null,
     onReport: (() -> Unit)? = null,
-    onAddToPlaylist: (() -> Unit)? = null
+    onAddToPlaylist: (() -> Unit)? = null,
+    onPlayNext: (() -> Unit)? = null,
+    onEnqueue: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
@@ -149,6 +151,14 @@ internal fun MessageActionsBar(
                                 leadingIcon = { Icon(Icons.Rounded.Translate, null, tint = palette.accent) },
                                 onClick = { moreOpen = false; translate() }
                             )
+                            onPlayNext?.let { next -> DropdownMenuItem(
+                                text = { Text(stringResource(R.string.queue_play_next)) },
+                                onClick = { moreOpen = false; next() }
+                            ) }
+                            onEnqueue?.let { enqueue -> DropdownMenuItem(
+                                text = { Text(stringResource(R.string.queue_add_to_end)) },
+                                onClick = { moreOpen = false; enqueue() }
+                            ) }
                             onAddToPlaylist?.let { add -> DropdownMenuItem(
                                 text = { Text(stringResource(R.string.music_add_to_playlist)) },
                                 leadingIcon = { Icon(Icons.Rounded.Add, null, tint = palette.accent) },

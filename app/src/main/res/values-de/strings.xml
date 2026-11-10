@@ -792,4 +792,13 @@
     <string name="playback_track_skipped">Diese Datei lässt sich nicht öffnen, Titel wird übersprungen</string>
     <string name="player_closed">Player geschlossen</string>
     <string name="player_closed_undo">Rückgängig</string>
+    <string name="queue_add_to_end">Ans Ende der Warteschlange</string>
+    <string name="queue_added_next">Wird als Nächstes gespielt</string>
+    <string name="queue_added_end">Zur Warteschlange hinzugefügt</string>
+    <string name="music_bot_failed">Titel konnte nicht geladen werden</string>
+    <string name="bgbeat_bpm_caption">%1$s BPM</string>
+    <string name="bgbeat_reanalyze">Rhythmus erneut analysieren</string>
+    <string name="player_more">Mehr</string>
+    <string name="player_bgmix_badge">BG Mix</string>
+    <string name="player_bgmix_explain">Der Modus für weiche Übergänge spielt. Zufallswiedergabe, Wiederholen, Tempo und „Zurück“ schalten die Warteschlange an derselben Stelle auf den normalen Player um.</string>
 </resources>

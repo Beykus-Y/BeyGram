@@ -818,4 +818,13 @@
     <string name="playback_track_skipped">Ce fichier ne s’ouvre pas, le morceau est ignoré</string>
     <string name="player_closed">Lecteur fermé</string>
     <string name="player_closed_undo">Annuler</string>
+    <string name="queue_add_to_end">Ajouter à la fin de la file</string>
+    <string name="queue_added_next">Sera lu ensuite</string>
+    <string name="queue_added_end">Ajouté à la file</string>
+    <string name="music_bot_failed">Impossible d’obtenir le morceau</string>
+    <string name="bgbeat_bpm_caption">%1$s BPM</string>
+    <string name="bgbeat_reanalyze">Analyser à nouveau le rythme</string>
+    <string name="player_more">Plus</string>
+    <string name="player_bgmix_badge">BG Mix</string>
+    <string name="player_bgmix_explain">Le mode de transitions fluides est actif. Aléatoire, répétition, vitesse et « Précédent » basculent la file sur le lecteur normal au même endroit.</string>
 </resources>

@@ -8,14 +8,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -120,6 +124,8 @@ internal fun MusicSearchScreen(
     // Public results come from the optional music bot. They have their own job and state, so a bot failure
     // never touches the account's own results.
     val latestSelection = remember(accountId) { AtomicLong() }
+    // The public result whose track is being fetched; the row shows a spinner, and a failed fetch says so.
+    var loadingBotKey by remember(accountId) { mutableStateOf<String?>(null) }
     var publicResults by remember(accountId) { mutableStateOf<List<InlineBotResult>>(emptyList()) }
     var publicAvailable by remember(accountId) { mutableStateOf(true) }
     var publicLoading by remember(accountId) { mutableStateOf(false) }
@@ -212,8 +218,16 @@ internal fun MusicSearchScreen(
 
     fun playBotTrack(result: InlineBotResult) {
         val selection = latestSelection.incrementAndGet()
+        val resultKey = "${result.queryId}:${result.id}"
+        loadingBotKey = resultKey
         scope.launch {
-            conversation.musicBotTrack(result.queryId, result.id).onSuccess { track ->
+            val outcome = conversation.musicBotTrack(result.queryId, result.id)
+            if (selection == latestSelection.get() && loadingBotKey == resultKey) loadingBotKey = null
+            val notAvailable = outcome.isFailure || outcome.getOrNull() == null
+            if (notAvailable && isActive && selection == latestSelection.get()) {
+                Toast.makeText(context, context.getString(R.string.music_bot_failed), Toast.LENGTH_SHORT).show()
+            }
+            outcome.onSuccess { track ->
                 if (track == null) return@onSuccess
                 // The screen may have left while the cleanup ran. A cancelled caller must not start playback.
                 if (!isActive) {
@@ -255,6 +269,15 @@ internal fun MusicSearchScreen(
                 MusicBotCache.handOver(track.path)
             }
         }
+    }
+
+    fun enqueueRow(item: PlaybackItem, atEnd: Boolean) {
+        PlaybackEngine.enqueue(context, item, PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload), atEnd)
+        Toast.makeText(
+            context,
+            context.getString(if (atEnd) R.string.queue_added_end else R.string.queue_added_next),
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     fun play(message: ChatMessage) {
@@ -333,6 +356,8 @@ internal fun MusicSearchScreen(
                         title = item.title,
                         subtitle = chats[message.chatId]?.title.orEmpty(),
                         onClick = { play(message) },
+                        onPlayNext = if (onPick == null) { { enqueueRow(item, atEnd = false) } } else null,
+                        onEnqueue = if (onPick == null) { { enqueueRow(item, atEnd = true) } } else null,
                         onSend = onPick?.let { pick -> musicFileDraft(message, chats, item.title)?.let { draft -> { pick(draft) } } },
                         onAddToPlaylist = if (onPick == null && chats[message.chatId]?.hasProtectedContent != true) {
                             item.toPlaylistTrack()?.let { track -> { addTrack = track } }
@@ -377,6 +402,7 @@ internal fun MusicSearchScreen(
                             title = result.title,
                             subtitle = result.description,
                             onClick = { playBotTrack(result) },
+                            loading = loadingBotKey == "${result.queryId}:${result.id}",
                             onSend = onPick?.let { pick -> { pick(MessageExtraDraft.MusicBotResult(result.queryId, result.id, result.title)) } }
                         )
                     }
@@ -401,9 +427,13 @@ private fun MusicRow(
     subtitle: String,
     onClick: (() -> Unit)?,
     onSend: (() -> Unit)? = null,
-    onAddToPlaylist: (() -> Unit)? = null
+    onAddToPlaylist: (() -> Unit)? = null,
+    onPlayNext: (() -> Unit)? = null,
+    onEnqueue: (() -> Unit)? = null,
+    loading: Boolean = false
 ) {
     val palette = beyGramPalette()
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().heightIn(min = 64.dp)
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
@@ -420,6 +450,20 @@ private fun MusicRow(
         Column(Modifier.weight(1f)) {
             Text(title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle.isNotBlank()) Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (loading) CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(22.dp), strokeWidth = 2.dp, color = palette.accent)
+        if (onPlayNext != null || onEnqueue != null) Box {
+            IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                onPlayNext?.let { next ->
+                    DropdownMenuItem(text = { Text(stringResource(R.string.queue_play_next)) }, onClick = { menuOpen = false; next() })
+                }
+                onEnqueue?.let { enqueue ->
+                    DropdownMenuItem(text = { Text(stringResource(R.string.queue_add_to_end)) }, onClick = { menuOpen = false; enqueue() })
+                }
+            }
         }
         if (onAddToPlaylist != null) IconButton(onClick = onAddToPlaylist, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Rounded.Add, stringResource(R.string.music_add_track_action, title), tint = palette.accent)

@@ -10,10 +10,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -55,6 +57,12 @@ class BgMixPlayer(private val cacheDir: File) {
 
     val isRunning: Boolean get() = running
 
+    /** The audio session of the output track, so the equalizer can attach to BG Mix too; 0 when nothing plays. */
+    val audioSessionId: Int get() = lock.withLock { track?.audioSessionId ?: 0 }
+
+    /** Wakes the status loop right after a control call, so a slow idle tick never delays the answer. */
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+
     /** Creates the native session and starts output. Returns false when BG Mix is unavailable. */
     fun start(): Boolean = lock.withLock {
         if (handle != 0L) return true
@@ -85,7 +93,9 @@ class BgMixPlayer(private val cacheDir: File) {
         tickJob = scope.launch {
             while (isActive) {
                 tick()
-                delay(TICK_MS)
+                // Paused, nothing moves, so the state is read once a second; any control call wakes the loop at once.
+                val paused = _status.value?.paused == true
+                withTimeoutOrNull(if (paused) PAUSED_TICK_MS else TICK_MS) { wake.receive() }
             }
         }
         true
@@ -146,8 +156,9 @@ class BgMixPlayer(private val cacheDir: File) {
     /** Seeks the master deck; false while a transition is running or nothing is loaded. */
     fun seek(seconds: Double): Boolean = withHandle(false) { h -> BgMixNative.nativeSeek(h, seconds) }
 
-    private fun transport(action: Int) = withHandle(Unit) { h ->
-        BgMixNative.nativeTransport(h, action)
+    private fun transport(action: Int) {
+        withHandle(Unit) { h -> BgMixNative.nativeTransport(h, action) }
+        wake.trySend(Unit)
     }
 
     private fun tick() {
@@ -166,12 +177,17 @@ class BgMixPlayer(private val cacheDir: File) {
 
     private fun renderLoop(h: Long, at: AudioTrack) {
         val buffer = FloatArray(RENDER_FRAMES * CHANNELS)
+        var idleRenders = 0
         while (running) {
             val frames = BgMixNative.nativeRender(h, buffer, RENDER_FRAMES)
             if (frames <= 0) {
-                Thread.sleep(2)
+                // A pause produces no frames. After a short while the loop sleeps longer, so a long pause does not
+                // wake this thread five hundred times a second; resuming is still heard within a few tens of ms.
+                idleRenders++
+                Thread.sleep(if (idleRenders > IDLE_RENDERS_BEFORE_SLOW) IDLE_SLEEP_MS else 2L)
                 continue
             }
+            idleRenders = 0
             val written = at.write(buffer, 0, frames * CHANNELS, AudioTrack.WRITE_BLOCKING)
             if (written < 0) {
                 Log.w(TAG, "AudioTrack write failed: $written")
@@ -229,6 +245,9 @@ class BgMixPlayer(private val cacheDir: File) {
         private const val ENCODING = AudioFormat.ENCODING_PCM_FLOAT
         private const val RENDER_FRAMES = 1024
         private const val TICK_MS = 50L
+        private const val PAUSED_TICK_MS = 1_000L
+        private const val IDLE_RENDERS_BEFORE_SLOW = 25
+        private const val IDLE_SLEEP_MS = 20L
         private const val RENDER_JOIN_TIMEOUT_MS = 1_000L
     }
 }

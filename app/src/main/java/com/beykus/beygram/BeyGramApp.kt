@@ -192,6 +192,7 @@ import com.beykus.beygram.share.DirectShareShortcuts
 import com.beykus.beygram.ui.screens.share.ShareTargetScreen
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.beykus.beygram.ui.screens.playback.MusicPlayerLauncher
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.screens.playback.EqualizerScreen
 import com.beykus.beygram.ui.screens.playback.MusicSearchScreen
@@ -407,6 +408,8 @@ private fun BeyGramAppContent(
     // Equalizer always exits to Settings in its own back handler; remember where it was opened, so both that handler
     // and the toolbar return to the chat/profile/settings that actually opened it.
     var equalizerReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
+    // The equalizer was opened from the full player: Back reopens the player instead of leaving only the bare screen.
+    var equalizerOpenedFromPlayer by rememberSaveable { mutableStateOf(false) }
     // Search can open from Settings or a global player on any screen; Back returns to that origin.
     var musicSearchReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var myMusicReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
@@ -1531,6 +1534,13 @@ private fun BeyGramAppContent(
         if (routeName != route.name) routeName = route.name
         previousRouteName = route.name
     }
+    LaunchedEffect(route) {
+        if (route == AppRoute.Equalizer || !equalizerOpenedFromPlayer) return@LaunchedEffect
+        equalizerOpenedFromPlayer = false
+        // The player belongs to the screen the equalizer returned to, so it opens once that screen is composed.
+        delay(350L)
+        MusicPlayerLauncher.open()
+    }
     LaunchedEffect(authState, route) {
         val currentRoute = route
         when (authState) {
@@ -2140,7 +2150,10 @@ private fun BeyGramAppContent(
         LocalMainTabIndicator provides tabIndicator,
         LocalAutoDownloadFile provides repository::autoDownloadFile,
         LocalBackgroundMediaDownload provides repository::downloadFileInBackground,
-        LocalOpenEqualizer provides { routeName = AppRoute.Equalizer.name },
+        LocalOpenEqualizer provides {
+            equalizerOpenedFromPlayer = true
+            routeName = AppRoute.Equalizer.name
+        },
         LocalAddProfileAudio provides repository::addPlaybackItemToProfile,
         LocalOpenMusicSearch provides {
             musicSearchReturnRouteName = routeName

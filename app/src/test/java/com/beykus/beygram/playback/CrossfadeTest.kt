@@ -67,4 +67,19 @@ class CrossfadeTest {
         assertFalse(isBackwardSeek(3_000L, 2_900L))
         assertTrue(isBackwardSeek(5_000L, 1_000L))
     }
+
+    @Test
+    fun handoffGainsKeepTheLevelOfIdenticalAudioSteady() {
+        listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { progress ->
+            assertEquals(1f, handoffPrimaryGain(progress) + handoffTailGain(progress), 0.0001f)
+        }
+        assertEquals(1f, handoffPrimaryGain(0f), 0f)
+        assertEquals(0f, handoffPrimaryGain(1f), 0f)
+    }
+
+    @Test
+    fun prerollNeverStartsLaterThanThePrepareWindowAllows() {
+        assertEquals(CROSSFADE_PREROLL_SETTLE_MS + CROSSFADE_HANDOFF_MS, CROSSFADE_PREROLL_MS)
+        assertTrue(CROSSFADE_PREPARE_MIN_MS > CROSSFADE_PREROLL_MS)
+    }
 }

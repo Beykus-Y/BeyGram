@@ -7,6 +7,7 @@ import android.content.Intent
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.Uri
+import android.os.PowerManager
 import android.os.SystemClock
 import android.view.TextureView
 import androidx.core.content.ContextCompat
@@ -178,6 +179,7 @@ object PlaybackEngine {
     private const val PROGRESS_INTERVAL_MS = 250L
     private const val SLEEP_FADE_STEP_MS = 100L
     private const val UNDO_CLOSE_MS = 5_000L
+    private const val BG_WAKE_LOCK_TIMEOUT_MS = 6 * 60 * 60_000L
     private const val INTERRUPTION_RESUME_LIMIT_MS = 2 * 60_000L
     private const val INTERRUPTION_STALE_MS = 15 * 60_000L
     private const val INTERRUPTION_FADE_IN_MS = 400L
@@ -477,7 +479,7 @@ object PlaybackEngine {
             }
 
             override fun seekToPrevious() {
-                if (!bgMixActive()) super.seekToPrevious()
+                if (bgMixActive()) this@PlaybackEngine.previous() else super.seekToPrevious()
             }
 
             override fun seekTo(positionMs: Long) {
@@ -1165,6 +1167,8 @@ object PlaybackEngine {
                 started = exo?.isPlaying == true,
                 ended = false,
                 failed = false,
+                waitingForNetwork = false,
+                bgMixActive = false,
                 isBuffering = if (defer) play else target.playbackState == Player.STATE_BUFFERING,
                 bufferedFraction = target.bufferedPercentage.coerceIn(0, 100).toFloat() / 100f,
                 durationMs = durationNow()
@@ -1446,10 +1450,52 @@ object PlaybackEngine {
     }
 
     /** Pauses BG Mix when another app takes audio focus or the output becomes noisy (headphones unplugged). */
+    /** True while BG Mix is paused only because another app took focus for a moment, so it may resume on its own. */
+    private var bgResumeOnFocusGain = false
+
     private val bgFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
-            if (bgMixActive()) pauseBgMix()
+        if (!bgMixActive()) return@OnAudioFocusChangeListener
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                bgResumeOnFocusGain = false
+                pauseBgMix()
+            }
+            // A short sound (a call, a navigator prompt) pauses the music and it returns when the focus does. BG Mix
+            // has no gain control for ducking, so a "can duck" loss is handled the same way.
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                val playing = _state.value.intentPlaying && !_state.value.ended
+                if (playing) {
+                    bgResumeOnFocusGain = true
+                    pauseBgMix()
+                }
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (bgResumeOnFocusGain) {
+                    bgResumeOnFocusGain = false
+                    bgMixPlay()
+                }
+            }
         }
+    }
+
+    private var bgWakeLock: PowerManager.WakeLock? = null
+
+    /** BG Mix has its own output thread, so it holds the CPU awake while it plays; the regular player does it by itself. */
+    private fun holdBgWakeLock() {
+        val context = appContext ?: return
+        val lock = bgWakeLock ?: context.getSystemService(PowerManager::class.java)
+            ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "beygram:bgmix")
+            ?.apply { setReferenceCounted(false) }
+            ?.also { bgWakeLock = it }
+            ?: return
+        // A timeout is a safety net only; pausing or stopping releases the lock at once.
+        runCatching { if (!lock.isHeld) lock.acquire(BG_WAKE_LOCK_TIMEOUT_MS) }
+    }
+
+    private fun releaseBgWakeLock() {
+        val lock = bgWakeLock ?: return
+        runCatching { if (lock.isHeld) lock.release() }
     }
 
     private val bgNoisyReceiver = object : BroadcastReceiver() {
@@ -1463,7 +1509,9 @@ object PlaybackEngine {
         var granted = false
         val audio = context.getSystemService(AudioManager::class.java)
         if (audio != null) {
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            // One request serves the whole session; asking again with the same object refreshes the focus
+            // instead of leaving the previous request behind.
+            val request = bgFocusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(
                     android.media.AudioAttributes.Builder()
                         .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
@@ -1538,7 +1586,9 @@ object PlaybackEngine {
         clearDeferredSeek()
         pendingStartFraction = 0f
         startedCallback = startedCallback?.takeIf { it.first == item.key }
-        _audioSessionId.value = null
+        // The equalizer attaches to the BG Mix output track the same way it does to ExoPlayer.
+        _audioSessionId.value = driver.audioSessionId
+        holdBgWakeLock()
         _state.value = stateFor(
             item = item,
             queue = queue.items,
@@ -1549,7 +1599,7 @@ object PlaybackEngine {
             speed = 1f
         )
         _state.update {
-            it.copy(timelineHasNext = queue.index < queue.items.lastIndex, timelineHasPrevious = false)
+            it.copy(timelineHasNext = queue.index < queue.items.lastIndex, timelineHasPrevious = false, bgMixActive = true)
         }
         notifyChanges(before, _state.value)
         bgMixJob?.cancel()
@@ -1596,7 +1646,8 @@ object PlaybackEngine {
                 durationMs = ((master?.durationSeconds ?: 0.0) * 1000).toLong(),
                 started = current.started || playing,
                 ended = finished,
-                isBuffering = false
+                isBuffering = false,
+                bgMixActive = true
             )
         }
         if (before.item?.key != _state.value.item?.key) {
@@ -1604,7 +1655,10 @@ object PlaybackEngine {
                 if (target.mediaItemCount > 0) target.replaceMediaItem(0, placeholderItem(item))
             }
         }
-        if (finished && !before.ended) releaseBgFocus()
+        if (finished && !before.ended) {
+            releaseBgFocus()
+            releaseBgWakeLock()
+        }
         notifyChanges(before, _state.value)
         fireStartedCallback()
     }
@@ -1624,6 +1678,7 @@ object PlaybackEngine {
         if (context != null && !requestBgFocus(context)) return
         val before = _state.value
         bgMix?.resume()
+        holdBgWakeLock()
         _state.update { it.copy(intentPlaying = true, ended = false) }
         notifyChanges(before, _state.value)
     }
@@ -1631,6 +1686,7 @@ object PlaybackEngine {
     private fun pauseBgMix() {
         val before = _state.value
         bgMix?.pause()
+        releaseBgWakeLock()
         _state.update { it.copy(playing = false, intentPlaying = false) }
         notifyChanges(before, _state.value)
     }
@@ -1643,13 +1699,21 @@ object PlaybackEngine {
         bgMixJob = null
         bgMix?.stop()
         releaseBgFocus()
+        releaseBgWakeLock()
+        bgResumeOnFocusGain = false
         if (wasActive && (before.playing || before.intentPlaying)) {
             notifyChanges(before, before.copy(playing = false, intentPlaying = false))
         }
     }
 
     /** BG Mix lost its output mid-session: the session is released, and the queue continues on ExoPlayer from the last position. */
-    private fun failBgMix() {
+    private fun failBgMix() = switchBgMixToExo()
+
+    /**
+     * Hands the BG Mix queue to the regular player at the same place. Used when its output fails and when the listener
+     * presses something BG Mix cannot do (shuffle, repeat, speed, previous), so a button never looks active and does nothing.
+     */
+    private fun switchBgMixToExo() {
         val context = appContext ?: return
         if (!bgMixActive()) return
         val snapshot = _state.value
@@ -1784,7 +1848,8 @@ object PlaybackEngine {
     }
 
     fun previous() {
-        if (bgMixActive()) return
+        // BG Mix cannot go back, so the queue continues on the regular player, which restarts or steps back.
+        if (bgMixActive()) switchBgMixToExo()
         val target = exo ?: return
         val state = _state.value
         // Previous restarts the current track when it is already a few seconds in; otherwise it goes to the previous item.
@@ -1856,6 +1921,11 @@ object PlaybackEngine {
 
     fun setShuffle(enabled: Boolean) {
         if (_state.value.shuffleEnabled == enabled) return
+        if (bgMixActive()) {
+            _state.update { it.copy(shuffleEnabled = enabled) }
+            if (enabled) switchBgMixToExo()
+            return
+        }
         val target = exo
         if (_state.value.item?.isMusic == true && _state.value.item?.systemPrivate != true) target?.shuffleModeEnabled = enabled
         _state.update { it.copy(shuffleEnabled = enabled).withTimelineNavigation(target) }
@@ -1869,6 +1939,11 @@ object PlaybackEngine {
     }
 
     fun setRepeatMode(mode: PlaybackRepeatMode) {
+        if (bgMixActive()) {
+            _state.update { it.copy(repeatMode = mode) }
+            if (mode != PlaybackRepeatMode.Off) switchBgMixToExo()
+            return
+        }
         val target = exo
         if (_state.value.item?.isMusic == true && _state.value.item?.systemPrivate != true) target?.repeatMode = mode.toPlayerRepeatMode()
         _state.update { it.copy(repeatMode = mode).withTimelineNavigation(target) }
@@ -1945,6 +2020,42 @@ object PlaybackEngine {
         rebuildTimeline(queue, rebuiltIndex, state.positionMs, shouldPlay)
     }
 
+    /**
+     * Adds [item] to the queue without interrupting the current track: [atEnd] puts it last, otherwise it plays next.
+     * When no music is playing, the item simply starts as a one-track queue.
+     */
+    @OptIn(UnstableApi::class)
+    fun enqueue(context: Context, item: PlaybackItem, source: PlaybackQueueSource?, atEnd: Boolean) {
+        if (item.systemPrivate || !item.isMusic) return
+        val state = _state.value
+        val current = state.item
+        if (current == null || !current.isMusic || current.systemPrivate || current.accountId != item.accountId) {
+            playQueue(context, listOf(item), 0, source)
+            return
+        }
+        if (!atEnd) {
+            playNext(item, source)
+            return
+        }
+        if (item.key == current.key) return
+        if (source != null && queueSource == null) queueSource = source
+        val target = exo
+        val base = state.queue.ifEmpty { listOf(current) }
+        val existing = base.indexOfFirst { it.key == item.key }
+        if (existing >= 0) {
+            if (existing != base.lastIndex) moveInQueue(existing, base.lastIndex)
+            return
+        }
+        val queue = base + item
+        if (canEditInPlace(target, base.size) && target != null) {
+            registerSource(item, queueSource)
+            target.addMediaItem(mediaItemFor(item))
+            commitInPlaceQueue(queue)
+            return
+        }
+        rebuildTimeline(queue, base.indexOfFirst { it.key == current.key }.coerceAtLeast(0), state.positionMs, state.playing || state.intentPlaying)
+    }
+
     /** Removes an item from the queue; removing the playing item advances to the next (or previous) one. */
     fun removeFromQueue(index: Int) {
         val state = _state.value
@@ -2012,6 +2123,7 @@ object PlaybackEngine {
         val applies = current.item?.kind == MediaKind.Audio || current.item == null
         _state.update { it.copy(musicSpeed = speed, speed = if (applies) speed else it.speed) }
         if (applies) exo?.setPlaybackSpeed(speed)
+        if (applies && speed != 1f && bgMixActive()) switchBgMixToExo()
     }
 
     fun setVoiceSpeed(speed: Float) {
