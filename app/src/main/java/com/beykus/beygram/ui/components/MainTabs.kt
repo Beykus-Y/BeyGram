@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
@@ -604,6 +605,10 @@ internal fun MainTabsScaffold(
     // Reset with the design: a bar measured in another placement or style must not reserve space for the old one.
     var measuredBarHeight by remember(design) { mutableStateOf(0.dp) }
     val density = LocalDensity.current
+    // The keyboard covers the dock, and screens with a field (Contacts search) pad themselves by the keyboard height.
+    // Drawing the dock anyway shows it for a frame above the keyboard while it opens and doubles the bottom space, so
+    // the dock and the reserve for it step aside while the keyboard is up.
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val isRail = usesMainNavigationRail(maxWidth.value)
         // One description of the navigation for every screen below, so the create button and the mini-player can line up
@@ -658,8 +663,9 @@ internal fun MainTabsScaffold(
             // Until the overlay has measured itself the token is a safe approximation; afterwards the real height is
             // used, so a large font or a 3-button navigation inset cannot put a row under the dock. The measured
             // overlay already holds the gap above the capsule (the mini-player slot's bottom padding).
-            val reserve = overlayHeight.takeIf { it > 0.dp }
+            val measuredReserve = overlayHeight.takeIf { it > 0.dp }
                 ?: (design.spacing.navigationHeight + navigationBarInset + spec.bottomMargin + DefaultNavigationDockGap)
+            val reserve = if (imeVisible) 0.dp else measuredReserve
             Box(Modifier.fillMaxSize()) {
                 Box(
                     Modifier.fillMaxSize()
@@ -671,7 +677,7 @@ internal fun MainTabsScaffold(
                         stateHolder.SaveableStateProvider(key) { content() }
                     }
                 }
-                Column(
+                if (!imeVisible) Column(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .onSizeChanged { overlayHeight = with(density) { it.height.toDp() } }
                 ) {
@@ -697,7 +703,7 @@ internal fun MainTabsScaffold(
                     }
                 }
                 NowPlayingBar(hideWhenImeVisible = true)
-                MainTabBar(tabs = tabs, selected = selected, onSelect = onSelect)
+                if (!imeVisible) MainTabBar(tabs = tabs, selected = selected, onSelect = onSelect)
             }
         }
     }

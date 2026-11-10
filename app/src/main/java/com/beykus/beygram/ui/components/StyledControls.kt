@@ -45,10 +45,17 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 private val isMaterial2: Boolean
     @Composable get() = LocalDesignSystem.current.style == DesignStyle.Material2
 
-/** The button shape of the style: Material's pill everywhere except Material 2, which uses its 4dp button corner. */
+/** Styles that draw the button corner from their own shape token; Default and Material 3 keep Material's pill. */
+private val usesStyleButtonShape: Boolean
+    @Composable get() = when (LocalDesignSystem.current.style) {
+        DesignStyle.Material2, DesignStyle.Signature, DesignStyle.LiquidGlass -> true
+        DesignStyle.Default, DesignStyle.Material3 -> false
+    }
+
+/** The button shape of the style: Material 2 (4dp), Signature (14dp) and Glass (22dp) use their token, the rest the pill. */
 @Composable
 fun styledButtonShape(): Shape =
-    if (isMaterial2) RoundedCornerShape(LocalDesignSystem.current.shapes.button) else ButtonDefaults.shape
+    if (usesStyleButtonShape) RoundedCornerShape(LocalDesignSystem.current.shapes.button) else ButtonDefaults.shape
 
 /** Contained buttons in Material 2 sit 2dp above the surface and lift to 8dp while pressed. */
 @Composable
@@ -95,7 +102,7 @@ fun OutlinedButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    shape: Shape = if (isMaterial2) styledButtonShape() else ButtonDefaults.outlinedShape,
+    shape: Shape = if (usesStyleButtonShape) styledButtonShape() else ButtonDefaults.outlinedShape,
     colors: ButtonColors = ButtonDefaults.outlinedButtonColors(),
     elevation: ButtonElevation? = null,
     border: BorderStroke? = ButtonDefaults.outlinedButtonBorder(enabled),
@@ -120,7 +127,7 @@ fun TextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    shape: Shape = if (isMaterial2) styledButtonShape() else ButtonDefaults.textShape,
+    shape: Shape = if (usesStyleButtonShape) styledButtonShape() else ButtonDefaults.textShape,
     colors: ButtonColors = ButtonDefaults.textButtonColors(),
     elevation: ButtonElevation? = null,
     border: BorderStroke? = null,

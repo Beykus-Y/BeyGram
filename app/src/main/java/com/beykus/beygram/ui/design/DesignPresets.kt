@@ -90,7 +90,7 @@ val Material2DesignSystem = DesignSystem(
         sectionLabelUppercase = true, sectionLabelTracking = 0.6.sp,
         chipRadius = 2.dp, chipSelection = ChipSelectionTone.Underlined,
         archive = ArchiveTreatment.Card, archiveRadius = 4.dp, archiveElevation = 2.dp,
-        avatarSize = 48.dp, rowTitleWeight = FontWeight.Medium, badgeRadius = 2.dp,
+        avatarSize = 48.dp, rowTitleWeight = FontWeight.Medium, badgeRadius = 11.dp,
         headerGap = 10.dp
     ),
     bubbles = DesignBubbleGeometry(
@@ -136,7 +136,7 @@ val Material3DesignSystem = DesignSystem(
         sectionLabelUppercase = false, sectionLabelTracking = 0.4.sp,
         chipRadius = 8.dp, chipSelection = ChipSelectionTone.Filter,
         archive = ArchiveTreatment.Tonal, archiveRadius = 12.dp, archiveElevation = 0.dp,
-        avatarSize = 52.dp, rowTitleWeight = FontWeight.Medium, badgeRadius = 8.dp,
+        avatarSize = 52.dp, rowTitleWeight = FontWeight.Medium, badgeRadius = 11.dp,
         headerGap = 12.dp,
         showBrandOverline = false,
         searchHeight = 56.dp
