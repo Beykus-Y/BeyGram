@@ -10,9 +10,6 @@ internal const val CROSSFADE_MS = 4_000L
 /** The second player for the outgoing tail is prepared this long before the switch point, so the switch never waits for buffering. */
 internal const val CROSSFADE_PREPARE_LEAD_MS = 3_000L
 
-/** Closer than this to the switch point, a tail is too late to prepare, so the transition stays a plain cut. */
-internal const val CROSSFADE_PREPARE_MIN_MS = 300L + CROSSFADE_PREROLL_SETTLE_MS + CROSSFADE_HANDOFF_MS
-
 /** How often the position is checked while the switch point is close. */
 internal const val CROSSFADE_ARM_STEP_MS = 20L
 
@@ -30,15 +27,17 @@ internal const val CROSSFADE_STEP_MS = 40L
  */
 internal const val CROSSFADE_PREROLL_SETTLE_MS = 300L
 internal const val CROSSFADE_HANDOFF_MS = 120L
+/** How long before the switch point the pre-roll starts. */
 internal const val CROSSFADE_PREROLL_MS = CROSSFADE_PREROLL_SETTLE_MS + CROSSFADE_HANDOFF_MS
+
+/** Closer than this to the switch point, a tail is too late to prepare, so the transition stays a plain cut. */
+internal const val CROSSFADE_PREPARE_MIN_MS = 300L + CROSSFADE_PREROLL_SETTLE_MS + CROSSFADE_HANDOFF_MS
 
 /** The tail is started a little ahead of the primary's position to cover the time an output track needs to start. */
 internal const val CROSSFADE_TAIL_START_COMPENSATION_MS = 40L
 
 /** A tail whose position differs from the primary's by more than this after the pre-roll is out of step: the cut stays plain. */
 internal const val CROSSFADE_SYNC_TOLERANCE_MS = 150L
-
-/** How long before the switch point the pre-roll starts. */
 
 /** Complementary gains for two players that play the same audio: they sum to 1, so the level stays steady. */
 internal fun handoffPrimaryGain(progress: Float): Float = 1f - progress.coerceIn(0f, 1f)
