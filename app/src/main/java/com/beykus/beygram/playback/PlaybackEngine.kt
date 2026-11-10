@@ -2158,6 +2158,16 @@ object PlaybackEngine {
         val state = _state.value
         val keep = state.queueIndex
         if (state.queue.size <= 1 || keep !in state.queue.indices) return
+        // A page that is still loading, or one that the source would load later, must not refill the cleared queue.
+        queuePageGeneration++
+        queuePageJob?.cancel()
+        queuePageJob = null
+        queuePageRetryJob?.cancel()
+        queuePageRetryJob = null
+        _queuePageLoading.value = false
+        queueSource = queueSource?.let {
+            PlaybackQueueSource(it.accountId, it.observeFile, it.download, it.autoDownload, loadMore = null)
+        }
         // From the end: removing a later row never moves an earlier one.
         for (index in state.queue.indices.reversed()) {
             if (index != keep) removeFromQueue(index)
