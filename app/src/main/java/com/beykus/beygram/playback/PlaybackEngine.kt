@@ -2024,6 +2024,7 @@ object PlaybackEngine {
             }
             if (!target.playWhenReady) {
                 // The listener paused the queue on purpose while it waited, so the wait is over without playing.
+                networkWaitSince = 0L
                 _state.update { it.copy(waitingForNetwork = false) }
                 return@launch
             }
@@ -2037,9 +2038,11 @@ object PlaybackEngine {
         consecutiveSkips++
         _notices.tryEmit(PlaybackNotice.TrackSkipped)
         _state.update { it.copy(failed = false, waitingForNetwork = false) }
+        // The user's intent decides whether the next track starts: a track that failed while paused stays paused.
+        val keepPlaying = target.playWhenReady
         target.seekToNextMediaItem()
         target.prepare()
-        target.play()
+        if (keepPlaying) target.play()
     }
 
     private fun durationNow(): Long = exo?.duration?.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
