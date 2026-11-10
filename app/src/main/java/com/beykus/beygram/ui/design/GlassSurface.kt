@@ -370,3 +370,17 @@ val DesignSystem.recordsGlassBackdrop: Boolean
 
 /** True when the style draws glass at all (any quality), which decides whether a panel is framed like glass. */
 val DesignSystem.usesGlassPanels: Boolean get() = style == DesignStyle.LiquidGlass && surfaces.glass != null
+
+/**
+ * Minimum opacity of translucent panels, named by role, so the glass surfaces do not each carry their own number.
+ * A panel never gets less dense than [floor], and never less than the style's own surface alpha.
+ */
+object PanelFloor {
+    const val Field = 0.55f
+    const val Card = 0.72f
+    const val Bar = 0.78f
+    const val Player = 0.86f
+}
+
+/** The fill of a translucent panel: [surface] at the style's surface alpha, raised to [floor] (see [PanelFloor]). */
+fun DesignSurfaces.panelFill(surface: Color, floor: Float): Color = surface.copy(alpha = surfaceAlpha.coerceAtLeast(floor))

@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.ui.design.panelFill
+import com.beykus.beygram.ui.design.PanelFloor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -115,7 +117,7 @@ internal fun PinnedMessagesBar(
         TextButton(onClick = { scope.launch { loadMore() } }) { Text(stringResource(R.string.chat_pinned_failed) + " · " + stringResource(R.string.chat_pinned_retry)) }
     } else if (shown != null) {
         // Liquid Glass: the preview takes the header's translucent fill, so the two read as one block with no seam.
-        val rowFill = if (design.components.topBar == TopBarVariant.Glass) palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.78f)) else palette.surface
+        val rowFill = if (design.components.topBar == TopBarVariant.Glass) design.surfaces.panelFill(palette.surface, PanelFloor.Bar) else palette.surface
         Row(Modifier.fillMaxWidth().chatChromeBackground(rowFill), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).clickable { onOpen(shown) }.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.PushPin, null, tint = palette.accent, modifier = Modifier.size(20.dp))
