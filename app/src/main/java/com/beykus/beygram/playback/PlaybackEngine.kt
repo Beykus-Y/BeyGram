@@ -1443,8 +1443,10 @@ object PlaybackEngine {
         syncPosition()
         val frozen = _state.value
         persistence?.flush()
-        closedPlayer = ClosedPlayer(frozen, queueSource)
+        val closedSource = queueSource
+        // Shutting down drops any earlier snapshot, so the new one is stored only after it.
         releaseQueueAndHalt()
+        closedPlayer = ClosedPlayer(frozen, closedSource)
         _undoClose.value = true
         undoJob?.cancel()
         undoJob = scope.launch {
@@ -1526,8 +1528,8 @@ object PlaybackEngine {
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 val playing = _state.value.intentPlaying && !_state.value.ended
                 if (playing) {
-                    bgResumeOnFocusGain = true
                     pauseBgMix()
+                    bgResumeOnFocusGain = true
                 }
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
@@ -1744,6 +1746,8 @@ object PlaybackEngine {
     }
 
     private fun pauseBgMix() {
+        // Any pause but the focus listener's transient one is final: a later focus gain must not restart playback.
+        bgResumeOnFocusGain = false
         val before = _state.value
         bgMix?.pause()
         releaseBgWakeLock()
