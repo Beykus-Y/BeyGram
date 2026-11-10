@@ -64,6 +64,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -269,7 +270,11 @@ internal fun MainTabItem(
     pillHeight: Dp = TabPillHeight,
     iconSize: Dp = 24.dp,
     interactive: Boolean = true,
-    selectionPill: Boolean = true
+    selectionPill: Boolean = true,
+    /** The slim rail of a short window shows icons only; the TalkBack name stays the tab title. */
+    showLabel: Boolean = true,
+    /** Overrides the style's pill width where the container is narrower than the bar's pill (slim rail). */
+    pillWidthOverride: Dp? = null
 ) {
     val design = LocalDesignSystem.current
     val spec = remember(design) { navigationSpecFor(design) }
@@ -308,16 +313,19 @@ internal fun MainTabItem(
             this.selected = selected
         }
     }
+    val tabTitle = tab.title
     val resolvedIconSize = if (iconSize == 24.dp) spec.iconSize else iconSize
     val resolvedPillHeight = if (pillHeight == TabPillHeight) spec.pillHeight else pillHeight
     val indicatorShape = RoundedCornerShape(spec.pillRadius)
     Column(
-        modifier = itemModifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
+        modifier = itemModifier
+            .then(if (showLabel) Modifier else Modifier.semantics { contentDescription = tabTitle })
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .width(spec.pillWidth)
+                .width(pillWidthOverride ?: spec.pillWidth)
                 .height(resolvedPillHeight)
                 .graphicsLayer {
                     val scale = tabPressScale(pressProgress)
@@ -354,7 +362,7 @@ internal fun MainTabItem(
                 SelectionMark(spec, palette.textPrimary, Modifier.align(Alignment.TopCenter))
             }
         }
-        if (spec.showLabels) {
+        if (spec.showLabels && showLabel) {
             Spacer(Modifier.height(4.dp))
             Text(
                 text = tab.title,
@@ -610,7 +618,11 @@ internal fun MainTabsScaffold(
     // the dock and the reserve for it step aside while the keyboard is up.
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val isRail = usesMainNavigationRail(maxWidth.value)
+        // The class is read from this scaffold's own box: inside the list pane of a split layout it is a phone-width
+        // box (bottom bar), and across a whole short window it is the slim rail.
+        val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)
+        val isRail = windowLayout.usesRail
+        val slimRail = windowLayout.navigation == NavigationPlacement.SlimRail
         // One description of the navigation for every screen below, so the create button and the mini-player can line up
         // with the dock instead of repeating its numbers.
         val dock = NavigationDockGeometry(
@@ -623,7 +635,13 @@ internal fun MainTabsScaffold(
         // phone dock would move the sections away from the leading edge and lose the space the rail exists for.
         if (isRail) {
             Row(Modifier.fillMaxSize()) {
-                MainTabRail(tabs = tabs, selected = selected, onSelect = onSelect)
+                MainTabRail(
+                    tabs = tabs,
+                    selected = selected,
+                    onSelect = onSelect,
+                    slim = slimRail,
+                    bottomContent = if (slimRail) { { NowPlayingBar(hideWhenImeVisible = true, railCover = true) } } else null
+                )
                 Column(
                     Modifier
                         .weight(1f)
@@ -639,7 +657,7 @@ internal fun MainTabsScaffold(
                             stateHolder.SaveableStateProvider(key) { content() }
                         }
                     }
-                    NowPlayingBar(hideWhenImeVisible = true)
+                    if (!slimRail) NowPlayingBar(hideWhenImeVisible = true)
                 }
             }
         } else if (floating) {

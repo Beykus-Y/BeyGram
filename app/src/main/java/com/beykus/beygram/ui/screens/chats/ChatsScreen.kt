@@ -1,6 +1,13 @@
 package com.beykus.beygram.ui.screens.chats
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.snapshotFlow
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.ui.components.LocalWindowLayout
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -415,6 +422,30 @@ fun ChatsScreen(
         label = "chatsListTopEdgeFade"
     )
 
+    val windowLayout = LocalWindowLayout.current
+    val shortWindow = windowLayout.heightCompact
+    // Where the create-chat action lives follows the navigation: a floating button only where there is a bottom bar.
+    val createChatPlacement = createChatPlacement(
+        windowLayout, compactHeader, LocalDesignSystem.current.usesGlassPanels || LocalDesignSystem.current.style == DesignStyle.Signature
+    )
+    var foldersHiddenByScroll by remember { mutableStateOf(false) }
+    LaunchedEffect(listState, shortWindow) {
+        if (!shortWindow) {
+            foldersHiddenByScroll = false
+            return@LaunchedEffect
+        }
+        var last = 0L
+        snapshotFlow { listState.firstVisibleItemIndex.toLong() * 100_000L + listState.firstVisibleItemScrollOffset }
+            .collect { position ->
+                when {
+                    position <= 0L -> foldersHiddenByScroll = false
+                    position > last + 8L -> foldersHiddenByScroll = true
+                    position < last - 8L -> foldersHiddenByScroll = false
+                }
+                last = position
+            }
+    }
+
     if (managingFolders) {
         val manager: @Composable () -> Unit = {
             // Sorting every chat by title is only needed while the manager is open, and once per list change.
@@ -451,8 +482,141 @@ fun ChatsScreen(
         return
     }
 
+    // The folder chips are one row in both headers (the phone title block and the compact split-pane header).
+    val folderTabsRow: @Composable (Modifier) -> Unit = { modifier ->
+                    val serverTabs = orderedTelegramFolderTabs(folderSnapshot)
+                    LazyRow(
+                        modifier = modifier,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(serverTabs, key = { tab ->
+                            when (tab) {
+                                TelegramFolderTab.Main -> "server_main"
+                                is TelegramFolderTab.Folder -> "server_folder_${tab.id}"
+                            }
+                        }) { tab ->
+                            when (tab) {
+                                TelegramFolderTab.Main -> ServerFolderChip(
+                                    title = stringResource(R.string.chat_folders_all),
+                                    selected = activeFolderId == null,
+                                    unreadCount = null,
+                                    onClick = { state.selectFolder(0) }
+                                )
+                                is TelegramFolderTab.Folder -> {
+                                    val folder = folderSnapshot.folders.firstOrNull { it.id == tab.id }
+                                    if (folder != null) ServerFolderChip(
+                                        title = folder.title,
+                                        selected = activeFolderId == folder.id,
+                                        unreadCount = folder.unreadChats,
+                                        onClick = { state.selectFolder(folder.id) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+    }
+    // The split-pane header: no title (the section is named by the navigation), one 48 dp line with the account avatar,
+    // the search field and "more", and a row of folder chips under it. In a short window the chips go away while the list
+    // scrolls down and return on the first move up, so the rows get the height.
+    val compactChatsHeader: @Composable (Modifier) -> Unit = { modifier ->
+        var moreOpen by remember { mutableStateOf(false) }
+        val connectionLabel = if (connectionStatus == ChatsConnectionStatus.None) null
+        else stringResource(connectionStatus.labelResource())
+        Column(modifier = modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 4.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // The avatar opens the profile; a long press opens the account switcher (the people button is gone).
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape)
+                        .combinedClickable(
+                            role = Role.Button,
+                            onLongClickLabel = stringResource(R.string.account_switcher_title),
+                            onLongClick = onAccountPicker,
+                            onClick = onMyProfile
+                        )
+                        .semantics { contentDescription = context.getString(R.string.chats_my_profile_description) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 32.dp, myProfile?.photo, observeFile, downloadFile,
+                        Modifier.clearAndSetSemantics {})
+                }
+                Box(Modifier.weight(1f)) {
+                    // The connection state replaces the hint of the field instead of taking a line of its own.
+                    SearchField(
+                        query = query,
+                        onChange = { state.query = it },
+                        placeholder = connectionLabel ?: stringResource(R.string.chats_search_placeholder)
+                    )
+                }
+                if (createChatPlacement == CreateChatPlacement.Header) {
+                    androidx.compose.material3.IconButton(onClick = onNewChat, modifier = Modifier.size(48.dp)) {
+                        Icon(
+                            Icons.Rounded.Edit,
+                            contentDescription = stringResource(R.string.new_chat_title),
+                            tint = if (design.usesGlassPanels) palette.accentInk else palette.accent,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+                Box {
+                    androidx.compose.material3.IconButton(onClick = { moreOpen = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary)
+                    }
+                    DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.chats_read_all)) },
+                            enabled = hasUnreadChats,
+                            leadingIcon = { Icon(Icons.Rounded.DoneAll, null, tint = palette.textSecondary) },
+                            onClick = { moreOpen = false; confirmReadAll = true }
+                        )
+                        savedMessagesChat?.let { saved ->
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.saved_messages_open_description)) },
+                                leadingIcon = { Icon(Icons.Rounded.Bookmark, null, tint = palette.textSecondary) },
+                                onClick = { moreOpen = false; openChat(saved) }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.account_switcher_title)) },
+                            leadingIcon = { Icon(Icons.Rounded.People, null, tint = palette.textSecondary) },
+                            onClick = { moreOpen = false; onAccountPicker() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.music_search_action)) },
+                            // The music note is the one accent of this menu; the rest stay in ink.
+                            leadingIcon = { Icon(Icons.Rounded.MusicNote, null, tint = palette.accentInk) },
+                            onClick = { moreOpen = false; focusManager.clearFocus(); onMusicSearch() }
+                        )
+                        if (folderSnapshot.initialized) DropdownMenuItem(
+                            text = { Text(stringResource(R.string.folder_manage_title)) },
+                            leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = palette.textSecondary) },
+                            onClick = { moreOpen = false; managingFolders = true }
+                        )
+                        if (createChatPlacement != CreateChatPlacement.Fab) DropdownMenuItem(
+                            text = { Text(stringResource(R.string.new_chat_title)) },
+                            leadingIcon = { Icon(Icons.Rounded.Edit, null, tint = palette.textSecondary) },
+                            onClick = { moreOpen = false; onNewChat() }
+                        )
+                    }
+                }
+            }
+            networkSearchAction(query)?.let { search ->
+                Spacer(Modifier.height(4.dp))
+                TelegramSearchAction(
+                    search = search,
+                    offline = connectionState == TelegramConnectionState.WaitingForNetwork,
+                    onClick = { onGlobalSearch(query) }
+                )
+            }
+            if (folderSnapshot.initialized) {
+                AnimatedVisibility(visible = !foldersHiddenByScroll) {
+                    folderTabsRow(Modifier.fillMaxWidth().padding(top = 2.dp, start = 4.dp, end = 4.dp))
+                }
+            }
+        }
+    }
     // The header is one block shared by both layouts: in a column above the list, or as glass chrome over it.
     val chatsHeader: @Composable (Modifier) -> Unit = { modifier ->
+      if (compactHeader) compactChatsHeader(modifier) else
         Column(modifier = modifier.fillMaxWidth().padding(start = headerPadding, end = headerPadding, top = 8.dp, bottom = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -545,36 +709,7 @@ fun ChatsScreen(
             // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
             if (folderSnapshot.initialized) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    val serverTabs = orderedTelegramFolderTabs(folderSnapshot)
-                    LazyRow(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(serverTabs, key = { tab ->
-                            when (tab) {
-                                TelegramFolderTab.Main -> "server_main"
-                                is TelegramFolderTab.Folder -> "server_folder_${tab.id}"
-                            }
-                        }) { tab ->
-                            when (tab) {
-                                TelegramFolderTab.Main -> ServerFolderChip(
-                                    title = stringResource(R.string.chat_folders_all),
-                                    selected = activeFolderId == null,
-                                    unreadCount = null,
-                                    onClick = { state.selectFolder(0) }
-                                )
-                                is TelegramFolderTab.Folder -> {
-                                    val folder = folderSnapshot.folders.firstOrNull { it.id == tab.id }
-                                    if (folder != null) ServerFolderChip(
-                                        title = folder.title,
-                                        selected = activeFolderId == folder.id,
-                                        unreadCount = folder.unreadChats,
-                                        onClick = { state.selectFolder(folder.id) }
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    folderTabsRow(Modifier.weight(1f))
                     androidx.compose.material3.IconButton(onClick = { managingFolders = true }) {
                         Icon(Icons.Rounded.Tune,
                             contentDescription = stringResource(R.string.folder_manage_title),
@@ -594,7 +729,10 @@ fun ChatsScreen(
             },
             // Keep the last conversation accessible above the overlay button, measured from the button itself. Under
             // glass chrome the list also starts below the header it scrolls beneath.
-            contentPadding = PaddingValues(top = topPadding, bottom = fabPlacement.listClearance)
+            contentPadding = PaddingValues(
+                top = topPadding,
+                bottom = if (createChatPlacement == CreateChatPlacement.Fab) fabPlacement.listClearance else 8.dp
+            )
         ) {
             // Stories live on the main chat list only, not in search results or a server folder.
             if (activeFolderId == null && query.isBlank()) {
@@ -782,7 +920,7 @@ fun ChatsScreen(
         chatList(Modifier.weight(1f), 0.dp)
       }
       }
-      FloatingActionButton(
+      if (createChatPlacement == CreateChatPlacement.Fab) FloatingActionButton(
           onClick = onNewChat,
           modifier = Modifier.align(Alignment.BottomEnd)
               .padding(end = fabPlacement.endPadding, bottom = fabPlacement.bottomPadding)

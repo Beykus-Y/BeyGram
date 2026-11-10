@@ -120,6 +120,7 @@ import com.beykus.beygram.security.AppLockManager
 import com.beykus.beygram.ui.accessibility.accessibleTouchTarget
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ChatAvatar
+import com.beykus.beygram.ui.components.LocalWindowLayout
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.motionEntrance
 import com.beykus.beygram.ui.motion.fadeEnter
@@ -1556,6 +1557,10 @@ fun ChatScreen(
 
     // Reported by PinnedMessagesBar: while the preview sits under the header, Liquid Glass keeps one hairline for both.
     var pinnedPreviewShown by remember(chat.id, forumTopicId) { mutableStateOf(false) }
+    val windowLayout = LocalWindowLayout.current
+    // In a short window the keyboard leaves the messages almost nothing: the pinned strip yields its line while it is up.
+    val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val compactChrome = windowLayout.heightCompact
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     // The system bar bands take the colour of the bar next to them (header on top, composer at the bottom), so the edges
     // of the screen are not two-toned. In Liquid Glass that is the pane tint over the screen colour.
@@ -1657,11 +1662,14 @@ fun ChatScreen(
             onStatistics = onStatistics,
             onExport = { exportOpen = true },
             secretChat = secretChat,
-            pinnedBelow = pinnedPreviewShown
+            pinnedBelow = pinnedPreviewShown && !(compactChrome && keyboardOpen),
+            showBack = !windowLayout.twoPane || forumTopicId > 0L,
+            compact = compactChrome
         )
         // Keep playback accessible below the chat header, not between messages and the composer.
         // The input/IME and reply controls should remain adjacent to the message list.
-        NowPlayingBar()
+        // In the split layout the player already lives under the list on the left, so the chat has no strip of its own.
+        if (!windowLayout.twoPane) NowPlayingBar()
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
         if (translationTargetMessage != null && TranslationPolicy.canTranslate(chat.isSecret, translationTargetMessage.text.isNotBlank())) {
@@ -1698,9 +1706,9 @@ fun ChatScreen(
                 }.minOrNull()
             }
         }
-        PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected,
+        if (!(compactChrome && keyboardOpen)) PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected,
             ::jumpToPinned, visibleOldestMessageId = visibleOldestPinnedBoundary, forumTopicId = forumTopicId,
-            onPreviewShownChange = { pinnedPreviewShown = it })
+            onPreviewShownChange = { pinnedPreviewShown = it }, compact = compactChrome)
         if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -2131,7 +2139,7 @@ fun ChatScreen(
             }
         )
         delayed.Strip(composerEmpty = draft.isEmpty() && replyId == null, onRestoreDraft = { restored -> updateDraft { restored } })
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = if (compactChrome) 4.dp else 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) {
                     botCommandMenu?.takeIf { it.commands.isNotEmpty() }?.let {
@@ -2631,7 +2639,11 @@ private fun ChatTopBar(
     onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onStatistics: (() -> Unit)? = null,
     onExport: () -> Unit = {}, secretChat: SecretChatDetails? = null,
     /** The pinned preview is drawn directly under this header, so it closes the group with the one hairline. */
-    pinnedBelow: Boolean = false
+    pinnedBelow: Boolean = false,
+    /** False in the split layout: the list is already on screen, so an arrow that "goes back" would promise nothing new. */
+    showBack: Boolean = true,
+    /** A short window: one 48 dp line with the status beside the title instead of under it. */
+    compact: Boolean = false
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -2649,17 +2661,24 @@ private fun ChatTopBar(
             TopBarVariant.Flat -> Modifier.background(palette.surface)
         }
     )) {
-        Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
+        Row(
+            Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = if (compact) 0.dp else 6.dp, bottom = if (compact) 0.dp else 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (showBack) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
             // Avatar and title share one focus stop: TalkBack should not visit the same "chat info" target twice.
             Row(
                 Modifier.weight(1f).heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = chatInfoLabel, onClick = onInfo)
                     .semantics(mergeDescendants = true) { role = Role.Button },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ChatAvatar(chat, 40.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
+                val statusText = if (chat.isSecret) secretChatStatusLine(secretChat)
+                else chatPresenceLine(chat, info, lastSeenStyle, now).resolve()
+                ChatAvatar(chat, if (compact) 32.dp else 40.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+                Spacer(Modifier.width(if (compact) 10.dp else 12.dp))
+                // At a large font the compact line gives up the status before it cuts the title.
+                val statusInline = compact && LocalDensity.current.fontScale < 1.3f
+                val titleRow: @Composable () -> Unit = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(forumTopicTitle ?: chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         if (chat.isSecret && forumTopicTitle == null) {
@@ -2671,15 +2690,29 @@ private fun ChatTopBar(
                                 modifier = Modifier.size(15.dp)
                             )
                         }
+                        if (statusInline) {
+                            Text(
+                                " · $statusText",
+                                color = palette.textSecondary,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                        }
                     }
-                    Text(
-                        if (chat.isSecret) secretChatStatusLine(secretChat)
-                        else chatPresenceLine(chat, info, lastSeenStyle, now).resolve(),
-                        color = palette.textSecondary,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    titleRow()
+                    if (!compact) {
+                        Text(
+                            statusText,
+                            color = palette.textSecondary,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
             // Scheduled messages stay accessible from overflow, without permanently consuming
@@ -2722,7 +2755,7 @@ private fun ChatTopBar(
             }
         }
         // Liquid Glass with the pinned preview below: the preview's own hairline is the single edge of the group.
-        if (!onGlass && !(pinnedBelow && design.components.topBar == TopBarVariant.Glass)) HorizontalDivider(color = palette.divider)
+        if (!onGlass && !pinnedBelow) HorizontalDivider(color = palette.divider)
     }
 }
 
