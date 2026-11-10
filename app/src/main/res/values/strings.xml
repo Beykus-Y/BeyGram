@@ -2363,4 +2363,10 @@
     <string name="player_sleep_extend">Добавить %1$d минут</string>
     <string name="player_sleep_cancel_plain">Отключить таймер</string>
     <string name="settings_crossfade_length">Длина перехода: %1$d с</string>
+    <string name="queue_clear">Очистить очередь</string>
+    <string name="queue_save_as_playlist">Сохранить как плейлист</string>
+    <string name="queue_saved_as_playlist">Плейлист сохранён</string>
+    <string name="queue_save_confirm">Сохранить</string>
+    <string name="queue_played">Уже сыграно</string>
+    <string name="player_mini_open_library">Моя музыка</string>
 </resources>

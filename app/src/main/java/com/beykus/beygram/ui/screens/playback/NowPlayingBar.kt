@@ -14,6 +14,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.composed
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -188,7 +192,9 @@ fun NowPlayingBar(
                 ui = shown,
                 bottomInset = bottomInset,
                 floatingDock = floatingDock,
-                onOpen = { fullPlayerOpen = true }
+                onOpen = { fullPlayerOpen = true },
+                // A long press is a shortcut to the library for people who never found it in the menus.
+                onLongOpen = if (shown.isMusic) openMyMusic else null
             )
         }
     }
@@ -218,7 +224,7 @@ fun NowPlayingBar(
 }
 
 @Composable
-private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, onOpen: () -> Unit) {
+private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, onOpen: () -> Unit, onLongOpen: (() -> Unit)? = null) {
     // Music takes its tint from the cover, or from the theme accent without one. Voice and circles keep the theme.
     val cover = rememberCoverTokens(
         artworkPath = ui.artworkPath,
@@ -228,9 +234,9 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: 
     )
     CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
         if (floatingDock) {
-            MiniDockCard { MiniPlayerBarContent(ui, bottomInset, floatingDock = true, onOpen = onOpen) }
+            MiniDockCard { MiniPlayerBarContent(ui, bottomInset, floatingDock = true, onOpen = onOpen, onLongOpen = onLongOpen) }
         } else {
-            MiniPlayerBarContent(ui, bottomInset, floatingDock = false, onOpen = onOpen)
+            MiniPlayerBarContent(ui, bottomInset, floatingDock = false, onOpen = onOpen, onLongOpen = onLongOpen)
         }
     }
 }
@@ -271,7 +277,7 @@ private fun MiniDockCard(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, onOpen: () -> Unit) {
+private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, onOpen: () -> Unit, onLongOpen: (() -> Unit)? = null) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val openLabel = stringResource(R.string.player_mini_open)
@@ -306,7 +312,17 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatin
                     .weight(1f)
                     .heightIn(min = 48.dp)
                     .clip(styledShape(12.dp))
-                    .clickable(role = Role.Button, onClickLabel = openLabel, onClick = onOpen)
+                    .miniPlayerSwipe(
+                        onPrevious = { PlaybackEngine.previous() },
+                        onNext = { PlaybackEngine.next() }
+                    )
+                    .combinedClickable(
+                        role = Role.Button,
+                        onClickLabel = openLabel,
+                        onLongClickLabel = onLongOpen?.let { stringResource(R.string.player_mini_open_library) },
+                        onLongClick = onLongOpen,
+                        onClick = onOpen
+                    )
                     .padding(start = 2.dp, end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -604,4 +620,35 @@ private fun SpeedChip(speed: Float, selected: Boolean, enabled: Boolean, colors:
             .clickable(enabled = enabled, onClick = onSelect)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     )
+}
+
+
+/** A swipe to the left plays the next track, to the right the previous one, as in other music players. */
+private fun Modifier.miniPlayerSwipe(onPrevious: () -> Unit, onNext: () -> Unit): Modifier = composed {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 72.dp.toPx() }
+    pointerInput(Unit) {
+        var total = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { total = 0f },
+            onDragEnd = {
+                when {
+                    total <= -threshold -> {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick)
+                        onNext()
+                    }
+                    total >= threshold -> {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick)
+                        onPrevious()
+                    }
+                }
+                total = 0f
+            },
+            onDragCancel = { total = 0f },
+            onHorizontalDrag = { change, amount ->
+                change.consume()
+                total += amount
+            }
+        )
+    }
 }
