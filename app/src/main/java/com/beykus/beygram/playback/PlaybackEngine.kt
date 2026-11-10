@@ -1638,6 +1638,9 @@ object PlaybackEngine {
         if (!BgMixSettingsStore.enabled.value) return false
         if (requested.index !in requested.items.indices) return false
         val single = _state.value.repeatMode == PlaybackRepeatMode.One
+        // A position restoration waiting on the old session must not seek the new one.
+        bgMixSeekJob?.cancel()
+        bgMixSeekJob = null
         // Creates the shared player and appContext on first use, so the notification and queue paths work.
         player(context)
         val driver = bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }
@@ -1751,7 +1754,9 @@ object PlaybackEngine {
         val hasNext = status.queue.any { (driver.indexOfNative(it.id) ?: -1) > index }
         _state.update { current ->
             current.copy(
-                timelineHasNext = hasNext || (index >= driver.queueItems.lastIndex && bgMixHasNext(index, driver.queueItems.size)),
+                // Repeat One keeps one track in the native queue, so Next is judged by the logical queue.
+                timelineHasNext = hasNext || current.repeatMode == PlaybackRepeatMode.One ||
+                    (index >= driver.queueItems.lastIndex && bgMixHasNext(index, driver.queueItems.size)),
                 timelineHasPrevious = true,
                 item = item,
                 queue = driver.queueItems,
@@ -1991,7 +1996,8 @@ object PlaybackEngine {
             val state = _state.value
             // Like the regular player: a few seconds in, Previous restarts the track; otherwise it steps back.
             if (state.ended || state.positionMs >= PREVIOUS_RESTART_THRESHOLD_MS || state.queueIndex <= 0) {
-                if (state.ended) restartBgMix(state.queue, state.queueIndex, 0L, true) else bgMix?.seek(0.0)
+                // A native seek is refused during a transition; the session then starts the track again instead of dropping the press.
+                if (state.ended || bgMix?.seek(0.0) != true) restartBgMix(state.queue, state.queueIndex, 0L, state.intentPlaying || state.ended)
             } else {
                 restartBgMix(state.queue, state.queueIndex - 1, 0L, state.intentPlaying)
             }
