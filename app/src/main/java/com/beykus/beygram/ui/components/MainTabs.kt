@@ -380,7 +380,9 @@ internal fun tabLabelSize(nominal: TextUnit, fontScale: Float): TextUnit =
     if (fontScale > MaxTabLabelFontScale) nominal * (MaxTabLabelFontScale / fontScale) else nominal
 
 /** How far above the icon box the Signature mark sits, so it reads as a tab marker near the top edge of the bar. */
-private fun markLift(spec: NavigationSpec): Dp = (spec.barTopPadding - 4.dp).coerceAtLeast(0.dp)
+private fun markLift(spec: NavigationSpec): Dp =
+    // In a floating capsule the mark would sit 3-4px from the outline and merge with it, so it stays 3dp lower there.
+    (spec.barTopPadding - 4.dp - if (spec.floating) 3.dp else 0.dp).coerceAtLeast(0.dp)
 
 /** The Signature selection mark: a short rounded ink bar. */
 @Composable
