@@ -394,6 +394,14 @@ private fun PlayerHeader(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
+                if (player.bgMix) {
+                    Text(
+                        stringResource(R.string.player_speed_bgmix_hint),
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
                 PLAYBACK_SPEED_OPTIONS.forEach { speed ->
                     val selected = player.speed == speed
                     DropdownMenuItem(
@@ -404,6 +412,7 @@ private fun PlayerHeader(
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
                             )
                         },
+                        enabled = !player.bgMix,
                         onClick = {
                             PlaybackEngine.setMusicSpeed(speed)
                             speedMenu = false
