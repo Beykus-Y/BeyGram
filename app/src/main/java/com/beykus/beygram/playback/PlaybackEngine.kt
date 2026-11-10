@@ -240,8 +240,13 @@ object PlaybackEngine {
                         return@launch
                     }
                     val target = exo
-                    val duration = target?.duration ?: C.TIME_UNSET
-                    if (target == null || duration == C.TIME_UNSET) Long.MAX_VALUE else duration - target.currentPosition
+                    if (bgMixActive()) {
+                        // BG Mix plays outside ExoPlayer, which sits paused on a placeholder: the published state is the truth.
+                        if (state.durationMs <= 0L) Long.MAX_VALUE else state.durationMs - state.positionMs
+                    } else {
+                        val duration = target?.duration ?: C.TIME_UNSET
+                        if (target == null || duration == C.TIME_UNSET) Long.MAX_VALUE else duration - target.currentPosition
+                    }
                 } else {
                     timer.deadlineElapsedMs - SystemClock.elapsedRealtime()
                 }
