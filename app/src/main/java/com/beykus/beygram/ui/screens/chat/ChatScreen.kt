@@ -1663,7 +1663,7 @@ fun ChatScreen(
             onExport = { exportOpen = true },
             secretChat = secretChat,
             pinnedBelow = pinnedPreviewShown && !(compactChrome && keyboardOpen),
-            showBack = !windowLayout.twoPane,
+            showBack = !windowLayout.twoPane || forumTopicId > 0L,
             compact = compactChrome
         )
         // Keep playback accessible below the chat header, not between messages and the composer.
