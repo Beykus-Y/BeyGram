@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
+import com.beykus.beygram.ui.design.panelFill
+import com.beykus.beygram.ui.design.PanelFloor
 import com.beykus.beygram.ui.design.HairlineEdge
 import com.beykus.beygram.ui.design.signatureChrome
 import android.content.Context
@@ -613,7 +615,7 @@ internal fun ProfileToolbar(title: String, onBack: () -> Unit, actions: @Composa
         when (design.components.topBar) {
             TopBarVariant.Elevated -> Modifier.topAppBarSurface()
             TopBarVariant.Glass -> Modifier
-                .background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.72f)))
+                .background(design.surfaces.panelFill(palette.surface, PanelFloor.Card))
             TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
             TopBarVariant.Flat -> Modifier
         }

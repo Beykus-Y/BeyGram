@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.theme
 
+import com.beykus.beygram.ui.design.panelFill
+import com.beykus.beygram.ui.design.PanelFloor
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -340,7 +342,7 @@ private fun SceneSearchField(modifier: Modifier) {
             palette.surface2
         }
         SearchFieldVariant.Outlined -> palette.surface
-        SearchFieldVariant.Glass -> palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.55f))
+        SearchFieldVariant.Glass -> design.surfaces.panelFill(palette.surface, PanelFloor.Field)
     }
     Row(
         modifier.fillMaxWidth().height(design.mainScreen.searchHeight).clip(shape).background(fill)

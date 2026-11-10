@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.playback
 
+import com.beykus.beygram.ui.design.panelFill
+import com.beykus.beygram.ui.design.PanelFloor
 import com.beykus.beygram.ui.design.signatureChrome
 import com.beykus.beygram.ui.design.HairlineEdge
 import com.beykus.beygram.ui.design.GlassPanel
@@ -318,7 +320,7 @@ private fun MiniPlayerBarContent(
             .then(
                 if (floatingDock || com.beykus.beygram.ui.screens.chat.LocalChatChromeOnGlass.current) Modifier else when (design.components.topBar) {
                     TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
-                    TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.86f)))
+                    TopBarVariant.Glass -> Modifier.background(design.surfaces.panelFill(palette.surface, PanelFloor.Player))
                     TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
                     TopBarVariant.Flat -> Modifier.background(palette.surface)
                 }
@@ -328,7 +330,9 @@ private fun MiniPlayerBarContent(
                 else Modifier
             )
     ) {
-        WithCoverTint(artworkTokens) { MiniPlayerProgress(Modifier.padding(horizontal = progressInset)) }
+        // On a pinned bar the track is the top edge. In a floating capsule it runs along the bottom instead, so it does
+        // not compete with the glass rim on the top edge and is not cut by the rounded corners.
+        if (!floatingDock) WithCoverTint(artworkTokens) { MiniPlayerProgress() }
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -451,6 +455,7 @@ private fun MiniPlayerBarContent(
                 Icon(Icons.Rounded.Close, stringResource(R.string.player_stop), tint = palette.textSecondary)
             }
         }
+        if (floatingDock) WithCoverTint(artworkTokens) { MiniPlayerProgress(Modifier.padding(horizontal = progressInset)) }
     }
 }
 

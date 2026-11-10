@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.ui.design.panelFill
+import com.beykus.beygram.ui.design.PanelFloor
 import com.beykus.beygram.ui.design.ComposerVariant
 import com.beykus.beygram.ui.design.signatureChrome
 import com.beykus.beygram.ui.design.HairlineEdge
@@ -2655,7 +2657,7 @@ private fun ChatTopBar(
     Column(Modifier.fillMaxWidth().then(
         if (onGlass) Modifier else when (design.components.topBar) {
             TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
-            TopBarVariant.Glass -> Modifier.background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.78f)))
+            TopBarVariant.Glass -> Modifier.background(design.surfaces.panelFill(palette.surface, PanelFloor.Bar))
             // Signature: the header shares the canvas with the messages, one hairline marks where it ends.
             TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
             TopBarVariant.Flat -> Modifier.background(palette.surface)
