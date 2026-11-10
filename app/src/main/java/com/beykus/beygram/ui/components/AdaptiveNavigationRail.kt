@@ -8,6 +8,8 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.draw.shadow
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -56,6 +58,9 @@ internal const val MainNavigationRailMinWidthDp = 600f
 
 /** Ширина рейки без системных отступов: иконка и подпись раздела помещаются без обрезки. */
 internal val MainNavigationRailWidth: Dp = 88.dp
+
+/** Material 2 draws its rail 72 dp wide; the other styles keep 80 dp (the 88 dp default is the upper bound). */
+internal fun mainNavigationRailWidth(style: DesignStyle): Dp = if (style == DesignStyle.Material2) 72.dp else 80.dp
 
 /** Узкая рейка телефона в ландшафте: только иконки, ширина дешевле высоты. */
 internal val MainNavigationSlimRailWidth: Dp = 56.dp
@@ -133,10 +138,14 @@ internal fun MainTabRail(
     val design = LocalDesignSystem.current
     // The rail is the tablet form of the bottom bar, so it takes the same surface: the tonal container of the Material 3
     // navigation bar, the elevated edge of Material 2 and the plain surface everywhere else (Default unchanged).
-    val railColor = if (design.components.navigation == NavigationVariant.NavigationBar) {
-        MaterialTheme.colorScheme.surfaceContainer
-    } else {
-        palette.surface
+    val railColor = when {
+        design.components.navigation == NavigationVariant.NavigationBar -> MaterialTheme.colorScheme.surfaceContainer
+        // Signature chrome stands on the canvas behind one hairline, like every other bar of the style.
+        design.style == DesignStyle.Signature -> palette.screen
+        else -> palette.surface
+    }
+    val hairline = palette.divider.takeIf {
+        design.style == DesignStyle.Signature || design.usesGlassPanels
     }
     val railElevation = if (design.components.topBar == TopBarVariant.Elevated) design.surfaces.barElevation else 0.dp
     // Glass and Signature carry the action in the search row of the list; every other style carries it here.
@@ -150,11 +159,18 @@ internal fun MainTabRail(
                 else Modifier
             )
             .background(railColor)
+            .then(
+                if (hairline != null) Modifier.drawWithContent {
+                    drawContent()
+                    val stroke = 1.dp.toPx()
+                    drawLine(hairline, Offset(size.width - stroke / 2, 0f), Offset(size.width - stroke / 2, size.height), stroke)
+                } else Modifier
+            )
             .windowInsetsPadding(
                 WindowInsets.systemBars.union(WindowInsets.displayCutout)
                     .only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)
             )
-            .width(if (slim) MainNavigationSlimRailWidth else MainNavigationRailWidth),
+            .width(if (slim) MainNavigationSlimRailWidth else mainNavigationRailWidth(design.style)),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Column(
@@ -178,7 +194,8 @@ internal fun MainTabRail(
                     onSelect = { onSelect(tab) },
                     modifier = Modifier.fillMaxWidth(),
                     showLabel = !slim,
-                    pillWidthOverride = if (slim) 48.dp else null
+                    pillWidthOverride = if (slim) 48.dp else null,
+                    verticalMark = true
                 )
             }
         }

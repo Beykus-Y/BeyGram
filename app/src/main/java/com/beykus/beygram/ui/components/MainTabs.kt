@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -275,7 +276,9 @@ internal fun MainTabItem(
     /** The slim rail of a short window shows icons only; the TalkBack name stays the tab title. */
     showLabel: Boolean = true,
     /** Overrides the style's pill width where the container is narrower than the bar's pill (slim rail). */
-    pillWidthOverride: Dp? = null
+    pillWidthOverride: Dp? = null,
+    /** The rail stands the Signature mark upright at the leading edge (3 x 20 dp) so it never touches the icon. */
+    verticalMark: Boolean = false
 ) {
     val design = LocalDesignSystem.current
     val spec = remember(design) { navigationSpecFor(design) }
@@ -360,7 +363,16 @@ internal fun MainTabItem(
             if (selected && selectionPill && spec.indicatorMark) {
                 // A standalone item (the settings preview, the rail) has no shared indicator and no bar padding above
                 // it, so it draws its own mark inside the icon box, where no parent can clip it.
-                SelectionMark(spec, palette.textPrimary, Modifier.align(Alignment.TopCenter))
+                if (verticalMark) {
+                    Box(
+                        Modifier.align(Alignment.CenterStart)
+                            .size(width = spec.markHeight, height = spec.markWidth)
+                            .clip(RoundedCornerShape(spec.markHeight / 2))
+                            .background(palette.textPrimary)
+                    )
+                } else {
+                    SelectionMark(spec, palette.textPrimary, Modifier.align(Alignment.TopCenter))
+                }
             }
         }
         if (spec.showLabels && showLabel) {
@@ -588,6 +600,23 @@ private fun NavigationBarContent(
 }
 
 /**
+ * Calls, Contacts and Settings are lists of rows: stretched over a tablet window they become lines a metre long. The column
+ * is held to [MaxSectionContentWidth] and centred; a phone is narrower than the cap and sees no change.
+ */
+internal val MaxSectionContentWidth = 640.dp
+
+@Composable
+private fun ContentWidthCap(enabled: Boolean, content: @Composable () -> Unit) {
+    if (!enabled) {
+        content()
+        return
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.fillMaxHeight().widthIn(max = MaxSectionContentWidth).fillMaxWidth()) { content() }
+    }
+}
+
+/**
  * Раздел с навигацией: содержимое занимает место над нижним меню на телефоне или справа от
  * вертикальной рейки на широком экране. [key] сохраняет состояние экрана при переключении
  * разделов, поэтому список чатов возвращается на прежнюю позицию.
@@ -625,7 +654,7 @@ internal fun MainTabsScaffold(
         // box (bottom bar), and across a whole short window it is the slim rail.
         val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)
         val isRail = windowLayout.usesRail
-        val slimRail = windowLayout.navigation == NavigationPlacement.SlimRail
+        val slimRail = windowLayout.navigation == WindowNavigation.SlimRail
         // One description of the navigation for every screen below, so the create button and the mini-player can line up
         // with the dock instead of repeating its numbers.
         val dock = NavigationDockGeometry(
@@ -657,7 +686,7 @@ internal fun MainTabsScaffold(
                 ) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         CompositionLocalProvider(LocalNavigationDock provides dock) {
-                            stateHolder.SaveableStateProvider(key) { content() }
+                            ContentWidthCap(selected != MainTab.Chats) { stateHolder.SaveableStateProvider(key) { content() } }
                         }
                     }
                     if (!slimRail) NowPlayingBar(hideWhenImeVisible = true)
@@ -694,7 +723,7 @@ internal fun MainTabsScaffold(
                 ) {
                     val screenDock = if (underDock) dock.copy(contentInset = reserve) else dock
                     CompositionLocalProvider(LocalNavigationDock provides screenDock) {
-                        stateHolder.SaveableStateProvider(key) { content() }
+                        ContentWidthCap(selected != MainTab.Chats) { stateHolder.SaveableStateProvider(key) { content() } }
                     }
                 }
                 if (!imeVisible) CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
@@ -721,7 +750,7 @@ internal fun MainTabsScaffold(
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     CompositionLocalProvider(LocalNavigationDock provides dock) {
-                        stateHolder.SaveableStateProvider(key) { content() }
+                        ContentWidthCap(selected != MainTab.Chats) { stateHolder.SaveableStateProvider(key) { content() } }
                     }
                 }
                 NowPlayingBar(hideWhenImeVisible = true)

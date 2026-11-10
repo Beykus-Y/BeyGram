@@ -164,7 +164,7 @@ private fun MainScreenSample(style: DesignStyle, placement: NavigationPlacement,
 }
 
 /** Fixed chats: pinned, unread, muted, a long name and a marked-unread row, the cases the issue asks to cover. */
-private val SampleChats: List<ChatPreview> = listOf(
+internal val SampleChats: List<ChatPreview> = listOf(
     chat(1, "Анна Смирнова", "АС", "Увидимся завтра в десять?", "12:41", unread = 2, color = 0xFFE57373, pinned = true),
     chat(2, "Рабочая группа", "РГ", "Иван: макеты готовы, смотрите", "12:30", unread = 128, color = 0xFF64B5F6, pinned = true),
     chat(3, "Максимилиан Александрович Константинопольский", "МК", "Очень длинное имя не должно ломать строку", "11:02", color = 0xFF81C784),

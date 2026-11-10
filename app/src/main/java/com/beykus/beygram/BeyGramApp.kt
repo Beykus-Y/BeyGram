@@ -87,7 +87,7 @@ import com.beykus.beygram.playback.EqualizerStore
 import com.beykus.beygram.ui.components.MainTabRail
 import com.beykus.beygram.ui.components.LocalRailCreateChat
 import com.beykus.beygram.ui.components.LocalWindowLayout
-import com.beykus.beygram.ui.components.NavigationPlacement
+import com.beykus.beygram.ui.components.WindowNavigation
 import com.beykus.beygram.ui.components.WindowLayout
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.usesGlassPanels
@@ -233,6 +233,14 @@ private val tabRootRoutes = MainTab.entries.mapTo(HashSet()) { it.route }
 
 /** Экраны чатов делят одну панель на широком экране, поэтому переход между ними там не анимируется. */
 private val chatSlotRoutes = setOf(AppRoute.Chats, AppRoute.Chat, AppRoute.MessageThread)
+
+// Secondary screens that take one pane of the split layout instead of the whole window: these replace the list...
+private val listPaneRoutes = setOf(AppRoute.Archive, AppRoute.GlobalSearch, AppRoute.NewChat)
+
+// ...and these replace the open chat, so the list stays where it is.
+private val detailPaneRoutes = setOf(AppRoute.ChatInfo, AppRoute.ChatMembers, AppRoute.ChatManagement, AppRoute.MemberProfile)
+
+private val twoPaneSlotRoutes = chatSlotRoutes + listPaneRoutes + detailPaneRoutes
 
 @Composable
 fun BeyGramApp(
@@ -2195,6 +2203,116 @@ private fun BeyGramAppContent(
             routeName = AppRoute.MusicPlaylist.name
         }
     ) {
+    // Routes that also fill one pane of the split layout, so they are built once and placed by the host below.
+    val newChatRoute: @Composable () -> Unit = {
+NewChatScreen(
+                    loadContacts = repository::loadContacts,
+                    openPrivateChat = repository::openPrivateChat,
+                    createSecretChat = repository::createSecretChat,
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile,
+                    onBack = { routeName = AppRoute.Chats.name },
+                    onNewGroup = { routeName = AppRoute.CreateGroup.name },
+                    onNewChannel = { routeName = AppRoute.CreateChannel.name },
+                    onAddContact = { openTab(MainTab.Contacts, AppRoute.NewChat) },
+                    resolvePublicChat = repository::resolvePublicChat,
+                    checkInviteLink = repository::checkInviteLink,
+                    joinInviteLink = repository::joinInviteLink,
+                    onChatOpened = { chatId ->
+                        selectedChatId = chatId
+                        linkReturnChatId = 0L
+                        chatBackRouteName = AppRoute.Chats.name
+                        routeName = AppRoute.Chat.name
+                    }
+                )
+    }
+    val globalSearchRoute: @Composable () -> Unit = {
+GlobalSearchScreen(
+                    initialQuery = globalSearchQuery,
+                    conversation = repository,
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile,
+                    onOpenChat = { chat ->
+                        val sourceAccountId = selectedAccountId
+                        val sourceRepository = repository
+                        globalSearchNavScope.launch {
+                            val loaded = sourceRepository.loadChat(chat.id)
+                            if (selectedAccountId != sourceAccountId) return@launch
+                            if (loaded.isSuccess) {
+                                selectedChatId = chat.id
+                                linkReturnChatId = 0L
+                                selectedTopicChatId = chat.id
+                                selectedForumTopicId = 0L
+                                trustedForumTopicId = 0L
+                                chatFocusMessageId = 0L
+                                chatBackRouteName = AppRoute.GlobalSearch.name
+                                routeName = AppRoute.Chat.name
+                            } else {
+                                chatFocusMessageId = 0L
+                                noticeError = UiText.Res(R.string.err_app_open_chat_failed)
+                            }
+                        }
+                    },
+                    onOpenProfile = { userId -> openUserProfile(userId, AppRoute.GlobalSearch) },
+                    onOpenPublicChat = { chat ->
+                        val sourceAccountId = selectedAccountId
+                        val sourceRepository = repository
+                        globalSearchNavScope.launch {
+                            sourceRepository.openPublicChat(chat.id)
+                                .onSuccess { result ->
+                                    if (selectedAccountId == sourceAccountId) {
+                                        when (result) {
+                                            is PublicChatOpenResult.Opened -> {
+                                                selectedChatId = result.chatId
+                                                linkReturnChatId = 0L
+                                                selectedTopicChatId = result.chatId
+                                                selectedForumTopicId = 0L
+                                                trustedForumTopicId = 0L
+                                                chatFocusMessageId = 0L
+                                                chatBackRouteName = AppRoute.GlobalSearch.name
+                                                routeName = AppRoute.Chat.name
+                                            }
+                                            PublicChatOpenResult.JoinRequestSent ->
+                                                noticeError = UiText.Res(R.string.global_search_public_join_request_sent)
+                                        }
+                                    }
+                                }
+                                .onFailure { error ->
+                                    if (selectedAccountId == sourceAccountId) {
+                                        noticeError = (error as? UserMessageException)?.text
+                                            ?: UiText.Res(R.string.global_search_public_open_failed)
+                                    }
+                                }
+                        }
+                    },
+                    onOpenMessage = { chatId, forumTopicId, messageId ->
+                        val sourceAccountId = selectedAccountId
+                        val sourceRepository = repository
+                        globalSearchNavScope.launch {
+                            // A deleted or inaccessible chat must not leave a focus message
+                            // that later opens in the next unrelated chat.
+                            val loaded = sourceRepository.loadChat(chatId)
+                            // A completion from another account cannot navigate the newly selected UI.
+                            if (selectedAccountId != sourceAccountId) return@launch
+                            if (loaded.isSuccess) {
+                                selectedChatId = chatId
+                                linkReturnChatId = 0L
+                                selectedTopicChatId = chatId
+                                selectedForumTopicId = forumTopicId
+                                chatFocusMessageId = messageId
+                                chatBackRouteName = AppRoute.GlobalSearch.name
+                                routeName = AppRoute.Chat.name
+                            } else {
+                                chatFocusMessageId = 0L
+                                noticeError = UiText.Res(R.string.err_app_open_chat_failed)
+                            }
+                        }
+                    },
+                    onBack = { routeName = AppRoute.Chats.name },
+                    connectionState = connectionState,
+                    session = globalSearchSession
+                )
+    }
     Column(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             // One window class for the whole tree: the width and the height are read here once, so the list, the
@@ -2276,7 +2394,7 @@ private fun BeyGramAppContent(
                     // Phones: a comment thread stays in its chat's slot, since it is the same open conversation.
                     contentKey = {
                         when {
-                            routeTwoPane && it in chatSlotRoutes -> AppRoute.Chats
+                            routeTwoPane && it in twoPaneSlotRoutes -> AppRoute.Chats
                             it == AppRoute.MessageThread -> AppRoute.Chat
                             else -> it
                         }
@@ -2284,7 +2402,7 @@ private fun BeyGramAppContent(
                     transitionSpec = { routeContentTransform(routeMove, pushSpec, popSpec, tabSpec) },
                     label = "routeTransition"
                 ) { screenRoute ->
-                when (screenRoute) {
+                when (if (routeTwoPane && screenRoute in twoPaneSlotRoutes) AppRoute.Chats else screenRoute) {
                 AppRoute.Start -> StartScreen(
                     tdLibReadiness = tdLibReadiness,
                     authState = authState,
@@ -2364,8 +2482,8 @@ private fun BeyGramAppContent(
                                         tabs = MainTab.entries.filter { tabVisibility.isVisible(it) },
                                         selected = MainTab.Chats,
                                         onSelect = selectTab,
-                                        slim = layout.navigation == NavigationPlacement.SlimRail,
-                                        bottomContent = if (layout.navigation == NavigationPlacement.SlimRail) {
+                                        slim = layout.navigation == WindowNavigation.SlimRail,
+                                        bottomContent = if (layout.navigation == WindowNavigation.SlimRail) {
                                             { NowPlayingBar(hideWhenImeVisible = true, railCover = true) }
                                         } else null
                                     )
@@ -2378,8 +2496,16 @@ private fun BeyGramAppContent(
                                     }
                                 },
                                 list = {
-                                    val open = screenRoute != AppRoute.Chats
-                                    if (layout.navigation == NavigationPlacement.BottomBarInListPane) {
+                                    val open = screenRoute == AppRoute.Chat || screenRoute == AppRoute.MessageThread ||
+                                        screenRoute in detailPaneRoutes
+                                    if (screenRoute in listPaneRoutes) {
+                                        // Archive, search and a new chat open in the list pane; the right side stays as it is.
+                                        when (screenRoute) {
+                                            AppRoute.Archive -> archiveRoute()
+                                            AppRoute.GlobalSearch -> globalSearchRoute()
+                                            else -> newChatRoute()
+                                        }
+                                    } else if (layout.navigation == WindowNavigation.BottomBarInListPane) {
                                         // Меню стиля внутри панели списка: ведёт себя как телефон, правая часть — содержимое.
                                         MainTabsScaffold(
                                             "${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats,
@@ -2390,8 +2516,15 @@ private fun BeyGramAppContent(
                                     }
                                 },
                                 detail = {
-                                    if (screenRoute == AppRoute.Chats) ChatsDetailPlaceholder()
-                                    else chatRoute(true)
+                                    when (screenRoute) {
+                                        AppRoute.Chats, AppRoute.Archive, AppRoute.GlobalSearch, AppRoute.NewChat -> ChatsDetailPlaceholder()
+                                        // Chat details, members and management take the right pane over the chat.
+                                        AppRoute.ChatInfo -> chatInfoRoute()
+                                        AppRoute.ChatMembers -> chatMembersRoute()
+                                        AppRoute.ChatManagement -> chatManagementRoute()
+                                        AppRoute.MemberProfile -> memberProfileRoute()
+                                        else -> chatRoute(true)
+                                    }
                                 }
                             )
                         }
@@ -2717,26 +2850,7 @@ private fun BeyGramAppContent(
                         onBack = { routeName = AppRoute.Settings.name }
                     )
                 }
-                AppRoute.NewChat -> NewChatScreen(
-                    loadContacts = repository::loadContacts,
-                    openPrivateChat = repository::openPrivateChat,
-                    createSecretChat = repository::createSecretChat,
-                    observeFile = repository::observeFile,
-                    downloadFile = repository::downloadFile,
-                    onBack = { routeName = AppRoute.Chats.name },
-                    onNewGroup = { routeName = AppRoute.CreateGroup.name },
-                    onNewChannel = { routeName = AppRoute.CreateChannel.name },
-                    onAddContact = { openTab(MainTab.Contacts, AppRoute.NewChat) },
-                    resolvePublicChat = repository::resolvePublicChat,
-                    checkInviteLink = repository::checkInviteLink,
-                    joinInviteLink = repository::joinInviteLink,
-                    onChatOpened = { chatId ->
-                        selectedChatId = chatId
-                        linkReturnChatId = 0L
-                        chatBackRouteName = AppRoute.Chats.name
-                        routeName = AppRoute.Chat.name
-                    }
-                )
+                AppRoute.NewChat -> newChatRoute()
                 AppRoute.CreateGroup -> {
                     val groupCreation by repository.groupCreation.collectAsStateWithLifecycle()
                     CreateGroupScreen(
@@ -2784,91 +2898,7 @@ private fun BeyGramAppContent(
                     onResources = { routeName = AppRoute.Resources.name }
                 )
                 AppRoute.Resources -> ResourcesScreen(onBack = { routeName = AppRoute.Diagnostics.name })
-                AppRoute.GlobalSearch -> GlobalSearchScreen(
-                    initialQuery = globalSearchQuery,
-                    conversation = repository,
-                    observeFile = repository::observeFile,
-                    downloadFile = repository::downloadFile,
-                    onOpenChat = { chat ->
-                        val sourceAccountId = selectedAccountId
-                        val sourceRepository = repository
-                        globalSearchNavScope.launch {
-                            val loaded = sourceRepository.loadChat(chat.id)
-                            if (selectedAccountId != sourceAccountId) return@launch
-                            if (loaded.isSuccess) {
-                                selectedChatId = chat.id
-                                linkReturnChatId = 0L
-                                selectedTopicChatId = chat.id
-                                selectedForumTopicId = 0L
-                                trustedForumTopicId = 0L
-                                chatFocusMessageId = 0L
-                                chatBackRouteName = AppRoute.GlobalSearch.name
-                                routeName = AppRoute.Chat.name
-                            } else {
-                                chatFocusMessageId = 0L
-                                noticeError = UiText.Res(R.string.err_app_open_chat_failed)
-                            }
-                        }
-                    },
-                    onOpenProfile = { userId -> openUserProfile(userId, AppRoute.GlobalSearch) },
-                    onOpenPublicChat = { chat ->
-                        val sourceAccountId = selectedAccountId
-                        val sourceRepository = repository
-                        globalSearchNavScope.launch {
-                            sourceRepository.openPublicChat(chat.id)
-                                .onSuccess { result ->
-                                    if (selectedAccountId == sourceAccountId) {
-                                        when (result) {
-                                            is PublicChatOpenResult.Opened -> {
-                                                selectedChatId = result.chatId
-                                                linkReturnChatId = 0L
-                                                selectedTopicChatId = result.chatId
-                                                selectedForumTopicId = 0L
-                                                trustedForumTopicId = 0L
-                                                chatFocusMessageId = 0L
-                                                chatBackRouteName = AppRoute.GlobalSearch.name
-                                                routeName = AppRoute.Chat.name
-                                            }
-                                            PublicChatOpenResult.JoinRequestSent ->
-                                                noticeError = UiText.Res(R.string.global_search_public_join_request_sent)
-                                        }
-                                    }
-                                }
-                                .onFailure { error ->
-                                    if (selectedAccountId == sourceAccountId) {
-                                        noticeError = (error as? UserMessageException)?.text
-                                            ?: UiText.Res(R.string.global_search_public_open_failed)
-                                    }
-                                }
-                        }
-                    },
-                    onOpenMessage = { chatId, forumTopicId, messageId ->
-                        val sourceAccountId = selectedAccountId
-                        val sourceRepository = repository
-                        globalSearchNavScope.launch {
-                            // A deleted or inaccessible chat must not leave a focus message
-                            // that later opens in the next unrelated chat.
-                            val loaded = sourceRepository.loadChat(chatId)
-                            // A completion from another account cannot navigate the newly selected UI.
-                            if (selectedAccountId != sourceAccountId) return@launch
-                            if (loaded.isSuccess) {
-                                selectedChatId = chatId
-                                linkReturnChatId = 0L
-                                selectedTopicChatId = chatId
-                                selectedForumTopicId = forumTopicId
-                                chatFocusMessageId = messageId
-                                chatBackRouteName = AppRoute.GlobalSearch.name
-                                routeName = AppRoute.Chat.name
-                            } else {
-                                chatFocusMessageId = 0L
-                                noticeError = UiText.Res(R.string.err_app_open_chat_failed)
-                            }
-                        }
-                    },
-                    onBack = { routeName = AppRoute.Chats.name },
-                    connectionState = connectionState,
-                    session = globalSearchSession
-                )
+                AppRoute.GlobalSearch -> globalSearchRoute()
                 AppRoute.ReportProblem -> ReportProblemScreen(
                     accountId = selectedAccountId,
                     repository = repository,

@@ -1570,7 +1570,12 @@ fun ChatScreen(
     val statusBarPx = WindowInsets.statusBars.getTop(systemBarDensity).toFloat()
     val navBarPx = WindowInsets.navigationBars.getBottom(systemBarDensity).toFloat()
     val glassBandFill = palette.surface.copy(alpha = 0.72f).compositeOver(palette.screen)
-    val topBandFill = if (chatGlass) glassBandFill else palette.surface
+    // The band takes the colour of the header next to it: Signature's header stands on the canvas, the rest on the surface.
+    val topBandFill = when {
+        chatGlass -> glassBandFill
+        design.components.topBar == TopBarVariant.Signature -> palette.screen
+        else -> palette.surface
+    }
     val bottomBandFill = when {
         chatGlass -> glassBandFill
         design.components.composer == ComposerVariant.Signature -> palette.screen
