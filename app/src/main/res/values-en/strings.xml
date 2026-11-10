@@ -788,4 +788,6 @@
     </plurals>
     <string name="music_untitled">Untitled</string>
     <string name="profile_chat_music_row">Music from this chat in your library · %1$s</string>
+    <string name="player_waiting_network">No connection, we\'ll continue when it\'s back</string>
+    <string name="playback_track_skipped">This file will not open, skipping the track</string>
 </resources>

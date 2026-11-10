@@ -181,4 +181,37 @@ class PlaybackOrderTest {
             assertNotEquals((0 until 6).toList(), playbackOrder)
         }
     }
+
+    @OptIn(UnstableApi::class)
+    @Test
+    fun shuffleStartedFromTheCurrentTrackPutsItFirstAndReachesEveryOtherTrack() {
+        repeat(20) { seed ->
+            val order = PlaybackShuffleOrder.random(8, Random(seed), currentIndex = 5)
+            val playbackOrder = order.toIndexOrder()
+            assertEquals(5, order.firstIndex)
+            assertEquals(5, playbackOrder.first())
+            assertEquals((0 until 8).toSet(), playbackOrder.toSet())
+            // Nothing is behind the playing track, so all N-1 others are still reachable going forward.
+            assertEquals(-1, order.getPreviousIndex(5))
+            var reachable = 0
+            var index = order.getNextIndex(5)
+            while (index != -1) {
+                reachable++
+                index = order.getNextIndex(index)
+            }
+            assertEquals(7, reachable)
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    @Test
+    fun neighbourLookupsUseTheInversePermutation() {
+        val order = PlaybackShuffleOrder(listOf(2, 0, 3, 1))
+        assertEquals(0, order.getNextIndex(2))
+        assertEquals(3, order.getNextIndex(0))
+        assertEquals(-1, order.getNextIndex(1))
+        assertEquals(2, order.getPreviousIndex(0))
+        assertEquals(-1, order.getPreviousIndex(2))
+        assertEquals(-1, order.getNextIndex(9))
+    }
 }

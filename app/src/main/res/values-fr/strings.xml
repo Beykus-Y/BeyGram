@@ -814,4 +814,6 @@
     </plurals>
     <string name="music_untitled">Sans titre</string>
     <string name="profile_chat_music_row">Musique de ce chat dans votre bibliothèque · %1$s</string>
+    <string name="player_waiting_network">Pas de connexion, la lecture reprendra dès son retour</string>
+    <string name="playback_track_skipped">Ce fichier ne s’ouvre pas, le morceau est ignoré</string>
 </resources>

@@ -661,6 +661,15 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
             }
         }
 
+        player.waitingForNetwork -> Row(
+            Modifier.padding(top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = palette.accent)
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.player_waiting_network), color = palette.textSecondary, fontSize = 13.sp)
+        }
+
         player.intentPlaying && player.buffering -> Row(
             Modifier.padding(top = 6.dp),
             verticalAlignment = Alignment.CenterVertically

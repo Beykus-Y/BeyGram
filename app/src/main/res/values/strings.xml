@@ -2341,4 +2341,6 @@
     </plurals>
     <string name="music_untitled">Без названия</string>
     <string name="profile_chat_music_row">Музыка из этого чата в библиотеке · %1$s</string>
+    <string name="player_waiting_network">Нет сети, продолжим, когда появится</string>
+    <string name="playback_track_skipped">Файл не открывается, пропускаем трек</string>
 </resources>

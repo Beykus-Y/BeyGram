@@ -173,6 +173,10 @@ internal object PlaybackSources {
 
     fun handle(mediaId: String): PlaybackSourceHandle? = handles[mediaId]
 
+    fun remove(mediaId: String) {
+        handles.remove(mediaId)
+    }
+
     fun clear() {
         handles.clear()
     }
@@ -282,7 +286,7 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
             val transferActive = source.isDownloading()
             growingWaitFailure(transferActive, now - startedAt)?.let { failure ->
                 recordGrowingStall(failure, source, transferActive, now - startedAt)
-                throw IOException(failure.message)
+                throw PlaybackNetworkWaitException(failure.message)
             }
             if (now - requestedAt >= REQUEST_INTERVAL_MS) {
                 requestedAt = now
@@ -320,7 +324,7 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
             resolved = handle.resolve()
             if (resolved != null) return resolved
             if (now - startedAt >= OPEN_TIMEOUT_MS) {
-                throw IOException("Audio is not available")
+                throw PlaybackNetworkWaitException("Audio is not available")
             }
         }
         throw IOException("Playback source was closed")

@@ -131,6 +131,8 @@ data class PlaybackState(
     val durationMs: Long = 0L,
     val speed: Float = 1f,
     val failed: Boolean = false,
+    /** The queue lost the network and continues from the same position as soon as it returns. */
+    val waitingForNetwork: Boolean = false,
     /** Плеер хотя бы раз сообщил, что файл реально играет. Отметка «прослушано» ставится по этому флагу, а не по нажатию. */
     val started: Boolean = false,
     /** Файл доиграл до конца. Кружок в ленте сворачивается, а новый запуск начинает файл сначала. */
@@ -528,3 +530,9 @@ internal fun intentAfterPlayWhenReadyChange(
         reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS -> if (playWhenReady) previousIntent else false
         else -> playWhenReady
     }
+
+/** A short event the root screen shows to the user. */
+enum class PlaybackNotice {
+    /** The playing track could not be opened and the queue moved to the next one. */
+    TrackSkipped,
+}
