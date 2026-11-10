@@ -95,6 +95,7 @@ class MainActivity : FragmentActivity() {
     private var lastDeepLinkIntentData: String? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        acceptOpenPlayerIntent(intent)
         // Restore the window-privacy policy before the first frame. Rotation of a secret chat
         // must not produce an unprotected frame just because the new composition has not run yet.
         screenSecure = savedInstanceState?.getBoolean("secure_screen", false) ?: false
@@ -387,7 +388,16 @@ class MainActivity : FragmentActivity() {
         acceptShareIntent(intent)
         acceptDeepLinkIntent(intent)
         pendingDeepLink = deepLinkInbox.restore()
+        acceptOpenPlayerIntent(intent)
     }
+
+    /** A tap on the playback notification opens the full player once the screen has been composed. */
+    private fun acceptOpenPlayerIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(com.beykus.beygram.playback.PlaybackService.EXTRA_OPEN_PLAYER, false) != true) return
+        intent.removeExtra(com.beykus.beygram.playback.PlaybackService.EXTRA_OPEN_PLAYER)
+        android.os.Handler(mainLooper).postDelayed({ com.beykus.beygram.ui.screens.playback.MusicPlayerLauncher.open() }, 600L)
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
         notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId); outState.putString("notification_account", it.accountId) }

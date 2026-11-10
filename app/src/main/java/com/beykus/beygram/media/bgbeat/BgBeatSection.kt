@@ -63,6 +63,17 @@ internal fun BgBeatSection(
     modifier: Modifier = Modifier,
     colors: NowPlayingColors? = null
 ) {
+    BgBeatSection(item, { playbackFraction }, modifier, colors)
+}
+
+/** [playbackFractionProvider] is read only where the wave is drawn, so a moving playhead does not recompose the caller. */
+@Composable
+internal fun BgBeatSection(
+    item: PlaybackItem,
+    playbackFractionProvider: () -> Float,
+    modifier: Modifier = Modifier,
+    colors: NowPlayingColors? = null
+) {
     val context = LocalContext.current
     val manager = BgBeatManager.getInstance(context)
     val uiState by manager.uiState.collectAsStateWithLifecycle()
@@ -106,7 +117,7 @@ internal fun BgBeatSection(
                     waveform = analysis.waveform,
                     beats = analysis.beats,
                     durationSeconds = analysis.duration,
-                    playbackFraction = playbackFraction,
+                    playbackFraction = playbackFractionProvider(),
                     accentColor = accentColor,
                     barColor = secondaryColor.copy(alpha = 0.45f),
                     cursorColor = primaryColor,

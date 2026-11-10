@@ -132,6 +132,13 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
                 checked = crossfade,
                 onCheckedChange = { TrackTransitionSettings.setCrossfade(transitionContext, it) }
             )
+            if (crossfade) {
+                val crossfadeSeconds by TrackTransitionSettings.crossfadeSeconds.collectAsStateWithLifecycle()
+                CrossfadeLengthRow(
+                    seconds = crossfadeSeconds,
+                    onChange = { TrackTransitionSettings.setCrossfadeSeconds(transitionContext, it) }
+                )
+            }
         }
         SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {
             SettingsLink(Icons.Rounded.Key, stringResource(R.string.account_security_title), onAccountSecurity)
@@ -256,6 +263,25 @@ private fun SettingsToggle(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+/** The length of the overlap between tracks, from one to twelve seconds. Shown only while the crossfade is on. */
+@Composable
+private fun CrossfadeLengthRow(seconds: Int, onChange: (Int) -> Unit) {
+    val palette = beyGramPalette()
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Text(
+            stringResource(R.string.settings_crossfade_length, seconds),
+            color = palette.textPrimary,
+            fontSize = 15.sp
+        )
+        androidx.compose.material3.Slider(
+            value = seconds.toFloat(),
+            onValueChange = { onChange(it.toInt()) },
+            valueRange = TrackTransitionSettings.MIN_CROSSFADE_SECONDS.toFloat()..TrackTransitionSettings.MAX_CROSSFADE_SECONDS.toFloat(),
+            steps = TrackTransitionSettings.MAX_CROSSFADE_SECONDS - TrackTransitionSettings.MIN_CROSSFADE_SECONDS - 1
         )
     }
 }

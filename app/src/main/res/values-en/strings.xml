@@ -801,4 +801,13 @@
     <string name="player_more">More</string>
     <string name="player_bgmix_badge">BG Mix</string>
     <string name="player_bgmix_explain">Smooth transitions mode is playing. Shuffle, repeat, speed and the Previous button switch the queue to the regular player at the same place.</string>
+    <string name="player_sleep_status_track_end">Sleep timer · until the end of the track</string>
+    <string name="player_sleep_until_track_end">Until the end of the track</string>
+    <string name="player_sleep_custom">Custom time…</string>
+    <string name="player_sleep_custom_title">Sleep timer</string>
+    <string name="player_sleep_custom_label">Minutes (1–%1$d)</string>
+    <string name="player_sleep_custom_set">Start</string>
+    <string name="player_sleep_extend">Add %1$d minutes</string>
+    <string name="player_sleep_cancel_plain">Turn off the timer</string>
+    <string name="settings_crossfade_length">Transition length: %1$d s</string>
 </resources>

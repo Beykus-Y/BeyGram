@@ -37,6 +37,7 @@ internal class TrackCrossfader(
     private val newPlayer: () -> ExoPlayer?,
     private val trailingMs: (mediaId: String) -> Long?,
     private val nextAfter: (primary: ExoPlayer, mediaId: String) -> CrossfadeNext?,
+    private val overlapMs: () -> Long = { CROSSFADE_MS },
 ) {
     private enum class Outcome { GaveUp, Interrupted, Finished }
 
@@ -113,6 +114,8 @@ internal class TrackCrossfader(
         player.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE
 
     private suspend fun run(primary: ExoPlayer, watch: Watch): Outcome {
+        // The length chosen in the settings applies to the whole transition, even if the setting changes meanwhile.
+        val overlap = overlapMs()
         var lockedSwitch: Long? = null
         var lockedNext: CrossfadeNext? = null
         var lastPosition: Long? = null
@@ -136,7 +139,7 @@ internal class TrackCrossfader(
             }
             lastPosition = position
             val switchAt = lockedSwitch
-                ?: crossfadeSwitchMs(duration, knownTrailing(watch))
+                ?: crossfadeSwitchMs(duration, knownTrailing(watch), overlap)
                 ?: return Outcome.GaveUp
             if (position > switchAt + CROSSFADE_TOLERANCE_MS) return Outcome.GaveUp
             val tail = watch.tail
@@ -155,7 +158,7 @@ internal class TrackCrossfader(
                 lockedNext = next
             } else if (position >= switchAt - CROSSFADE_PREROLL_MS && tail.playbackState == Player.STATE_READY) {
                 val next = lockedNext ?: return Outcome.GaveUp
-                return fire(primary, watch, tail, next)
+                return fire(primary, watch, tail, next, overlap)
             }
             delay(crossfadeWaitMs(switchAt - position))
         }
@@ -181,7 +184,7 @@ internal class TrackCrossfader(
         player.seekTo((switchAt - CROSSFADE_PREROLL_MS).coerceAtLeast(0L))
     }
 
-    private suspend fun fire(primary: ExoPlayer, watch: Watch, tail: ExoPlayer, locked: CrossfadeNext): Outcome {
+    private suspend fun fire(primary: ExoPlayer, watch: Watch, tail: ExoPlayer, locked: CrossfadeNext, overlap: Long): Outcome {
         // The queue may have changed while the tail waited. A different next track keeps this transition a plain cut.
         val target = nextAfter(primary, watch.mediaId)
         if (target == null || target.mediaId != locked.mediaId) return Outcome.GaveUp
@@ -227,10 +230,10 @@ internal class TrackCrossfader(
         val startedAt = System.nanoTime()
         while (true) {
             val mediaElapsedMs = ((System.nanoTime() - startedAt) / 1_000_000L * speed).toLong()
-            if (mediaElapsedMs >= CROSSFADE_MS) return Outcome.Finished
+            if (mediaElapsedMs >= overlap) return Outcome.Finished
             if (crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary))) return Outcome.Interrupted
             if (primary.currentMediaItem?.mediaId != target.mediaId) return Outcome.Interrupted
-            val progress = crossfadeProgress(mediaElapsedMs)
+            val progress = crossfadeProgress(mediaElapsedMs, overlap)
             primary.volume = incomingGain(progress)
             tail.volume = outgoingGain(progress)
             delay(CROSSFADE_STEP_MS)

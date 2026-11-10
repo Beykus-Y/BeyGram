@@ -2354,4 +2354,13 @@
     <string name="player_more">Ещё</string>
     <string name="player_bgmix_badge">BG Mix</string>
     <string name="player_bgmix_explain">Сейчас играет режим плавных переходов. Перемешивание, повтор, скорость и кнопка «Назад» переключат очередь на обычный плеер с того же места.</string>
+    <string name="player_sleep_status_track_end">Таймер сна · до конца трека</string>
+    <string name="player_sleep_until_track_end">До конца трека</string>
+    <string name="player_sleep_custom">Своё время…</string>
+    <string name="player_sleep_custom_title">Таймер сна</string>
+    <string name="player_sleep_custom_label">Минут (1–%1$d)</string>
+    <string name="player_sleep_custom_set">Включить</string>
+    <string name="player_sleep_extend">Добавить %1$d минут</string>
+    <string name="player_sleep_cancel_plain">Отключить таймер</string>
+    <string name="settings_crossfade_length">Длина перехода: %1$d с</string>
 </resources>

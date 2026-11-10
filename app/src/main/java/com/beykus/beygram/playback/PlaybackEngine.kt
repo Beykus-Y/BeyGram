@@ -177,6 +177,7 @@ private class BgMixAwareListener(
  */
 object PlaybackEngine {
     private const val PROGRESS_INTERVAL_MS = 250L
+    private const val PROGRESS_FAST_INTERVAL_MS = 50L
     private const val SLEEP_FADE_STEP_MS = 100L
     private const val UNDO_CLOSE_MS = 5_000L
     private const val BG_WAKE_LOCK_TIMEOUT_MS = 6 * 60 * 60_000L
@@ -239,8 +240,13 @@ object PlaybackEngine {
                         return@launch
                     }
                     val target = exo
-                    val duration = target?.duration ?: C.TIME_UNSET
-                    if (target == null || duration == C.TIME_UNSET) Long.MAX_VALUE else duration - target.currentPosition
+                    if (bgMixActive()) {
+                        // BG Mix plays outside ExoPlayer, which sits paused on a placeholder: the published state is the truth.
+                        if (state.durationMs <= 0L) Long.MAX_VALUE else state.durationMs - state.positionMs
+                    } else {
+                        val duration = target?.duration ?: C.TIME_UNSET
+                        if (target == null || duration == C.TIME_UNSET) Long.MAX_VALUE else duration - target.currentPosition
+                    }
                 } else {
                     timer.deadlineElapsedMs - SystemClock.elapsedRealtime()
                 }
@@ -352,6 +358,7 @@ object PlaybackEngine {
         newPlayer = { newCrossfadePlayer() },
         trailingMs = { mediaId -> crossfadeTrailingMs(mediaId) },
         nextAfter = { primary, mediaId -> crossfadeNextAfter(primary, mediaId) },
+        overlapMs = { TrackTransitionSettings.crossfadeSeconds.value * 1_000L },
     )
 
     /**
@@ -474,12 +481,22 @@ object PlaybackEngine {
                 return super.isCommandAvailable(command)
             }
 
+            // The headset and the notification use the app's own Next and Previous, so Repeat One, shuffle and BG Mix
+            // behave the same as with the buttons on the screen.
             override fun seekToNext() {
-                if (bgMixActive()) bgMix?.next() else super.seekToNext()
+                this@PlaybackEngine.next()
+            }
+
+            override fun seekToNextMediaItem() {
+                this@PlaybackEngine.next()
             }
 
             override fun seekToPrevious() {
-                if (bgMixActive()) this@PlaybackEngine.previous() else super.seekToPrevious()
+                this@PlaybackEngine.previous()
+            }
+
+            override fun seekToPreviousMediaItem() {
+                this@PlaybackEngine.previous()
             }
 
             override fun seekTo(positionMs: Long) {
@@ -827,7 +844,7 @@ object PlaybackEngine {
         val requestedStart = (startPositionMs ?: 0L).coerceAtLeast(0L)
         val defer = shouldDeferGrowingSeek(resolved.growing, requestedStart)
         target.setMediaItems(listOf(mediaItemFor(resolved)), 0, if (defer) 0L else requestedStart)
-        applyPlayerModes(target, music = resolved.isMusic && !resolved.systemPrivate)
+        applyPlayerModes(target, music = resolved.isMusic && !resolved.systemPrivate, speech = resolved.kind != MediaKind.Audio)
         applySpeed(target, resolved)
         target.prepare()
         updateAudioSessionId()
@@ -1010,10 +1027,31 @@ object PlaybackEngine {
         PlaybackRepeatMode.All -> Player.REPEAT_MODE_ALL
     }
 
-    private fun applyPlayerModes(target: ExoPlayer, music: Boolean) {
+    private fun applyPlayerModes(target: ExoPlayer, music: Boolean, speech: Boolean = !music) {
         val state = _state.value
         target.repeatMode = if (music) state.repeatMode.toPlayerRepeatMode() else Player.REPEAT_MODE_OFF
         target.shuffleModeEnabled = music && state.shuffleEnabled
+        applyAudioKind(target, speech = speech)
+    }
+
+    /** True while the player is set up for speech (voice messages, video notes), false for music, null before the first call. */
+    private var speechAttributes: Boolean? = null
+
+    /**
+     * Voice messages and video notes are speech: a short sound of another app (a navigator prompt, a notification) pauses
+     * them instead of ducking, so no words are lost. Music keeps the music type. The attributes change only when the kind
+     * of file changes, because changing them reconfigures the audio output.
+     */
+    private fun applyAudioKind(target: ExoPlayer, speech: Boolean) {
+        if (speechAttributes == speech) return
+        speechAttributes = speech
+        target.setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(if (speech) C.AUDIO_CONTENT_TYPE_SPEECH else C.AUDIO_CONTENT_TYPE_MUSIC)
+                .build(),
+            /* handleAudioFocus = */ true
+        )
     }
 
     private fun effectiveSpeed(item: PlaybackItem): Float =
@@ -1139,7 +1177,7 @@ object PlaybackEngine {
         val defer = shouldDeferGrowingSeek(item.growing, requestedStart)
         target.setMediaItems(resolvedQueue.map(::mediaItemFor), index, if (defer) 0L else requestedStart)
         installShuffleOrder(target, resolvedQueue.size, playbackOrder, index)
-        applyPlayerModes(target, music = item.isMusic && !item.systemPrivate)
+        applyPlayerModes(target, music = item.isMusic && !item.systemPrivate, speech = item.kind != MediaKind.Audio)
         applySpeed(target, item)
         target.prepare()
         if (defer) {
@@ -1323,6 +1361,33 @@ object PlaybackEngine {
                 target.volume = original
             }
         }
+    }
+
+    private var recordingFocus: AudioFocusRequest? = null
+
+    /**
+     * While a voice message or a video note is recorded, other apps are asked to stop their sound for a moment, so music
+     * from elsewhere does not end up in the recording. [endRecordingFocus] gives the focus back.
+     */
+    fun beginRecordingFocus(context: Context) {
+        if (recordingFocus != null) return
+        val audio = context.applicationContext.getSystemService(AudioManager::class.java) ?: return
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+            .setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setOnAudioFocusChangeListener { }
+            .build()
+        if (audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) recordingFocus = request
+    }
+
+    fun endRecordingFocus(context: Context) {
+        val request = recordingFocus ?: return
+        recordingFocus = null
+        context.applicationContext.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request)
     }
 
     /** Account the shared player is bound to. Profile music uses it to hide "add to profile" for another account's tracks. */
@@ -2500,6 +2565,17 @@ object PlaybackEngine {
         if (_audioSessionId.value != musicSession) _audioSessionId.value = musicSession
     }
 
+    /**
+     * The progress tick is quick only where timing matters: in the last seconds of a track with the silence skip on, so the
+     * skip lands within a few tens of milliseconds of the measured silence instead of a quarter of a second after it.
+     */
+    private fun progressDelayMs(target: ExoPlayer): Long {
+        if (!TrackTransitionSettings.skipSilence.value) return PROGRESS_INTERVAL_MS
+        val duration = target.duration
+        if (duration == C.TIME_UNSET || duration <= 0L) return PROGRESS_INTERVAL_MS
+        return if (duration - target.currentPosition <= SILENCE_SCAN_MS + 500L) PROGRESS_FAST_INTERVAL_MS else PROGRESS_INTERVAL_MS
+    }
+
     /** Обновляет позицию, пока файл играет. Пауза и конец файла останавливают цикл. */
     private fun startProgress() {
         progress?.cancel()
@@ -2512,7 +2588,7 @@ object PlaybackEngine {
                 measureBeforeTransition(target)
                 skipTrailingSilence(target)
                 if (!target.isPlaying && target.playbackState != Player.STATE_BUFFERING) break
-                delay(PROGRESS_INTERVAL_MS)
+                delay(progressDelayMs(target))
             }
         }
     }
@@ -2677,6 +2753,7 @@ object PlaybackEngine {
         val nextId = primary.getMediaItemAt(index).mediaId
         val next = state.queue.firstOrNull { it.systemMediaId == nextId } ?: return null
         if (!isCrossfadeMusic(next)) return null
+        if (!crossfadeAllowedBetween(current, next, crossfadeTrailingMs(mediaId))) return null
         val startMs = if (TrackTransitionSettings.skipSilence.value) {
             SilenceAnalyzer.cachedEdges(withResolvedSource(next))?.let { leadingSkipStartMs(it.leadingMs) } ?: 0L
         } else {

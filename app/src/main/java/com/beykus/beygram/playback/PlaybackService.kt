@@ -26,7 +26,8 @@ class PlaybackService : MediaSessionService() {
         val openApp = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            // The marker makes a tap on the notification open the full player, not just the app.
+            Intent(this, MainActivity::class.java).putExtra(EXTRA_OPEN_PLAYER, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         session = MediaSession.Builder(this, PlaybackEngine.player(this)).setSessionActivity(openApp).build()
@@ -43,7 +44,10 @@ class PlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
-    private companion object {
-        const val CHANNEL_ID = "playback"
+    companion object {
+        private const val CHANNEL_ID = "playback"
+
+        /** Set on the notification's tap intent; [MainActivity] then opens the full player. */
+        const val EXTRA_OPEN_PLAYER = "beygram.open_player"
     }
 }

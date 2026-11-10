@@ -801,4 +801,13 @@
     <string name="player_more">Más</string>
     <string name="player_bgmix_badge">BG Mix</string>
     <string name="player_bgmix_explain">Está sonando el modo de transiciones suaves. Aleatorio, repetir, velocidad y «Anterior» pasan la cola al reproductor normal en el mismo punto.</string>
+    <string name="player_sleep_status_track_end">Temporizador · hasta el final de la pista</string>
+    <string name="player_sleep_until_track_end">Hasta el final de la pista</string>
+    <string name="player_sleep_custom">Otro tiempo…</string>
+    <string name="player_sleep_custom_title">Temporizador</string>
+    <string name="player_sleep_custom_label">Minutos (1–%1$d)</string>
+    <string name="player_sleep_custom_set">Iniciar</string>
+    <string name="player_sleep_extend">Añadir %1$d minutos</string>
+    <string name="player_sleep_cancel_plain">Desactivar el temporizador</string>
+    <string name="settings_crossfade_length">Duración de la transición: %1$d s</string>
 </resources>

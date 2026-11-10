@@ -539,14 +539,22 @@ internal fun NowPlayingControls(
         Spacer(Modifier.height(16.dp))
         Text(item.title, color = colors.primary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
         if (state.failed) Text(stringResource(R.string.media_audio_play_failed), color = colors.secondary, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
+        // The seek is sent when the finger is lifted: a seek on every movement made each step of a drag reopen the stream.
+        var dragFraction by remember { mutableStateOf<Float?>(null) }
+        val totalMs = if (state.durationMs > 0L) state.durationMs else item.durationSeconds * 1000L
         Slider(
-            value = state.fraction,
-            onValueChange = { PlaybackEngine.seekTo(it, fallbackDurationMs = item.durationSeconds * 1000L) },
+            value = dragFraction ?: state.fraction,
+            onValueChange = { dragFraction = it },
+            onValueChangeFinished = {
+                dragFraction?.let { PlaybackEngine.seekTo(it, fallbackDurationMs = item.durationSeconds * 1000L) }
+                dragFraction = null
+            },
             enabled = enabled && (state.durationMs > 0L || item.durationSeconds > 0),
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(duration((state.positionMs / 1000).toInt()), color = colors.secondary, fontSize = 12.sp)
+            val shownSeconds = dragFraction?.let { (it * totalMs / 1000).toInt() } ?: (state.positionMs / 1000).toInt()
+            Text(duration(shownSeconds), color = colors.secondary, fontSize = 12.sp)
             Text(duration(totalSeconds(state)), color = colors.secondary, fontSize = 12.sp)
         }
         Box(
@@ -555,8 +563,8 @@ internal fun NowPlayingControls(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = stringResource(if (state.playing) R.string.common_pause else R.string.common_play),
+                if (state.playing || state.intentPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = stringResource(if (state.playing || state.intentPlaying) R.string.common_pause else R.string.common_play),
                 tint = colors.accentInk,
                 modifier = Modifier.size(36.dp)
             )

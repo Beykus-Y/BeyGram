@@ -88,6 +88,9 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
@@ -97,6 +100,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -147,7 +151,9 @@ import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackRepeatMode
+import com.beykus.beygram.playback.SLEEP_TIMER_MAX_MINUTES
 import com.beykus.beygram.playback.SLEEP_TIMER_MINUTES
+import com.beykus.beygram.playback.SleepTimerState
 import com.beykus.beygram.playback.sleepTimerRemainingMinutes
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.accessibility.systemReducedMotion
@@ -283,6 +289,24 @@ internal fun MusicPlayerSheet(
     }
 }
 
+/** Minutes left on the running sleep timer, refreshed every half minute. The one counter both the menu and the status line read. */
+@Composable
+private fun rememberSleepMinutes(sleepTimer: SleepTimerState?): Int {
+    val minutes by produceState(0, sleepTimer) {
+        val activeTimer = sleepTimer
+        while (activeTimer != null && !activeTimer.untilTrackEnd) {
+            value = sleepTimerRemainingMinutes(activeTimer.deadlineElapsedMs, SystemClock.elapsedRealtime())
+            delay(30_000L)
+        }
+    }
+    return minutes
+}
+
+@Composable
+private fun sleepTimerStatusText(sleepTimer: SleepTimerState, minutesRemaining: Int): String =
+    if (sleepTimer.untilTrackEnd) stringResource(R.string.player_sleep_status_track_end)
+    else stringResource(R.string.player_sleep_remaining, minutesRemaining)
+
 @Composable
 private fun PlayerHeader(
     player: MusicPlayerUi,
@@ -296,13 +320,7 @@ private fun PlayerHeader(
     var speedMenu by remember { mutableStateOf(false) }
     var sleepDialog by remember { mutableStateOf(false) }
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
-    val minutesRemaining by produceState(0, sleepTimer) {
-        val activeTimer = sleepTimer
-        while (activeTimer != null) {
-            value = sleepTimerRemainingMinutes(activeTimer.deadlineElapsedMs, SystemClock.elapsedRealtime())
-            delay(30_000L)
-        }
-    }
+    val minutesRemaining = rememberSleepMinutes(sleepTimer)
     val closeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
     val sourceLabel = stringResource(R.string.player_source_from)
@@ -391,9 +409,9 @@ private fun PlayerHeader(
                     text = {
                         Column {
                             Text(stringResource(R.string.player_sleep_timer), color = palette.textPrimary)
-                            if (sleepTimer != null) {
+                            sleepTimer?.let { timer ->
                                 Text(
-                                    stringResource(R.string.player_sleep_remaining, minutesRemaining),
+                                    sleepTimerStatusText(timer, minutesRemaining),
                                     color = palette.textSecondary, fontSize = 11.sp
                                 )
                             }
@@ -408,12 +426,49 @@ private fun PlayerHeader(
         }
     }
     if (sleepDialog) {
+        var customOpen by remember { mutableStateOf(false) }
+        if (customOpen) {
+            var text by remember { mutableStateOf("") }
+            val minutes = text.toIntOrNull()
+            val valid = minutes != null && minutes in 1..SLEEP_TIMER_MAX_MINUTES
+            AlertDialog(
+                onDismissRequest = { customOpen = false },
+                containerColor = palette.surface,
+                title = { Text(stringResource(R.string.player_sleep_custom_title), color = palette.textPrimary) },
+                text = {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = text,
+                        onValueChange = { value -> text = value.filter { it.isDigit() }.take(3) },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.player_sleep_custom_label, SLEEP_TIMER_MAX_MINUTES)) },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        )
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = valid,
+                        onClick = {
+                            PlaybackEngine.setSleepTimer(minutes)
+                            customOpen = false
+                            sleepDialog = false
+                        }
+                    ) { Text(stringResource(R.string.player_sleep_custom_set), color = palette.accentInk) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { customOpen = false }) {
+                        Text(stringResource(R.string.common_cancel), color = palette.textSecondary)
+                    }
+                }
+            )
+        }
         AlertDialog(
             onDismissRequest = { sleepDialog = false },
             containerColor = palette.surface,
             title = { Text(stringResource(R.string.player_sleep_timer), color = palette.textPrimary) },
             text = {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     SLEEP_TIMER_MINUTES.sorted().forEach { duration ->
                         TextButton(
                             onClick = {
@@ -425,8 +480,32 @@ private fun PlayerHeader(
                             Text(stringResource(R.string.player_sleep_in_minutes, duration), color = palette.accentInk)
                         }
                     }
+                    TextButton(
+                        onClick = {
+                            PlaybackEngine.setSleepTimerUntilTrackEnd()
+                            sleepDialog = false
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) {
+                        Text(stringResource(R.string.player_sleep_until_track_end), color = palette.accentInk)
+                    }
+                    TextButton(
+                        onClick = { customOpen = true },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) {
+                        Text(stringResource(R.string.player_sleep_custom), color = palette.accentInk)
+                    }
                     if (sleepTimer != null) {
                         HorizontalDivider(color = palette.divider)
+                        TextButton(
+                            onClick = {
+                                PlaybackEngine.extendSleepTimer(SLEEP_EXTEND_MINUTES)
+                                sleepDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.player_sleep_extend, SLEEP_EXTEND_MINUTES), color = palette.accentInk)
+                        }
                         TextButton(
                             onClick = {
                                 PlaybackEngine.cancelSleepTimer()
@@ -434,7 +513,7 @@ private fun PlayerHeader(
                             },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) {
-                            Text(stringResource(R.string.player_sleep_cancel, minutesRemaining), color = palette.textPrimary)
+                            Text(stringResource(R.string.player_sleep_cancel_plain), color = palette.textPrimary)
                         }
                     }
                 }
@@ -447,6 +526,8 @@ private fun PlayerHeader(
         )
     }
 }
+
+private const val SLEEP_EXTEND_MINUTES = 15
 
 @Composable
 private fun PlayerBody(
@@ -522,10 +603,15 @@ private fun PlayerDetails(
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?
 ) {
-    val position = rememberPlaybackPositionUi()
+    // The position is read only inside the provider, which the wave calls while drawing. The rest of the details
+    // (title, controls, actions) therefore does not recompose four times a second.
+    val positionState = rememberPlaybackPositionState()
     val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
-    val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
-    val played = if (duration > 0L) (position.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val playedProvider = {
+        val position = positionState.value
+        val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
+        if (duration > 0L) (position.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    }
 
     TrackMetadata(player, reduced)
     PlayerSeekSection(player)
@@ -534,7 +620,7 @@ private fun PlayerDetails(
     Spacer(Modifier.height(14.dp))
     BgBeatSection(
         item = player.item,
-        playbackFraction = played,
+        playbackFractionProvider = playedProvider,
         modifier = Modifier.padding(horizontal = 4.dp)
     )
     Spacer(Modifier.height(10.dp))
@@ -643,13 +729,7 @@ private fun TrackMetadata(player: MusicPlayerUi, reduced: Boolean) {
 private fun PlayerStatusLine(player: MusicPlayerUi) {
     val palette = beyGramPalette()
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
-    val minutesRemaining by produceState(0, sleepTimer) {
-        val activeTimer = sleepTimer
-        while (activeTimer != null) {
-            value = sleepTimerRemainingMinutes(activeTimer.deadlineElapsedMs, SystemClock.elapsedRealtime())
-            delay(30_000L)
-        }
-    }
+    val minutesRemaining = rememberSleepMinutes(sleepTimer)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
     when {
         player.failed -> Row(
@@ -687,9 +767,12 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
             modifier = Modifier.padding(top = 6.dp)
         )
     }
-    if (sleepTimer != null) {
+    val activeSpeed = player.speed.takeIf { it != 1f }?.let { stringResource(R.string.player_speed_option, speedLabel(it)) }
+    val sleepText = sleepTimer?.let { sleepTimerStatusText(it, minutesRemaining) }
+    val statusParts = listOfNotNull(activeSpeed, sleepText)
+    if (statusParts.isNotEmpty()) {
         Text(
-            stringResource(R.string.player_sleep_remaining, minutesRemaining),
+            statusParts.joinToString(" · "),
             color = palette.textSecondary,
             fontSize = 12.sp,
             modifier = Modifier.padding(top = 4.dp)
@@ -726,22 +809,58 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
 
 @Composable
 private fun PlayerSeekSection(player: MusicPlayerUi) {
+    // The drag lives here, so the time labels follow the finger as well as the thumb.
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    val position = rememberPlaybackPositionUi()
+    val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
+    val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
+    val smooth = rememberSmoothPositionMs(position.positionMs, duration, player.playing, player.speed)
     PlayerSeekBar(
         fallbackDurationSeconds = player.item.durationSeconds,
-        contentLabel = stringResource(R.string.player_progress)
+        contentLabel = stringResource(R.string.player_progress),
+        dragging = dragging,
+        onDragging = { dragging = it },
+        smoothMs = smooth
     )
-    PlayerTimeRow(fallbackDurationSeconds = player.item.durationSeconds)
+    PlayerTimeRow(fallbackDurationSeconds = player.item.durationSeconds, dragFraction = dragging, smoothMs = smooth)
+}
+
+/**
+ * The playhead between two position ticks. The engine reports the position four times a second, which makes the thumb
+ * of a short track move in steps; while the sound plays, the position is carried forward every frame at the playback speed
+ * and corrected by each new tick.
+ */
+@Composable
+private fun rememberSmoothPositionMs(positionMs: Long, durationMs: Long, playing: Boolean, speed: Float): State<Long> {
+    val shown = remember { mutableLongStateOf(positionMs) }
+    LaunchedEffect(positionMs, durationMs, playing, speed) {
+        shown.longValue = positionMs
+        if (!playing) return@LaunchedEffect
+        val startFrame = withFrameNanos { it }
+        while (true) {
+            val frame = withFrameNanos { it }
+            val advanced = ((frame - startFrame) / 1_000_000.0 * speed).toLong()
+            val next = positionMs + advanced
+            shown.longValue = if (durationMs > 0L) next.coerceAtMost(durationMs) else next
+        }
+    }
+    return shown
 }
 
 @Composable
-private fun PlayerSeekBar(fallbackDurationSeconds: Int, contentLabel: String) {
+private fun PlayerSeekBar(
+    fallbackDurationSeconds: Int,
+    contentLabel: String,
+    dragging: Float?,
+    onDragging: (Float?) -> Unit,
+    smoothMs: State<Long>
+) {
     val palette = beyGramPalette()
     val position = rememberPlaybackPositionUi()
-    var dragging by remember { mutableStateOf<Float?>(null) }
     val fallbackDurationMs = (fallbackDurationSeconds.coerceAtLeast(0) * 1000L)
     val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
     val enabled = duration > 0L
-    val played = dragging ?: if (duration > 0L) (position.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val played = dragging ?: if (duration > 0L) (smoothMs.value.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val buffered = if (duration > 0L) position.bufferedFraction.coerceIn(0f, 1f) else 0f
     val stateText = stringResource(
         R.string.player_progress_a11y,
@@ -790,20 +909,21 @@ private fun PlayerSeekBar(fallbackDurationSeconds: Int, contentLabel: String) {
                     val horizontalPadding = horizontalPaddingPx
                     val width = (size.width - horizontalPadding * 2f).coerceAtLeast(1f)
                     fun fractionAt(x: Float): Float = ((x - horizontalPadding) / width).coerceIn(0f, 1f)
-                    dragging = fractionAt(down.position.x)
+                    var current: Float = fractionAt(down.position.x)
+                    onDragging(current)
                     down.consume()
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (change.positionChanged()) {
-                            dragging = fractionAt(change.position.x)
+                            current = fractionAt(change.position.x)
+                            onDragging(current)
                             change.consume()
                         }
                         if (!change.pressed) break
                     }
-                    val result = dragging
-                    dragging = null
-                    result?.let(::seekTo)
+                    onDragging(null)
+                    seekTo(current)
                 }
             },
         contentAlignment = Alignment.Center
@@ -852,15 +972,19 @@ private fun PlayerSeekBar(fallbackDurationSeconds: Int, contentLabel: String) {
 }
 
 @Composable
-private fun PlayerTimeRow(fallbackDurationSeconds: Int) {
+private fun PlayerTimeRow(fallbackDurationSeconds: Int, dragFraction: Float?, smoothMs: State<Long>) {
     val palette = beyGramPalette()
     val position = rememberPlaybackPositionUi()
     val fallbackDurationMs = (fallbackDurationSeconds.coerceAtLeast(0) * 1000L)
     val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
+    // Whole seconds only, so the labels recompose once a second even though the playhead moves every frame.
+    val playedSecond by remember(smoothMs) { derivedStateOf { smoothMs.value / 1_000L } }
+    // While the thumb is dragged, the labels show the place under the finger, not the place the music is at.
+    val shownMs = dragFraction?.let { (it * duration).toLong() } ?: (playedSecond * 1_000L)
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(playbackClock(position.positionMs), color = palette.textSecondary, fontSize = 12.sp)
-            Text(playbackRemaining(position.positionMs, duration), color = palette.textSecondary, fontSize = 12.sp)
+            Text(playbackClock(shownMs), color = if (dragFraction != null) palette.accent else palette.textSecondary, fontSize = 12.sp)
+            Text(playbackRemaining(shownMs, duration), color = palette.textSecondary, fontSize = 12.sp)
         }
         if (duration <= 0L) {
             Text(
