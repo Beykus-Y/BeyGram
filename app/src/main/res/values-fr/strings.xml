@@ -847,4 +847,9 @@
     <string name="player_notification_shuffle">Aléatoire</string>
     <string name="player_notification_close">Fermer</string>
     <string name="player_speed_bgmix_hint">La vitesse n’est pas disponible en mode transitions fluides</string>
+    <string name="settings_experiments_title">Expériences</string>
+    <string name="settings_experiments_intro">Fonctions encore en cours d’amélioration. Vous pouvez les activer et les désactiver à tout moment.</string>
+    <string name="settings_experiments_group_music">Musique</string>
+    <string name="settings_experiments_group_transitions">Silences et transitions</string>
+    <string name="settings_experiments_transitions_note">Ignorer le silence et le fondu enchaîné relèvent du lecteur normal et ne dépendent pas de BG Mix. Quand la musique passe par BG Mix, il utilise ses propres transitions fluides et ces deux réglages ne s’appliquent pas.</string>
 </resources>

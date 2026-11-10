@@ -48,6 +48,7 @@ enum class AppRoute {
     AccountSecurity,
     AppLock,
     Equalizer,
+    Experiments,
     MusicSearch,
     NewChat,
     CreateGroup,

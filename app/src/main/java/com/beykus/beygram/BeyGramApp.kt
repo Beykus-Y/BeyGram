@@ -132,6 +132,7 @@ import com.beykus.beygram.ui.screens.diagnostics.DiagnosticsScreen
 import com.beykus.beygram.ui.screens.diagnostics.ResourcesScreen
 import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
+import com.beykus.beygram.ui.screens.settings.ExperimentsScreen
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.PrivacySettingsScreen
 import com.beykus.beygram.ui.screens.settings.StealthSettingsScreen
@@ -1592,6 +1593,7 @@ private fun BeyGramAppContent(
     }
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.Experiments) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = musicSearchReturnRouteName }
@@ -2586,6 +2588,7 @@ private fun BeyGramAppContent(
                         onSecondaryAccounts = { accountSwitcherVisible = true },
                         onAppLock = { routeName = AppRoute.AppLock.name },
                         onEqualizer = { routeName = AppRoute.Equalizer.name },
+                        onExperiments = { routeName = AppRoute.Experiments.name },
                         onMusicLibrary = {
                             myMusicReturnRouteName = AppRoute.Settings.name
                             routeName = AppRoute.MyMusic.name
@@ -2849,6 +2852,7 @@ private fun BeyGramAppContent(
                     accountId = selectedAccountId,
                     onBack = { routeName = AppRoute.Settings.name }
                 )
+                AppRoute.Experiments -> ExperimentsScreen(onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.NavigationSettings -> NavigationSettingsScreen(
                     visibility = tabVisibility,
                     onVisibilityChange = onTabVisibilityChange,

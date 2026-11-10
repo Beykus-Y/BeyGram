@@ -821,4 +821,9 @@
     <string name="player_notification_shuffle">Zufällig</string>
     <string name="player_notification_close">Schließen</string>
     <string name="player_speed_bgmix_hint">Tempo ist im Modus für weiche Übergänge nicht verfügbar</string>
+    <string name="settings_experiments_title">Experimente</string>
+    <string name="settings_experiments_intro">Funktionen, die noch weiterentwickelt werden. Du kannst sie jederzeit ein- und ausschalten.</string>
+    <string name="settings_experiments_group_music">Musik</string>
+    <string name="settings_experiments_group_transitions">Pausen und Übergänge</string>
+    <string name="settings_experiments_transitions_note">Stille überspringen und Überblenden gehören zum normalen Player und hängen nicht von BG Mix ab. Spielt die Musik über BG Mix, nutzt er eigene weiche Übergänge, und diese beiden Einstellungen gelten dafür nicht.</string>
 </resources>
