@@ -818,4 +818,6 @@
     <string name="player_mini_open_library">Meine Musik</string>
     <string name="music_bot_save_favorite">In Favoriten speichern</string>
     <string name="music_bot_saved_favorite">In Favoriten gespeichert</string>
+    <string name="player_notification_shuffle">Zufällig</string>
+    <string name="player_notification_close">Schließen</string>
 </resources>

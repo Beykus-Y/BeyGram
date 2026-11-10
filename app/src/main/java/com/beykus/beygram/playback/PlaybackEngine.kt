@@ -178,6 +178,7 @@ private class BgMixAwareListener(
 object PlaybackEngine {
     private const val PROGRESS_INTERVAL_MS = 250L
     private const val PROGRESS_FAST_INTERVAL_MS = 50L
+    private const val BG_DUCK_VOLUME = 0.25f
     private const val SLEEP_FADE_STEP_MS = 100L
     private const val UNDO_CLOSE_MS = 5_000L
     private const val BG_WAKE_LOCK_TIMEOUT_MS = 6 * 60 * 60_000L
@@ -1520,6 +1521,9 @@ object PlaybackEngine {
     /** True while BG Mix is paused only because another app took focus for a moment, so it may resume on its own. */
     private var bgResumeOnFocusGain = false
 
+    /** True while a short sound asked BG Mix to duck; the level is restored with the focus. */
+    private var bgDucked = false
+
     private val bgFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
         if (!bgMixActive()) return@OnAudioFocusChangeListener
         when (change) {
@@ -1527,10 +1531,13 @@ object PlaybackEngine {
                 bgResumeOnFocusGain = false
                 pauseBgMix()
             }
-            // A short sound (a call, a navigator prompt) pauses the music and it returns when the focus does. BG Mix
-            // has no gain control for ducking, so a "can duck" loss is handled the same way.
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            // A navigator prompt asks to duck: the output is lowered and restored when the focus returns.
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                bgMix?.setVolume(BG_DUCK_VOLUME)
+                bgDucked = true
+            }
+            // A call or another short sound pauses the music and it returns when the focus does.
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 val playing = _state.value.intentPlaying && !_state.value.ended
                 if (playing) {
                     pauseBgMix()
@@ -1538,6 +1545,10 @@ object PlaybackEngine {
                 }
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
+                if (bgDucked) {
+                    bgDucked = false
+                    bgMix?.setVolume(1f)
+                }
                 if (bgResumeOnFocusGain) {
                     bgResumeOnFocusGain = false
                     bgMixPlay()
@@ -1770,6 +1781,7 @@ object PlaybackEngine {
         releaseBgFocus()
         releaseBgWakeLock()
         bgResumeOnFocusGain = false
+        bgDucked = false
         if (wasActive && (before.playing || before.intentPlaying)) {
             notifyChanges(before, before.copy(playing = false, intentPlaying = false))
         }
