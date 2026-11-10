@@ -844,4 +844,6 @@
     <string name="player_mini_open_library">Ma musique</string>
     <string name="music_bot_save_favorite">Enregistrer dans les favoris</string>
     <string name="music_bot_saved_favorite">Enregistré dans les favoris</string>
+    <string name="player_notification_shuffle">Aléatoire</string>
+    <string name="player_notification_close">Fermer</string>
 </resources>

@@ -2371,4 +2371,6 @@
     <string name="player_mini_open_library">Моя музыка</string>
     <string name="music_bot_save_favorite">Сохранить в Избранное</string>
     <string name="music_bot_saved_favorite">Сохранено в Избранное</string>
+    <string name="player_notification_shuffle">Перемешать</string>
+    <string name="player_notification_close">Закрыть</string>
 </resources>

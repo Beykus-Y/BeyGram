@@ -39,6 +39,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
      */
     fun start(items: List<PlaybackItem>, startIndex: Int): Boolean {
         stop()
+        awaitPendingRelease()
         // Every item from the tapped one on has to be a local BG Mix file. Skipping one here would drop it from the
         // queue without a word, so the whole queue stays on ExoPlayer instead.
         val tail = bgMixQueueTail(items, startIndex) { isEligible(it) } ?: return false
@@ -72,6 +73,11 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         player?.play()
     }
 
+    /** Lowers or restores the output level; used when another app asks to duck. */
+    fun setVolume(volume: Float) {
+        player?.setOutputVolume(volume)
+    }
+
     /** Starts the planned transition to the next accepted track. */
     fun next() {
         player?.next()
@@ -84,7 +90,22 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         statusSource = null
         indexByNativeId = emptyMap()
         items = emptyList()
-        old.release()
+        // Releasing waits for the render thread, so it runs off the main thread; a new session waits for it below.
+        pendingRelease = releaser.submit { old.release() }
+    }
+
+    private val releaser = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "bgmix-release").apply { isDaemon = true }
+    }
+
+    @Volatile
+    private var pendingRelease: java.util.concurrent.Future<*>? = null
+
+    /** The old output must be gone before a new one starts, so the two never overlap. */
+    private fun awaitPendingRelease() {
+        val pending = pendingRelease ?: return
+        runCatching { pending.get(2, java.util.concurrent.TimeUnit.SECONDS) }
+        pendingRelease = null
     }
 
     companion object {
