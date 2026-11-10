@@ -85,6 +85,11 @@ import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.playback.EqualizerRuntime
 import com.beykus.beygram.playback.EqualizerStore
 import com.beykus.beygram.ui.components.MainTabRail
+import com.beykus.beygram.ui.components.LocalRailCreateChat
+import com.beykus.beygram.ui.components.LocalWindowLayout
+import com.beykus.beygram.ui.components.NavigationPlacement
+import com.beykus.beygram.ui.components.WindowLayout
+import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.components.MainTabIndicator
 import com.beykus.beygram.ui.components.LocalMainTabIndicator
 import com.beykus.beygram.ui.components.MainTabsScaffold
@@ -2167,6 +2172,7 @@ private fun BeyGramAppContent(
             musicSearchReturnRouteName = routeName
             routeName = AppRoute.MusicSearch.name
         },
+        LocalRailCreateChat provides { routeName = AppRoute.NewChat.name },
         LocalOpenMyMusic provides {
             if (routeName == AppRoute.MyMusic.name) {
                 // Already open: the player sheet closes and My Music stays as it is.
@@ -2188,7 +2194,11 @@ private fun BeyGramAppContent(
     ) {
     Column(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val routeTwoPane = isTwoPaneChatsWidth(maxWidth.value)
+            // One window class for the whole tree: the width and the height are read here once, so the list, the
+            // navigation and the chat chrome can never disagree about the layout they are in.
+            val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)
+            val routeTwoPane = windowLayout.twoPane
+            CompositionLocalProvider(LocalWindowLayout provides windowLayout) {
             // Один набор спецификаций на все переходы: длительность и easing берутся из токенов движка.
             val pushSpec = rememberMotionSpec(MotionToken.NavigationPush)
             val popSpec = rememberMotionSpec(MotionToken.NavigationPop)
@@ -2337,33 +2347,55 @@ private fun BeyGramAppContent(
                 // Один композиционный слот для списка и открытого чата: на широком экране они
                 // стоят рядом, и переход между ними не пересоздаёт список.
                 AppRoute.Chats, AppRoute.Chat, AppRoute.MessageThread -> {
-                    BoxWithConstraints(Modifier.fillMaxSize()) {
-                        val twoPane = isTwoPaneChatsWidth(maxWidth.value)
-                        if (twoPane) {
+                    val layout = LocalWindowLayout.current
+                    if (layout.twoPane) {
+                        val design = LocalDesignSystem.current
+                        BoxWithConstraints(Modifier.fillMaxSize()) {
                             ChatsTwoPaneScaffold(
-                                listPaneWidth = chatListPaneWidthDp(maxWidth.value).dp,
-                                showNavigation = screenRoute == AppRoute.Chats,
+                                layout = layout,
+                                listPaneWidth = chatListPaneWidthDp(maxWidth.value, layout.heightCompact).dp,
                                 navigationRail = {
-                                    // Та же навигация, что и на телефоне, но вертикальной рейкой:
-                                    // нижнее меню на широком экране не помещается.
+                                    // Та же навигация, что и на телефоне, но вертикальной рейкой, и она остаётся
+                                    // на месте, пока открыт чат: левая часть окна не прыгает.
                                     MainTabRail(
                                         tabs = MainTab.entries.filter { tabVisibility.isVisible(it) },
                                         selected = MainTab.Chats,
-                                        onSelect = selectTab
+                                        onSelect = selectTab,
+                                        slim = layout.navigation == NavigationPlacement.SlimRail,
+                                        bottomContent = if (layout.navigation == NavigationPlacement.SlimRail) {
+                                            { NowPlayingBar(hideWhenImeVisible = true, railCover = true) }
+                                        } else null
                                     )
                                 },
-                                playerBar = { NowPlayingBar() },
-                                list = { chatsList(true, screenRoute != AppRoute.Chats) },
+                                // Плеер стоит в левой колонке под списком; стеклу достаётся плавающая карточка.
+                                playerBar = {
+                                    val card = design.usesGlassPanels
+                                    Box(Modifier.padding(bottom = if (card) 8.dp else 0.dp)) {
+                                        NowPlayingBar(hideWhenImeVisible = true, floatingDock = card)
+                                    }
+                                },
+                                list = {
+                                    val open = screenRoute != AppRoute.Chats
+                                    if (layout.navigation == NavigationPlacement.BottomBarInListPane) {
+                                        // Меню стиля внутри панели списка: ведёт себя как телефон, правая часть — содержимое.
+                                        MainTabsScaffold(
+                                            "${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats,
+                                            tabVisibility, selectTab, tabStateHolder, contentUnderDock = true
+                                        ) { chatsList(true, open) }
+                                    } else {
+                                        chatsList(true, open)
+                                    }
+                                },
                                 detail = {
                                     if (screenRoute == AppRoute.Chats) ChatsDetailPlaceholder()
                                     else chatRoute(true)
                                 }
                             )
-                        } else if (screenRoute == AppRoute.Chats) {
-                            chatsTab()
-                        } else {
-                            chatRoute(false)
                         }
+                    } else if (screenRoute == AppRoute.Chats) {
+                        chatsTab()
+                    } else {
+                        chatRoute(false)
                     }
                 }
 
@@ -2911,6 +2943,7 @@ private fun BeyGramAppContent(
                 else LaunchedEffect(selectedAccountId) {
                     routeName = AppRoute.Proxy.name
                 }
+            }
             }
             }
             }
