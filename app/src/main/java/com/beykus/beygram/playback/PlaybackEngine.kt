@@ -22,6 +22,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.beykus.beygram.data.media.AutoDownloadDecision
+import com.beykus.beygram.data.media.AutoDownloadNetwork
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.media.AutoDownloadRuntime
 import com.beykus.beygram.data.media.Mp4StreamingProbe
@@ -49,6 +50,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Containers that can be parsed from the beginning; MP4/M4A additionally needs a fast-start index. */
 private val DIRECT_AUDIO_MIME = setOf(
@@ -228,6 +230,17 @@ object PlaybackEngine {
     /** Lazily resolves not-yet-downloaded queue items for the current account. */
     private var queueSource: PlaybackQueueSource? = null
     private var queuePageJob: Job? = null
+    private var queuePageRetryJob: Job? = null
+    private var queuePageRetries = 0
+    /** Tracks skipped in a row without one starting; see [MAX_CONSECUTIVE_SKIPS]. */
+    private var consecutiveSkips = 0
+    /** Start of the current wait for the network, 0 when the queue is not waiting. */
+    private var networkWaitSince = 0L
+    private var networkWaitJob: Job? = null
+
+    private val _notices = MutableSharedFlow<PlaybackNotice>(extraBufferCapacity = 4)
+    /** Short events for the root screen to show, such as a track that was skipped because it cannot be opened. */
+    val notices: SharedFlow<PlaybackNotice> = _notices.asSharedFlow()
     /** Invalidates a page returning after another chat, account or queue takes over the player. */
     private var queuePageGeneration = 0L
     /** Отметка «прослушано», которую плеер вызовет, когда файл начнёт играть. Работает, даже если пузырь уже ушёл с экрана. */
@@ -506,7 +519,9 @@ object PlaybackEngine {
             val shouldPlay = currentState.playing || currentState.intentPlaying
             _state.update { it.copy(item = merged, queue = nextItems, queueIndex = nextIndex).withTimelineNavigation(exo) }
             if (timelineChanged(currentState, nextItems, nextIndex)) {
-                rebuildTimeline(nextItems, nextIndex, currentState.positionMs, shouldPlay)
+                if (!replaceQueueAroundCurrent(nextItems, nextIndex, currentState.queue.size)) {
+                    rebuildTimeline(nextItems, nextIndex, currentState.positionMs, shouldPlay)
+                }
             }
             // Second tap on the same file keeps the documented pause/resume semantics.
             togglePlayPause()
@@ -550,6 +565,32 @@ object PlaybackEngine {
         mimeType = item.mimeType.ifBlank { previous?.mimeType.orEmpty() },
         sizeBytes = item.sizeBytes.takeIf { it > 0L } ?: previous?.sizeBytes ?: 0L
     )
+
+    /**
+     * Swaps the queue around the playing track without reopening it: Media3 keeps the current item (and its position
+     * and buffer) and only the tracks before and after it are replaced. Returns false when the playlist cannot be
+     * edited that way, and the caller rebuilds the timeline instead.
+     */
+    @OptIn(UnstableApi::class)
+    private fun replaceQueueAroundCurrent(nextItems: List<PlaybackItem>, nextIndex: Int, oldCount: Int): Boolean {
+        val target = exo ?: return false
+        val oldIndex = target.currentMediaItemIndex
+        val currentItem = nextItems.getOrNull(nextIndex) ?: return false
+        if (bgMixActive() || target.mediaItemCount != oldCount || oldIndex !in 0 until target.mediaItemCount) return false
+        if (target.getMediaItemAt(oldIndex).mediaId != currentItem.systemMediaId) return false
+        val before = nextItems.subList(0, nextIndex)
+        val after = nextItems.subList(nextIndex + 1, nextItems.size)
+        before.forEach { registerSource(it, queueSource) }
+        after.forEach { registerSource(it, queueSource) }
+        if (oldIndex + 1 < target.mediaItemCount) target.removeMediaItems(oldIndex + 1, target.mediaItemCount)
+        if (oldIndex > 0) target.removeMediaItems(0, oldIndex)
+        if (before.isNotEmpty()) target.addMediaItems(0, before.map(::mediaItemFor))
+        if (after.isNotEmpty()) target.addMediaItems(after.map(::mediaItemFor))
+        installShuffleOrder(target, nextItems.size, currentIndex = nextIndex)
+        prefetchedKeys.clear()
+        prefetchNext()
+        return true
+    }
 
     private fun timelineChanged(current: PlaybackState, queue: List<PlaybackItem>, index: Int): Boolean =
         current.queue.map { it.key } != queue.map { it.key } || current.queueIndex != index
@@ -627,6 +668,7 @@ object PlaybackEngine {
         startedCallback = startedCallback?.takeIf { it.first == selected.key }
         queueSource = source
         queuePageGeneration++
+        resetErrorPolicy()
         queuePageJob?.cancel()
         queuePageJob = null
         _queuePageLoading.value = false
@@ -640,7 +682,7 @@ object PlaybackEngine {
         val defer = shouldDeferGrowingSeek(item.growing, requestedStart)
         val mediaItems = resolvedQueue.map(::mediaItemFor)
         target.setMediaItems(mediaItems, queue.index, if (defer) 0L else requestedStart)
-        installShuffleOrder(target, resolvedQueue.size)
+        installShuffleOrder(target, resolvedQueue.size, currentIndex = queue.index)
         applyPlayerModes(target, music = true)
         applySpeed(target, item)
         if (autoPlay) target.prepare()
@@ -682,6 +724,7 @@ object PlaybackEngine {
         val target = rawPlayer(context)
         transitionToken++
         queuePageGeneration++
+        resetErrorPolicy()
         queuePageJob?.cancel()
         queuePageJob = null
         _queuePageLoading.value = false
@@ -774,11 +817,12 @@ object PlaybackEngine {
      * one-off Play Next order. An explicit order is only used by Play Next itself.
      */
     @OptIn(UnstableApi::class)
-    private fun installShuffleOrder(target: ExoPlayer, itemCount: Int, explicit: List<Int>? = null) {
+    private fun installShuffleOrder(target: ExoPlayer, itemCount: Int, explicit: List<Int>? = null, currentIndex: Int = C.INDEX_UNSET) {
         if (itemCount <= 0) return
         val order = when {
             explicit != null && explicit.size == itemCount -> PlaybackShuffleOrder(explicit)
-            _state.value.shuffleEnabled && itemCount > 1 -> PlaybackShuffleOrder.random(itemCount)
+            // The playing track goes first, so the whole rest of the queue is still ahead of it.
+            _state.value.shuffleEnabled && itemCount > 1 -> PlaybackShuffleOrder.random(itemCount, currentIndex = currentIndex)
             else -> return
         }
         target.setShuffleOrder(order)
@@ -991,7 +1035,7 @@ object PlaybackEngine {
         val requestedStart = positionMs.coerceAtLeast(0L)
         val defer = shouldDeferGrowingSeek(item.growing, requestedStart)
         target.setMediaItems(resolvedQueue.map(::mediaItemFor), index, if (defer) 0L else requestedStart)
-        installShuffleOrder(target, resolvedQueue.size, playbackOrder)
+        installShuffleOrder(target, resolvedQueue.size, playbackOrder, index)
         applyPlayerModes(target, music = item.isMusic && !item.systemPrivate)
         applySpeed(target, item)
         target.prepare()
@@ -1134,6 +1178,7 @@ object PlaybackEngine {
         interruptedMusic = null
         queueSource = null
         queuePageGeneration++
+        resetErrorPolicy()
         queuePageJob?.cancel()
         queuePageJob = null
         prefetchedKeys.clear()
@@ -1588,7 +1633,7 @@ object PlaybackEngine {
         val target = exo
         if (_state.value.item?.isMusic == true && _state.value.item?.systemPrivate != true) target?.shuffleModeEnabled = enabled
         _state.update { it.copy(shuffleEnabled = enabled).withTimelineNavigation(target) }
-        if (enabled && target != null) installShuffleOrder(target, target.mediaItemCount)
+        if (enabled && target != null) installShuffleOrder(target, target.mediaItemCount, currentIndex = target.currentMediaItemIndex)
         prefetchedKeys.clear()
         prefetchNext()
     }
@@ -1606,6 +1651,27 @@ object PlaybackEngine {
         if (mode != PlaybackRepeatMode.One) loadNextQueuePage()
     }
 
+    /** True when the Media3 playlist mirrors [PlaybackState.queue], so it can be edited in place. */
+    private fun canEditInPlace(target: ExoPlayer?, queueSize: Int): Boolean =
+        target != null && !bgMixActive() && queueSize > 0 && target.mediaItemCount == queueSize
+
+    /**
+     * Publishes a queue that Media3 already holds after an in-place edit. The current item keeps playing, so no
+     * source is reopened; only the cached prefetch decision is refreshed for the new order.
+     */
+    private fun commitInPlaceQueue(queue: List<PlaybackItem>) {
+        val target = exo ?: return
+        prefetchedKeys.clear()
+        _state.update {
+            it.copy(
+                queue = queue,
+                queueIndex = target.currentMediaItemIndex.coerceIn(queue.indices)
+            ).withTimelineNavigation(target)
+        }
+        prefetchNext()
+        requestSilenceMeasurement()
+    }
+
     /** Inserts [item] after the current item and keeps the current position. */
     @OptIn(UnstableApi::class)
     fun playNext(item: PlaybackItem, source: PlaybackQueueSource? = null) {
@@ -1617,22 +1683,40 @@ object PlaybackEngine {
         val shouldPlay = state.playing || state.intentPlaying
         val target = exo
         val base = state.queue.ifEmpty { listOf(current) }
+        val currentIndex = (target?.currentMediaItemIndex?.takeIf { it in base.indices }
+            ?: state.queueIndex.takeIf { it in base.indices }
+            ?: base.indexOfFirst { it.key == current.key })
+        if (currentIndex < 0) return
+        val existing = base.indexOfFirst { it.key == item.key }
+        val oldOrder = if (state.shuffleEnabled && target != null) {
+            runCatching { target.shuffleOrder.toIndexOrder() }.getOrDefault(base.indices.toList())
+        } else {
+            base.indices.toList()
+        }
+        val inserted = queueAfterPlayNext(base, currentIndex, item, existing, oldOrder)
+        if (canEditInPlace(target, base.size) && target != null) {
+            // The playing track is never reopened: the new item is added (or an existing one moved) next to it.
+            val insertAt = currentIndex + 1
+            if (existing in base.indices && existing != currentIndex) {
+                target.moveMediaItem(existing, if (existing < currentIndex) currentIndex else insertAt)
+            } else {
+                registerSource(item, queueSource)
+                target.addMediaItem(insertAt, mediaItemFor(item))
+            }
+            if (state.shuffleEnabled && inserted.playbackOrder.size == target.mediaItemCount) {
+                target.setShuffleOrder(PlaybackShuffleOrder(inserted.playbackOrder))
+            }
+            commitInPlaceQueue(inserted.queue)
+            return
+        }
         if (state.shuffleEnabled && target != null) {
-            val currentIndex = target.currentMediaItemIndex.takeIf { it in base.indices }
-                ?: state.queueIndex.takeIf { it in base.indices }
-                ?: base.indexOfFirst { it.key == current.key }
-            if (currentIndex < 0) return
-            val existing = base.indexOfFirst { it.key == item.key }
-            val oldOrder = runCatching { target.shuffleOrder.toIndexOrder() }
-                .getOrDefault(base.indices.toList())
-            val inserted = queueAfterPlayNext(base, currentIndex, item, existing, oldOrder)
             rebuildTimeline(inserted.queue, inserted.queueIndex, state.positionMs, shouldPlay, inserted.playbackOrder)
             return
         }
         val queue = base.filterNot { it.key == item.key }.toMutableList()
-        val currentIndex = queue.indexOfFirst { it.key == current.key }.takeIf { it >= 0 } ?: 0
-        queue.add((currentIndex + 1).coerceIn(0, queue.size), item)
-        rebuildTimeline(queue, currentIndex, state.positionMs, shouldPlay)
+        val rebuiltIndex = queue.indexOfFirst { it.key == current.key }.takeIf { it >= 0 } ?: 0
+        queue.add((rebuiltIndex + 1).coerceIn(0, queue.size), item)
+        rebuildTimeline(queue, rebuiltIndex, state.positionMs, shouldPlay)
     }
 
     /** Removes an item from the queue; removing the playing item advances to the next (or previous) one. */
@@ -1642,6 +1726,15 @@ object PlaybackEngine {
         val queue = state.queue.toMutableList().apply { removeAt(index) }
         if (queue.isEmpty()) {
             stop()
+            return
+        }
+        val target = exo
+        if (index != state.queueIndex && canEditInPlace(target, state.queue.size) && target != null) {
+            // A neighbour leaves the list; the playing track and its prefetched successor stay untouched.
+            val removed = state.queue[index]
+            target.removeMediaItem(index)
+            PlaybackSources.remove(removed.systemMediaId)
+            commitInPlaceQueue(queue)
             return
         }
         val shouldPlay = state.playing || state.intentPlaying
@@ -1661,6 +1754,12 @@ object PlaybackEngine {
         val queue = state.queue.toMutableList()
         val moved = queue.removeAt(from)
         queue.add(to, moved)
+        val target = exo
+        if (canEditInPlace(target, state.queue.size) && target != null) {
+            target.moveMediaItem(from, to)
+            commitInPlaceQueue(queue)
+            return
+        }
         val currentKey = state.item?.key ?: return
         val index = queue.indexOfFirst { it.key == currentKey }.takeIf { it >= 0 } ?: state.queueIndex
         rebuildTimeline(queue, index.coerceIn(queue.indices), state.positionMs, state.playing || state.intentPlaying)
@@ -1745,6 +1844,7 @@ object PlaybackEngine {
                 )
             }
             if (isPlaying) {
+                if (consecutiveSkips != 0 || networkWaitSince != 0L || _state.value.waitingForNetwork) resetErrorPolicy()
                 startProgress()
                 fireStartedCallback()
             } else {
@@ -1837,6 +1937,7 @@ object PlaybackEngine {
             if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                 prefetchNext()
                 requestSilenceMeasurement()
+                queuePageRetries = 0
                 loadNextQueuePage()
             }
         }
@@ -1845,7 +1946,32 @@ object PlaybackEngine {
             if (bgMixActive()) return
             progress?.cancel()
             clearDeferredSeek()
-            _state.update { it.copy(playing = false, intentPlaying = false, failed = true, isBuffering = false).withTimelineNavigation(exo) }
+            val target = exo
+            val snapshot = _state.value
+            val musicQueue = snapshot.item?.let { it.isMusic && !it.systemPrivate } == true
+            if (musicQueue && target != null) {
+                val kind = classifyPlaybackError(error)
+                val now = SystemClock.elapsedRealtime()
+                if (kind == PlaybackErrorKind.NetworkWait && networkWaitSince == 0L) networkWaitSince = now
+                val waited = if (networkWaitSince != 0L) now - networkWaitSince else 0L
+                when (playbackErrorAction(kind, target.hasNextMediaItem(), consecutiveSkips, waited)) {
+                    PlaybackErrorAction.WaitForNetwork -> {
+                        beginNetworkWait(waited)
+                        return
+                    }
+                    PlaybackErrorAction.SkipToNext -> {
+                        skipBrokenTrack(target)
+                        return
+                    }
+                    PlaybackErrorAction.Fail -> Unit
+                }
+            }
+            networkWaitJob?.cancel()
+            networkWaitSince = 0L
+            _state.update {
+                it.copy(playing = false, intentPlaying = false, failed = true, waitingForNetwork = false, isBuffering = false)
+                    .withTimelineNavigation(exo)
+            }
             // Голосовое или кружок, которые не открылись, не должны оставить прерванную музыку навсегда на паузе.
             val music = interruptedMusic ?: return
             val context = appContext ?: return
@@ -1853,6 +1979,70 @@ object PlaybackEngine {
             interruptedMusic = null
             scope.launch { restoreInterruptedMusic(music) }
         }
+    }
+
+    private fun resetErrorPolicy() {
+        consecutiveSkips = 0
+        networkWaitSince = 0L
+        networkWaitJob?.cancel()
+        networkWaitJob = null
+        queuePageRetries = 0
+        queuePageRetryJob?.cancel()
+        queuePageRetryJob = null
+        if (_state.value.waitingForNetwork) _state.update { it.copy(waitingForNetwork = false) }
+    }
+
+    /**
+     * The queue lost the network: keep the intent to play, show a calm status and continue from the same position
+     * when the network returns (or after a pause when it claims to be up). The wait is bounded.
+     */
+    private fun beginNetworkWait(waitedMs: Long) {
+        val key = _state.value.item?.key ?: return
+        _state.update {
+            it.copy(playing = false, failed = false, waitingForNetwork = true, isBuffering = false)
+                .withTimelineNavigation(exo)
+        }
+        networkWaitJob?.cancel()
+        networkWaitJob = scope.launch {
+            appContext?.let { AutoDownloadNetworkStatus.ensureStarted(it) }
+            val remaining = (NETWORK_WAIT_LIMIT_MS - waitedMs).coerceAtLeast(1L)
+            val recovered = withTimeoutOrNull(remaining) {
+                if (AutoDownloadNetworkStatus.network.value == AutoDownloadNetwork.None) {
+                    AutoDownloadNetworkStatus.network.first { it != AutoDownloadNetwork.None }
+                } else {
+                    delay(NETWORK_RETRY_DELAY_MS)
+                }
+                true
+            }
+            val target = exo ?: return@launch
+            val now = _state.value
+            if (!now.waitingForNetwork || now.item?.key != key) return@launch
+            if (recovered != true) {
+                networkWaitSince = 0L
+                _state.update { it.copy(failed = true, intentPlaying = false, waitingForNetwork = false) }
+                return@launch
+            }
+            if (!target.playWhenReady) {
+                // The listener paused the queue on purpose while it waited, so the wait is over without playing.
+                networkWaitSince = 0L
+                _state.update { it.copy(waitingForNetwork = false) }
+                return@launch
+            }
+            target.prepare()
+            target.play()
+        }
+    }
+
+    /** A track that cannot be opened is skipped with a short notice; the whole queue is not stopped by one bad file. */
+    private fun skipBrokenTrack(target: ExoPlayer) {
+        consecutiveSkips++
+        _notices.tryEmit(PlaybackNotice.TrackSkipped)
+        _state.update { it.copy(failed = false, waitingForNetwork = false) }
+        // The user's intent decides whether the next track starts: a track that failed while paused stays paused.
+        val keepPlaying = target.playWhenReady
+        target.seekToNextMediaItem()
+        target.prepare()
+        if (keepPlaying) target.play()
     }
 
     private fun durationNow(): Long = exo?.duration?.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
@@ -1990,17 +2180,29 @@ object PlaybackEngine {
                     startPlaybackService()
                     startProgress()
                 }
+                queuePageRetries = 0
                 prefetchNext()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                // Keep the existing playable timeline and retry at the next explicit track transition.
+                // Keep the existing playable timeline and try again after 2, 5 and 15 seconds while the track plays.
+                scheduleQueuePageRetry(generation)
             } finally {
                 if (generation == queuePageGeneration) {
                     queuePageJob = null
                     _queuePageLoading.value = false
                 }
             }
+        }
+    }
+
+    private fun scheduleQueuePageRetry(generation: Long) {
+        val pause = queuePageRetryDelayMs(queuePageRetries) ?: return
+        queuePageRetries++
+        queuePageRetryJob?.cancel()
+        queuePageRetryJob = scope.launch {
+            delay(pause)
+            if (generation == queuePageGeneration) loadNextQueuePage()
         }
     }
 

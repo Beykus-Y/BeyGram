@@ -77,6 +77,7 @@ import com.beykus.beygram.domain.model.PublicChatOpenResult
 import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.domain.model.StealthBlockedException
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackNotice
 import com.beykus.beygram.playback.MusicSessionStore
 import com.beykus.beygram.playback.restoreMusicSession
 import com.beykus.beygram.playback.saveableMusicSession
@@ -768,6 +769,14 @@ private fun BeyGramAppContent(
                         pendingRestore = false
                     }
                 }
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        PlaybackEngine.notices.collect { notice ->
+            when (notice) {
+                PlaybackNotice.TrackSkipped ->
+                    Toast.makeText(context, context.getString(R.string.playback_track_skipped), Toast.LENGTH_SHORT).show()
             }
         }
     }
