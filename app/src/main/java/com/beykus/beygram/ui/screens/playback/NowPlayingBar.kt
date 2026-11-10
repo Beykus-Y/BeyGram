@@ -206,7 +206,7 @@ fun NowPlayingBar(
         exit = ExitTransition.None,
         modifier = Modifier.fillMaxWidth()
     ) {
-        UndoCloseBar(bottomInset = bottomInset)
+        UndoCloseBar(bottomInset = bottomInset, floatingDock = floatingDock)
     }
 
     if (fullPlayerOpen) {
@@ -417,14 +417,9 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatin
                     }
                 }
             }
-            // The close button keeps its slot but only appears while the music is paused (or for a voice note), so a
-            // slip of the finger next to Pause cannot close the player.
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                if (!ui.isMusic || !ui.intentPlaying) {
-                    IconButton(onClick = { PlaybackEngine.close() }) {
-                        Icon(Icons.Rounded.Close, stringResource(R.string.player_stop), tint = palette.textSecondary)
-                    }
-                }
+            // Close is always there, also while music plays; a slip is cheap because «Вернуть» brings the queue back.
+            IconButton(onClick = { PlaybackEngine.close() }) {
+                Icon(Icons.Rounded.Close, stringResource(R.string.player_stop), tint = palette.textSecondary)
             }
         }
     }
@@ -432,30 +427,40 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatin
 
 /** Shown for a few seconds after the mini-player was closed: the queue and the place are still there to bring back. */
 @Composable
-private fun UndoCloseBar(bottomInset: Boolean) {
+private fun UndoCloseBar(bottomInset: Boolean, floatingDock: Boolean) {
     val palette = beyGramPalette()
     val context = androidx.compose.ui.platform.LocalContext.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(palette.surface)
-            .then(
-                if (bottomInset) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                else Modifier
+    val row: @Composable () -> Unit = {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
+                .padding(start = 18.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                stringResource(R.string.player_closed),
+                color = palette.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
             )
-            .heightIn(min = 48.dp)
-            .padding(start = 16.dp, end = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            stringResource(R.string.player_closed),
-            color = palette.textSecondary,
-            fontSize = 14.sp,
-            modifier = Modifier.weight(1f)
-        )
-        TextButton(onClick = { PlaybackEngine.undoClose(context) }) {
-            Text(stringResource(R.string.player_closed_undo))
+            TextButton(onClick = { PlaybackEngine.undoClose(context) }) {
+                Text(
+                    stringResource(R.string.player_closed_undo),
+                    color = palette.accent,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
+    }
+    // The same card as the mini-player and the dock (glass included), so closing does not swap it for a flat strip.
+    Column(
+        Modifier.then(
+            if (bottomInset) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)) else Modifier
+        )
+    ) {
+        if (floatingDock) MiniDockCard(row) else Box(Modifier.fillMaxWidth().background(palette.surface)) { row() }
     }
 }
 
@@ -587,13 +592,15 @@ internal fun NowPlayingControls(
         }
         Text(stringResource(R.string.player_speed), color = colors.secondary, fontSize = 12.sp, modifier = Modifier.padding(top = 16.dp))
         val selectedSpeed = playbackSpeedFor(item.kind, state.musicSpeed, state.voiceSpeed)
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp).alpha(if (enabled) 1f else 0.4f),
+        // BG Mix has no playback speed, so the chips stay off while it plays music instead of changing only the saved value.
+        val speedEnabled = enabled && !(state.bgMixActive && item.kind == MediaKind.Audio)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp).alpha(if (speedEnabled) 1f else 0.4f),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PLAYBACK_SPEED_OPTIONS.forEach { speed ->
                 SpeedChip(
                     speed = speed,
                     selected = selectedSpeed == speed,
-                    enabled = enabled,
+                    enabled = speedEnabled,
                     colors = colors,
                     onSelect = {
                         if (item.kind == MediaKind.Audio) PlaybackEngine.setMusicSpeed(speed) else PlaybackEngine.setVoiceSpeed(speed)

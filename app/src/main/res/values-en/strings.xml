@@ -800,7 +800,7 @@
     <string name="bgbeat_reanalyze">Analyze the rhythm again</string>
     <string name="player_more">More</string>
     <string name="player_bgmix_badge">BG Mix</string>
-    <string name="player_bgmix_explain">Smooth transitions mode is playing. Shuffle, repeat, speed and the Previous button switch the queue to the regular player at the same place.</string>
+    <string name="player_bgmix_explain">Smooth transitions mode is playing. Shuffle, repeat and Previous work inside it, with a brief gap in the sound. Speed is not available in this mode.</string>
     <string name="player_sleep_status_track_end">Sleep timer · until the end of the track</string>
     <string name="player_sleep_until_track_end">Until the end of the track</string>
     <string name="player_sleep_custom">Custom time…</string>
@@ -820,4 +820,5 @@
     <string name="music_bot_saved_favorite">Saved to Favorites</string>
     <string name="player_notification_shuffle">Shuffle</string>
     <string name="player_notification_close">Close</string>
+    <string name="player_speed_bgmix_hint">Speed is not available in smooth transitions mode</string>
 </resources>

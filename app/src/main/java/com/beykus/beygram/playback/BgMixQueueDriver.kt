@@ -37,12 +37,12 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
      * Starts [items] from [startIndex]. Returns false when the native session cannot start, or when BG Mix cannot take
      * the whole rest of the queue; the caller then keeps the ExoPlayer path.
      */
-    fun start(items: List<PlaybackItem>, startIndex: Int): Boolean {
+    fun start(items: List<PlaybackItem>, startIndex: Int, single: Boolean = false): Boolean {
         stop()
         awaitPendingRelease()
         // Every item from the tapped one on has to be a local BG Mix file. Skipping one here would drop it from the
         // queue without a word, so the whole queue stays on ExoPlayer instead.
-        val tail = bgMixQueueTail(items, startIndex) { isEligible(it) } ?: return false
+        val tail = (if (single) bgMixSingleTail(items, startIndex) { isEligible(it) } else bgMixQueueTail(items, startIndex) { isEligible(it) }) ?: return false
         val created = BgMixPlayer(cacheDir)
         if (!created.start()) return false
         val ids = created.setQueue(tail.map { File(items[it].path) })
@@ -135,6 +135,13 @@ internal fun bgMixQueueTail(
     val tail = (startIndex until items.size).toList()
     return if (tail.all { eligible(items[it]) }) tail else null
 }
+
+/** Repeat One plays just the current track; the engine starts it again when it ends. */
+internal fun bgMixSingleTail(
+    items: List<PlaybackItem>,
+    startIndex: Int,
+    eligible: (PlaybackItem) -> Boolean
+): List<Int>? = if (startIndex in items.indices && eligible(items[startIndex])) listOf(startIndex) else null
 
 /**
  * Whether BG Mix may take a queue from [source]. A source with more pages still to load stays on ExoPlayer: the native queue

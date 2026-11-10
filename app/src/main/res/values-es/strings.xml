@@ -800,7 +800,7 @@
     <string name="bgbeat_reanalyze">Analizar el ritmo de nuevo</string>
     <string name="player_more">Más</string>
     <string name="player_bgmix_badge">BG Mix</string>
-    <string name="player_bgmix_explain">Está sonando el modo de transiciones suaves. Aleatorio, repetir, velocidad y «Anterior» pasan la cola al reproductor normal en el mismo punto.</string>
+    <string name="player_bgmix_explain">Está sonando el modo de transiciones suaves. Aleatorio, repetir y «Anterior» funcionan dentro de él, con una breve pausa en el sonido. La velocidad no está disponible en este modo.</string>
     <string name="player_sleep_status_track_end">Temporizador · hasta el final de la pista</string>
     <string name="player_sleep_until_track_end">Hasta el final de la pista</string>
     <string name="player_sleep_custom">Otro tiempo…</string>
@@ -820,4 +820,5 @@
     <string name="music_bot_saved_favorite">Guardado en Favoritos</string>
     <string name="player_notification_shuffle">Aleatorio</string>
     <string name="player_notification_close">Cerrar</string>
+    <string name="player_speed_bgmix_hint">La velocidad no está disponible en el modo de transiciones suaves</string>
 </resources>

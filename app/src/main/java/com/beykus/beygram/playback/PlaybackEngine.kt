@@ -347,6 +347,9 @@ object PlaybackEngine {
     private var bgFocusRequest: AudioFocusRequest? = null
     private var bgNoisyRegistered = false
     private var bgMixJob: Job? = null
+    private var bgMixSeekJob: Job? = null
+    /** Queue order from before BG Mix shuffled it; null while shuffle is off. */
+    private var bgMixOriginalQueue: List<PlaybackItem>? = null
 
     /** Key of the track that was moved past early for trailing silence. Cleared by the next media item transition. */
     private var trailingSkippedKey: String? = null
@@ -761,7 +764,7 @@ object PlaybackEngine {
         autoPlay: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
-        if (autoPlay && startPositionMs == null && startFraction <= 0f && bgMixAdmitsSource(source) && startBgMix(context, queue)) return
+        if (autoPlay && startPositionMs == null && startFraction <= 0f && bgMixAdmitsSource(source) && startBgMix(context, queue, reshuffle = true)) return
         stopBgMix()
         val target = rawPlayer(context)
         transitionToken++
@@ -1630,24 +1633,34 @@ object PlaybackEngine {
      * Starts [queue] through BG Mix when the experimental flag is on and every item is an eligible local file.
      * Returns false without touching the ExoPlayer state, so the caller falls back to the regular path.
      */
-    private fun startBgMix(context: Context, queue: PlaybackQueue): Boolean {
+    private fun startBgMix(context: Context, requested: PlaybackQueue, reshuffle: Boolean = false, autoPlay: Boolean = true): Boolean {
         BgMixSettingsStore.load(context)
         if (!BgMixSettingsStore.enabled.value) return false
-        // BG Mix does not repeat; a queue with repeat selected stays on ExoPlayer, which does.
-        if (_state.value.repeatMode != PlaybackRepeatMode.Off) return false
-        // BG Mix plays the queue in order; shuffle stays on ExoPlayer.
-        if (_state.value.shuffleEnabled) return false
-        if (queue.index !in queue.items.indices) return false
+        if (requested.index !in requested.items.indices) return false
+        val single = _state.value.repeatMode == PlaybackRepeatMode.One
+        // A position restoration waiting on the old session must not seek the new one.
+        bgMixSeekJob?.cancel()
+        bgMixSeekJob = null
         // Creates the shared player and appContext on first use, so the notification and queue paths work.
         player(context)
         val driver = bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }
         // Focus comes before the driver starts: the native session plays as soon as it starts, so it must not start
         // without focus. A refused focus keeps the queue on ExoPlayer, which asks for focus in the same way.
         if (!requestBgFocus(context)) return false
-        if (!driver.start(queue.items, queue.index)) {
+        // Shuffle keeps the current track first and mixes the rest; the order before it is kept for switching shuffle off.
+        val playQueue = if (reshuffle && _state.value.shuffleEnabled) {
+            bgMixOriginalQueue = requested.items
+            val current = requested.items[requested.index]
+            PlaybackQueue(listOf(current) + requested.items.filterIndexed { i, _ -> i != requested.index }.shuffled(), 0)
+        } else {
+            if (reshuffle) bgMixOriginalQueue = null
+            requested
+        }
+        if (!driver.start(playQueue.items, playQueue.index, single)) {
             releaseBgFocus()
             return false
         }
+        val queue = playQueue
         val item = queue.items[queue.index]
         val before = _state.value
         progress?.cancel()
@@ -1677,7 +1690,7 @@ object PlaybackEngine {
             speed = 1f
         )
         _state.update {
-            it.copy(timelineHasNext = queue.index < queue.items.lastIndex, timelineHasPrevious = false, bgMixActive = true)
+            it.copy(timelineHasNext = bgMixHasNext(queue.index, queue.items.size), timelineHasPrevious = true, bgMixActive = true)
         }
         notifyChanges(before, _state.value)
         bgMixJob?.cancel()
@@ -1694,7 +1707,35 @@ object PlaybackEngine {
             }
         }
         startPlaybackService()
+        if (!autoPlay) pauseBgMix()
         return true
+    }
+
+    private fun bgMixHasNext(index: Int, size: Int): Boolean =
+        index < size - 1 || _state.value.repeatMode != PlaybackRepeatMode.Off
+
+    /**
+     * Starts the BG Mix queue again from [index] without leaving the mode: used for Previous, shuffle and repeat changes,
+     * which the native session cannot do on its own. The position is restored once the new session plays. If the
+     * session cannot start again, the queue continues on the regular player from the same place.
+     */
+    private fun restartBgMix(items: List<PlaybackItem>, index: Int, positionMs: Long, autoPlay: Boolean) {
+        val context = appContext ?: return
+        val ok = startBgMix(context, PlaybackQueue(items, index), reshuffle = false, autoPlay = autoPlay)
+        if (!ok) {
+            stopBgMix()
+            startQueue(context, PlaybackQueue(items, index), queueSource, startPositionMs = positionMs, startFraction = 0f, autoPlay = autoPlay)
+            return
+        }
+        bgMixSeekJob?.cancel()
+        if (positionMs < 1_000L) return
+        val statusFlow = bgMix?.status ?: return
+        bgMixSeekJob = scope.launch {
+            withTimeoutOrNull(3_000L) {
+                statusFlow.first { status -> status?.decks?.getOrNull(status.master)?.playing == true }
+            }
+            bgMix?.seek(positionMs / 1000.0)
+        }
     }
 
     /** Copies the native status into the Media state the UI and the notification read. */
@@ -1713,8 +1754,10 @@ object PlaybackEngine {
         val hasNext = status.queue.any { (driver.indexOfNative(it.id) ?: -1) > index }
         _state.update { current ->
             current.copy(
-                timelineHasNext = hasNext,
-                timelineHasPrevious = false,
+                // Repeat One keeps one track in the native queue, so Next is judged by the logical queue.
+                timelineHasNext = hasNext || current.repeatMode == PlaybackRepeatMode.One ||
+                    (index >= driver.queueItems.lastIndex && bgMixHasNext(index, driver.queueItems.size)),
+                timelineHasPrevious = true,
                 item = item,
                 queue = driver.queueItems,
                 queueIndex = index,
@@ -1732,6 +1775,17 @@ object PlaybackEngine {
             exo?.let { target ->
                 if (target.mediaItemCount > 0) target.replaceMediaItem(0, placeholderItem(item))
             }
+        }
+        val repeat = _state.value.repeatMode
+        val repeatsQueue = finished && !before.ended && repeat != PlaybackRepeatMode.Off &&
+            status.queue.any { it.state == "played" }
+        if (repeatsQueue) {
+            // Repeat One plays the same track again, Repeat All starts the queue over; the mode stays BG Mix.
+            val items = driver.queueItems
+            val next = if (repeat == PlaybackRepeatMode.One) index else 0
+            notifyChanges(before, _state.value)
+            scope.launch { restartBgMix(items, next, 0L, autoPlay = true) }
+            return
         }
         if (finished && !before.ended) {
             releaseBgFocus()
@@ -1777,6 +1831,9 @@ object PlaybackEngine {
         val before = _state.value
         bgMixJob?.cancel()
         bgMixJob = null
+        bgMixSeekJob?.cancel()
+        bgMixSeekJob = null
+        bgMixOriginalQueue = null
         bgMix?.stop()
         releaseBgFocus()
         releaseBgWakeLock()
@@ -1857,7 +1914,13 @@ object PlaybackEngine {
 
     fun next() {
         if (bgMixActive()) {
-            bgMix?.next()
+            val state = _state.value
+            val last = state.queueIndex >= state.queue.lastIndex
+            when {
+                state.repeatMode == PlaybackRepeatMode.One -> restartBgMix(state.queue, if (last) 0 else state.queueIndex + 1, 0L, state.intentPlaying || state.ended)
+                !last -> bgMix?.next()
+                state.repeatMode == PlaybackRepeatMode.All -> restartBgMix(state.queue, 0, 0L, state.intentPlaying || state.ended)
+            }
             return
         }
         val target = exo ?: return
@@ -1905,7 +1968,7 @@ object PlaybackEngine {
         if (bgMixActive()) {
             val context = appContext
             val queue = PlaybackQueue(_state.value.queue, index)
-            if (context != null && bgMixAdmitsSource(queueSource) && startBgMix(context, queue)) return
+            if (context != null && bgMixAdmitsSource(queueSource) && startBgMix(context, queue, reshuffle = false)) return
             stopBgMix()
             if (context != null) {
                 startQueue(context, queue, queueSource, startPositionMs = null, startFraction = 0f)
@@ -1929,8 +1992,17 @@ object PlaybackEngine {
     }
 
     fun previous() {
-        // BG Mix cannot go back, so the queue continues on the regular player, which restarts or steps back.
-        if (bgMixActive()) switchBgMixToExo()
+        if (bgMixActive()) {
+            val state = _state.value
+            // Like the regular player: a few seconds in, Previous restarts the track; otherwise it steps back.
+            if (state.ended || state.positionMs >= PREVIOUS_RESTART_THRESHOLD_MS || state.queueIndex <= 0) {
+                // A native seek is refused during a transition; the session then starts the track again instead of dropping the press.
+                if (state.ended || bgMix?.seek(0.0) != true) restartBgMix(state.queue, state.queueIndex, 0L, state.intentPlaying || state.ended)
+            } else {
+                restartBgMix(state.queue, state.queueIndex - 1, 0L, state.intentPlaying)
+            }
+            return
+        }
         val target = exo ?: return
         val state = _state.value
         // Previous restarts the current track when it is already a few seconds in; otherwise it goes to the previous item.
@@ -2003,8 +2075,23 @@ object PlaybackEngine {
     fun setShuffle(enabled: Boolean) {
         if (_state.value.shuffleEnabled == enabled) return
         if (bgMixActive()) {
+            val state = _state.value
+            val current = state.item ?: return
             _state.update { it.copy(shuffleEnabled = enabled) }
-            if (enabled) switchBgMixToExo()
+            val items: List<PlaybackItem>
+            if (enabled) {
+                bgMixOriginalQueue = state.queue
+                items = listOf(current) + state.queue.filterIndexed { i, _ -> i != state.queueIndex }.shuffled()
+            } else {
+                val original = bgMixOriginalQueue
+                bgMixOriginalQueue = null
+                items = original?.takeIf { queue -> queue.any { it.key == current.key } } ?: state.queue
+            }
+            val index = items.indexOfFirst { it.key == current.key }.coerceAtLeast(0)
+            // The native session has no shuffle, so it starts again at the same place with the new order.
+            val keepOriginal = bgMixOriginalQueue
+            restartBgMix(items, index, state.positionMs, state.intentPlaying)
+            if (enabled) bgMixOriginalQueue = keepOriginal
             return
         }
         val target = exo
@@ -2021,8 +2108,16 @@ object PlaybackEngine {
 
     fun setRepeatMode(mode: PlaybackRepeatMode) {
         if (bgMixActive()) {
+            val state = _state.value
             _state.update { it.copy(repeatMode = mode) }
-            if (mode != PlaybackRepeatMode.Off) switchBgMixToExo()
+            // Repeat One keeps only the current track in the native queue, so entering or leaving it starts the session again.
+            if ((mode == PlaybackRepeatMode.One) != (state.repeatMode == PlaybackRepeatMode.One)) {
+                val original = bgMixOriginalQueue
+                restartBgMix(state.queue, state.queueIndex, state.positionMs, state.intentPlaying)
+                bgMixOriginalQueue = original
+            } else {
+                _state.update { it.copy(timelineHasNext = bgMixHasNext(it.queueIndex, it.queue.size)) }
+            }
             return
         }
         val target = exo
@@ -2225,7 +2320,6 @@ object PlaybackEngine {
         val applies = current.item?.kind == MediaKind.Audio || current.item == null
         _state.update { it.copy(musicSpeed = speed, speed = if (applies) speed else it.speed) }
         if (applies) exo?.setPlaybackSpeed(speed)
-        if (applies && speed != 1f && bgMixActive()) switchBgMixToExo()
     }
 
     fun setVoiceSpeed(speed: Float) {

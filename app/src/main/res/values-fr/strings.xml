@@ -826,7 +826,7 @@
     <string name="bgbeat_reanalyze">Analyser à nouveau le rythme</string>
     <string name="player_more">Plus</string>
     <string name="player_bgmix_badge">BG Mix</string>
-    <string name="player_bgmix_explain">Le mode de transitions fluides est actif. Aléatoire, répétition, vitesse et « Précédent » basculent la file sur le lecteur normal au même endroit.</string>
+    <string name="player_bgmix_explain">Le mode de transitions fluides est actif. Aléatoire, répétition et « Précédent » y fonctionnent, avec une brève coupure du son. La vitesse n’est pas disponible dans ce mode.</string>
     <string name="player_sleep_status_track_end">Minuteur · jusqu’à la fin du morceau</string>
     <string name="player_sleep_until_track_end">Jusqu’à la fin du morceau</string>
     <string name="player_sleep_custom">Durée personnalisée…</string>
@@ -846,4 +846,5 @@
     <string name="music_bot_saved_favorite">Enregistré dans les favoris</string>
     <string name="player_notification_shuffle">Aléatoire</string>
     <string name="player_notification_close">Fermer</string>
+    <string name="player_speed_bgmix_hint">La vitesse n’est pas disponible en mode transitions fluides</string>
 </resources>
