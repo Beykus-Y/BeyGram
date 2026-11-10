@@ -340,22 +340,6 @@ fun ChatScreen(
     var copyLinks by remember(chat.id) { mutableStateOf<List<String>>(emptyList()) }
     // The audio message whose More menu asked to save it to a playlist. Clearing it closes the sheet.
     var playlistTrack by remember(accountId) { mutableStateOf<PlaylistTrack?>(null) }
-    // "Play next" and "Add to end of queue" for an audio message, without stopping the current track.
-    fun queueActionItem(message: ChatMessage, protected: Boolean): PlaybackItem? {
-        if (protected) return null
-        val fileId = message.media?.takeIf { it.kind == MediaKind.Audio }?.fileId ?: return null
-        return chatMusicItem(message, accountId, observeFile(fileId).value, context.getString(R.string.media_kind_audio))
-    }
-    fun enqueueMusic(item: PlaybackItem, atEnd: Boolean) {
-        PlaybackEngine.enqueue(
-            context, item, PlaybackQueueSource(accountId, observeFile, onDownloadFile, onAutoDownloadFile), atEnd
-        )
-        Toast.makeText(
-            context,
-            context.getString(if (atEnd) R.string.queue_added_end else R.string.queue_added_next),
-            Toast.LENGTH_SHORT
-        ).show()
-    }
     var botCommandMenu by remember(chat.id) { mutableStateOf<BotCommandMenu?>(null) }
     var botCommandMenuOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
     var inlineSending by remember(chat.id) { mutableStateOf(false) }
@@ -387,6 +371,22 @@ fun ChatScreen(
     }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    // "Play next" and "Add to end of queue" for an audio message, without stopping the current track.
+    fun queueActionItem(message: ChatMessage, protected: Boolean): PlaybackItem? {
+        if (protected) return null
+        val fileId = message.media?.takeIf { it.kind == MediaKind.Audio }?.fileId ?: return null
+        return chatMusicItem(message, accountId, observeFile(fileId).value, context.getString(R.string.media_kind_audio))
+    }
+    fun enqueueMusic(item: PlaybackItem, atEnd: Boolean) {
+        PlaybackEngine.enqueue(
+            context, item, PlaybackQueueSource(accountId, observeFile, onDownloadFile, onAutoDownloadFile), atEnd
+        )
+        Toast.makeText(
+            context,
+            context.getString(if (atEnd) R.string.queue_added_end else R.string.queue_added_next),
+            Toast.LENGTH_SHORT
+        ).show()
+    }
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
     // Bots expose commands through UserFullInfo; non-bot chats resolve to null without an extra full-info request.
     LaunchedEffect(chat.id, conversation) {
