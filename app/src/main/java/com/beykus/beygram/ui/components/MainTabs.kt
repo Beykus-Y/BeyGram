@@ -490,7 +490,9 @@ internal fun MainTabBar(
                 Box(Modifier.matchParentSize().glassHighlight(glass.highlightAlpha * 0.6f))
             }
             content()
-            if (spec.hairline) {
+            if (spec.hairline || spec.divider) {
+                // One full-width line on the very edge of the bar; inside the padded content it came up short of the
+                // screen edges and hung below the bar's shadow.
                 Box(Modifier.fillMaxWidth().height(1.dp).background(palette.divider))
             }
             if (glass != null) {
@@ -531,7 +533,6 @@ private fun NavigationBarContent(
             }
         }
         Column {
-            if (spec.divider) HorizontalDivider(color = palette.divider)
             // The indicator and the row share one Box, so the indicator sits behind the icons and never adds height.
             Box(Modifier.fillMaxWidth()) {
                 if (selectedIndex >= 0 && spec.showSelectionPill && spec.indicatorMark) {

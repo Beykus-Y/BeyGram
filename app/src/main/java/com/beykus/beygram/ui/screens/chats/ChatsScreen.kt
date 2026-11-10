@@ -161,6 +161,7 @@ import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.GlassEdge
@@ -785,7 +786,12 @@ fun ChatsScreen(
           onClick = onNewChat,
           modifier = Modifier.align(Alignment.BottomEnd)
               .padding(end = fabPlacement.endPadding, bottom = fabPlacement.bottomPadding)
-              .size(design.fab.size.coerceAtLeast(48.dp)),
+              .size(design.fab.size.coerceAtLeast(48.dp))
+              // The glass style outlines its floating button with the same thin light stroke as the other glass panes.
+              .then(
+                  if (design.usesGlassPanels) Modifier.border(1.dp, palette.textSecondary.copy(alpha = 0.18f), fabShape)
+                  else Modifier
+              ),
           // Material 3 keeps the main action tonal (primary container); the other styles keep the accent fill.
           containerColor = if (design.fab.tonal) palette.accentSoft else palette.accent,
           contentColor = if (design.fab.tonal) palette.accentInk else palette.onAccent,
@@ -932,6 +938,7 @@ internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, o
     // while reducing the visual prominence that previously pushed conversations down.
     // Card is a raised surface, Tonal is today's quiet fill, Flat is just a navigation line inside the list.
     val archiveShape = RoundedCornerShape(main.archiveRadius)
+    val design = LocalDesignSystem.current
     val groupSurface = groupSurfaceColor()
     val archiveBackground = when (main.archive) {
         ArchiveTreatment.Card, ArchiveTreatment.Tonal -> groupSurface
@@ -946,7 +953,7 @@ internal fun ArchiveRow(archivedChats: List<ChatPreview>, onClick: () -> Unit, o
                     if (main.archiveElevation > 0.dp) Modifier.shadow(main.archiveElevation, archiveShape)
                     else Modifier
                 )
-                .clip(archiveShape).background(archiveBackground)
+                .then(if (main.archive == ArchiveTreatment.Flat) Modifier.clip(archiveShape) else Modifier.glassCard(design, groupSurface, palette.textSecondary, archiveShape))
                 .combinedClickable(onClick = onClick, onLongClick = { actionsOpen = true }, role = Role.Button)
                 .semantics(mergeDescendants = true) { contentDescription = accessibleDescription(title, summary) }
                 .padding(horizontal = if (compact) 12.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp),

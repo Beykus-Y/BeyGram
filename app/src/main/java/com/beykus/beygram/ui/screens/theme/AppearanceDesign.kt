@@ -51,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
 
 /** Shared measurements for every Appearance page. They keep the section compact on phones. */
 internal object AppearanceDimens {
@@ -88,7 +90,7 @@ internal fun AppearanceCard(
 ) {
     val palette = beyGramPalette()
     Column(
-        modifier.fillMaxWidth().clip(AppearanceDimens.cardShape).background(palette.surface)
+        modifier.fillMaxWidth().glassCard(LocalDesignSystem.current, palette.surface, palette.textSecondary, AppearanceDimens.cardShape)
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(AppearanceDimens.cardGap),
         content = content
@@ -117,8 +119,8 @@ internal fun AppearanceNavCard(
 ) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().clip(AppearanceDimens.cardShape)
-            .background(palette.surface)
+        Modifier.fillMaxWidth()
+            .glassCard(LocalDesignSystem.current, palette.surface, palette.textSecondary, AppearanceDimens.cardShape)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = "$title, $summary" }
             .padding(horizontal = 14.dp, vertical = 12.dp),

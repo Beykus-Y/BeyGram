@@ -276,7 +276,7 @@ data class GlassStyle(
      */
     val outlineTopAlpha: Float = 0.18f,
     /** Opacity of the outer stroke at its bottom edge, see [outlineTopAlpha]. */
-    val outlineBottomAlpha: Float = 0.04f
+    val outlineBottomAlpha: Float = 0.10f
 ) {
     /** The backdrop is sampled and blurred only at the full level; lower levels keep the layout and the tint. */
     val samplesBackdrop: Boolean get() = quality == GlassQuality.High && blurRadiusDp > 0.dp

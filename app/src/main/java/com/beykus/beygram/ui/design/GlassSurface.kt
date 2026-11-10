@@ -306,7 +306,7 @@ private fun glassOutlineBrush(glass: GlassStyle, rim: Color): Brush = Brush.vert
 )
 
 /** How much of the surface colour a glass card keeps, so the card reads lighter than the screen without a solid fill. */
-private const val GlassCardFillAlpha = 0.55f
+private const val GlassCardFillAlpha = 0.9f
 
 /**
  * A panel that slides up from the bottom (attachment menu, sheets) in the Liquid Glass style: a lit top edge and a
