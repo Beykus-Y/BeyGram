@@ -1919,7 +1919,7 @@ object PlaybackEngine {
             when {
                 state.repeatMode == PlaybackRepeatMode.One -> restartBgMix(state.queue, if (last) 0 else state.queueIndex + 1, 0L, state.intentPlaying || state.ended)
                 !last -> bgMix?.next()
-                state.repeatMode == PlaybackRepeatMode.All -> restartBgMix(state.queue, 0, 0L, true)
+                state.repeatMode == PlaybackRepeatMode.All -> restartBgMix(state.queue, 0, 0L, state.intentPlaying || state.ended)
             }
             return
         }

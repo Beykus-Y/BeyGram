@@ -592,13 +592,15 @@ internal fun NowPlayingControls(
         }
         Text(stringResource(R.string.player_speed), color = colors.secondary, fontSize = 12.sp, modifier = Modifier.padding(top = 16.dp))
         val selectedSpeed = playbackSpeedFor(item.kind, state.musicSpeed, state.voiceSpeed)
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp).alpha(if (enabled) 1f else 0.4f),
+        // BG Mix has no playback speed, so the chips stay off while it plays music instead of changing only the saved value.
+        val speedEnabled = enabled && !(state.bgMixActive && item.kind == MediaKind.Audio)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp).alpha(if (speedEnabled) 1f else 0.4f),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PLAYBACK_SPEED_OPTIONS.forEach { speed ->
                 SpeedChip(
                     speed = speed,
                     selected = selectedSpeed == speed,
-                    enabled = enabled,
+                    enabled = speedEnabled,
                     colors = colors,
                     onSelect = {
                         if (item.kind == MediaKind.Audio) PlaybackEngine.setMusicSpeed(speed) else PlaybackEngine.setVoiceSpeed(speed)

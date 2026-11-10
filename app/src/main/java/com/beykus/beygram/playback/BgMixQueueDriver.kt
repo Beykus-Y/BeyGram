@@ -42,7 +42,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         awaitPendingRelease()
         // Every item from the tapped one on has to be a local BG Mix file. Skipping one here would drop it from the
         // queue without a word, so the whole queue stays on ExoPlayer instead.
-        val tail = bgMixQueueTail(items, startIndex, single) { isEligible(it) } ?: return false
+        val tail = bgMixQueueTail(items, startIndex, { isEligible(it) }, single) ?: return false
         val created = BgMixPlayer(cacheDir)
         if (!created.start()) return false
         val ids = created.setQueue(tail.map { File(items[it].path) })
@@ -129,8 +129,8 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
 internal fun bgMixQueueTail(
     items: List<PlaybackItem>,
     startIndex: Int,
-    single: Boolean = false,
-    eligible: (PlaybackItem) -> Boolean
+    eligible: (PlaybackItem) -> Boolean,
+    single: Boolean = false
 ): List<Int>? {
     if (startIndex !in items.indices) return null
     // Repeat One plays just the current track; the engine starts it again when it ends.
