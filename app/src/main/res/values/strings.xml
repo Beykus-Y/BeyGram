@@ -2374,4 +2374,9 @@
     <string name="player_notification_shuffle">Перемешать</string>
     <string name="player_notification_close">Закрыть</string>
     <string name="player_speed_bgmix_hint">Скорость недоступна в режиме плавных переходов</string>
+    <string name="settings_experiments_title">Эксперименты</string>
+    <string name="settings_experiments_intro">Функции, которые ещё дорабатываются. Их можно включать и выключать в любой момент.</string>
+    <string name="settings_experiments_group_music">Музыка</string>
+    <string name="settings_experiments_group_transitions">Паузы и переходы</string>
+    <string name="settings_experiments_transitions_note">Пропуск тишины и плавные переходы относятся к обычному плееру и не зависят от BG Mix. Пока музыка играет через BG Mix, у него свои плавные переходы, и эти две настройки на неё не действуют.</string>
 </resources>

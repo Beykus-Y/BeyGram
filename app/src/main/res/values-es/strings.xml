@@ -821,4 +821,9 @@
     <string name="player_notification_shuffle">Aleatorio</string>
     <string name="player_notification_close">Cerrar</string>
     <string name="player_speed_bgmix_hint">La velocidad no está disponible en el modo de transiciones suaves</string>
+    <string name="settings_experiments_title">Experimentos</string>
+    <string name="settings_experiments_intro">Funciones que aún se están perfeccionando. Puedes activarlas y desactivarlas en cualquier momento.</string>
+    <string name="settings_experiments_group_music">Música</string>
+    <string name="settings_experiments_group_transitions">Pausas y transiciones</string>
+    <string name="settings_experiments_transitions_note">Omitir silencio y fundido pertenecen al reproductor normal y no dependen de BG Mix. Mientras la música suena con BG Mix, usa sus propias transiciones suaves y estos dos ajustes no se aplican.</string>
 </resources>

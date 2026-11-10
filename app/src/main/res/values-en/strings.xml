@@ -821,4 +821,9 @@
     <string name="player_notification_shuffle">Shuffle</string>
     <string name="player_notification_close">Close</string>
     <string name="player_speed_bgmix_hint">Speed is not available in smooth transitions mode</string>
+    <string name="settings_experiments_title">Experiments</string>
+    <string name="settings_experiments_intro">Features that are still being refined. You can turn them on and off at any time.</string>
+    <string name="settings_experiments_group_music">Music</string>
+    <string name="settings_experiments_group_transitions">Gaps and transitions</string>
+    <string name="settings_experiments_transitions_note">Skip silence and crossfade belong to the regular player and do not depend on BG Mix. While music plays through BG Mix, it uses its own smooth transitions and these two settings do not apply to it.</string>
 </resources>
