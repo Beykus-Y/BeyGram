@@ -56,7 +56,7 @@ class MusicHistoryRecorderTest {
         val repo = repositoryFor(FakeMusicPersistence(), FakeClock())
         repo.setActiveAccount(TEST_ACCOUNT)
         val flow = MutableStateFlow(PlaybackState())
-        val observer = launch { MusicHistoryRecorder.observe(repo, flow) }
+        val observer = launch { MusicHistoryRecorder.observe(repo, flow, ListenRule.Immediate) }
         runCurrent()
         val song = item(1)
         emit(flow, playing(song, started = false))
@@ -74,7 +74,7 @@ class MusicHistoryRecorderTest {
         val repo = repositoryFor(FakeMusicPersistence(), FakeClock())
         repo.setActiveAccount(TEST_ACCOUNT)
         val flow = MutableStateFlow(PlaybackState())
-        val observer = launch { MusicHistoryRecorder.observe(repo, flow) }
+        val observer = launch { MusicHistoryRecorder.observe(repo, flow, ListenRule.Immediate) }
         runCurrent()
         val a = item(1)
         val b = item(2)
@@ -93,7 +93,7 @@ class MusicHistoryRecorderTest {
         val repo = repositoryFor(FakeMusicPersistence(), FakeClock())
         repo.setActiveAccount(TEST_ACCOUNT)
         val flow = MutableStateFlow(PlaybackState())
-        val observer = launch { MusicHistoryRecorder.observe(repo, flow) }
+        val observer = launch { MusicHistoryRecorder.observe(repo, flow, ListenRule.Immediate) }
         runCurrent()
         emit(flow, playing(item(1, kind = MediaKind.Video)))
         emit(flow, PlaybackState())
@@ -111,7 +111,7 @@ class MusicHistoryRecorderTest {
         repo.setActiveAccount(TEST_ACCOUNT)
         val song = item(1)
         val flow = MutableStateFlow(playing(song))
-        val observer = launch { MusicHistoryRecorder.observe(repo, flow) }
+        val observer = launch { MusicHistoryRecorder.observe(repo, flow, ListenRule.Immediate) }
         runCurrent()
         emit(flow, playing(song).copy(positionMs = 1_000L))
         assertTrue(repo.library.value.stats.isEmpty())
@@ -132,7 +132,7 @@ class MusicHistoryRecorderTest {
         val repo = repositoryFor(slow, FakeClock())
         repo.setActiveAccount(TEST_ACCOUNT)
         val flow = MutableStateFlow(PlaybackState())
-        val observer = launch { MusicHistoryRecorder.observe(repo, flow) }
+        val observer = launch { MusicHistoryRecorder.observe(repo, flow, ListenRule.Immediate) }
         runCurrent()
         emit(flow, playing(item(1)))
         emit(flow, playing(item(2)))
@@ -150,10 +150,60 @@ class MusicHistoryRecorderTest {
     fun playsAreIgnoredWhileNoAccountIsActive() = runTest {
         val repo = repositoryFor(FakeMusicPersistence(), FakeClock())
         val flow = MutableStateFlow(PlaybackState())
-        val observer = launch { MusicHistoryRecorder.observe(repo, flow) }
+        val observer = launch { MusicHistoryRecorder.observe(repo, flow, ListenRule.Immediate) }
         runCurrent()
         emit(flow, playing(item(1)))
         assertTrue(repo.library.value.stats.isEmpty())
         observer.cancel()
+    }
+
+    @Test
+    fun aListenCountsOnlyAfterThirtySecondsOfSound() = runTest {
+        val repo = repositoryFor(FakeMusicPersistence(), FakeClock())
+        repo.setActiveAccount(TEST_ACCOUNT)
+        val flow = MutableStateFlow(PlaybackState())
+        var now = 0L
+        val observer = launch { MusicHistoryRecorder.observe(repo, flow, ListenRule.Standard) { now } }
+        runCurrent()
+        val song = item(1)
+        emit(flow, playing(song))
+        assertEquals(0, playCount(repo, song))
+        // Thirty one seconds of ticks, one second apart.
+        repeat(31) {
+            now += 1_000L
+            emit(flow, playing(song).copy(positionMs = now))
+        }
+        assertEquals(1, playCount(repo, song))
+        observer.cancel()
+    }
+
+    @Test
+    fun skippingThroughTracksCountsNothing() = runTest {
+        val repo = repositoryFor(FakeMusicPersistence(), FakeClock())
+        repo.setActiveAccount(TEST_ACCOUNT)
+        val flow = MutableStateFlow(PlaybackState())
+        var now = 0L
+        val observer = launch { MusicHistoryRecorder.observe(repo, flow, ListenRule.Standard) { now } }
+        runCurrent()
+        for (message in 1L..10L) {
+            now += 1_500L
+            emit(flow, playing(item(message)))
+        }
+        assertEquals(0, (1L..10L).sumOf { playCount(repo, item(it)) })
+        observer.cancel()
+    }
+
+    @Test
+    fun thresholdIsHalfOfAShortTrack() {
+        assertEquals(30_000L, listenThresholdMs(200_000L))
+        assertEquals(10_000L, listenThresholdMs(20_000L))
+        assertEquals(30_000L, listenThresholdMs(0L))
+    }
+
+    @Test
+    fun aTrackThatBeginsAgainAfterItsEndIsANewListen() {
+        assertTrue(restartedFromTheEnd(199_000L, 500L, 200_000L))
+        assertTrue(!restartedFromTheEnd(60_000L, 500L, 200_000L))
+        assertTrue(!restartedFromTheEnd(10_000L, 12_000L, 200_000L))
     }
 }

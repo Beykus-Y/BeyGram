@@ -632,8 +632,20 @@ fun ChatScreen(
     // Recording takes the microphone, so music pauses for it and continues after the message is sent or cancelled.
     val recordingInterruptionOwner = remember { Any() }
     val recordingActive = videoNote.active || audioNote.active
-    LaunchedEffect(recordingActive) { if (!recordingActive) PlaybackEngine.endInterruption(recordingInterruptionOwner) }
-    DisposableEffect(recordingInterruptionOwner) { onDispose { PlaybackEngine.endInterruption(recordingInterruptionOwner) } }
+    LaunchedEffect(recordingActive) {
+        if (recordingActive) {
+            PlaybackEngine.beginRecordingFocus(context)
+        } else {
+            PlaybackEngine.endRecordingFocus(context)
+            PlaybackEngine.endInterruption(recordingInterruptionOwner)
+        }
+    }
+    DisposableEffect(recordingInterruptionOwner) {
+        onDispose {
+            PlaybackEngine.endRecordingFocus(context)
+            PlaybackEngine.endInterruption(recordingInterruptionOwner)
+        }
+    }
     fun startRecording() {
         if (videoNote.active || audioNote.active) return
         // Микрофон записывает и звук из общего плеера, поэтому музыку ставим на паузу, когда запись начинается.

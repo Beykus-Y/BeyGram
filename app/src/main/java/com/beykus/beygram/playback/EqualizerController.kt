@@ -240,7 +240,9 @@ internal class EqualizerController(private val factory: EqualizerEffectFactory) 
             val flatRequested = settings.selectedPreset == EqualizerPreset.Flat
             val audible = settings.enabled && !flatRequested && levels.any { it != 0 }
             if (!audible) current.setEnabled(false)
-            levels.forEachIndexed { band, levelMb -> current.setBandLevel(band, levelMb) }
+            // The loudest boost is taken off every band first, so no band lifts the signal above its own level and a
+            // loud track cannot clip. The shape of the curve stays the same, only the overall level is lower.
+            equalizerWithHeadroom(levels, caps.minLevelMb).forEachIndexed { band, levelMb -> current.setBandLevel(band, levelMb) }
             if (audible) current.setEnabled(true)
             true
         } catch (_: RuntimeException) {
@@ -258,4 +260,14 @@ internal class EqualizerController(private val factory: EqualizerEffectFactory) 
     private fun EqualizerEffect.closeQuietly() {
         runCatching { close() }
     }
+}
+
+/**
+ * Band levels lowered by the largest boost among them (never below [minLevelMb]), so that after the equalizer no band is
+ * louder than the source. Levels that are all at or below zero stay as they are.
+ */
+internal fun equalizerWithHeadroom(levelsMb: List<Int>, minLevelMb: Int): List<Int> {
+    val boost = (levelsMb.maxOrNull() ?: 0).coerceAtLeast(0)
+    if (boost == 0) return levelsMb
+    return levelsMb.map { (it - boost).coerceAtLeast(minLevelMb) }
 }

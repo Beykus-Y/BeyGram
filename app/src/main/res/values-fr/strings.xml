@@ -827,4 +827,13 @@
     <string name="player_more">Plus</string>
     <string name="player_bgmix_badge">BG Mix</string>
     <string name="player_bgmix_explain">Le mode de transitions fluides est actif. Aléatoire, répétition, vitesse et « Précédent » basculent la file sur le lecteur normal au même endroit.</string>
+    <string name="player_sleep_status_track_end">Minuteur · jusqu’à la fin du morceau</string>
+    <string name="player_sleep_until_track_end">Jusqu’à la fin du morceau</string>
+    <string name="player_sleep_custom">Durée personnalisée…</string>
+    <string name="player_sleep_custom_title">Minuteur</string>
+    <string name="player_sleep_custom_label">Minutes (1–%1$d)</string>
+    <string name="player_sleep_custom_set">Démarrer</string>
+    <string name="player_sleep_extend">Ajouter %1$d minutes</string>
+    <string name="player_sleep_cancel_plain">Désactiver le minuteur</string>
+    <string name="settings_crossfade_length">Durée de la transition : %1$d s</string>
 </resources>

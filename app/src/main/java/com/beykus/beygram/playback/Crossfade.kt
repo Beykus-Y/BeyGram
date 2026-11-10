@@ -4,7 +4,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** Length of the overlap between the end of one track and the start of the next. */
+/** The default length of the overlap between the end of one track and the start of the next. The setting overrides it. */
 internal const val CROSSFADE_MS = 4_000L
 
 /** The second player for the outgoing tail is prepared this long before the switch point, so the switch never waits for buffering. */
@@ -53,9 +53,9 @@ internal const val CROSSFADE_TOLERANCE_MS = 250L
  * measured trailing silence; an unknown value counts as none, so the overlap then ends with the file.
  * Null when the track is too short to hold the overlap.
  */
-internal fun crossfadeSwitchMs(durationMs: Long, trailingMs: Long): Long? {
+internal fun crossfadeSwitchMs(durationMs: Long, trailingMs: Long, overlapMs: Long = CROSSFADE_MS): Long? {
     val contentEnd = durationMs - trailingMs.coerceAtLeast(0L)
-    val switchAt = contentEnd - CROSSFADE_MS
+    val switchAt = contentEnd - overlapMs
     return if (switchAt > 0L) switchAt else null
 }
 
@@ -71,7 +71,8 @@ internal fun isBackwardSeek(previousMs: Long?, positionMs: Long): Boolean =
     previousMs != null && positionMs < previousMs - CROSSFADE_TOLERANCE_MS
 
 /** 0..1 progress of the overlap after [elapsedMs] have passed. */
-internal fun crossfadeProgress(elapsedMs: Long): Float = (elapsedMs.toFloat() / CROSSFADE_MS).coerceIn(0f, 1f)
+internal fun crossfadeProgress(elapsedMs: Long, overlapMs: Long = CROSSFADE_MS): Float =
+    (elapsedMs.toFloat() / overlapMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
 
 /**
  * Equal-power gains: the squares of the two gains add up to 1 at every point, so the loudness stays steady through the
@@ -80,3 +81,19 @@ internal fun crossfadeProgress(elapsedMs: Long): Float = (elapsedMs.toFloat() / 
 internal fun outgoingGain(progress: Float): Float = cos(progress.coerceIn(0f, 1f) * PI.toFloat() / 2f)
 
 internal fun incomingGain(progress: Float): Float = sin(progress.coerceIn(0f, 1f) * PI.toFloat() / 2f)
+
+/** Tracks shorter than this are never overlapped: the overlap would be most of the track. */
+internal const val CROSSFADE_MIN_TRACK_SECONDS = 30
+
+/**
+ * Whether the transition from [current] to [next] may overlap. Two tracks of the same release (same album and artist)
+ * usually continue without a pause (a live record, a mix), so they are overlapped only when the outgoing one is known to end
+ * with silence. Very short tracks are never overlapped. An unknown length does not forbid it.
+ */
+internal fun crossfadeAllowedBetween(current: PlaybackItem, next: PlaybackItem, outgoingTrailingMs: Long?): Boolean {
+    if (current.durationSeconds in 1 until CROSSFADE_MIN_TRACK_SECONDS) return false
+    if (next.durationSeconds in 1 until CROSSFADE_MIN_TRACK_SECONDS) return false
+    val sameRelease = current.album.isNotBlank() && current.album == next.album &&
+        current.performer.isNotBlank() && current.performer == next.performer
+    return !sameRelease || (outgoingTrailingMs ?: 0L) > 0L
+}

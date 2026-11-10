@@ -801,4 +801,13 @@
     <string name="player_more">Mehr</string>
     <string name="player_bgmix_badge">BG Mix</string>
     <string name="player_bgmix_explain">Der Modus für weiche Übergänge spielt. Zufallswiedergabe, Wiederholen, Tempo und „Zurück“ schalten die Warteschlange an derselben Stelle auf den normalen Player um.</string>
+    <string name="player_sleep_status_track_end">Schlaftimer · bis zum Ende des Titels</string>
+    <string name="player_sleep_until_track_end">Bis zum Ende des Titels</string>
+    <string name="player_sleep_custom">Eigene Zeit …</string>
+    <string name="player_sleep_custom_title">Schlaftimer</string>
+    <string name="player_sleep_custom_label">Minuten (1–%1$d)</string>
+    <string name="player_sleep_custom_set">Starten</string>
+    <string name="player_sleep_extend">%1$d Minuten hinzufügen</string>
+    <string name="player_sleep_cancel_plain">Timer ausschalten</string>
+    <string name="settings_crossfade_length">Länge des Übergangs: %1$d s</string>
 </resources>
