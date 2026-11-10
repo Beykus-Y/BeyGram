@@ -219,8 +219,11 @@ internal class TrackCrossfader(
             delay(CROSSFADE_ARM_STEP_MS)
         }
         if (primary.currentMediaItem?.mediaId != watch.mediaId) return Outcome.Interrupted
+        // The queue may have been edited during the pre-roll, so the successor is resolved again for its current index.
+        val fresh = nextAfter(primary, watch.mediaId)
+        if (fresh == null || fresh.mediaId != target.mediaId) return Outcome.Interrupted
         primary.volume = 0f
-        primary.seekTo(target.index, target.startMs)
+        primary.seekTo(fresh.index, fresh.startMs)
         val startedAt = System.nanoTime()
         while (true) {
             val mediaElapsedMs = ((System.nanoTime() - startedAt) / 1_000_000L * speed).toLong()
