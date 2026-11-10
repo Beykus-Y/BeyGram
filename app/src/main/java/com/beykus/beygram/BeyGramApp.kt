@@ -90,6 +90,7 @@ import com.beykus.beygram.ui.components.LocalWindowLayout
 import com.beykus.beygram.ui.components.NavigationPlacement
 import com.beykus.beygram.ui.components.WindowLayout
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.components.MainTabIndicator
 import com.beykus.beygram.ui.components.LocalMainTabIndicator
 import com.beykus.beygram.ui.components.MainTabsScaffold

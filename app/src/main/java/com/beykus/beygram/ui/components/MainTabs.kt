@@ -312,12 +312,13 @@ internal fun MainTabItem(
             this.selected = selected
         }
     }
+    val tabTitle = tab.title
     val resolvedIconSize = if (iconSize == 24.dp) spec.iconSize else iconSize
     val resolvedPillHeight = if (pillHeight == TabPillHeight) spec.pillHeight else pillHeight
     val indicatorShape = RoundedCornerShape(spec.pillRadius)
     Column(
         modifier = itemModifier
-            .then(if (showLabel) Modifier else Modifier.semantics { contentDescription = tab.title })
+            .then(if (showLabel) Modifier else Modifier.semantics { contentDescription = tabTitle })
             .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
