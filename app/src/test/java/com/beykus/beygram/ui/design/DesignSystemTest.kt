@@ -86,7 +86,7 @@ class DesignSystemTest {
         // Material 3 uses its outlined filter chip instead of the accent fill; Glass keeps its tonal chip.
         assertEquals(ChipSelectionTone.Filter, byStyle.getValue(DesignStyle.Material3).chipSelection)
         assertEquals(ChipSelectionTone.Tonal, byStyle.getValue(DesignStyle.LiquidGlass).chipSelection)
-        assertEquals(8.dp, byStyle.getValue(DesignStyle.Material3).badgeRadius)
+        assertEquals(11.dp, byStyle.getValue(DesignStyle.Material3).badgeRadius)
 
         // Signature drops the archive card entirely and keeps the largest hierarchy.
         assertEquals(ArchiveTreatment.Flat, byStyle.getValue(DesignStyle.Signature).archive)
