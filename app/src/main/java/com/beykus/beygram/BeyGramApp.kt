@@ -765,6 +765,14 @@ private fun BeyGramAppContent(
         }
     }
     LaunchedEffect(Unit) {
+        PlaybackEngine.notices.collect { notice ->
+            when (notice) {
+                PlaybackNotice.TrackSkipped ->
+                    Toast.makeText(context, context.getString(R.string.playback_track_skipped), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
         PlaybackEngine.showInChat.collect { origin ->
             if (currentAuthState != AuthState.Ready ||
                 origin.accountId != selectedAccountId) return@collect
