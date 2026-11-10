@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.ui.theme.LocalBeyGramTokens
@@ -536,7 +537,7 @@ private fun PlayerDetails(
         playbackFraction = played,
         modifier = Modifier.padding(horizontal = 4.dp)
     )
-    Spacer(Modifier.height(14.dp))
+    Spacer(Modifier.height(10.dp))
     PlayerActions(player.item, onOpenQueue, onOpenEqualizer, onShowInChat)
 }
 
@@ -692,6 +693,32 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
             color = palette.textSecondary,
             fontSize = 12.sp,
             modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+    if (player.bgMix) {
+        var explain by remember { mutableStateOf(false) }
+        Text(
+            stringResource(R.string.player_bgmix_badge),
+            color = palette.accentInk,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .clip(styledShape(8.dp))
+                .background(palette.accentSoft)
+                .clickable(role = Role.Button) { explain = true }
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+        if (explain) AlertDialog(
+            onDismissRequest = { explain = false },
+            containerColor = palette.surface,
+            title = { Text(stringResource(R.string.player_bgmix_badge), color = palette.textPrimary) },
+            text = { Text(stringResource(R.string.player_bgmix_explain), color = palette.textSecondary) },
+            confirmButton = {
+                TextButton(onClick = { explain = false }) {
+                    Text(stringResource(R.string.common_close), color = palette.textSecondary)
+                }
+            }
         )
     }
     }
@@ -1004,6 +1031,7 @@ private fun PlayerActions(
     onShowInChat: (() -> Unit)?
 ) {
     val queueLabel = stringResource(R.string.player_queue)
+    val moreLabel = stringResource(R.string.player_more)
     val equalizerLabel = stringResource(R.string.player_equalizer)
     val showInChatLabel = stringResource(R.string.media_show_in_chat)
     val context = LocalContext.current
@@ -1032,9 +1060,10 @@ private fun PlayerActions(
                 label = favoriteLabel,
                 onClick = { scope.launch { context.reportMusicOutcome(MusicLibraries.get(context).toggleFavorite(track)) } },
                 active = favorite,
-                stateDescription = if (favorite) favoriteOnState else favoriteOffState
+                stateDescription = if (favorite) favoriteOnState else favoriteOffState,
+                primary = true
             ))
-            add(PlayerActionUi(Icons.Rounded.Add, addLabel, onClick = { addOpen = true }))
+            add(PlayerActionUi(Icons.Rounded.Add, addLabel, onClick = { addOpen = true }, primary = true))
         }
         // Only a music file the active account can see from a chat is a Telegram profile track. A track that already
         // plays from a profile is in a profile, so the action would only add a copy.
@@ -1047,14 +1076,38 @@ private fun PlayerActions(
                     .onFailure { Toast.makeText(context, it.userMessage(context, R.string.player_add_to_profile_failed), Toast.LENGTH_SHORT).show() }
             }
         }))
-        add(PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue))
+        add(PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue, primary = true))
         if (onOpenEqualizer != null) add(PlayerActionUi(Icons.Rounded.Equalizer, equalizerLabel, onOpenEqualizer))
         if (onShowInChat != null) add(PlayerActionUi(Icons.Rounded.ChatBubble, showInChatLabel, onShowInChat))
     }
     if (actions.isEmpty()) return
+    // Three frequent actions stay under the controls. The rare ones live in "More" with their full labels, so no
+    // caption is cut off on a narrow screen.
+    val frequent = actions.filter { it.primary }
+    val rare = actions.filterNot { it.primary }
+    var moreOpen by remember { mutableStateOf(false) }
+    val palette = beyGramPalette()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        actions.forEach { action ->
+        frequent.forEach { action ->
             PlayerAction(action, Modifier.weight(1f))
+        }
+        if (rare.isNotEmpty()) Box(Modifier.weight(1f)) {
+            PlayerAction(
+                PlayerActionUi(Icons.Rounded.MoreHoriz, moreLabel, onClick = { moreOpen = true }),
+                Modifier.fillMaxWidth()
+            )
+            DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                rare.forEach { action ->
+                    DropdownMenuItem(
+                        text = { Text(action.label, color = palette.textPrimary) },
+                        leadingIcon = { Icon(action.icon, null, tint = palette.accent) },
+                        onClick = {
+                            moreOpen = false
+                            action.onClick()
+                        }
+                    )
+                }
+            }
         }
     }
     if (addOpen && track != null) AddToPlaylistSheet(accountId = item.accountId, track = track, onDismiss = { addOpen = false })
@@ -1065,7 +1118,9 @@ private data class PlayerActionUi(
     val label: String,
     val onClick: () -> Unit,
     val active: Boolean = false,
-    val stateDescription: String? = null
+    val stateDescription: String? = null,
+    /** Shown under the controls; the others go to the "More" menu. */
+    val primary: Boolean = false
 )
 
 @Composable

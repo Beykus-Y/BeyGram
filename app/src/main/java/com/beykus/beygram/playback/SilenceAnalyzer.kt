@@ -1,11 +1,7 @@
 package com.beykus.beygram.playback
 
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.BatteryManager
-import com.beykus.beygram.data.media.AutoDownloadNetwork
-import com.beykus.beygram.data.media.currentAutoDownloadNetwork
+import android.os.PowerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,7 +12,7 @@ import java.io.File
 
 /**
  * Measures silence at the start and end of downloaded music in the background. Files are measured one at a time,
- * and only while the device is on Wi-Fi or charging. Secret, view-once and streamed media are never measured.
+ * and not while the battery saver is on. Measuring uses no network, because the file is already downloaded. Secret, view-once and streamed media are never measured.
  * Every file is measured once and then answered from [SilenceEdgeStore].
  */
 internal object SilenceAnalyzer {
@@ -72,18 +68,10 @@ internal object SilenceAnalyzer {
         return SilenceEdgeStore.lookup(cacheKey(item), length)
     }
 
-    /** Wi-Fi or charging. A signal that cannot be read counts as absent. */
-    internal fun allowedInBackground(context: Context): Boolean {
-        val network = runCatching { currentAutoDownloadNetwork(context) }.getOrDefault(AutoDownloadNetwork.None)
-        if (network == AutoDownloadNetwork.Wifi || network == AutoDownloadNetwork.WifiMetered) return true
-        return isCharging(context)
-    }
-
-    private fun isCharging(context: Context): Boolean {
-        val status = runCatching {
-            context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-                ?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-        }.getOrNull() ?: -1
-        return status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
-    }
+    /**
+     * Measuring decodes a few seconds of a file that is already on the device and uses no network, so it only yields
+     * to the battery saver. A signal that cannot be read counts as allowed.
+     */
+    internal fun allowedInBackground(context: Context): Boolean =
+        !runCatching { context.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true }.getOrDefault(false)
 }

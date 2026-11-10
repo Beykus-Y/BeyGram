@@ -143,11 +143,14 @@ internal fun StoryVideo(
             player.release()
         }
     }
+    val interruptionOwner = remember { Any() }
+    DisposableEffect(interruptionOwner) { onDispose { PlaybackEngine.endInterruption(interruptionOwner) } }
     LaunchedEffect(playing, player) {
         if (playing) {
-            PlaybackEngine.pause()
+            PlaybackEngine.beginInterruption(interruptionOwner)
             player.play()
         } else {
+            PlaybackEngine.endInterruption(interruptionOwner)
             player.pause()
         }
     }

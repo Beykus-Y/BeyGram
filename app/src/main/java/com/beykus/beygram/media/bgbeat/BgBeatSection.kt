@@ -83,197 +83,61 @@ internal fun BgBeatSection(
         return
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(accentSoftColor.copy(alpha = 0.25f))
-            .padding(14.dp)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Rounded.GraphicEq,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = "BG Beat",
-                    color = primaryColor,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.width(8.dp))
-                Box(
+    // The player shows only a finished result: a wave of the track and a small BPM caption. States that matter
+    // only to the analysis (ready to start, unsupported file, an error) stay out of the player screen.
+    val canRefresh = stateItemKey == null || stateItemKey == item.key
+    when (val s = uiState) {
+        is BgBeatUiState.Disabled, is BgBeatUiState.Idle, is BgBeatUiState.Ineligible, is BgBeatUiState.Error -> return
+        is BgBeatUiState.Analyzing -> {
+            LinearProgressIndicator(
+                progress = { s.fraction },
+                modifier = modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                color = accentColor,
+                trackColor = accentSoftColor
+            )
+        }
+        is BgBeatUiState.Ready -> {
+            val analysis = s.analysis
+            Column(modifier.fillMaxWidth()) {
+                BgBeatWaveformCanvas(
+                    waveform = analysis.waveform,
+                    beats = analysis.beats,
+                    durationSeconds = analysis.duration,
+                    playbackFraction = playbackFraction,
+                    accentColor = accentColor,
+                    barColor = secondaryColor.copy(alpha = 0.45f),
+                    cursorColor = primaryColor,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(accentColor.copy(alpha = 0.2f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(accentSoftColor.copy(alpha = 0.2f))
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "C++20",
-                        color = accentColor,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
+                        text = stringResource(R.string.bgbeat_bpm_caption, String.format(Locale.US, "%.0f", analysis.bpm)),
+                        color = secondaryColor,
+                        fontSize = 11.sp
                     )
-                }
-            }
-
-            IconButton(
-                onClick = { manager.reanalyze() },
-                modifier = Modifier.size(32.dp),
-                enabled = (uiState is BgBeatUiState.Ready || uiState is BgBeatUiState.Error) &&
-                    (stateItemKey == null || stateItemKey == item.key)
-            ) {
-                val canRefresh = (uiState is BgBeatUiState.Ready || uiState is BgBeatUiState.Error) &&
-                    (stateItemKey == null || stateItemKey == item.key)
-                Icon(
-                    imageVector = Icons.Rounded.Refresh,
-                    contentDescription = "Повторить анализ",
-                    tint = if (canRefresh) secondaryColor else secondaryColor.copy(alpha = 0.3f),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        when (val s = uiState) {
-            is BgBeatUiState.Disabled -> {}
-            is BgBeatUiState.Idle -> {
-                Text(
-                    text = "Готов к анализу",
-                    color = secondaryColor,
-                    fontSize = 13.sp
-                )
-            }
-            is BgBeatUiState.Ineligible -> {
-                Text(
-                    text = stringResource(s.reason.labelRes()),
-                    color = secondaryColor,
-                    fontSize = 12.sp
-                )
-            }
-            is BgBeatUiState.Analyzing -> {
-                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    IconButton(
+                        onClick = { manager.reanalyze() },
+                        modifier = Modifier.size(28.dp),
+                        enabled = canRefresh
                     ) {
-                        Text(
-                            text = s.stage,
-                            color = secondaryColor,
-                            fontSize = 12.sp
-                        )
-                        Text(
-                            text = "${(s.fraction * 100).toInt()}%",
-                            color = accentColor,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = stringResource(R.string.bgbeat_reanalyze),
+                            tint = secondaryColor.copy(alpha = if (canRefresh) 1f else 0.3f),
+                            modifier = Modifier.size(16.dp)
                         )
                     }
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { s.fraction },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)),
-                        color = accentColor,
-                        trackColor = accentSoftColor
-                    )
-                }
-            }
-            is BgBeatUiState.Error -> {
-                Text(
-                    text = s.message,
-                    color = palette.danger,
-                    fontSize = 12.sp
-                )
-            }
-            is BgBeatUiState.Ready -> {
-                val analysis = s.analysis
-                Column(Modifier.fillMaxWidth()) {
-                    // Metrics Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        Column {
-                            Text(
-                                text = "BPM",
-                                color = secondaryColor,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = String.format(Locale.US, "%.1f", analysis.bpm),
-                                color = primaryColor,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "Уверенность",
-                                color = secondaryColor,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "${(analysis.bpmConfidence * 100).toInt()}%",
-                                    color = primaryColor,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (analysis.cacheHit) {
-                                    Spacer(Modifier.width(6.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(accentColor.copy(alpha = 0.15f))
-                                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                                    ) {
-                                        Text(
-                                            text = "Кеш",
-                                            color = accentColor,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-
-                    // Waveform & Rhythm Map Canvas
-                    BgBeatWaveformCanvas(
-                        waveform = analysis.waveform,
-                        beats = analysis.beats,
-                        durationSeconds = analysis.duration,
-                        playbackFraction = playbackFraction,
-                        accentColor = accentColor,
-                        barColor = secondaryColor.copy(alpha = 0.45f),
-                        cursorColor = primaryColor,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(accentSoftColor.copy(alpha = 0.2f))
-                    )
                 }
             }
         }

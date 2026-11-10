@@ -193,6 +193,16 @@ fun NowPlayingBar(
         }
     }
 
+    val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
+    AnimatedVisibility(
+        visible = mini == null && undoAvailable,
+        enter = EnterTransition.None,
+        exit = ExitTransition.None,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        UndoCloseBar(bottomInset = bottomInset)
+    }
+
     if (fullPlayerOpen) {
         if (mini?.isMusic == true) {
             MusicPlayerSheet(
@@ -391,9 +401,44 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatin
                     }
                 }
             }
-            IconButton(onClick = { PlaybackEngine.stop() }) {
-                Icon(Icons.Rounded.Close, stringResource(R.string.player_stop), tint = palette.textSecondary)
+            // The close button keeps its slot but only appears while the music is paused (or for a voice note), so a
+            // slip of the finger next to Pause cannot close the player.
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                if (!ui.isMusic || !ui.intentPlaying) {
+                    IconButton(onClick = { PlaybackEngine.close() }) {
+                        Icon(Icons.Rounded.Close, stringResource(R.string.player_stop), tint = palette.textSecondary)
+                    }
+                }
             }
+        }
+    }
+}
+
+/** Shown for a few seconds after the mini-player was closed: the queue and the place are still there to bring back. */
+@Composable
+private fun UndoCloseBar(bottomInset: Boolean) {
+    val palette = beyGramPalette()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(palette.surface)
+            .then(
+                if (bottomInset) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                else Modifier
+            )
+            .heightIn(min = 48.dp)
+            .padding(start = 16.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(R.string.player_closed),
+            color = palette.textSecondary,
+            fontSize = 14.sp,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = { PlaybackEngine.undoClose(context) }) {
+            Text(stringResource(R.string.player_closed_undo))
         }
     }
 }

@@ -69,6 +69,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackQueueSource
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.music.MusicLibraryRepository
 import com.beykus.beygram.data.music.MusicOutcome
@@ -353,6 +355,27 @@ internal fun MusicPlaylistScreen(
                                             }
                                         )
                                     } else {
+                                        resolved?.getOrNull(index)?.let { playable ->
+                                            val queueSource = PlaybackQueueSource(
+                                                accountId, telegram::observeFile, telegram::downloadFile, telegram::autoDownloadFile
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.queue_play_next)) },
+                                                onClick = {
+                                                    trackMenu = null
+                                                    PlaybackEngine.enqueue(context, playable, queueSource, atEnd = false)
+                                                    context.showMusicToast(context.getString(R.string.queue_added_next))
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.queue_add_to_end)) },
+                                                onClick = {
+                                                    trackMenu = null
+                                                    PlaybackEngine.enqueue(context, playable, queueSource, atEnd = true)
+                                                    context.showMusicToast(context.getString(R.string.queue_added_end))
+                                                }
+                                            )
+                                        }
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.music_remove_from_playlist)) },
                                             leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = palette.danger) },

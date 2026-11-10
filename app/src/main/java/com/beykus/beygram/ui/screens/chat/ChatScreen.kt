@@ -371,6 +371,22 @@ fun ChatScreen(
     }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    // "Play next" and "Add to end of queue" for an audio message, without stopping the current track.
+    fun queueActionItem(message: ChatMessage, protected: Boolean): PlaybackItem? {
+        if (protected) return null
+        val fileId = message.media?.takeIf { it.kind == MediaKind.Audio }?.fileId ?: return null
+        return chatMusicItem(message, accountId, observeFile(fileId).value, context.getString(R.string.media_kind_audio))
+    }
+    fun enqueueMusic(item: PlaybackItem, atEnd: Boolean) {
+        PlaybackEngine.enqueue(
+            context, item, PlaybackQueueSource(accountId, observeFile, onDownloadFile, onAutoDownloadFile), atEnd
+        )
+        Toast.makeText(
+            context,
+            context.getString(if (atEnd) R.string.queue_added_end else R.string.queue_added_next),
+            Toast.LENGTH_SHORT
+        ).show()
+    }
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
     // Bots expose commands through UserFullInfo; non-bot chats resolve to null without an extra full-info request.
     LaunchedEffect(chat.id, conversation) {
@@ -613,12 +629,17 @@ fun ChatScreen(
         if (granted) Toast.makeText(context, context.getString(R.string.voice_recorder_permission_granted_retry), Toast.LENGTH_SHORT).show()
         else error = context.getString(R.string.voice_recorder_permission_denied)
     }
+    // Recording takes the microphone, so music pauses for it and continues after the message is sent or cancelled.
+    val recordingInterruptionOwner = remember { Any() }
+    val recordingActive = videoNote.active || audioNote.active
+    LaunchedEffect(recordingActive) { if (!recordingActive) PlaybackEngine.endInterruption(recordingInterruptionOwner) }
+    DisposableEffect(recordingInterruptionOwner) { onDispose { PlaybackEngine.endInterruption(recordingInterruptionOwner) } }
     fun startRecording() {
         if (videoNote.active || audioNote.active) return
         // Микрофон записывает и звук из общего плеера, поэтому музыку ставим на паузу, когда запись начинается.
         if (recordingMode == ComposerRecordingMode.Voice) {
             if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                PlaybackEngine.pause()
+                PlaybackEngine.beginInterruption(recordingInterruptionOwner)
                 audioNote.press()
             } else {
                 AppLockManager.get(context).expectExternalActivity()
@@ -627,7 +648,7 @@ fun ChatScreen(
         } else if (!VIDEO_NOTE_RECORDING_ENABLED) {
             error = context.getString(R.string.recorder_video_note_unavailable)
         } else if (videoNoteAllowed(context)) {
-            PlaybackEngine.pause()
+            PlaybackEngine.beginInterruption(recordingInterruptionOwner)
             videoNote.press()
         } else {
             AppLockManager.get(context).expectExternalActivity()
@@ -1596,7 +1617,9 @@ fun ChatScreen(
             onReport = if (!actionMessage.isOutgoing && !chat.isSecret) {
                 { reportMessageId = actionMessage.id; closeActions() }
             } else null,
-            onAddToPlaylist = if (chat.hasProtectedContent) null else playlistTrackOf(actionMessage, accountId, { id -> observeFile(id).value }, context.getString(R.string.media_kind_audio))?.let { track -> { playlistTrack = track; closeActions() } }
+            onAddToPlaylist = if (chat.hasProtectedContent) null else playlistTrackOf(actionMessage, accountId, { id -> observeFile(id).value }, context.getString(R.string.media_kind_audio))?.let { track -> { playlistTrack = track; closeActions() } },
+            onPlayNext = queueActionItem(actionMessage, chat.hasProtectedContent)?.let { item -> { enqueueMusic(item, atEnd = false); closeActions() } },
+            onEnqueue = queueActionItem(actionMessage, chat.hasProtectedContent)?.let { item -> { enqueueMusic(item, atEnd = true); closeActions() } }
         ) else if (searching) ChatSearchBar(
             query = searchQuery,
             onQueryChange = { searchQuery = it },

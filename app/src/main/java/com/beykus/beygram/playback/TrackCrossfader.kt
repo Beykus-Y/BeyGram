@@ -153,7 +153,7 @@ internal class TrackCrossfader(
                 prepareTail(player, primary, switchAt)
                 lockedSwitch = switchAt
                 lockedNext = next
-            } else if (position >= switchAt && tail.playbackState == Player.STATE_READY) {
+            } else if (position >= switchAt - CROSSFADE_PREROLL_MS && tail.playbackState == Player.STATE_READY) {
                 val next = lockedNext ?: return Outcome.GaveUp
                 return fire(primary, watch, tail, next)
             }
@@ -178,7 +178,7 @@ internal class TrackCrossfader(
         player.setMediaItem(outgoing)
         player.setPlaybackParameters(primary.playbackParameters)
         player.prepare()
-        player.seekTo(switchAt)
+        player.seekTo((switchAt - CROSSFADE_PREROLL_MS).coerceAtLeast(0L))
     }
 
     private suspend fun fire(primary: ExoPlayer, watch: Watch, tail: ExoPlayer, locked: CrossfadeNext): Outcome {
@@ -187,16 +187,43 @@ internal class TrackCrossfader(
         if (target == null || target.mediaId != locked.mediaId) return Outcome.GaveUp
         // Focus lost since the last check: the tail must not start, because it would play without focus.
         if (crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary))) return Outcome.Interrupted
-        primary.volume = 0f
-        watch.volumeTouched = true
-        // The overlap is CROSSFADE_MS of media, so at another playback speed the same audio takes a different wall time.
         val parameters = primary.playbackParameters
         val speed = parameters.speed.coerceIn(0.25f, 4f)
         // The tail plays at the speed the ramp uses, even if the speed was changed while the tail waited.
         tail.setPlaybackParameters(parameters)
-        primary.seekTo(target.index, target.startMs)
-        tail.volume = 1f
+
+        // Pre-roll: the tail joins the same track in step with the primary, silent, so it is already running when it is
+        // needed. Nothing about the primary changes yet, so a failure here leaves a plain, uncut transition.
+        tail.volume = 0f
+        tail.seekTo(primary.currentPosition + CROSSFADE_TAIL_START_COMPENSATION_MS)
         tail.play()
+        var settled = 0L
+        while (settled < CROSSFADE_PREROLL_SETTLE_MS) {
+            delay(CROSSFADE_ARM_STEP_MS)
+            settled += CROSSFADE_ARM_STEP_MS
+            if (crossfadeMustStop(primary.playerError != null, primary.playWhenReady, playbackSuppressed(primary))) return Outcome.Interrupted
+            if (primary.currentMediaItem?.mediaId != watch.mediaId) return Outcome.Interrupted
+        }
+        if (kotlin.math.abs(tail.currentPosition - primary.currentPosition) > CROSSFADE_SYNC_TOLERANCE_MS) return Outcome.GaveUp
+
+        // Hand-off: identical audio on both players, volumes traded over a few milliseconds, so there is no click and
+        // the outgoing track is never repeated or interrupted.
+        watch.volumeTouched = true
+        val handoffStart = System.nanoTime()
+        while (true) {
+            val elapsedMs = (System.nanoTime() - handoffStart) / 1_000_000L
+            val progress = (elapsedMs.toFloat() / CROSSFADE_HANDOFF_MS).coerceIn(0f, 1f)
+            primary.volume = handoffPrimaryGain(progress)
+            tail.volume = handoffTailGain(progress)
+            if (progress >= 1f) break
+            delay(CROSSFADE_ARM_STEP_MS)
+        }
+        if (primary.currentMediaItem?.mediaId != watch.mediaId) return Outcome.Interrupted
+        // The queue may have been edited during the pre-roll, so the successor is resolved again for its current index.
+        val fresh = nextAfter(primary, watch.mediaId)
+        if (fresh == null || fresh.mediaId != target.mediaId) return Outcome.Interrupted
+        primary.volume = 0f
+        primary.seekTo(fresh.index, fresh.startMs)
         val startedAt = System.nanoTime()
         while (true) {
             val mediaElapsedMs = ((System.nanoTime() - startedAt) / 1_000_000L * speed).toLong()

@@ -58,6 +58,9 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         return true
     }
 
+    /** The audio session of the native output; null when no session runs. */
+    val audioSessionId: Int? get() = player?.audioSessionId?.takeIf { it > 0 }
+
     fun pause() {
         player?.pause()
     }
