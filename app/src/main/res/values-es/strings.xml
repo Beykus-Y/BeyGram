@@ -810,4 +810,10 @@
     <string name="player_sleep_extend">Añadir %1$d minutos</string>
     <string name="player_sleep_cancel_plain">Desactivar el temporizador</string>
     <string name="settings_crossfade_length">Duración de la transición: %1$d s</string>
+    <string name="queue_clear">Vaciar la cola</string>
+    <string name="queue_save_as_playlist">Guardar como lista</string>
+    <string name="queue_saved_as_playlist">Lista guardada</string>
+    <string name="queue_save_confirm">Guardar</string>
+    <string name="queue_played">Ya reproducidas</string>
+    <string name="player_mini_open_library">Mi música</string>
 </resources>

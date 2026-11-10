@@ -810,4 +810,10 @@
     <string name="player_sleep_extend">%1$d Minuten hinzufügen</string>
     <string name="player_sleep_cancel_plain">Timer ausschalten</string>
     <string name="settings_crossfade_length">Länge des Übergangs: %1$d s</string>
+    <string name="queue_clear">Warteschlange leeren</string>
+    <string name="queue_save_as_playlist">Als Playlist speichern</string>
+    <string name="queue_saved_as_playlist">Playlist gespeichert</string>
+    <string name="queue_save_confirm">Speichern</string>
+    <string name="queue_played">Bereits gespielt</string>
+    <string name="player_mini_open_library">Meine Musik</string>
 </resources>

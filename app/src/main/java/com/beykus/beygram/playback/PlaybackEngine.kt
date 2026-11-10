@@ -2153,6 +2153,27 @@ object PlaybackEngine {
         rebuildTimeline(queue, currentIndex.coerceIn(queue.indices), position, shouldPlay)
     }
 
+    /** Drops every track except the current one. The playing track and its position are not touched. */
+    fun clearUpcoming() {
+        val state = _state.value
+        val keep = state.queueIndex
+        if (state.queue.size <= 1 || keep !in state.queue.indices) return
+        // A page that is still loading, or one that the source would load later, must not refill the cleared queue.
+        queuePageGeneration++
+        queuePageJob?.cancel()
+        queuePageJob = null
+        queuePageRetryJob?.cancel()
+        queuePageRetryJob = null
+        _queuePageLoading.value = false
+        queueSource = queueSource?.let {
+            PlaybackQueueSource(it.accountId, it.observeFile, it.download, it.autoDownload, loadMore = null)
+        }
+        // From the end: removing a later row never moves an earlier one.
+        for (index in state.queue.indices.reversed()) {
+            if (index != keep) removeFromQueue(index)
+        }
+    }
+
     /** Moves an item inside the queue while keeping the current item and position. */
     fun moveInQueue(from: Int, to: Int) {
         val state = _state.value

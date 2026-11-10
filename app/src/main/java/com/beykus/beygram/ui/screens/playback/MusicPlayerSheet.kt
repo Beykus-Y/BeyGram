@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -80,6 +81,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -161,6 +166,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.beykus.beygram.data.music.MusicLibraries
+import com.beykus.beygram.data.music.MusicOutcome
 import com.beykus.beygram.data.music.toPlaylistTrack
 import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
 import com.beykus.beygram.ui.screens.music.containsTrack
@@ -1289,10 +1295,16 @@ private fun QueuePanel(
     var dragFrom by remember { mutableIntStateOf(-1) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var dropTarget by remember { mutableIntStateOf(-1) }
+    var queueMenuOpen by remember { mutableStateOf(false) }
+    var saveQueueOpen by remember { mutableStateOf(false) }
+    // Tracks that already played stay reachable above the current one; with shuffle there is no meaningful "before".
+    val playedRows = if (current.shuffleEnabled || current.currentIndex <= 0) emptyList() else current.rows.take(current.currentIndex)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (playedRows.isEmpty()) 0 else playedRows.size + 1)
     val backFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { backFocus.requestFocus() } }
     val density = LocalDensity.current
     val rowHeightPx = with(density) { QUEUE_ROW_HEIGHT.toPx() }
+    if (saveQueueOpen) SaveQueueDialog(current.rows) { saveQueueOpen = false }
     val haptic = LocalHapticFeedback.current
     fun resetDrag() {
         dragFrom = -1
@@ -1335,6 +1347,29 @@ private fun QueuePanel(
                     fontSize = 11.sp
                 )
             }
+            Box {
+                IconButton(onClick = { queueMenuOpen = true }) {
+                    Icon(Icons.Rounded.MoreVert, stringResource(R.string.queue_actions), tint = palette.textSecondary)
+                }
+                DropdownMenu(expanded = queueMenuOpen, onDismissRequest = { queueMenuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.queue_clear)) },
+                        enabled = current.size > 1,
+                        onClick = {
+                            queueMenuOpen = false
+                            PlaybackEngine.clearUpcoming()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.queue_save_as_playlist)) },
+                        enabled = current.rows.any { it.item.toPlaylistTrack() != null },
+                        onClick = {
+                            queueMenuOpen = false
+                            saveQueueOpen = true
+                        }
+                    )
+                }
+            }
             IconButton(onClick = onDismiss) {
                 Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.player_collapse), tint = palette.textSecondary)
             }
@@ -1365,8 +1400,15 @@ private fun QueuePanel(
         }
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
+            state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 16.dp)
         ) {
+            if (playedRows.isNotEmpty()) {
+                item(key = "played-heading") { QueueSectionTitle(stringResource(R.string.queue_played)) }
+                items(playedRows, key = { "played:${it.item.occurrenceId}:${it.index}" }) { row ->
+                    QueuePlayedRow(row) { PlaybackEngine.playQueueItem(row.item.key) }
+                }
+            }
             item(key = "current-heading") {
                 QueueSectionTitle(stringResource(R.string.queue_now_playing))
             }
@@ -1409,6 +1451,24 @@ private fun QueuePanel(
                 }
             }
             items(current.upcoming, key = { "${it.item.occurrenceId}:${it.index}" }) { row ->
+                val swipeState = rememberSwipeToDismissBoxState(
+                    confirmValueChange = { value ->
+                        if (value == SwipeToDismissBoxValue.EndToStart && row.index >= 0) {
+                            PlaybackEngine.removeFromQueue(row.index)
+                            true
+                        } else false
+                    }
+                )
+                SwipeToDismissBox(
+                    state = swipeState,
+                    enableDismissFromStartToEnd = false,
+                    enableDismissFromEndToStart = dragFrom < 0,
+                    backgroundContent = {
+                        Box(Modifier.fillMaxSize().padding(horizontal = 20.dp), contentAlignment = Alignment.CenterEnd) {
+                            Icon(Icons.Rounded.Delete, stringResource(R.string.queue_remove), tint = palette.danger)
+                        }
+                    }
+                ) {
                 QueueUpcomingRow(
                     row = row,
                     reorderEnabled = !current.shuffleEnabled,
@@ -1465,6 +1525,7 @@ private fun QueuePanel(
                         }
                     }
                 )
+                }
             }
             if (loadingOlder) {
                 item(key = "queue-loading-page") {
@@ -1481,6 +1542,78 @@ private fun QueuePanel(
             }
         }
     }
+}
+
+@Composable
+private fun QueuePlayedRow(row: QueueItemUi, onPlay: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(styledShape(12.dp))
+            .clickable(onClick = onPlay)
+            .padding(horizontal = 4.dp, vertical = 4.dp)
+            .alpha(0.6f),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        QueueArtwork(row.item, 36.dp, palette)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            row.item.title,
+            color = palette.textPrimary,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+private val queueSaveScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+
+/** Asks for a name and saves the queue's music, in the current order, as a new playlist. */
+@Composable
+private fun SaveQueueDialog(rows: List<QueueItemUi>, onDismiss: () -> Unit) {
+    val appContext = LocalContext.current.applicationContext
+    val defaultTitle = stringResource(R.string.queue_title)
+    var title by remember { mutableStateOf(defaultTitle) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.queue_save_as_playlist)) },
+        text = {
+            androidx.compose.material3.OutlinedTextField(
+                value = title,
+                onValueChange = { title = it.take(80) },
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = title.isNotBlank(),
+                onClick = {
+                    val tracks = rows.mapNotNull { it.item.toPlaylistTrack() }
+                    val name = title.trim()
+                    onDismiss()
+                    // The dialog leaves composition at once, so the work runs in a scope that outlives it.
+                    queueSaveScope.launch {
+                        val repository = MusicLibraries.get(appContext)
+                        when (val created = repository.createPlaylist(name)) {
+                            is MusicOutcome.Done -> {
+                                when (val added = repository.addTracks(created.value.id, tracks)) {
+                                    is MusicOutcome.Done ->
+                                        Toast.makeText(appContext, appContext.getString(R.string.queue_saved_as_playlist), Toast.LENGTH_SHORT).show()
+                                    is MusicOutcome.Failed -> appContext.reportMusicOutcome(added)
+                                }
+                            }
+                            is MusicOutcome.Failed -> appContext.reportMusicOutcome(created)
+                        }
+                    }
+                }
+            ) { Text(stringResource(R.string.queue_save_confirm)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+    )
 }
 
 @Composable

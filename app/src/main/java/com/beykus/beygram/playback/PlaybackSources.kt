@@ -292,7 +292,7 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
                 requestedAt = now
                 source.onNeedMore()
             }
-            sleep()
+            sleep(now - startedAt)
         }
         return C.RESULT_END_OF_INPUT
     }
@@ -320,7 +320,7 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
                 requestedAt = now
                 handle.request()
             }
-            sleep()
+            sleep(now - startedAt)
             resolved = handle.resolve()
             if (resolved != null) return resolved
             if (now - startedAt >= OPEN_TIMEOUT_MS) {
@@ -330,9 +330,15 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
         throw IOException("Playback source was closed")
     }
 
-    private fun sleep() {
+    /** Polls quickly while the wait is young and backs off the longer the file takes, so a slow download is not spun on. */
+    private fun sleep(waitedMs: Long) {
+        val interval = when {
+            waitedMs < 1_000L -> POLL_INTERVAL_MS
+            waitedMs < 5_000L -> 100L
+            else -> 250L
+        }
         try {
-            Thread.sleep(POLL_INTERVAL_MS)
+            Thread.sleep(interval)
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             throw IOException("Interrupted while waiting for audio", interrupted)

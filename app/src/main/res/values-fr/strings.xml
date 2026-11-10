@@ -836,4 +836,10 @@
     <string name="player_sleep_extend">Ajouter %1$d minutes</string>
     <string name="player_sleep_cancel_plain">Désactiver le minuteur</string>
     <string name="settings_crossfade_length">Durée de la transition : %1$d s</string>
+    <string name="queue_clear">Vider la file</string>
+    <string name="queue_save_as_playlist">Enregistrer comme playlist</string>
+    <string name="queue_saved_as_playlist">Playlist enregistrée</string>
+    <string name="queue_save_confirm">Enregistrer</string>
+    <string name="queue_played">Déjà lues</string>
+    <string name="player_mini_open_library">Ma musique</string>
 </resources>
