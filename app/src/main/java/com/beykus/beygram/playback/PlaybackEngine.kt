@@ -2807,8 +2807,23 @@ object PlaybackEngine {
         }
         prefetchCandidates(state, playbackOrder).forEach { item ->
             if (BotTrackResolver.isBotKey(item.key) && item.path.isBlank()) {
-                // A bot result is fetched ahead like a file, so the next track starts without a gap.
-                if (prefetchedKeys.add(item.key)) BotTrackResolver.request(item.key)
+                // A bot result is fetched ahead like a file, under the same automatic-download policy.
+                if (item.key in prefetchedKeys) return@forEach
+                val request = AutoDownloadRequest(
+                    fileId = 0,
+                    kind = item.kind,
+                    sizeBytes = item.sizeBytes,
+                    isSecret = false,
+                    isSecretChat = false,
+                    hasSpoiler = false
+                )
+                val allowed = runCatching {
+                    AutoDownloadRuntime.decision(context, request, item.accountId) == AutoDownloadDecision.Allowed
+                }.getOrDefault(false)
+                if (allowed) {
+                    prefetchedKeys.add(item.key)
+                    BotTrackResolver.request(item.key)
+                }
                 return@forEach
             }
             val fileId = item.fileId ?: return@forEach

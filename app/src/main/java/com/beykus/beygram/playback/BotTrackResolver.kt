@@ -1,5 +1,6 @@
 package com.beykus.beygram.playback
 
+import android.os.SystemClock
 import com.beykus.beygram.domain.model.MusicBotTrack
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -46,20 +47,49 @@ internal object BotTrackResolver {
 
     fun failed(key: String): Boolean = entries[key]?.failed == true
 
+    /** After a failed attempt (usually the network), the same result is not fetched again for this long. */
+    private const val RETRY_COOLDOWN_MS = 5_000L
+
+    private val cooldownUntil = ConcurrentHashMap<String, Long>()
+
     /** Starts fetching once; asking again while it runs or after it finished does nothing. */
     fun request(key: String) {
         val fetcher = fetch ?: return
         if (!isBotKey(key)) return
         val (queryId, resultId) = parse(key) ?: return
-        val existing = entries[key]
-        if (existing != null && (existing.failed || existing.track != null)) {
-            if (existing.failed || resolved(key) != null) return
+        val known = entries[key]
+        if (known != null) {
+            if (known.failed) return
+            if (known.track == null) return // still loading
+            if (resolved(key) != null) return // ready; a copy the cache removed is dropped by resolved() and fetched again
         }
+        val existing = entries[key]
+        val until = cooldownUntil[key]
+        if (until != null && SystemClock.elapsedRealtime() < until) return
         val entry = Entry(track = null, failed = false, handedOver = false)
-        if (entries.putIfAbsent(key, entry) != null) return
+        if (existing == null) {
+            if (entries.putIfAbsent(key, entry) != null) return
+        } else if (!entries.replace(key, existing, entry)) {
+            return
+        }
         scope.launch {
-            val track = runCatching { fetcher(queryId, resultId).getOrNull() }.getOrNull()
-            if (track == null) entry.failed = true else entry.track = track
+            val result = runCatching { fetcher(queryId, resultId) }.getOrElse { Result.failure(it) }
+            val track = result.getOrNull()
+            // A reset or a newer fetch replaced this entry while it ran: the late copy has no owner, so it goes.
+            if (entries[key] !== entry) {
+                track?.let { MusicBotCache.discard(it.path) }
+                return@launch
+            }
+            when {
+                track != null -> entry.track = track
+                result.isFailure -> {
+                    // A failed request (timeout, no network) is not a verdict on the track: a later ask may try again.
+                    cooldownUntil[key] = SystemClock.elapsedRealtime() + RETRY_COOLDOWN_MS
+                    entries.remove(key, entry)
+                }
+                // The bot answered with something that is not audio: asking again would not change that.
+                else -> entry.failed = true
+            }
         }
     }
 
@@ -78,6 +108,7 @@ internal object BotTrackResolver {
             if (track != null && !entry.handedOver) MusicBotCache.discard(track.path)
         }
         entries.clear()
+        cooldownUntil.clear()
     }
 
     private fun parse(key: String): Pair<Long, String>? {
