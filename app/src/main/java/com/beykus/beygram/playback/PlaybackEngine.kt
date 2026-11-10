@@ -2796,6 +2796,11 @@ object PlaybackEngine {
             state.queue.indices.toList()
         }
         prefetchCandidates(state, playbackOrder).forEach { item ->
+            if (BotTrackResolver.isBotKey(item.key) && item.path.isBlank()) {
+                // A bot result is fetched ahead like a file, so the next track starts without a gap.
+                if (prefetchedKeys.add(item.key)) BotTrackResolver.request(item.key)
+                return@forEach
+            }
             val fileId = item.fileId ?: return@forEach
             if (source.accountId != item.accountId) return@forEach
             // Speculative traffic must use the repository automatic path; the manual callback is reserved for

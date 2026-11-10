@@ -816,4 +816,6 @@
     <string name="queue_save_confirm">Guardar</string>
     <string name="queue_played">Ya reproducidas</string>
     <string name="player_mini_open_library">Mi música</string>
+    <string name="music_bot_save_favorite">Guardar en Favoritos</string>
+    <string name="music_bot_saved_favorite">Guardado en Favoritos</string>
 </resources>

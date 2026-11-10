@@ -64,6 +64,10 @@ import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackQueueSource
+import com.beykus.beygram.ui.screens.music.reportMusicOutcome
+import com.beykus.beygram.data.music.newMusicItemId
+import com.beykus.beygram.data.music.MusicLibraries
+import com.beykus.beygram.playback.BotTrackResolver
 import com.beykus.beygram.playback.playbackItem
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.SearchField
@@ -216,6 +220,41 @@ internal fun MusicSearchScreen(
         results.mapNotNull { message -> musicItem(message, chats, observeFile, accountId) }
     }
 
+    // A bot result in the queue is only a name: the file is fetched from the bot when the row becomes current or next.
+    fun botQueueItem(result: InlineBotResult): PlaybackItem = PlaybackItem(
+        key = BotTrackResolver.keyOf(result.queryId, result.id),
+        kind = MediaKind.Audio,
+        path = "",
+        title = result.title,
+        durationSeconds = 0,
+        performer = result.description,
+        trackTitle = result.title,
+        accountId = accountId
+    )
+
+    fun saveBotTrack(result: InlineBotResult) {
+        scope.launch {
+            val saved = conversation.saveMusicBotTrack(result.queryId, result.id).getOrNull()
+            if (saved == null) {
+                Toast.makeText(context, context.getString(R.string.music_bot_failed), Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val track = PlaylistTrack(
+                itemId = newMusicItemId(),
+                title = saved.title.ifBlank { result.title },
+                performer = saved.performer,
+                album = "",
+                durationSeconds = saved.durationSeconds,
+                origin = PlaybackOrigin(saved.chatId, saved.messageId, accountId),
+                addedAt = System.currentTimeMillis()
+            )
+            val repository = MusicLibraries.get(context)
+            // The track has a fresh message of its own, so it is never in the favorites yet and the toggle adds it.
+            context.reportMusicOutcome(repository.toggleFavorite(track))
+            Toast.makeText(context, context.getString(R.string.music_bot_saved_favorite), Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun playBotTrack(result: InlineBotResult) {
         val selection = latestSelection.incrementAndGet()
         val resultKey = "${result.queryId}:${result.id}"
@@ -258,10 +297,17 @@ internal fun MusicSearchScreen(
                     sizeBytes = track.sizeBytes,
                     accountId = accountId
                 )
+                // The tapped result plays now; the other visible results follow and are fetched when their turn comes.
+                BotTrackResolver.configure { queryId, resultId -> conversation.musicBotTrack(queryId, resultId) }
+                BotTrackResolver.reset()
+                val queue = publicResults.map { other ->
+                    if (other.queryId == result.queryId && other.id == result.id) item else botQueueItem(other)
+                }
+                val startIndex = queue.indexOfFirst { it.key == itemKey }.coerceAtLeast(0)
                 PlaybackEngine.playQueue(
                     context,
-                    listOf(item),
-                    0,
+                    queue.ifEmpty { listOf(item) },
+                    if (queue.isEmpty()) 0 else startIndex,
                     PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload)
                 )
                 // The new copy stays pending until the prune has run; the previous copy goes once the queue no longer names it.
@@ -278,6 +324,11 @@ internal fun MusicSearchScreen(
             context.getString(if (atEnd) R.string.queue_added_end else R.string.queue_added_next),
             Toast.LENGTH_SHORT
         ).show()
+    }
+
+    fun enqueueBot(result: InlineBotResult, atEnd: Boolean) {
+        BotTrackResolver.configure { queryId, resultId -> conversation.musicBotTrack(queryId, resultId) }
+        enqueueRow(botQueueItem(result), atEnd)
     }
 
     fun play(message: ChatMessage) {
@@ -403,6 +454,9 @@ internal fun MusicSearchScreen(
                             subtitle = result.description,
                             onClick = { playBotTrack(result) },
                             loading = loadingBotKey == "${result.queryId}:${result.id}",
+                            onPlayNext = if (onPick == null) { { enqueueBot(result, atEnd = false) } } else null,
+                            onEnqueue = if (onPick == null) { { enqueueBot(result, atEnd = true) } } else null,
+                            onSaveFavorite = if (onPick == null) { { saveBotTrack(result) } } else null,
                             onSend = onPick?.let { pick -> { pick(MessageExtraDraft.MusicBotResult(result.queryId, result.id, result.title)) } }
                         )
                     }
@@ -430,6 +484,7 @@ private fun MusicRow(
     onAddToPlaylist: (() -> Unit)? = null,
     onPlayNext: (() -> Unit)? = null,
     onEnqueue: (() -> Unit)? = null,
+    onSaveFavorite: (() -> Unit)? = null,
     loading: Boolean = false
 ) {
     val palette = beyGramPalette()
@@ -452,7 +507,7 @@ private fun MusicRow(
             if (subtitle.isNotBlank()) Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (loading) CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(22.dp), strokeWidth = 2.dp, color = palette.accent)
-        if (onPlayNext != null || onEnqueue != null) Box {
+        if (onPlayNext != null || onEnqueue != null || onSaveFavorite != null) Box {
             IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
             }
@@ -462,6 +517,9 @@ private fun MusicRow(
                 }
                 onEnqueue?.let { enqueue ->
                     DropdownMenuItem(text = { Text(stringResource(R.string.queue_add_to_end)) }, onClick = { menuOpen = false; enqueue() })
+                }
+                onSaveFavorite?.let { save ->
+                    DropdownMenuItem(text = { Text(stringResource(R.string.music_bot_save_favorite)) }, onClick = { menuOpen = false; save() })
                 }
             }
         }

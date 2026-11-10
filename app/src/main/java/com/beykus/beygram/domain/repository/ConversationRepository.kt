@@ -27,6 +27,9 @@ interface ConversationRepository {
     suspend fun musicBotSearch(query: String, offset: String = "", contextChatId: Long = 0L): Result<InlineBotResults?>
     /** Downloads one music bot result for the shared player and removes the temporary message it was sent as. */
     suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?>
+
+    /** Keeps the bot's track in Saved Messages and returns where it lives. Null when the bot did not return audio. */
+    suspend fun saveMusicBotTrack(queryId: Long, resultId: String): Result<SavedMusicBotTrack?>
     /** Sends one inline result with the composer's reply, forum topic and delivery options. */
     suspend fun sendInlineBotResult(
         chatId: Long,

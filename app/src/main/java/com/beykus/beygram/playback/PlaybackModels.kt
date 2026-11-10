@@ -512,7 +512,7 @@ internal fun prefetchCandidates(
     val result = ArrayList<PlaybackItem>(max)
     for (queueIndex in following) {
         val item = state.queue[queueIndex]
-        if (item.systemPrivate || item.fileId == null) continue
+        if (item.systemPrivate || (item.fileId == null && !BotTrackResolver.isBotKey(item.key))) continue
         if (item.path.isNotBlank() || item.growing != null) continue
         result += item
         if (result.size == max) break
