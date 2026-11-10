@@ -177,6 +177,7 @@ private class BgMixAwareListener(
  */
 object PlaybackEngine {
     private const val PROGRESS_INTERVAL_MS = 250L
+    private const val PROGRESS_FAST_INTERVAL_MS = 50L
     private const val SLEEP_FADE_STEP_MS = 100L
     private const val UNDO_CLOSE_MS = 5_000L
     private const val BG_WAKE_LOCK_TIMEOUT_MS = 6 * 60 * 60_000L
@@ -475,12 +476,22 @@ object PlaybackEngine {
                 return super.isCommandAvailable(command)
             }
 
+            // The headset and the notification use the app's own Next and Previous, so Repeat One, shuffle and BG Mix
+            // behave the same as with the buttons on the screen.
             override fun seekToNext() {
-                if (bgMixActive()) bgMix?.next() else super.seekToNext()
+                this@PlaybackEngine.next()
+            }
+
+            override fun seekToNextMediaItem() {
+                this@PlaybackEngine.next()
             }
 
             override fun seekToPrevious() {
-                if (bgMixActive()) this@PlaybackEngine.previous() else super.seekToPrevious()
+                this@PlaybackEngine.previous()
+            }
+
+            override fun seekToPreviousMediaItem() {
+                this@PlaybackEngine.previous()
             }
 
             override fun seekTo(positionMs: Long) {
@@ -2542,6 +2553,17 @@ object PlaybackEngine {
         if (_audioSessionId.value != musicSession) _audioSessionId.value = musicSession
     }
 
+    /**
+     * The progress tick is quick only where timing matters: in the last seconds of a track with the silence skip on, so the
+     * skip lands within a few tens of milliseconds of the measured silence instead of a quarter of a second after it.
+     */
+    private fun progressDelayMs(target: ExoPlayer): Long {
+        if (!TrackTransitionSettings.skipSilence.value) return PROGRESS_INTERVAL_MS
+        val duration = target.duration
+        if (duration == C.TIME_UNSET || duration <= 0L) return PROGRESS_INTERVAL_MS
+        return if (duration - target.currentPosition <= SILENCE_SCAN_MS + 500L) PROGRESS_FAST_INTERVAL_MS else PROGRESS_INTERVAL_MS
+    }
+
     /** Обновляет позицию, пока файл играет. Пауза и конец файла останавливают цикл. */
     private fun startProgress() {
         progress?.cancel()
@@ -2554,7 +2576,7 @@ object PlaybackEngine {
                 measureBeforeTransition(target)
                 skipTrailingSilence(target)
                 if (!target.isPlaying && target.playbackState != Player.STATE_BUFFERING) break
-                delay(PROGRESS_INTERVAL_MS)
+                delay(progressDelayMs(target))
             }
         }
     }

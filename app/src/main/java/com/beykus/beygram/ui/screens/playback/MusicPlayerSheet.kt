@@ -603,10 +603,15 @@ private fun PlayerDetails(
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?
 ) {
-    val position = rememberPlaybackPositionUi()
+    // The position is read only inside the provider, which the wave calls while drawing. The rest of the details
+    // (title, controls, actions) therefore does not recompose four times a second.
+    val positionState = rememberPlaybackPositionState()
     val fallbackDurationMs = player.item.durationSeconds.coerceAtLeast(0) * 1000L
-    val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
-    val played = if (duration > 0L) (position.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val playedProvider = {
+        val position = positionState.value
+        val duration = position.durationMs.takeIf { it > 0L } ?: fallbackDurationMs
+        if (duration > 0L) (position.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    }
 
     TrackMetadata(player, reduced)
     PlayerSeekSection(player)
@@ -615,7 +620,7 @@ private fun PlayerDetails(
     Spacer(Modifier.height(14.dp))
     BgBeatSection(
         item = player.item,
-        playbackFraction = played,
+        playbackFractionProvider = playedProvider,
         modifier = Modifier.padding(horizontal = 4.dp)
     )
     Spacer(Modifier.height(10.dp))

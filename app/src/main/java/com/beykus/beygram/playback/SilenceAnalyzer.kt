@@ -63,10 +63,24 @@ internal object SilenceAnalyzer {
      */
     fun cachedEdges(item: PlaybackItem): SilenceEdges? {
         if (!isMeasurable(item)) return null
-        val length = File(item.path).length()
-        if (item.sizeBytes <= 0L || length != item.sizeBytes) return null
+        val length = completeFileLength(item) ?: return null
         return SilenceEdgeStore.lookup(cacheKey(item), length)
     }
+
+    /** Lengths of files that are known to be complete. A finished file never changes, so the disk is asked once. */
+    private val completeLengths = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun completeFileLength(item: PlaybackItem): Long? {
+        if (item.sizeBytes <= 0L) return null
+        completeLengths[item.path]?.let { return it.takeIf { length -> length == item.sizeBytes } }
+        val length = File(item.path).length()
+        if (length != item.sizeBytes) return null
+        if (completeLengths.size >= MAX_CACHED_LENGTHS) completeLengths.clear()
+        completeLengths[item.path] = length
+        return length
+    }
+
+    private const val MAX_CACHED_LENGTHS = 512
 
     /**
      * Measuring decodes a few seconds of a file that is already on the device and uses no network, so it only yields

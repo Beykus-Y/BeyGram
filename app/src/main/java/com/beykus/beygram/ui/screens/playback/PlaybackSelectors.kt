@@ -69,6 +69,22 @@ internal fun rememberPlaybackPositionUi(): PlaybackPositionUi {
     return flow.collectAsStateWithLifecycle(initialValue = PlaybackEngine.state.value.positionUi()).value
 }
 
+/** The position as a State object: reading `.value` only where it is drawn keeps the rest of the screen from recomposing on every tick. */
+@Composable
+internal fun rememberPlaybackPositionState(): androidx.compose.runtime.State<PlaybackPositionUi> {
+    val flow = remember {
+        PlaybackEngine.state.map {
+            PlaybackPositionUi(
+                positionMs = it.positionMs,
+                durationMs = it.durationMs,
+                fraction = it.fraction,
+                bufferedFraction = it.bufferedFraction.coerceIn(0f, 1f)
+            )
+        }.distinctUntilChanged()
+    }
+    return flow.collectAsStateWithLifecycle(initialValue = PlaybackEngine.state.value.positionUi())
+}
+
 @Composable
 internal fun rememberPlaybackFraction(): Float {
     val flow = remember { PlaybackEngine.state.map { it.fraction }.distinctUntilChanged() }
