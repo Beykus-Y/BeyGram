@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.ui.components.NavigationPlacement
+import com.beykus.beygram.ui.components.WindowLayout
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /**
@@ -58,9 +60,18 @@ private const val ChatsListPaneMaxWidthDp = 380f
 /** Помещаются ли список и чат рядом при ширине [widthDp]. */
 internal fun isTwoPaneChatsWidth(widthDp: Float): Boolean = widthDp >= ChatsTwoPaneMinWidthDp
 
-/** Ширина списка в двухпанельном режиме: 300–380 dp, остальное достаётся переписке. */
-internal fun chatListPaneWidthDp(widthDp: Float): Float =
-    (widthDp * ChatsListPaneWidthFraction).coerceIn(ChatsListPaneMinWidthDp, ChatsListPaneMaxWidthDp)
+/** Ширина списка при малой высоте окна: переписке нужнее ширина, чем списку. */
+private const val ChatsListPaneMaxWidthShortWindowDp = 320f
+
+/**
+ * Ширина списка в двухпанельном режиме: 300–380 dp, остальное достаётся переписке. В коротком окне
+ * (телефон в ландшафте) хватает 300–320 dp.
+ */
+internal fun chatListPaneWidthDp(widthDp: Float, heightCompact: Boolean = false): Float =
+    (widthDp * ChatsListPaneWidthFraction).coerceIn(
+        ChatsListPaneMinWidthDp,
+        if (heightCompact) ChatsListPaneMaxWidthShortWindowDp else ChatsListPaneMaxWidthDp
+    )
 
 /**
  * Подсвеченный чат в списке. В однопанельном режиме строка не выделяется: открытый чат и так занимает
@@ -76,74 +87,70 @@ internal fun chatListHighlightedId(
 ): Long? = selectedChatId.takeIf { showChat && chatResolved && it != 0L }
 
 /**
- * Две панели: список чатов слева, открытый чат справа. На широком экране разделы стоят
- * вертикальной рейкой у ведущего края, а мини-плеер остаётся под панелями. Когда чат открыт,
- * навигация не показывается — как и нижнее меню на телефоне: у чата есть собственный плеер
- * и поле ввода.
+ * Две панели: список чатов слева, открытый чат справа. Навигация по разделам видна всегда, пока чат
+ * открыт: левая часть стабильна и не прыгает при выборе чата.
+ *
+ * Форма навигации зависит от окна ([WindowLayout.navigation]): узкая рейка у телефона в ландшафте,
+ * рейка с подписями у широкого окна, нижнее меню стиля внутри панели списка (его строит вызывающий в [list])
+ * у раскрытого складного. Мини-плеер живёт в левой колонке под списком и в чате отдельной строкой не показывается.
  */
 @Composable
 internal fun ChatsTwoPaneScaffold(
+    layout: WindowLayout,
     listPaneWidth: Dp,
-    showNavigation: Boolean,
     navigationRail: @Composable () -> Unit,
     playerBar: @Composable () -> Unit,
     list: @Composable () -> Unit,
     detail: @Composable () -> Unit
 ) {
-    if (!showNavigation) {
+    if (!layout.usesRail) {
+        // Нижнее меню и плеер стоят внутри [list] (панель списка): оно само держится выше системной навигации.
         ChatsPanes(
             modifier = Modifier.fillMaxSize(),
             listPaneWidth = listPaneWidth,
-            listKeepsClearOfNavigationBar = true,
-            list = list,
+            listColumn = { Box(Modifier.fillMaxSize()) { list() } },
             detail = detail
         )
         return
     }
+    val slim = layout.navigation == NavigationPlacement.SlimRail
     Row(Modifier.fillMaxSize()) {
         navigationRail()
-        Column(
-            Modifier
+        ChatsPanes(
+            modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
                 // Ведущий отступ заняла рейка; строка состояния и конец экрана остаются панелям.
-                .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
-                // Нижнего меню нет, поэтому и панели, и плеер держатся выше системной навигации.
-                .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
-        ) {
-            ChatsPanes(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                listPaneWidth = listPaneWidth,
-                listKeepsClearOfNavigationBar = false,
-                list = list,
-                detail = detail
-            )
-            playerBar()
-        }
+                .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start)),
+            listPaneWidth = listPaneWidth,
+            listColumn = {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        // Нижнего меню нет, поэтому список и плеер держатся выше системной навигации.
+                        .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+                ) {
+                    Box(Modifier.weight(1f).fillMaxWidth()) { list() }
+                    // В узкой рейке плеер — круглая обложка внизу рейки, высоты он не отнимает.
+                    if (!slim) playerBar()
+                }
+            },
+            detail = detail
+        )
     }
 }
 
-/** Список, разделитель и переписка. [listKeepsClearOfNavigationBar] нужен, когда внизу нет меню. */
+/** Список, разделитель и переписка. */
 @Composable
 private fun ChatsPanes(
     modifier: Modifier,
     listPaneWidth: Dp,
-    listKeepsClearOfNavigationBar: Boolean,
-    list: @Composable () -> Unit,
+    listColumn: @Composable () -> Unit,
     detail: @Composable () -> Unit
 ) {
     val palette = beyGramPalette()
     Row(modifier) {
-        Box(
-            Modifier
-                .width(listPaneWidth)
-                .fillMaxHeight()
-                .then(
-                    if (listKeepsClearOfNavigationBar) Modifier.windowInsetsPadding(
-                        WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)
-                    ) else Modifier
-                )
-        ) { list() }
+        Box(Modifier.width(listPaneWidth).fillMaxHeight()) { listColumn() }
         Box(Modifier.fillMaxHeight().width(1.dp).background(palette.divider))
         Box(
             Modifier
@@ -206,4 +213,26 @@ internal fun ChatsDetailPlaceholder(modifier: Modifier = Modifier) {
             )
         }
     }
+}
+
+/** Где живёт действие «Новый чат». */
+internal enum class CreateChatPlacement {
+    /** Плавающая кнопка над нижним меню: телефон и нижнее меню внутри панели списка. */
+    Fab,
+
+    /** Верх навигационной рейки: Default, Material 2, Material 3. */
+    RailTop,
+
+    /** Значок в строке поиска: Стекло и Signature, у которых шапка списка и есть панель действий. */
+    Header
+}
+
+/**
+ * Плавающая кнопка закрывает строки узкой панели, поэтому рядом с рейкой её нет. [headerStyle] = true у стиля, чья
+ * шапка списка несёт действие сама (стеклянная панель, Signature).
+ */
+internal fun createChatPlacement(layout: WindowLayout, twoPaneList: Boolean, headerStyle: Boolean): CreateChatPlacement = when {
+    !twoPaneList || !layout.usesRail -> CreateChatPlacement.Fab
+    headerStyle -> CreateChatPlacement.Header
+    else -> CreateChatPlacement.RailTop
 }

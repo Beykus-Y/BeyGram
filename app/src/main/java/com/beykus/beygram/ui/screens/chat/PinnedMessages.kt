@@ -58,7 +58,9 @@ internal fun PinnedMessagesBar(
     visibleOldestMessageId: Long? = null,
     forumTopicId: Long = 0L,
     /** Reports whether the preview row is drawn, so the header can give its bottom hairline to this row. */
-    onPreviewShownChange: (Boolean) -> Unit = {}
+    onPreviewShownChange: (Boolean) -> Unit = {},
+    /** A short window: one line of 36 dp (icon, counter, text, list) instead of the two-line 55 dp strip. */
+    compact: Boolean = false
 ) {
     val version by remember(conversation, chatId) { conversation.observePinnedMessagesVersion(chatId) }.collectAsStateWithLifecycle()
     var pins by remember(chatId, forumTopicId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
@@ -118,18 +120,32 @@ internal fun PinnedMessagesBar(
     } else if (shown != null) {
         // Liquid Glass: the preview takes the header's translucent fill, so the two read as one block with no seam.
         val rowFill = if (design.components.topBar == TopBarVariant.Glass) design.surfaces.panelFill(palette.surface, PanelFloor.Bar) else palette.surface
+        // Signature keeps the pin in ink: the accent is reserved for actions and unread marks there.
+        val pinTint = if (design.components.topBar == TopBarVariant.Signature) palette.textPrimary else palette.accent
+        val position = stringResource(R.string.chat_pinned_position, index + 1, total.coerceAtLeast(pins.size))
         Row(Modifier.fillMaxWidth().chatChromeBackground(rowFill), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).clickable { onOpen(shown) }.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.PushPin, null, tint = palette.accent, modifier = Modifier.size(20.dp))
+            Row(
+                Modifier.weight(1f).clickable { onOpen(shown) }
+                    .padding(horizontal = 14.dp, vertical = if (compact) 4.dp else 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.PushPin, null, tint = pinTint, modifier = Modifier.size(if (compact) 18.dp else 20.dp))
                 Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.chat_pinned_position, index + 1, total.coerceAtLeast(pins.size)),
-                        color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text(pinnedPreview(shown), color = palette.textPrimary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (compact) {
+                    Text(position, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Spacer(Modifier.width(8.dp))
+                    Text(pinnedPreview(shown), color = palette.textPrimary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                } else {
+                    Column(Modifier.weight(1f)) {
+                        Text(position, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(pinnedPreview(shown), color = palette.textPrimary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
                 if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
             }
-            IconButton(onClick = { expanded = true }) { Icon(Icons.Rounded.List, stringResource(R.string.chat_pinned_list), tint = palette.accent) }
+            IconButton(onClick = { expanded = true }, modifier = if (compact) Modifier.size(36.dp) else Modifier) {
+                Icon(Icons.Rounded.List, stringResource(R.string.chat_pinned_list), tint = pinTint)
+            }
         }
         HorizontalDivider(color = palette.divider)
     } else if (failed) {

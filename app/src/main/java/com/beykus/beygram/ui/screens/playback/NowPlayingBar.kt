@@ -153,7 +153,9 @@ fun NowPlayingBar(
     hideWhenImeVisible: Boolean = bottomInset,
     onOpenEqualizer: (() -> Unit)? = null,
     /** True above the floating navigation capsule: the bar takes the capsule's margins, corners and material. */
-    floatingDock: Boolean = false
+    floatingDock: Boolean = false,
+    /** True at the foot of the slim rail of a short window: a round cover with a progress ring replaces the bar. */
+    railCover: Boolean = false
 ) {
     val providedOpenEqualizer = LocalOpenEqualizer.current
     val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
@@ -179,7 +181,13 @@ fun NowPlayingBar(
         if (mini == null) fullPlayerOpen = false
     }
 
-    AnimatedVisibility(
+    if (railCover) {
+        // The slim rail spends no height on a bar: a tap pauses or resumes, a long press opens the full player.
+        val shown = mini ?: lastMini
+        AnimatedVisibility(visible = mini != null && shouldShowMiniPlayer(true, hideWhenImeVisible, keyboardVisible)) {
+            if (shown != null) RailMiniPlayerCover(shown, onOpen = { fullPlayerOpen = true })
+        }
+    } else AnimatedVisibility(
         visible = shouldShowMiniPlayer(mini != null, hideWhenImeVisible, keyboardVisible),
         // The bar only slides and fades. Instant specs (Off, reduced motion) skip both, so it appears on its first frame.
         enter = if (enterSpec.isInstant) EnterTransition.None else
@@ -203,7 +211,7 @@ fun NowPlayingBar(
 
     val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
     AnimatedVisibility(
-        visible = mini == null && undoAvailable,
+        visible = !railCover && mini == null && undoAvailable,
         enter = EnterTransition.None,
         exit = ExitTransition.None,
         modifier = Modifier.fillMaxWidth()
@@ -234,13 +242,24 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: 
         enabled = ui.isMusic,
         maxAmount = MINI_COVER_TINT
     )
-    CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
+    // Signature keeps the chrome on the canvas: the cover tint reaches only the artwork and the progress line, so the
+    // player never becomes the loudest element on the screen. Other styles tint the whole bar, as before.
+    val inkOnly = LocalDesignSystem.current.components.topBar == TopBarVariant.Signature
+    val chromeTokens = if (inkOnly) LocalBeyGramTokens.current else cover.tokens
+    val artworkTokens = if (inkOnly) cover.tokens else null
+    CompositionLocalProvider(LocalBeyGramTokens provides chromeTokens) {
         if (floatingDock) {
-            MiniDockCard { MiniPlayerBarContent(ui, bottomInset, floatingDock = true, onOpen = onOpen, onLongOpen = onLongOpen) }
+            MiniDockCard { MiniPlayerBarContent(ui, bottomInset, floatingDock = true, onOpen = onOpen, onLongOpen = onLongOpen, artworkTokens = artworkTokens) }
         } else {
-            MiniPlayerBarContent(ui, bottomInset, floatingDock = false, onOpen = onOpen, onLongOpen = onLongOpen)
+            MiniPlayerBarContent(ui, bottomInset, floatingDock = false, onOpen = onOpen, onLongOpen = onLongOpen, artworkTokens = artworkTokens)
         }
     }
+}
+
+/** Runs [content] under the cover tint when [tokens] is set, and under the surrounding tokens otherwise. */
+@Composable
+private fun WithCoverTint(tokens: com.beykus.beygram.ui.theme.BeyGramTokens?, content: @Composable () -> Unit) {
+    if (tokens == null) content() else CompositionLocalProvider(LocalBeyGramTokens provides tokens) { content() }
 }
 
 /**
@@ -279,7 +298,14 @@ private fun MiniDockCard(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, onOpen: () -> Unit, onLongOpen: (() -> Unit)? = null) {
+private fun MiniPlayerBarContent(
+    ui: MiniPlayerUi,
+    bottomInset: Boolean,
+    floatingDock: Boolean,
+    onOpen: () -> Unit,
+    onLongOpen: (() -> Unit)? = null,
+    artworkTokens: com.beykus.beygram.ui.theme.BeyGramTokens? = null
+) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val openLabel = stringResource(R.string.player_mini_open)
@@ -306,7 +332,7 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatin
     ) {
         // On a pinned bar the track is the top edge. In a floating capsule it runs along the bottom instead, so it does
         // not compete with the glass rim on the top edge and is not cut by the rounded corners.
-        if (!floatingDock) MiniPlayerProgress()
+        if (!floatingDock) WithCoverTint(artworkTokens) { MiniPlayerProgress() }
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -330,16 +356,19 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatin
                     .padding(start = 2.dp, end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                TrackArtwork(
-                    artworkPath = ui.artworkPath,
-                    audioPath = ui.audioPath,
-                    modifier = Modifier.size(42.dp),
-                    background = palette.accentSoft,
-                    tint = palette.accentInk,
-                    symbolSize = 20.dp,
-                    cornerRadius = 10.dp,
-                    border = palette.divider.copy(alpha = 0.55f)
-                )
+                WithCoverTint(artworkTokens) {
+                    val artPalette = beyGramPalette()
+                    TrackArtwork(
+                        artworkPath = ui.artworkPath,
+                        audioPath = ui.audioPath,
+                        modifier = Modifier.size(42.dp),
+                        background = artPalette.accentSoft,
+                        tint = artPalette.accentInk,
+                        symbolSize = 20.dp,
+                        cornerRadius = 10.dp,
+                        border = artPalette.divider.copy(alpha = 0.55f)
+                    )
+                }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Crossfade(
@@ -426,7 +455,65 @@ private fun MiniPlayerBarContent(ui: MiniPlayerUi, bottomInset: Boolean, floatin
                 Icon(Icons.Rounded.Close, stringResource(R.string.player_stop), tint = palette.textSecondary)
             }
         }
-        if (floatingDock) MiniPlayerProgress(Modifier.padding(horizontal = progressInset, vertical = 0.dp))
+        if (floatingDock) WithCoverTint(artworkTokens) { MiniPlayerProgress(Modifier.padding(horizontal = progressInset)) }
+    }
+}
+
+/** Round 40 dp cover with a progress ring for the slim navigation rail: tap = play/pause, long press = full player. */
+@Composable
+private fun RailMiniPlayerCover(ui: MiniPlayerUi, onOpen: () -> Unit) {
+    val cover = rememberCoverTokens(
+        artworkPath = ui.artworkPath,
+        audioPath = ui.audioPath,
+        enabled = ui.isMusic,
+        maxAmount = MINI_COVER_TINT
+    )
+    val playing = ui.playing || ui.intentPlaying
+    val label = stringResource(if (playing) R.string.common_pause else R.string.common_play)
+    val openLabel = stringResource(R.string.player_mini_open)
+    val position = rememberPlaybackPositionUi()
+    CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
+        val palette = beyGramPalette()
+        Box(
+            Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .combinedClickable(
+                    role = Role.Button,
+                    onClickLabel = label,
+                    onLongClickLabel = openLabel,
+                    onLongClick = onOpen,
+                    onClick = { PlaybackEngine.togglePlayPause() }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            TrackArtwork(
+                artworkPath = ui.artworkPath,
+                audioPath = ui.audioPath,
+                modifier = Modifier.size(36.dp),
+                background = palette.accentSoft,
+                tint = palette.accentInk,
+                symbolSize = 18.dp,
+                cornerRadius = 18.dp,
+                border = palette.divider.copy(alpha = 0.55f)
+            )
+            Canvas(Modifier.size(44.dp)) {
+                val stroke = 2.dp.toPx()
+                val inset = stroke / 2f
+                val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+                val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+                drawArc(palette.divider, 0f, 360f, false, topLeft, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                if (position.fraction > 0f) {
+                    drawArc(
+                        palette.accent, -90f, 360f * position.fraction.coerceIn(0f, 1f), false, topLeft, arcSize,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = StrokeCap.Round)
+                    )
+                }
+            }
+            if (!playing) {
+                Icon(Icons.Rounded.PlayArrow, null, tint = palette.textPrimary, modifier = Modifier.size(20.dp))
+            }
+        }
     }
 }
 
