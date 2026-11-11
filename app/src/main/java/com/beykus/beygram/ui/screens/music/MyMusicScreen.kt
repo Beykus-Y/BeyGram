@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material.icons.rounded.Whatshot
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -149,7 +150,16 @@ internal fun MyMusicScreen(
             )
         }
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
+        // The source tab reloads its library with a pull; the Telegram library is local and needs none.
+        val providerTab = shownSource == MusicHomeSource.Provider && providerHost != null
+        val refreshing = providerHost?.isRefreshing() == true
+        MusicRefreshBox(
+            enabled = providerTab,
+            refreshing = refreshing,
+            onRefresh = { providerHost?.refresh() },
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "search") {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     SearchFieldButton(placeholder = stringResource(R.string.music_search_action), onClick = onSearch)
@@ -169,7 +179,8 @@ internal fun MyMusicScreen(
                 item(key = "provider-library") {
                     providerHost.LibrarySection(
                         onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) },
-                        onSignIn = onProviderSignIn
+                        onSignIn = onProviderSignIn,
+                        onOpenCollection = null
                     )
                 }
             } else if (library == null) {
@@ -274,6 +285,7 @@ internal fun MyMusicScreen(
                 }
             }
         }
+        }
     }
 
     if (creating) MusicTextDialog(
@@ -305,6 +317,23 @@ private fun collectionIcon(kind: MusicCollectionKind): ImageVector = when (kind)
     MusicCollectionKind.Frequent -> Icons.Rounded.Whatshot
     MusicCollectionKind.Added -> Icons.Rounded.NewReleases
     MusicCollectionKind.Lately -> Icons.Rounded.Restore
+}
+
+/** Pull-to-refresh around [content] when [enabled]; a plain box otherwise, so the local tab has no gesture. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MusicRefreshBox(
+    enabled: Boolean,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier,
+    content: @Composable () -> Unit
+) {
+    if (enabled) {
+        PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = modifier) { content() }
+    } else {
+        Box(modifier) { content() }
+    }
 }
 
 /** The warning above the list when the library could not be read: changes made then are not saved. */

@@ -1,6 +1,8 @@
 package com.beykus.beygram.data.yandex
 
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
+import com.beykus.beygram.data.music.provider.ProviderAlbum
+import com.beykus.beygram.data.music.provider.ProviderAlbumTracks
 import com.beykus.beygram.data.music.provider.ProviderAudio
 import com.beykus.beygram.data.music.provider.ProviderLyrics
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
@@ -66,19 +68,70 @@ internal class YandexApi(private val http: YandexHttp) {
     fun playlists(token: String, uid: String): ProviderResult<List<ProviderPlaylist>> =
         call(token, "/users/$uid/playlists/list") { root ->
             val array = root.resultArray()
+            (0 until array.length()).mapNotNull { index -> array.optJSONObject(index)?.let { parsePlaylist(it, uid) } }
+        }
+
+    /** Playlists of other users the account liked. Each entry may wrap the playlist in a `playlist` object. */
+    fun likedPlaylists(token: String, uid: String): ProviderResult<List<ProviderPlaylist>> =
+        call(token, "/users/$uid/likes/playlists") { root ->
+            val array = root.resultArray()
             (0 until array.length()).mapNotNull { index ->
                 val item = array.optJSONObject(index) ?: return@mapNotNull null
-                val kind = item.idOf("kind") ?: return@mapNotNull null
-                val title = item.optString("title").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                ProviderPlaylist(
-                    kind = kind,
-                    title = title,
-                    trackCount = item.optInt("trackCount", 0),
-                    coverUrl = coverUrl(item.optJSONObject("cover")?.optString("uri")),
-                    isOwn = item.optJSONObject("owner")?.idOf("uid") == uid,
-                )
+                parsePlaylist(item.optJSONObject("playlist") ?: item, uid)
             }
         }
+
+    /** Liked albums. Each entry may wrap the album in an `album` object. */
+    fun likedAlbums(token: String, uid: String): ProviderResult<List<ProviderAlbum>> =
+        call(token, "/users/$uid/likes/albums", query = "rich=true") { root ->
+            val array = root.resultArray()
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                parseAlbum(item.optJSONObject("album") ?: item)
+            }
+        }
+
+    /** An album with its tracks; the service groups them by disc in `volumes`. */
+    fun album(token: String, albumId: String): ProviderResult<ProviderAlbumTracks> =
+        call(token, "/albums/$albumId/with-tracks") { root ->
+            val result = root.result()
+            val album = parseAlbum(result) ?: return@call null
+            val volumes = result.optJSONArray("volumes") ?: JSONArray()
+            val tracks = (0 until volumes.length()).flatMap { disc -> volumes.optJSONArray(disc)?.tracks().orEmpty() }
+            ProviderAlbumTracks(album, tracks.map { if (it.albumId == null) it.copy(albumId = album.id) else it })
+        }
+
+    fun parsePlaylist(item: JSONObject, uid: String): ProviderPlaylist? {
+        val kind = item.idOf("kind") ?: return null
+        val title = item.optString("title").takeIf { it.isNotBlank() } ?: return null
+        val owner = item.optJSONObject("owner")
+        val ownerUid = owner?.idOf("uid") ?: item.idOf("uid")
+        return ProviderPlaylist(
+            kind = kind,
+            title = title,
+            trackCount = item.optInt("trackCount", 0),
+            coverUrl = coverUrl(item.optJSONObject("cover")?.optString("uri")?.takeIf { it.isNotBlank() } ?: item.optString("ogImage")),
+            isOwn = ownerUid == uid,
+            ownerUid = ownerUid,
+            ownerName = owner?.optString("name")?.takeIf { it.isNotBlank() } ?: owner?.optString("login")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    fun parseAlbum(o: JSONObject): ProviderAlbum? {
+        val id = o.idOf("id") ?: return null
+        val title = o.optString("title").takeIf { it.isNotBlank() } ?: return null
+        val artists = o.optJSONArray("artists")?.let { array ->
+            (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
+        }.orEmpty()
+        return ProviderAlbum(
+            id = id,
+            title = title,
+            artists = artists,
+            year = o.optInt("year", 0).takeIf { it > 0 },
+            trackCount = o.optInt("trackCount", 0),
+            coverUrl = coverUrl(o.optString("coverUri")),
+        )
+    }
 
     fun playlistTracks(token: String, uid: String, kind: String): ProviderResult<List<ProviderTrack>> =
         call(token, "/users/$uid/playlists/$kind") { root ->
@@ -154,7 +207,8 @@ internal class YandexApi(private val http: YandexHttp) {
         val artists = o.optJSONArray("artists")?.let { array ->
             (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
         }.orEmpty()
-        val album = o.optJSONArray("albums")?.optJSONObject(0)?.optString("title")?.takeIf { it.isNotBlank() }
+        val firstAlbum = o.optJSONArray("albums")?.optJSONObject(0)
+        val album = firstAlbum?.optString("title")?.takeIf { it.isNotBlank() }
         return ProviderTrack(
             trackId = id,
             title = title,
@@ -164,6 +218,7 @@ internal class YandexApi(private val http: YandexHttp) {
             coverUrl = coverUrl(o.optString("coverUri")),
             isAvailable = o.optBoolean("available", true),
             liked = null,
+            albumId = firstAlbum?.idOf("id"),
         )
     }
 

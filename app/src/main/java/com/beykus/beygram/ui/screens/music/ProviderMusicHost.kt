@@ -21,12 +21,24 @@ interface ProviderMusicHost {
     fun tabLabel(): String
 
     /**
-     * Liked tracks and playlists of this source: the whole content of its tab on the music screen. Before sign-in it
-     * shows a card whose button calls [onSignIn]. [onPlay] starts a list at an index; null means the rows cannot play
-     * yet.
+     * Liked tracks, playlists and albums of this source: the whole content of its tab on the music screen. Before
+     * sign-in it shows a card whose button calls [onSignIn]. [onPlay] starts a list at an index; null means the rows
+     * cannot play yet. [onOpenCollection] opens a collection screen by its reference (see [CollectionScreen]); null
+     * means collections play on tap instead.
      */
     @Composable
-    fun LibrarySection(onPlay: ((List<ProviderTrack>, Int) -> Unit)?, onSignIn: () -> Unit)
+    fun LibrarySection(
+        onPlay: ((List<ProviderTrack>, Int) -> Unit)?,
+        onSignIn: () -> Unit,
+        onOpenCollection: ((String) -> Unit)?
+    )
+
+    /** True while the tab reloads its library from the service. */
+    @Composable
+    fun isRefreshing(): Boolean
+
+    /** Reloads the library of the tab from the service, for the pull-to-refresh gesture. */
+    fun refresh()
 }
 
 object ProviderMusicHosts {

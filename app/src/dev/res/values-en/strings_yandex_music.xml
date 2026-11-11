@@ -34,4 +34,8 @@
     <string name="yandex_library_signin_title">Yandex Music</string>
     <string name="yandex_library_signin_text">Sign in with Yandex ID to see your liked tracks and playlists here.</string>
     <string name="yandex_library_signin_action">Sign in</string>
+    <string name="yandex_library_albums">Albums</string>
+    <string name="yandex_library_no_subscription">Without a Yandex Plus subscription full tracks do not play. Lists, likes and covers are still shown.</string>
+    <string name="yandex_library_retry">Retry</string>
+    <string name="yandex_library_play">Play</string>
 </resources>

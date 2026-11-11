@@ -34,4 +34,8 @@
     <string name="yandex_library_signin_title">Яндекс Музыка</string>
     <string name="yandex_library_signin_text">Войдите в Yandex ID, и здесь появятся ваши лайки и плейлисты.</string>
     <string name="yandex_library_signin_action">Войти</string>
+    <string name="yandex_library_albums">Альбомы</string>
+    <string name="yandex_library_no_subscription">Без подписки Яндекс Плюс полные треки не играют. Списки, лайки и обложки видны.</string>
+    <string name="yandex_library_retry">Повторить</string>
+    <string name="yandex_library_play">Слушать</string>
 </resources>

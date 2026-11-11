@@ -5,6 +5,8 @@ import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviderState
+import com.beykus.beygram.data.music.provider.ProviderAlbum
+import com.beykus.beygram.data.music.provider.ProviderAlbumTracks
 import com.beykus.beygram.data.music.provider.ProviderAudio
 import com.beykus.beygram.data.music.provider.ProviderLyrics
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
@@ -178,8 +180,23 @@ internal class YandexMusicProvider(
     override suspend fun playlists(): ProviderResult<List<ProviderPlaylist>> =
         withSession { s -> api.playlists(s.accessToken, s.uid) }
 
-    override suspend fun playlistTracks(kind: String): ProviderResult<List<ProviderTrack>> =
-        withSession { s -> api.playlistTracks(s.accessToken, s.uid, kind) }
+    override suspend fun playlistTracks(kind: String, ownerUid: String?): ProviderResult<List<ProviderTrack>> =
+        withSession { s -> api.playlistTracks(s.accessToken, ownerUid ?: s.uid, kind) }
+
+    override suspend fun likedTrackIds(): ProviderResult<List<String>> =
+        withSession { s -> api.likedTrackIds(s.accessToken, s.uid) }
+
+    override suspend fun tracks(ids: List<String>): ProviderResult<List<ProviderTrack>> =
+        if (ids.isEmpty()) ProviderResult.Success(emptyList()) else withSession { s -> api.tracksByIds(s.accessToken, ids) }
+
+    override suspend fun likedPlaylists(): ProviderResult<List<ProviderPlaylist>> =
+        withSession { s -> api.likedPlaylists(s.accessToken, s.uid) }
+
+    override suspend fun likedAlbums(): ProviderResult<List<ProviderAlbum>> =
+        withSession { s -> api.likedAlbums(s.accessToken, s.uid) }
+
+    override suspend fun album(albumId: String): ProviderResult<ProviderAlbumTracks> =
+        withSession { s -> api.album(s.accessToken, albumId) }
 
     override suspend fun lyrics(trackId: String): ProviderResult<ProviderLyrics> =
         withSession { s -> api.lyrics(s.accessToken, trackId) }

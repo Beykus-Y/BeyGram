@@ -34,4 +34,8 @@
     <string name="yandex_library_signin_title">Yandex Music</string>
     <string name="yandex_library_signin_text">Connectez-vous avec Yandex ID pour voir ici vos titres aimés et vos playlists.</string>
     <string name="yandex_library_signin_action">Se connecter</string>
+    <string name="yandex_library_albums">Albums</string>
+    <string name="yandex_library_no_subscription">Sans abonnement Yandex Plus, les titres complets ne sont pas lus. Les listes, les j’aime et les pochettes restent visibles.</string>
+    <string name="yandex_library_retry">Réessayer</string>
+    <string name="yandex_library_play">Lire</string>
 </resources>
