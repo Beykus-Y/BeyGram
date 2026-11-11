@@ -617,6 +617,7 @@
     <string name="player_source_group">Group</string>
     <string name="player_source_saved">Saved Messages</string>
     <string name="player_source_local">File on device</string>
+    <string name="player_source_provider_yandex">Yandex Music</string>
     <string name="player_menu">Player actions</string>
     <string name="player_queue">Queue</string>
     <string name="player_equalizer">Equalizer</string>

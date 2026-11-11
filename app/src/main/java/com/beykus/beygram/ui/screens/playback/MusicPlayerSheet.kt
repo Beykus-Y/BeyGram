@@ -167,6 +167,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.beykus.beygram.data.music.MusicLibraries
+import com.beykus.beygram.data.music.provider.YANDEX_TRACK_KEY_PREFIX
 import com.beykus.beygram.data.music.MusicOutcome
 import com.beykus.beygram.data.music.toPlaylistTrack
 import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
@@ -236,7 +237,10 @@ internal fun MusicPlayerSheet(
     LaunchedEffect(player == null) { if (player == null) onDismiss() }
     val current = player ?: return
     var panel by rememberSaveable { mutableStateOf(PlayerPanel.Player) }
-    val source = rememberPlaybackSourceLabel(current.item.origin)
+    val source = rememberPlaybackSourceLabel(
+        origin = current.item.origin,
+        isProviderTrack = current.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX)
+    )
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val cover = rememberCoverTokens(
         artworkPath = current.item.artworkPath,

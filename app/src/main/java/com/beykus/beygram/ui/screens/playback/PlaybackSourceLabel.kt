@@ -60,15 +60,17 @@ internal fun rememberOriginChat(origin: PlaybackOrigin?): ChatPreview? {
 
 /** Resolves music source names from the selected account's repository, never a different Telegram login. */
 @Composable
-internal fun rememberPlaybackSourceLabel(origin: PlaybackOrigin?): PlaybackSourceLabel {
+internal fun rememberPlaybackSourceLabel(origin: PlaybackOrigin?, isProviderTrack: Boolean = false): PlaybackSourceLabel {
     val preview = rememberOriginChat(origin)
     val kind = playbackSourceKind(
         hasOrigin = origin != null,
         isSavedMessages = preview?.isSavedMessages == true,
         isChannel = preview?.isChannel == true,
-        isGroup = preview?.isGroup == true
+        isGroup = preview?.isGroup == true,
+        isProviderTrack = isProviderTrack
     )
     val generic = when (kind) {
+        PlaybackSourceKind.Provider -> stringResource(R.string.player_source_provider_yandex)
         PlaybackSourceKind.Local -> stringResource(R.string.player_source_local)
         PlaybackSourceKind.SavedMessages -> stringResource(R.string.player_source_saved)
         PlaybackSourceKind.Channel -> stringResource(R.string.player_source_channel)
@@ -77,7 +79,7 @@ internal fun rememberPlaybackSourceLabel(origin: PlaybackOrigin?): PlaybackSourc
     }
     val title = preview?.title?.trim().orEmpty()
     val text = when (kind) {
-        PlaybackSourceKind.Local, PlaybackSourceKind.SavedMessages -> generic
+        PlaybackSourceKind.Local, PlaybackSourceKind.SavedMessages, PlaybackSourceKind.Provider -> generic
         PlaybackSourceKind.Channel ->
             listOf(generic, title).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { generic }
         PlaybackSourceKind.Group ->
