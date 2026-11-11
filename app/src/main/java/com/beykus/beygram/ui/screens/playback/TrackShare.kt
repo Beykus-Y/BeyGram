@@ -29,7 +29,24 @@ internal fun shareTimecode(positionMs: Long): String {
     val hours = total / 3600L
     val minutes = (total % 3600L) / 60L
     val seconds = total % 60L
-    return if (hours > 0L) "%d:%02d:%02d".format(hours, minutes, seconds) else "%d:%02d".format(minutes, seconds)
+    return if (hours > 0L) "%d:%02d:%02d".format(java.util.Locale.ROOT, hours, minutes, seconds) else "%d:%02d".format(java.util.Locale.ROOT, minutes, seconds)
+}
+
+private val SHARE_TIMECODE = Regex("""^(?:(\d{1,3}):)?([0-5]?\d):([0-5]\d)$""")
+
+/**
+ * The start position, in milliseconds, of a shared track whose caption is exactly a timecode written by [shareTimecode].
+ * Null for any other caption, and for a timecode at or past the end of a track whose length is known, so such a message
+ * plays from the start instead of ending at once.
+ */
+fun parseShareTimecodeMs(caption: String, durationSeconds: Int): Long? {
+    // Captions sent before the formatter became locale independent may carry localized digits.
+    val ascii = caption.trim().map { c -> Character.digit(c, 10).takeIf { it >= 0 }?.let { '0' + it } ?: c }.joinToString("")
+    val match = SHARE_TIMECODE.matchEntire(ascii) ?: return null
+    val hours = match.groupValues[1].toLongOrNull() ?: 0L
+    val seconds = hours * 3600L + match.groupValues[2].toLong() * 60L + match.groupValues[3].toLong()
+    if (durationSeconds > 0 && seconds >= durationSeconds) return null
+    return seconds * 1000L
 }
 
 /**

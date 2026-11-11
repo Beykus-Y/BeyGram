@@ -555,8 +555,8 @@ object PlaybackEngine {
      * Тот же файл ставит на паузу или продолжает, другой файл начинает играть сначала. [onStarted] вызывается один раз, когда
      * файл начнёт играть, даже если пузырь, который его запустил, уже ушёл с экрана. Если это случилось в фоне, вызов ждёт [setForeground].
      */
-    fun toggle(context: Context, item: PlaybackItem, onStarted: (() -> Unit)? = null) =
-        startItem(context, item, emptyList(), -1, source = null, onStarted = onStarted)
+    fun toggle(context: Context, item: PlaybackItem, onStarted: (() -> Unit)? = null, startPositionMs: Long? = null) =
+        startItem(context, item, emptyList(), -1, source = null, onStarted = onStarted, startPositionMs = startPositionMs)
 
     /** Запускает [index]-й файл очереди [items]. Когда он доиграет, следующий файл очереди начинает играть сам. Тап по играющему файлу ставит его на паузу. */
     fun playQueue(context: Context, items: List<PlaybackItem>, index: Int, onStarted: (() -> Unit)? = null) {
@@ -568,9 +568,16 @@ object PlaybackEngine {
      * Queue variant with a lazy TDLib source. Tracks that are not downloaded yet stay in the queue and are resolved
      * on demand; only the current item and 1–2 following items may request a download.
      */
-    fun playQueue(context: Context, items: List<PlaybackItem>, index: Int, source: PlaybackQueueSource?, onStarted: (() -> Unit)? = null) {
+    fun playQueue(
+        context: Context,
+        items: List<PlaybackItem>,
+        index: Int,
+        source: PlaybackQueueSource?,
+        onStarted: (() -> Unit)? = null,
+        startPositionMs: Long? = null
+    ) {
         val item = items.getOrNull(index) ?: return
-        startItem(context, item, items, index, source = source, onStarted = onStarted)
+        startItem(context, item, items, index, source = source, onStarted = onStarted, startPositionMs = startPositionMs)
     }
 
     /**
@@ -602,11 +609,14 @@ object PlaybackEngine {
         items: List<PlaybackItem>,
         index: Int,
         source: PlaybackQueueSource?,
-        onStarted: (() -> Unit)?
+        onStarted: (() -> Unit)?,
+        startPositionMs: Long? = null
     ) {
         if (onStarted != null) startedCallback = item.key to onStarted
         val currentState = _state.value
         if (bgMixActive() && currentState.item?.key == item.key) {
+            // A shared timecode wins over the mix position: the user asked for that exact moment of the track.
+            if (startPositionMs != null) seekToPosition(startPositionMs)
             bgMixPlay()
             return
         }
@@ -633,6 +643,12 @@ object PlaybackEngine {
                     rebuildTimeline(nextItems, nextIndex, currentState.positionMs, shouldPlay)
                 }
             }
+            if (startPositionMs != null) {
+                // A timecode never pauses: it moves the track to that moment and plays from there.
+                seekToPosition(startPositionMs)
+                if (!(currentState.playing || currentState.intentPlaying)) togglePlayPause()
+                return
+            }
             // Second tap on the same file keeps the documented pause/resume semantics.
             togglePlayPause()
             return
@@ -646,7 +662,7 @@ object PlaybackEngine {
             if (restore != null) {
                 _state.update { it.copy(shuffleEnabled = restore.shuffleEnabled, repeatMode = restore.repeatMode) }
             }
-            val resumeMs = restore?.positionMs
+            val resumeMs = startPositionMs ?: restore?.positionMs
             val effectiveSource = restore?.source ?: source
             val queue = restore?.queue ?: given ?: PlaybackQueue()
             queueSource = effectiveSource
@@ -662,7 +678,7 @@ object PlaybackEngine {
         // Голосовое или кружок поверх музыки очередь не сбрасывают: музыка продолжится и дальше пойдёт по очереди.
         interruptedMusic = interruptedAfterStart(currentState, interruptedMusic, item, queueSource)
         queueSource = null
-        startSingle(context, item, startPositionMs = null, startFraction = 0f)
+        startSingle(context, item, startPositionMs = startPositionMs, startFraction = 0f)
     }
 
     private fun mergePlaybackItem(item: PlaybackItem, previous: PlaybackItem?): PlaybackItem = item.copy(
