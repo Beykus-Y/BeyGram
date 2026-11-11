@@ -2387,4 +2387,10 @@
     <string name="settings_experiments_group_music">Музыка</string>
     <string name="settings_experiments_group_transitions">Паузы и переходы</string>
     <string name="settings_experiments_transitions_note">Пропуск тишины и плавные переходы относятся к обычному плееру и не зависят от BG Mix. Пока музыка играет через BG Mix, у него свои плавные переходы, и эти две настройки на неё не действуют.</string>
+    <string name="lyrics_show">Показать текст</string>
+    <string name="lyrics_hide">Скрыть текст</string>
+    <string name="lyrics_none_for_track">Для этого трека нет текста</string>
+    <string name="lyrics_need_sign_in">Войдите в Яндекс Музыку, чтобы смотреть тексты</string>
+    <string name="lyrics_failed">Не удалось загрузить текст. Попробуйте позже.</string>
+    <string name="lyrics_copyright">Текст: %1$s</string>
 </resources>

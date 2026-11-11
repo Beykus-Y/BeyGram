@@ -834,4 +834,10 @@
     <string name="settings_experiments_group_music">Music</string>
     <string name="settings_experiments_group_transitions">Gaps and transitions</string>
     <string name="settings_experiments_transitions_note">Skip silence and crossfade belong to the regular player and do not depend on BG Mix. While music plays through BG Mix, it uses its own smooth transitions and these two settings do not apply to it.</string>
+    <string name="lyrics_show">Show lyrics</string>
+    <string name="lyrics_hide">Hide lyrics</string>
+    <string name="lyrics_none_for_track">There are no lyrics for this track</string>
+    <string name="lyrics_need_sign_in">Sign in to Yandex Music to see lyrics</string>
+    <string name="lyrics_failed">Couldn’t load the lyrics. Try again later.</string>
+    <string name="lyrics_copyright">Lyrics: %1$s</string>
 </resources>

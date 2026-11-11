@@ -860,4 +860,10 @@
     <string name="settings_experiments_group_music">Musique</string>
     <string name="settings_experiments_group_transitions">Silences et transitions</string>
     <string name="settings_experiments_transitions_note">Ignorer le silence et le fondu enchaîné relèvent du lecteur normal et ne dépendent pas de BG Mix. Quand la musique passe par BG Mix, il utilise ses propres transitions fluides et ces deux réglages ne s’appliquent pas.</string>
+    <string name="lyrics_show">Afficher les paroles</string>
+    <string name="lyrics_hide">Masquer les paroles</string>
+    <string name="lyrics_none_for_track">Il n’y a pas de paroles pour ce titre</string>
+    <string name="lyrics_need_sign_in">Connectez-vous à Yandex Music pour voir les paroles</string>
+    <string name="lyrics_failed">Impossible de charger les paroles. Réessayez plus tard.</string>
+    <string name="lyrics_copyright">Paroles : %1$s</string>
 </resources>

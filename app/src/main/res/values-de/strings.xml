@@ -834,4 +834,10 @@
     <string name="settings_experiments_group_music">Musik</string>
     <string name="settings_experiments_group_transitions">Pausen und Übergänge</string>
     <string name="settings_experiments_transitions_note">Stille überspringen und Überblenden gehören zum normalen Player und hängen nicht von BG Mix ab. Spielt die Musik über BG Mix, nutzt er eigene weiche Übergänge, und diese beiden Einstellungen gelten dafür nicht.</string>
+    <string name="lyrics_show">Text anzeigen</string>
+    <string name="lyrics_hide">Text ausblenden</string>
+    <string name="lyrics_none_for_track">Für diesen Titel gibt es keinen Text</string>
+    <string name="lyrics_need_sign_in">Melde dich bei Yandex Music an, um Texte zu sehen</string>
+    <string name="lyrics_failed">Der Text konnte nicht geladen werden. Versuche es später erneut.</string>
+    <string name="lyrics_copyright">Text: %1$s</string>
 </resources>
