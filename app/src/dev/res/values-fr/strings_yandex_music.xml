@@ -23,4 +23,7 @@
     <string name="yandex_error_generic">Échec de la connexion. Réessayez.</string>
     <string name="yandex_search_title">Yandex Music</string>
     <string name="yandex_search_empty">Aucun résultat dans Yandex Music.</string>
+    <string name="yandex_diag_title">Diagnostic de la réponse</string>
+    <string name="yandex_diag_share">Partager</string>
+    <string name="yandex_diag_empty">Aucune réponse du service pour l\'instant. Actualisez la carte du compte.</string>
 </resources>

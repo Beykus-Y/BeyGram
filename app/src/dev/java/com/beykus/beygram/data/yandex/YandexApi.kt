@@ -13,7 +13,12 @@ import java.io.IOException
 import java.net.URLEncoder
 
 /** Account data needed by the provider. */
-internal data class YandexAccount(val uid: String, val displayName: String, val hasPlus: Boolean)
+internal data class YandexAccount(
+    val uid: String,
+    val displayName: String,
+    val hasPlus: Boolean,
+    val plusSummary: String = "",
+)
 
 /**
  * Requests and response mapping for the endpoints the app uses. Every call returns a [ProviderResult]; no
@@ -22,11 +27,7 @@ internal data class YandexAccount(val uid: String, val displayName: String, val 
 internal class YandexApi(private val http: YandexHttp) {
 
     fun account(token: String): ProviderResult<YandexAccount> = call(token, "/account/status") { root ->
-        val account = root.result().optJSONObject("account") ?: return@call null
-        val uid = account.idOf("uid") ?: return@call null
-        val name = account.optString("displayName").ifBlank { account.optString("login") }
-        val hasPlus = root.result().optJSONObject("plus")?.optBoolean("has_plus") ?: false
-        YandexAccount(uid, name, hasPlus)
+        parseAccountStatus(root)
     }
 
     fun search(token: String, text: String, limit: Int): ProviderResult<List<ProviderTrack>> {
@@ -224,4 +225,57 @@ internal class YandexApi(private val http: YandexHttp) {
         raw?.takeIf { it.isNotBlank() }?.let { "https://" + it.replace("%%", "200x200") }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+}
+
+/**
+ * Reads the account from an /account/status body. The subscription flag is looked for under the keys the
+ * official client has been seen to use; any of them set to true counts as a subscription.
+ */
+internal fun parseAccountStatus(root: JSONObject): YandexAccount? {
+    val result = root.optJSONObject("result") ?: root
+    val account = result.optJSONObject("account") ?: return null
+    val uid = if (account.has("uid") && !account.isNull("uid")) {
+        account.opt("uid").toString().takeIf { it.isNotBlank() }
+    } else {
+        null
+    } ?: return null
+    val name = account.optString("displayName").ifBlank { account.optString("login") }
+    val plus = result.optJSONObject("plus")
+    val subscription = result.optJSONObject("subscription")
+    val hasPlus = listOf(
+        plus?.optBoolean("has_plus") == true,
+        plus?.optBoolean("hasPlus") == true,
+        subscription?.optBoolean("has_plus") == true,
+        subscription?.optBoolean("hasPlus") == true,
+        result.optBoolean("has_plus") == true,
+        account.optBoolean("has_plus") == true,
+    ).any { it }
+    return YandexAccount(uid = uid, displayName = name, hasPlus = hasPlus, plusSummary = plusSummary(result))
+}
+
+/**
+ * Key names and scalar values of the subscription-related objects, with no names, ids, tokens or other
+ * strings. Logged in DEV to compare the service's answer with the flag the app derived.
+ */
+internal fun plusSummary(result: JSONObject): String {
+    val parts = mutableListOf<String>()
+    for (section in listOf("plus", "subscription")) {
+        val obj = result.optJSONObject(section)
+        if (obj == null) {
+            parts += "$section=absent"
+            continue
+        }
+        for (key in obj.keys().asSequence().sorted()) {
+            val value = obj.opt(key)
+            val shown = when (value) {
+                is Boolean, is Number -> value.toString()
+                is JSONObject -> "object"
+                is JSONArray -> "array(${value.length()})"
+                null, JSONObject.NULL -> "null"
+                else -> "string"
+            }
+            parts += "$section.$key=$shown"
+        }
+    }
+    return parts.joinToString(", ")
 }

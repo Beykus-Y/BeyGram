@@ -23,4 +23,7 @@
     <string name="yandex_error_generic">No se pudo iniciar sesión. Inténtelo de nuevo.</string>
     <string name="yandex_search_title">Yandex Music</string>
     <string name="yandex_search_empty">No se encontró nada en Yandex Music.</string>
+    <string name="yandex_diag_title">Diagnóstico de la respuesta</string>
+    <string name="yandex_diag_share">Compartir</string>
+    <string name="yandex_diag_empty">Aún no hay respuesta del servicio. Actualiza la tarjeta de la cuenta.</string>
 </resources>
