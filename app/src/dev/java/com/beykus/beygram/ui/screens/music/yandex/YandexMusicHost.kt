@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.music.yandex
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,6 +45,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
+import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.MusicProviderState
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderAlbum
@@ -54,7 +56,6 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.screens.music.MusicCardColumn
 import com.beykus.beygram.ui.screens.music.MusicCoverCard
-import com.beykus.beygram.ui.screens.music.MusicCoverGrid
 import com.beykus.beygram.ui.screens.music.MusicEmptyText
 import com.beykus.beygram.ui.screens.music.MusicGroupHeading
 import com.beykus.beygram.ui.screens.music.MusicLoadingSkeleton
@@ -62,6 +63,7 @@ import com.beykus.beygram.ui.screens.music.MusicScreenGutter
 import com.beykus.beygram.ui.screens.music.ProviderMusicHost
 import com.beykus.beygram.ui.screens.music.ProviderTrackRow
 import com.beykus.beygram.ui.screens.music.musicCard
+import com.beykus.beygram.ui.screens.music.musicGridRows
 import com.beykus.beygram.ui.screens.music.rememberProviderCover
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import kotlinx.coroutines.CoroutineScope
@@ -159,7 +161,9 @@ class YandexMusicHost : ProviderMusicHost {
                 is ProviderResult.Success -> {
                     library = fresh.value
                     libraryFailure = null
-                    withContext(Dispatchers.IO) { YandexLibrarySnapshots.write(context, fresh.value) }
+                    // Not after a sign-out during the request: the snapshot of a signed-out account is not kept.
+                    val stillSignedIn = (provider.state.value as? MusicProviderState.SignedIn)?.account?.uid == uid
+                    if (stillSignedIn) withContext(Dispatchers.IO) { YandexLibrarySnapshots.write(context, fresh.value) }
                 }
                 is ProviderResult.Failure -> libraryFailure = fresh.failure
             }
@@ -281,71 +285,88 @@ class YandexMusicHost : ProviderMusicHost {
     }
 
     @Composable
-    override fun LibrarySection(
-        onPlay: ((List<ProviderTrack>, Int) -> Unit)?,
-        onSignIn: () -> Unit,
-        onOpenCollection: ((String) -> Unit)?
-    ) {
+    override fun rememberLibraryAccount(): MusicProviderAccount? {
         val context = LocalContext.current
-        // Every hook runs on every composition; the early exits come after them, so the slots never change shape.
-        val provider = remember(context) { MusicProviders.yandex(context) }
+        // Set here, in the composition, so the lazy items built right after already see the provider.
+        val provider = remember(context) {
+            MusicProviders.yandex(context).also {
+                appContext = context.applicationContext
+                libraryProvider = it
+            }
+        }
         val state by (provider?.state ?: SignedOutState).collectAsStateWithLifecycle()
         val account = (state as? MusicProviderState.SignedIn)?.account
         val uid = account?.uid
-
         LaunchedEffect(uid) {
-            appContext = context.applicationContext
-            libraryProvider = provider
             when {
                 provider == null -> clearLibrary(null)
                 uid == null -> clearLibrary(context.applicationContext)
                 else -> ensureLibrary(context.applicationContext, provider, uid, force = false)
             }
         }
-
-        if (provider == null || account == null) {
-            SignInCard(onSignIn)
-            return
-        }
-        val snapshot = library?.takeIf { it.uid == account.uid }
-        Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp)) {
-            if (!account.hasSubscription) NoticeCard(stringResource(R.string.yandex_library_no_subscription))
-            val failure = libraryFailure
-            if (failure != null && !libraryLoading) FailureCard(
-                text = stringResource(failureText(failure)),
-                onRetry = { ensureLibrary(context.applicationContext, provider, account.uid, force = true) }
-            )
-            when {
-                snapshot == null && libraryLoading -> MusicLoadingSkeleton()
-                snapshot == null -> Unit
-                snapshot.likedIds.isEmpty() && snapshot.playlists.isEmpty() && snapshot.albums.isEmpty() ->
-                    MusicEmptyText(stringResource(R.string.yandex_library_empty))
-                else -> LibraryContent(snapshot, provider, onPlay, onOpenCollection)
-            }
-        }
+        return account.takeIf { provider != null }
     }
 
-    @Composable
-    private fun LibraryContent(
+    override fun LazyListScope.libraryItems(
+        account: MusicProviderAccount?,
+        columns: Int,
+        onPlay: ((List<ProviderTrack>, Int) -> Unit)?,
+        onSignIn: () -> Unit,
+        onOpenCollection: ((String) -> Unit)?
+    ) {
+        val provider = libraryProvider
+        if (provider == null || account == null) {
+            item(key = "yandex-signin") { SignInCard(onSignIn) }
+            return
+        }
+        item(key = "yandex-top") { Spacer(Modifier.height(8.dp)) }
+        if (!account.hasSubscription) item(key = "yandex-no-subscription") {
+            NoticeCard(stringResource(R.string.yandex_library_no_subscription))
+        }
+        val failure = libraryFailure
+        if (failure != null && !libraryLoading) item(key = "yandex-failure") {
+            FailureCard(
+                text = stringResource(failureText(failure)),
+                onRetry = { appContext?.let { ensureLibrary(it, provider, account.uid, force = true) } }
+            )
+        }
+        val snapshot = library?.takeIf { it.uid == account.uid }
+        when {
+            snapshot == null && libraryLoading -> item(key = "yandex-loading") { MusicLoadingSkeleton() }
+            snapshot == null -> Unit
+            snapshot.likedIds.isEmpty() && snapshot.playlists.isEmpty() && snapshot.albums.isEmpty() ->
+                item(key = "yandex-empty") { MusicEmptyText(stringResource(R.string.yandex_library_empty)) }
+            else -> libraryContent(snapshot, provider, columns, onPlay, onOpenCollection)
+        }
+        item(key = "yandex-bottom") { Spacer(Modifier.height(16.dp)) }
+    }
+
+    /** Likes, playlists, albums and the newest likes. Each row of a cover grid is its own lazy item. */
+    private fun LazyListScope.libraryContent(
         snapshot: YandexLibrarySnapshot,
         provider: MusicProvider,
+        columns: Int,
         onPlay: ((List<ProviderTrack>, Int) -> Unit)?,
         onOpenCollection: ((String) -> Unit)?
     ) {
         val likedCount = snapshot.likedIds.size
-        if (likedCount > 0) LikedTile(
-            count = likedCount,
-            onOpen = {
-                if (onOpenCollection != null) onOpenCollection(YandexCollectionRef.LIKED)
-                else if (onPlay != null) playLiked(provider, snapshot.likedIds, onPlay)
-            },
-            onPlay = onPlay?.let { play -> { playLiked(provider, snapshot.likedIds, play) } }
-        )
+        if (likedCount > 0) item(key = "yandex-liked-tile") {
+            LikedTile(
+                count = likedCount,
+                onOpen = {
+                    if (onOpenCollection != null) onOpenCollection(YandexCollectionRef.LIKED)
+                    else if (onPlay != null) playLiked(provider, snapshot.likedIds, onPlay)
+                },
+                onPlay = onPlay?.let { play -> { playLiked(provider, snapshot.likedIds, play) } }
+            )
+        }
 
         if (snapshot.playlists.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            MusicGroupHeading(title = stringResource(R.string.yandex_library_playlists))
-            MusicCoverGrid(count = snapshot.playlists.size) { index ->
+            item(key = "yandex-playlists-heading") {
+                Spacer(Modifier.height(8.dp))
+                MusicGroupHeading(title = stringResource(R.string.yandex_library_playlists))
+            }
+            musicGridRows(key = "yandex-playlists", count = snapshot.playlists.size, columns = columns) { index ->
                 val playlist = snapshot.playlists[index]
                 MusicCoverCard(
                     title = playlist.title,
@@ -363,9 +384,11 @@ class YandexMusicHost : ProviderMusicHost {
         }
 
         if (snapshot.albums.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            MusicGroupHeading(title = stringResource(R.string.yandex_library_albums))
-            MusicCoverGrid(count = snapshot.albums.size) { index ->
+            item(key = "yandex-albums-heading") {
+                Spacer(Modifier.height(8.dp))
+                MusicGroupHeading(title = stringResource(R.string.yandex_library_albums))
+            }
+            musicGridRows(key = "yandex-albums", count = snapshot.albums.size, columns = columns) { index ->
                 val album = snapshot.albums[index]
                 MusicCoverCard(
                     title = album.title,
@@ -381,29 +404,33 @@ class YandexMusicHost : ProviderMusicHost {
         }
 
         if (snapshot.likedPreview.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            MusicGroupHeading(
-                title = stringResource(R.string.yandex_library_liked),
-                actionLabel = if (onOpenCollection != null) stringResource(R.string.music_show_all) else null,
-                onAction = { onOpenCollection?.invoke(YandexCollectionRef.LIKED) }
-            )
-            MusicCardColumn {
-                snapshot.likedPreview.forEachIndexed { index, track ->
-                    ProviderTrackRow(
-                        track = track,
-                        onClick = if (onPlay != null && track.isAvailable) {
-                            {
-                                // The preview is the head of the liked list: the queue goes on with the rest of it.
-                                if (snapshot.likedIds.size > snapshot.likedPreview.size) {
-                                    playLiked(provider, snapshot.likedIds, onPlay, track.trackId)
-                                } else {
-                                    startPlayback(snapshot.likedPreview, index, onPlay)
+            item(key = "yandex-liked-heading") {
+                Spacer(Modifier.height(8.dp))
+                MusicGroupHeading(
+                    title = stringResource(R.string.yandex_library_liked),
+                    actionLabel = if (onOpenCollection != null) stringResource(R.string.music_show_all) else null,
+                    onAction = { onOpenCollection?.invoke(YandexCollectionRef.LIKED) }
+                )
+            }
+            item(key = "yandex-liked-preview") {
+                MusicCardColumn {
+                    snapshot.likedPreview.forEachIndexed { index, track ->
+                        ProviderTrackRow(
+                            track = track,
+                            onClick = if (onPlay != null && track.isAvailable) {
+                                {
+                                    // The preview is the head of the liked list: the queue goes on with the rest of it.
+                                    if (snapshot.likedIds.size > snapshot.likedPreview.size) {
+                                        playLiked(provider, snapshot.likedIds, onPlay, track.trackId)
+                                    } else {
+                                        startPlayback(snapshot.likedPreview, index, onPlay)
+                                    }
                                 }
+                            } else {
+                                null
                             }
-                        } else {
-                            null
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }

@@ -1,8 +1,10 @@
 package com.beykus.beygram.ui.screens.music
 
 import android.content.Context
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.ProviderTrack
 
 /**
@@ -28,13 +30,22 @@ interface ProviderMusicHost {
     fun tabLabel(): String
 
     /**
-     * Liked tracks, playlists and albums of this source: the whole content of its tab on the music screen. Before
-     * sign-in it shows a card whose button calls [onSignIn]. [onPlay] starts a list at an index; null means the rows
-     * cannot play yet. [onOpenCollection] opens a collection screen by its reference (see [CollectionScreen]); null
-     * means collections play on tap instead.
+     * Keeps the library of this source fresh for its tab and returns the signed-in account, or null before sign-in.
+     * The tab calls it in its composition while it is shown, then builds its list with [libraryItems].
      */
     @Composable
-    fun LibrarySection(
+    fun rememberLibraryAccount(): MusicProviderAccount?
+
+    /**
+     * Liked tracks, playlists and albums of this source: the whole content of its tab, as lazy items of the music
+     * screen list. Cover grids give one item per row of [columns], so a large library keeps only the covers on screen.
+     * Before sign-in ([account] null) it shows a card whose button calls [onSignIn]. [onPlay] starts a list at an
+     * index; null means the rows cannot play yet. [onOpenCollection] opens a collection screen by its reference; null
+     * means collections play on tap instead.
+     */
+    fun LazyListScope.libraryItems(
+        account: MusicProviderAccount?,
+        columns: Int,
         onPlay: ((List<ProviderTrack>, Int) -> Unit)?,
         onSignIn: () -> Unit,
         onOpenCollection: ((String) -> Unit)?
@@ -49,7 +60,7 @@ interface ProviderMusicHost {
 
     /**
      * Full screen of one collection of this source: a playlist, an album or the whole liked list. [ref] is the string
-     * [LibrarySection] passed to its `onOpenCollection`; [onOpenCollection] opens another one, such as the album of a
+     * [libraryItems] passed to its `onOpenCollection`; [onOpenCollection] opens another one, such as the album of a
      * track.
      */
     @Composable

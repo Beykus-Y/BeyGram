@@ -127,6 +127,8 @@ internal fun MyMusicScreen(
     val providerHost = remember(context) { ProviderMusicHosts.yandex()?.takeIf { it.isAvailable(context) } }
     var source by remember(context) { mutableStateOf(MusicHomeSourceStore.read(context)) }
     val shownSource = if (providerHost == null) MusicHomeSource.Telegram else source
+    // The source keeps its library fresh only while its tab is shown.
+    val providerAccount = if (shownSource == MusicHomeSource.Provider) providerHost?.rememberLibraryAccount() else null
 
     Scaffold(
         containerColor = palette.screen,
@@ -184,8 +186,10 @@ internal fun MyMusicScreen(
                     )
                 }
                 if (shownSource == MusicHomeSource.Provider && providerHost != null) {
-                    item(key = "provider-library") {
-                        providerHost.LibrarySection(
+                    with(providerHost) {
+                        libraryItems(
+                            account = providerAccount,
+                            columns = gridColumns,
                             onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) },
                             onSignIn = onProviderSignIn,
                             onOpenCollection = onOpenCollection
