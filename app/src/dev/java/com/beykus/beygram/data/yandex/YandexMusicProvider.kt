@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.yandex
 
+import android.util.Log
 import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
@@ -82,6 +83,7 @@ internal class YandexMusicProvider(
                 when (val account = api.account(tokens.accessToken)) {
                     is ProviderResult.Failure -> YandexSignInPoll.Failed(account.failure)
                     is ProviderResult.Success -> {
+                        logSubscription(account.value)
                         val session = YandexSession(
                             accessToken = tokens.accessToken,
                             refreshToken = tokens.refreshToken,
@@ -99,6 +101,11 @@ internal class YandexMusicProvider(
                 }
             }
         }
+    }
+
+    /** DEV diagnostics: the flag the app derived and the key names the service sent. No tokens or names. */
+    private fun logSubscription(account: YandexAccount) {
+        Log.i(TAG_SUBSCRIPTION, "hasPlus=${account.hasPlus}; ${account.plusSummary}")
     }
 
     /** Removes the session from this device. The token is not revoked on the service side. */
@@ -120,6 +127,7 @@ internal class YandexMusicProvider(
         when (val account = api.account(session.accessToken)) {
             is ProviderResult.Failure -> account
             is ProviderResult.Success -> {
+                logSubscription(account.value)
                 val updated = session.copy(
                     uid = account.value.uid,
                     displayName = account.value.displayName,
@@ -252,3 +260,5 @@ internal class YandexMusicProvider(
         const val REFRESH_MARGIN_MS = 5 * 60_000L
     }
 }
+
+private const val TAG_SUBSCRIPTION = "BeyGramYandexPlus"
