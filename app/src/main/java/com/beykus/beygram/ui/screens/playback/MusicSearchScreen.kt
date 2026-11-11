@@ -73,6 +73,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
+import com.beykus.beygram.ui.screens.music.ProviderMusicHosts
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -136,6 +137,8 @@ internal fun MusicSearchScreen(
     var publicSearchedQuery by remember(accountId) { mutableStateOf<String?>(null) }
     val publicJob = remember(accountId) { mutableStateOf<Job?>(null) }
     val publicRequestGeneration = remember(accountId) { AtomicLong() }
+    // Optional music source (DEV build only). Its results sit below the local ones and play through the shared queue.
+    val providerHost = remember { ProviderMusicHosts.yandex() }
     DisposableEffect(accountId, conversation) {
         onDispose {
             localRequestGeneration.incrementAndGet()
@@ -403,6 +406,12 @@ internal fun MusicSearchScreen(
                 modifier = Modifier.fillMaxWidth().padding(16.dp)
             )
             LazyColumn(Modifier.weight(1f)) {
+                if (providerHost != null && onPick == null) item(key = "provider_source") {
+                    providerHost.SearchResults(
+                        query = query,
+                        onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) }
+                    )
+                }
                 items(results, key = { "${it.chatId}:${it.id}" }) { message ->
                     val item = rows.firstOrNull { it.origin?.messageId == message.id && it.origin?.chatId == message.chatId }
                     if (item != null) MusicRow(

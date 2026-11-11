@@ -21,4 +21,6 @@
     <string name="yandex_error_network">Sin conexión. Compruebe la red e inténtelo de nuevo.</string>
     <string name="yandex_error_unavailable">El servicio no está disponible en su región o no responde.</string>
     <string name="yandex_error_generic">No se pudo iniciar sesión. Inténtelo de nuevo.</string>
+    <string name="yandex_search_title">Yandex Music</string>
+    <string name="yandex_search_empty">No se encontró nada en Yandex Music.</string>
 </resources>
