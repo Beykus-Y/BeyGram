@@ -4,11 +4,11 @@ import android.content.Context
 import com.beykus.beygram.BuildConfig
 
 /**
- * Creates a provider implementation. Implementations live only in the DEV source set, so the Stable build has no
- * such class at all. See [MusicProviders].
+ * Creates a provider implementation, or null when the build cannot offer it (for example, no client config).
+ * Implementations live only in the DEV source set, so the Stable build has no such class at all.
  */
 interface MusicProviderFactory {
-    fun create(appContext: Context): MusicProvider
+    fun create(appContext: Context): MusicProvider?
 }
 
 /**
