@@ -36,6 +36,8 @@ internal class YandexMusicProvider(
     private val api: YandexApi,
     private val auth: YandexAuth,
     private val now: () -> Long = { System.currentTimeMillis() },
+    /** Deletes what the app keeps about the account besides the session, such as the library snapshot. */
+    private val onSignedOut: () -> Unit = {},
 ) : MusicProvider {
 
     private val mutableState = MutableStateFlow<MusicProviderState>(MusicProviderState.SignedOut)
@@ -129,6 +131,7 @@ internal class YandexMusicProvider(
             store.clear()
             mutableState.value = MusicProviderState.SignedOut
         }
+        runCatching { onSignedOut() }
     }
 
     /** Reloads uid, name and subscription from the service, for the account card. */

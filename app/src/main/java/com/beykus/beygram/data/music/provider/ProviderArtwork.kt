@@ -1,11 +1,12 @@
 package com.beykus.beygram.data.music.provider
 
 import android.content.Context
+import java.io.File
 import com.beykus.beygram.playback.PlaybackEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,12 +52,14 @@ object ProviderArtwork {
         val app = context.applicationContext
         scope.launch {
             PlaybackEngine.state
-                .map { it.item?.takeIf { item -> item.artworkPath == null }?.key }
-                .distinctUntilChanged()
-                .collect { key ->
-                    if (key == null) return@collect
+                .map { state -> state.item?.let { item -> item.key to item.artworkPath } }
+                .distinctUntilChangedBy { it?.first }
+                .collect { current ->
+                    val (key, path) = current ?: return@collect
                     val url = synchronized(coverUrls) { coverUrls[key] } ?: return@collect
                     launch {
+                        // A cover the cache has since deleted is fetched again, not left as a dead path.
+                        if (path != null && withContext(Dispatchers.IO) { File(path).isFile }) return@launch
                         val file = ProviderCovers.file(app, ProviderCovers.sized(url, PLAYER_COVER_PX))
                             ?: ProviderCovers.file(app, url)
                             ?: return@launch
