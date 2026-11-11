@@ -3,7 +3,14 @@ package com.beykus.beygram
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.snap
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -2471,7 +2478,24 @@ GlobalSearchScreen(
                     val layout = LocalWindowLayout.current
                     if (layout.twoPane) {
                         val design = LocalDesignSystem.current
-                        BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val backDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+                        val escapeFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+                        BoxWithConstraints(
+                            Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+                                // A keyboard on a tablet or a ChromeOS window: Esc closes what is open on the right, like Back.
+                                if (event.key == androidx.compose.ui.input.key.Key.Escape &&
+                                    event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
+                                    screenRoute != AppRoute.Chats && backDispatcher != null
+                                ) {
+                                    backDispatcher.onBackPressed()
+                                    true
+                                } else false
+                            }
+                                // Esc must work before any field is focused: the container itself takes focus when the route changes.
+                                .focusRequester(escapeFocus)
+                                .focusable()
+                        ) {
+                            LaunchedEffect(screenRoute) { runCatching { escapeFocus.requestFocus() } }
                             ChatsTwoPaneScaffold(
                                 layout = layout,
                                 listPaneWidth = chatListPaneWidthDp(maxWidth.value, layout.heightCompact).dp,
@@ -2516,14 +2540,23 @@ GlobalSearchScreen(
                                     }
                                 },
                                 detail = {
-                                    when (screenRoute) {
-                                        AppRoute.Chats, AppRoute.Archive, AppRoute.GlobalSearch, AppRoute.NewChat -> ChatsDetailPlaceholder()
-                                        // Chat details, members and management take the right pane over the chat.
-                                        AppRoute.ChatInfo -> chatInfoRoute()
-                                        AppRoute.ChatMembers -> chatMembersRoute()
-                                        AppRoute.ChatManagement -> chatManagementRoute()
-                                        AppRoute.MemberProfile -> memberProfileRoute()
-                                        else -> chatRoute(true)
+                                    // The empty pane and an open chat cross-fade under the tab-select token; with motion off it is a cut.
+                                    val emptyPane = screenRoute == AppRoute.Chats || screenRoute in listPaneRoutes
+                                    Crossfade(
+                                        targetState = emptyPane,
+                                        animationSpec = if (tabSpec.isInstant) snap() else tabSpec.animationSpec(),
+                                        label = "detailPane"
+                                    ) { empty ->
+                                        if (empty) {
+                                            ChatsDetailPlaceholder()
+                                        } else when (screenRoute) {
+                                            // Chat details, members and management take the right pane over the chat.
+                                            AppRoute.ChatInfo -> chatInfoRoute()
+                                            AppRoute.ChatMembers -> chatMembersRoute()
+                                            AppRoute.ChatManagement -> chatManagementRoute()
+                                            AppRoute.MemberProfile -> memberProfileRoute()
+                                            else -> chatRoute(true)
+                                        }
                                     }
                                 }
                             )

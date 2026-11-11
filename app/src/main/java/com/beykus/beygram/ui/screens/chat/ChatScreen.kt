@@ -123,6 +123,8 @@ import com.beykus.beygram.ui.accessibility.accessibleTouchTarget
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.LocalWindowLayout
+import com.beykus.beygram.ui.components.WindowLayout
+import com.beykus.beygram.ui.components.WindowNavigation
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.motionEntrance
 import com.beykus.beygram.ui.motion.fadeEnter
@@ -2885,6 +2887,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val selectionLabel = if (selectionMode) stringResource(if (selected) R.string.message_selection_deselect else R.string.message_selection_select) else null
     val selectionState = if (selectionMode) stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected) else null
     var captionPlay by remember(message.id) { mutableStateOf<AudioPlayRequest?>(null) }
+    // On a tablet the pane is wide: a bubble grows with it (70 % of the pane, 292 to 480 dp) instead of hugging the edge.
+    val bubbleMax = chatBubbleMaxWidthDp(com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current ?: chatPaneWidthDp(LocalWindowLayout.current)).dp
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
             onReply = { onReply?.invoke(message.id) }) { swipe ->
@@ -2892,7 +2896,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
             Box(swipe) {
                 BubbleLayout(
                     Modifier.testTag("message-bubble:${message.id}")
-                        .widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else 292.dp)
+                        .widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else bubbleMax)
                         .then(if (message.media != null && !circle && !sticker)
                              Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
@@ -3105,4 +3109,19 @@ internal fun ServiceMessageChip(text: String, userId: Long = 0L, onOpenUser: (Lo
                 .padding(horizontal = 13.dp, vertical = 7.dp)
         )
     }
+}
+
+
+/** A bubble is 70 % of the chat pane, never narrower than the phone's 292 dp and never wider than 480 dp. */
+internal fun chatBubbleMaxWidthDp(paneWidthDp: Float): Float = (paneWidthDp * 0.7f).coerceIn(292f, 480f)
+
+/** The width the chat pane gets in [layout]: the whole window on a phone, what the rail and the list leave in two panes. */
+internal fun chatPaneWidthDp(layout: WindowLayout): Float {
+    if (!layout.twoPane) return layout.widthDp
+    val rail = when (layout.navigation) {
+        WindowNavigation.SlimRail -> 56f
+        WindowNavigation.Rail -> 80f
+        else -> 0f
+    }
+    return layout.widthDp - rail - com.beykus.beygram.ui.screens.chats.chatListPaneWidthDp(layout.widthDp, layout.heightCompact) - 1f
 }
