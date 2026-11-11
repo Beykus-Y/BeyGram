@@ -6,6 +6,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -57,8 +58,8 @@ private const val RouteSlideFraction = 0.12f
 private const val RouteExitShare = 0.4f
 
 /**
- * The transition for one [move]. A push slides in from the right and a pop from the left; tab switches fade through.
- * Both run in sequence, never as a crossfade: the outgoing screen leaves first and the incoming one starts after it, so
+ * The transition for one [move]. A push slides in from the right and a pop from the left; tab switches fade the incoming screen in over the still opaque outgoing one.
+ * Push and pop run in sequence, never as a crossfade: the outgoing screen leaves first and the incoming one starts after it, so
  * two screens are never readable at the same time (a crossfade left Contacts over Calls and Appearance over Settings
  * half-transparent). An instant spec gives a cut with no alpha or offset, so reduced motion and the Off preset show the
  * new screen on its first frame. Intensity scales only the slide distance.
@@ -71,13 +72,38 @@ fun routeContentTransform(
 ): ContentTransform = when (move) {
     NavigationMove.Push -> slideTransform(push, direction = 1)
     NavigationMove.Pop -> slideTransform(pop, direction = -1)
-    NavigationMove.Tab, NavigationMove.None -> fadeThrough(tab)
+    NavigationMove.Tab -> tabFadeOver(tab)
+    NavigationMove.None -> fadeThrough(tab)
 }
 
 /** Splits one token's duration into the exit part and the enter part, which follows it without overlap. */
 private class RouteTimeline(spec: MotionSpec) {
     val exitMillis: Int = (spec.durationMillis * RouteExitShare).roundToInt().coerceAtLeast(1)
     val enterMillis: Int = (spec.durationMillis - exitMillis).coerceAtLeast(1)
+}
+
+/** Share of a tab switch the incoming screen takes to become opaque; the outgoing one is removed only after that. */
+private const val TabEnterShare = 0.7f
+
+/** Splits a tab switch: the incoming screen fades in first, the covered outgoing screen is dropped in the rest. */
+internal class TabTimeline(durationMillis: Int) {
+    val enterMillis: Int = (durationMillis * TabEnterShare).roundToInt().coerceAtLeast(1)
+    val exitMillis: Int = (durationMillis - enterMillis).coerceAtLeast(1)
+}
+
+/**
+ * Tab switches: the incoming screen fades in above the outgoing one, which stays fully opaque until it is covered and
+ * only then fades out underneath. Two opaque screens are blended, so the window background never shows through and the
+ * dock, identical in both screens, appears to stay in place. Tab roots must be opaque over their whole area.
+ */
+private fun tabFadeOver(spec: MotionSpec): ContentTransform {
+    if (spec.isInstant) return EnterTransition.None togetherWith ExitTransition.None
+    val timeline = TabTimeline(spec.durationMillis)
+    val enter = fadeIn(animationSpec = tween(timeline.enterMillis, easing = spec.easing))
+    val exit = fadeOut(
+        animationSpec = tween(timeline.exitMillis, delayMillis = timeline.enterMillis, easing = LinearEasing)
+    )
+    return enter togetherWith exit
 }
 
 private fun slideTransform(spec: MotionSpec, direction: Int): ContentTransform {
@@ -96,8 +122,7 @@ private fun slideTransform(spec: MotionSpec, direction: Int): ContentTransform {
 }
 
 /**
- * Tab switches have no direction, so they fade through: the outgoing screen fades out first and the incoming one fades in
- * only after it has gone, instead of two half-transparent screens drawn over each other.
+ * Used when there is no known direction (first route of a session).
  */
 private fun fadeThrough(spec: MotionSpec): ContentTransform {
     if (spec.isInstant) return EnterTransition.None togetherWith ExitTransition.None
