@@ -46,16 +46,37 @@ internal class YandexMusicProvider(
 
     // Sign-in -----------------------------------------------------------------------------------------------------
 
+    /** A code that was requested but not yet confirmed, with the time it stops being valid. */
+    data class PendingSignIn(val code: YandexDeviceCode, val deadlineMs: Long)
+
+    private var pending: PendingSignIn? = null
+
+    /** The pending code, if any. Kept here so a recreated screen can resume polling. */
+    fun pendingSignIn(): PendingSignIn? = pending?.takeIf { now() < it.deadlineMs }
+
+    fun clearPendingSignIn() {
+        pending = null
+    }
+
     suspend fun startSignIn(): ProviderResult<YandexDeviceCode> = withContext(Dispatchers.IO) {
         if (!YandexConfig.isConfigured) return@withContext ProviderResult.Failure(MusicProviderFailure.Unavailable)
-        auth.requestDeviceCode(deviceId = java.util.UUID.randomUUID().toString())
+        when (val result = auth.requestDeviceCode(deviceId = store.deviceId())) {
+            is ProviderResult.Failure -> result
+            is ProviderResult.Success -> {
+                pending = PendingSignIn(result.value, now() + result.value.expiresInSec * 1_000L)
+                result
+            }
+        }
     }
 
     suspend fun pollSignIn(code: YandexDeviceCode): YandexSignInPoll = withContext(Dispatchers.IO) {
         when (val outcome = auth.pollToken(code.deviceCode)) {
             YandexPollOutcome.Pending -> YandexSignInPoll.Pending
             YandexPollOutcome.SlowDown -> YandexSignInPoll.SlowDown
-            is YandexPollOutcome.Failed -> YandexSignInPoll.Failed(outcome.failure)
+            is YandexPollOutcome.Failed -> {
+                clearPendingSignIn()
+                YandexSignInPoll.Failed(outcome.failure)
+            }
             is YandexPollOutcome.Tokens -> {
                 val tokens = outcome.tokens
                 when (val account = api.account(tokens.accessToken)) {
@@ -70,6 +91,7 @@ internal class YandexMusicProvider(
                             hasSubscription = account.value.hasPlus,
                         )
                         store.save(session)
+                        clearPendingSignIn()
                         val signedIn = session.toAccount()
                         mutableState.value = MusicProviderState.SignedIn(signedIn)
                         YandexSignInPoll.Signed(signedIn)
@@ -86,6 +108,7 @@ internal class YandexMusicProvider(
 
     /** Deletes the stored session and publishes SignedOut. Under the lock, so a refresh cannot write it back. */
     private fun clearSession() {
+        clearPendingSignIn()
         synchronized(refreshLock) {
             store.clear()
             mutableState.value = MusicProviderState.SignedOut

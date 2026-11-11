@@ -78,6 +78,20 @@ internal class YandexSessionStore(context: Context) {
         file.delete()
     }
 
+    /**
+     * Device id sent with every sign-in. It is created once and kept across sign-outs, because the service limits
+     * the number of device tokens per user and a new id on each sign-in would keep adding them.
+     */
+    @Synchronized
+    fun deviceId(): String {
+        val idFile = File(file.parentFile, DEVICE_FILE_NAME)
+        val existing = try { idFile.readText().trim() } catch (e: Exception) { "" }
+        if (existing.length == 36) return existing
+        val created = java.util.UUID.randomUUID().toString()
+        idFile.writeText(created)
+        return created
+    }
+
     private fun key(): SecretKey {
         val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
@@ -94,6 +108,7 @@ internal class YandexSessionStore(context: Context) {
 
     private companion object {
         const val FILE_NAME = "yandex-session.bin"
+        const val DEVICE_FILE_NAME = "yandex-device-id"
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val KEY_ALIAS = "beygram_yandex_session"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
