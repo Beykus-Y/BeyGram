@@ -1,8 +1,25 @@
 package com.beykus.beygram.ui.screens.music
 
+import android.widget.Toast
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.data.music.provider.ProviderResult
+import com.beykus.beygram.data.music.provider.ProviderTracks
+import com.beykus.beygram.ui.components.beyGramPalette
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
@@ -23,21 +40,103 @@ internal fun rememberProviderCover(url: String?): String? {
     return path
 }
 
-/** A track of an optional music source in the shared row: its cover, title, artists and length. */
+/** A track of an optional music source in the shared row: its cover (or [number] in an album), title, artists and length. */
 @Composable
 internal fun ProviderTrackRow(
     track: ProviderTrack,
     onClick: (() -> Unit)?,
-    trailing: @Composable () -> Unit = {}
+    trailing: @Composable () -> Unit = {},
+    number: Int? = null
 ) {
     MusicTrackRowLayout(
         title = track.title,
         subtitle = if (track.isAvailable) track.performer else stringResource(R.string.music_unavailable),
         durationSeconds = (track.durationMs / 1_000L).toInt(),
-        coverPath = rememberProviderCover(track.coverUrl),
+        coverPath = if (number == null) rememberProviderCover(track.coverUrl) else null,
         unavailable = !track.isAvailable,
         current = rememberIsCurrentItem(track.key),
         onClick = onClick,
-        trailing = trailing
+        trailing = trailing,
+        number = number
+    )
+}
+
+/** Opens the album screen of a source track by its album id, for the player menu. Null where no album can open. */
+val LocalOpenProviderAlbum = compositionLocalOf<((String) -> Unit)?> { null }
+
+/**
+ * Menu entries for one source track, shared by the collection screens and the player: play next, like or unlike,
+ * open its album and share its link. The link is the only way a source track leaves the app; the file never does.
+ * [onDismiss] closes the menu before the action runs. [showPlayNext] is off in the player, whose track already plays.
+ */
+@Composable
+internal fun ProviderTrackMenuItems(
+    track: ProviderTrack,
+    onDismiss: () -> Unit,
+    showPlayNext: Boolean,
+    onOpenAlbum: ((String) -> Unit)?
+) {
+    val context = LocalContext.current
+    val palette = beyGramPalette()
+    val scope = rememberCoroutineScope()
+    val likes by ProviderTracks.liked.collectAsStateWithLifecycle()
+    val liked = likes[track.trackId] ?: track.liked ?: false
+    val failed = stringResource(R.string.music_provider_like_failed)
+    val chooser = stringResource(R.string.music_provider_share_link)
+    if (showPlayNext && track.isAvailable) DropdownMenuItem(
+        text = { Text(stringResource(R.string.queue_play_next)) },
+        leadingIcon = { Icon(Icons.Rounded.QueueMusic, null, tint = palette.textSecondary) },
+        onClick = {
+            onDismiss()
+            ProviderTracks.playNext(context, track)
+        }
+    )
+    DropdownMenuItem(
+        text = { Text(stringResource(if (liked) R.string.music_provider_unlike else R.string.music_provider_like)) },
+        leadingIcon = {
+            Icon(
+                if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                null,
+                tint = if (liked) palette.accent else palette.textSecondary
+            )
+        },
+        onClick = {
+            onDismiss()
+            scope.launch {
+                if (ProviderTracks.setLiked(context, track, !liked) is ProviderResult.Failure) {
+                    Toast.makeText(context, failed, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    )
+    val albumId = track.albumId
+    if (onOpenAlbum != null && !albumId.isNullOrBlank()) DropdownMenuItem(
+        text = { Text(stringResource(R.string.music_provider_open_album)) },
+        leadingIcon = { Icon(Icons.Rounded.Album, null, tint = palette.textSecondary) },
+        onClick = {
+            onDismiss()
+            onOpenAlbum(albumId)
+        }
+    )
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.music_provider_share_link)) },
+        leadingIcon = { Icon(Icons.Rounded.Share, null, tint = palette.textSecondary) },
+        onClick = {
+            onDismiss()
+            ProviderTracks.shareLink(context, track, chooser)
+        }
+    )
+}
+
+/** The menu entries of the source track the player holds, or nothing for a Telegram track. */
+@Composable
+internal fun PlayerProviderTrackMenuItems(key: String, onDismiss: () -> Unit) {
+    if (!ProviderTracks.isProviderKey(key)) return
+    val track = ProviderTracks.byKey(key) ?: return
+    ProviderTrackMenuItems(
+        track = track,
+        onDismiss = onDismiss,
+        showPlayNext = false,
+        onOpenAlbum = LocalOpenProviderAlbum.current
     )
 }

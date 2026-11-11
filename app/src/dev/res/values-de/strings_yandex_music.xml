@@ -5,7 +5,7 @@
     <string name="yandex_signin_title">Yandex ID</string>
     <string name="yandex_signin_intro">Anmeldung per Code: Die Yandex-Seite öffnet sich, dort bestätigen Sie den Zugriff. BeyGram fragt nicht nach Ihrem Passwort.</string>
     <string name="yandex_signin_group">Vor der Anmeldung</string>
-    <string name="yandex_signin_warning">Yandex Music öffnet seine Musik nicht für Fremd-Apps. Die Anmeldung funktioniert wie im offiziellen Client, und Yandex kann das Konto einschränken. Nutzen Sie nur Ihr eigenes Konto mit Abo. Yandex-Titel dürfen nicht weitergegeben, gespeichert oder exportiert werden.</string>
+    <string name="yandex_signin_warning">Yandex Music öffnet seine Musik nicht für Fremd-Apps. Die Anmeldung funktioniert wie im offiziellen Client, und Yandex kann das Konto einschränken. Nutzen Sie nur Ihr eigenes Konto mit Abo. Dateien von Yandex-Titeln dürfen nicht weitergegeben, gespeichert oder exportiert werden, aber Sie können einen Link zum Titel teilen.</string>
     <string name="yandex_signin_consent">Ich verstehe das Risiko und akzeptiere es</string>
     <string name="yandex_signin_start">Mit Yandex ID anmelden</string>
     <string name="yandex_signin_retry">Erneut versuchen</string>

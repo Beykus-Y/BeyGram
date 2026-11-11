@@ -39,6 +39,17 @@ interface ProviderMusicHost {
 
     /** Reloads the library of the tab from the service, for the pull-to-refresh gesture. */
     fun refresh()
+
+    /**
+     * Full screen of one collection of this source: a playlist, an album or the whole liked list. [ref] is the string
+     * [LibrarySection] passed to its `onOpenCollection`; [onOpenCollection] opens another one, such as the album of a
+     * track.
+     */
+    @Composable
+    fun CollectionScreen(ref: String, onBack: () -> Unit, onOpenCollection: (String) -> Unit)
+
+    /** Reference of the album screen of [albumId], for opening it from the player. */
+    fun albumRef(albumId: String): String
 }
 
 object ProviderMusicHosts {

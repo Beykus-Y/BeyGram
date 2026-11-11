@@ -20,7 +20,6 @@ object ProviderArtwork {
     const val PLAYER_COVER_PX = 400
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val coverUrls = HashMap<String, String>()
     private var watching = false
 
     /** Plays source [tracks] from [startIndex], as [PlaybackEngine.playYandexTracks] does, with covers in the player. */
@@ -30,13 +29,7 @@ object ProviderArtwork {
         PlaybackEngine.playYandexTracks(context, tracks, startIndex)
     }
 
-    private fun remember(tracks: List<ProviderTrack>) {
-        synchronized(coverUrls) {
-            // Only the latest queues matter; an old queue's addresses go once the map grows large.
-            if (coverUrls.size > MAX_REMEMBERED) coverUrls.clear()
-            tracks.forEach { track -> track.coverUrl?.let { coverUrls[track.key] = it } }
-        }
-    }
+    private fun remember(tracks: List<ProviderTrack>) = ProviderTracks.remember(tracks)
 
     /**
      * Follows the current item once per process and fetches the cover of each source track that becomes current, and
@@ -55,7 +48,7 @@ object ProviderArtwork {
                 .distinctUntilChanged()
                 .collect { key ->
                     if (key == null) return@collect
-                    val url = synchronized(coverUrls) { coverUrls[key] } ?: return@collect
+                    val url = ProviderTracks.byKey(key)?.coverUrl ?: return@collect
                     launch {
                         val file = ProviderCovers.file(app, ProviderCovers.sized(url, PLAYER_COVER_PX))
                             ?: ProviderCovers.file(app, url)
@@ -73,6 +66,4 @@ object ProviderArtwork {
             }
         }
     }
-
-    private const val MAX_REMEMBERED = 5_000
 }

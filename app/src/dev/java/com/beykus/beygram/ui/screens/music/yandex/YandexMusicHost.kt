@@ -258,6 +258,26 @@ class YandexMusicHost : ProviderMusicHost {
         ensureLibrary(context, provider, uid, force = true)
     }
 
+    override fun albumRef(albumId: String): String = YandexCollectionRef.album(albumId)
+
+    @Composable
+    override fun CollectionScreen(ref: String, onBack: () -> Unit, onOpenCollection: (String) -> Unit) {
+        val context = LocalContext.current
+        val provider = remember(context) { MusicProviders.yandex(context) }
+        val parsed = remember(ref) { YandexCollectionRef.parse(ref) }
+        if (parsed == null) {
+            LaunchedEffect(ref) { onBack() }
+            return
+        }
+        YandexCollectionScreen(
+            ref = parsed,
+            provider = provider,
+            snapshot = library,
+            onBack = onBack,
+            onOpenCollection = onOpenCollection
+        )
+    }
+
     @Composable
     override fun LibrarySection(
         onPlay: ((List<ProviderTrack>, Int) -> Unit)?,

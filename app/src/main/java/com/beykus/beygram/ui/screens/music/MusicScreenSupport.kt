@@ -198,7 +198,8 @@ internal fun MusicTrackRowLayout(
     unavailable: Boolean,
     current: Boolean,
     onClick: (() -> Unit)?,
-    trailing: @Composable () -> Unit = {}
+    trailing: @Composable () -> Unit = {},
+    number: Int? = null
 ) {
     val palette = beyGramPalette()
     val untitled = stringResource(R.string.music_untitled)
@@ -210,7 +211,14 @@ internal fun MusicTrackRowLayout(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+        // An album lists its tracks by number: the cover would be the same on every row.
+        if (number != null) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            if (current) {
+                Icon(Icons.Rounded.GraphicEq, stringResource(R.string.queue_now_playing), tint = palette.accent, modifier = Modifier.size(22.dp))
+            } else {
+                Text(number.toString(), color = palette.textSecondary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            }
+        } else Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
             TrackArtwork(
                 artworkPath = coverPath,
                 audioPath = null,

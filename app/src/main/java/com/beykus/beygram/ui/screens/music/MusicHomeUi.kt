@@ -39,6 +39,7 @@ import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.screens.playback.TrackArtwork
 
 /*
  * Building blocks of the music screen, shared by every source tab: the same card, heading, tile, cover card and track
@@ -237,4 +238,65 @@ internal fun MusicLoadingSkeleton() {
             }
         }
     }
+}
+
+/**
+ * Head of a collection screen, the same for a stored playlist and a source playlist or album: cover, title, a subtitle
+ * (description, owner, or artist and year) and the summary of count and length. [cover] fills the given modifier.
+ */
+@Composable
+internal fun MusicCollectionHeader(
+    title: String,
+    subtitle: String,
+    summary: String,
+    cover: @Composable (Modifier) -> Unit
+) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        cover(Modifier.size(112.dp))
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                color = palette.textPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { heading() }
+            )
+            if (subtitle.isNotBlank()) Text(
+                subtitle,
+                color = palette.textSecondary,
+                fontSize = 13.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            if (summary.isNotBlank()) Text(
+                summary,
+                color = palette.textSecondary,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+        }
+    }
+}
+
+/** A playlist cover that fills [modifier], or the generated placeholder. */
+@Composable
+internal fun MusicPlaylistCoverFill(coverPath: String?, modifier: Modifier) {
+    val palette = beyGramPalette()
+    TrackArtwork(
+        artworkPath = coverPath,
+        audioPath = null,
+        modifier = modifier,
+        background = palette.accentSoft,
+        tint = palette.accentInk,
+        symbolSize = 40.dp,
+        cornerRadius = 20.dp
+    )
 }

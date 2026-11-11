@@ -746,6 +746,11 @@
     <string name="music_favorite_state_on">En favoritos</string>
     <string name="music_favorites_title">Favoritos</string>
     <string name="music_find_replacement">Buscar un reemplazo</string>
+    <string name="music_provider_like">Me gusta</string>
+    <string name="music_provider_unlike">Quitar de Me gusta</string>
+    <string name="music_provider_open_album">Ir al álbum</string>
+    <string name="music_provider_share_link">Compartir enlace</string>
+    <string name="music_provider_like_failed">No se pudo cambiar Me gusta</string>
     <string name="music_source_telegram">Telegram</string>
     <string name="music_library_title">Música</string>
     <string name="music_local_only_note">La biblioteca se guarda solo en este dispositivo</string>

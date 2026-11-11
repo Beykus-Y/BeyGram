@@ -106,7 +106,7 @@ data class PlaybackItem(
     /** Neither secret attachments, secret-chat media nor view-once content may reach queues or system metadata. */
     val systemPrivate: Boolean get() = secret || isSecretChat || viewOnce
 
-    /** Tracks of an external catalog may not be forwarded, shared, exported or put on a profile. */
+    /** External catalog files are never forwarded, exported or put on a profile; only a track link is shared. */
     val isRestrictedCatalog: Boolean get() = LazyTrackRegistry.sourceFor(key)?.restricted == true
 
     /** System-visible id for private content must not expose the Telegram file id or message origin. */

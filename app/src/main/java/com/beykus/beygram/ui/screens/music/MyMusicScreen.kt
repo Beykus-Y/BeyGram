@@ -88,9 +88,10 @@ internal fun MyMusicScreen(
     accountId: String,
     telegram: TelegramRepository,
     onBack: () -> Unit,
-    onSearch: () -> Unit,
+    onSearch: (providerFirst: Boolean) -> Unit,
     onOpenPlaylist: (String) -> Unit,
-    onProviderSignIn: () -> Unit = {}
+    onProviderSignIn: () -> Unit = {},
+    onOpenCollection: ((String) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -162,7 +163,10 @@ internal fun MyMusicScreen(
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "search") {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    SearchFieldButton(placeholder = stringResource(R.string.music_search_action), onClick = onSearch)
+                    SearchFieldButton(
+                        placeholder = stringResource(R.string.music_search_action),
+                        onClick = { onSearch(shownSource == MusicHomeSource.Provider) }
+                    )
                 }
             }
             if (providerHost != null) item(key = "source-switch") {
@@ -180,7 +184,7 @@ internal fun MyMusicScreen(
                     providerHost.LibrarySection(
                         onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) },
                         onSignIn = onProviderSignIn,
-                        onOpenCollection = null
+                        onOpenCollection = onOpenCollection
                     )
                 }
             } else if (library == null) {
