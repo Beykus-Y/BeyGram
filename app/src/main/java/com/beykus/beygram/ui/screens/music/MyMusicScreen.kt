@@ -4,11 +4,14 @@ import androidx.compose.foundation.background
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -61,12 +64,17 @@ import com.beykus.beygram.data.music.MusicOutcome
 import com.beykus.beygram.data.music.MusicPlaylist
 import com.beykus.beygram.data.music.PlaylistTrack
 import com.beykus.beygram.domain.repository.TelegramRepository
+import com.beykus.beygram.ui.components.SearchFieldButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.playback.PlaybackEngine
 import kotlinx.coroutines.launch
 
 /**
- * The user's music: favorites, recently played, downloaded tracks, playlists and smart collections. A track plays the
+ * The music screen: one home for music, opened by the note in Chats, Settings and the player. A search field on top
+ * opens the music search. Builds with an optional music source get a Telegram / source switch under it; Stable has
+ * only the Telegram content.
+ *
+ * Telegram content: favorites, recently played, downloaded tracks, playlists and smart collections. A track plays the
  * section it is listed in, from its own position. The section titles open the full list.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -76,7 +84,8 @@ internal fun MyMusicScreen(
     telegram: TelegramRepository,
     onBack: () -> Unit,
     onSearch: () -> Unit,
-    onOpenPlaylist: (String) -> Unit
+    onOpenPlaylist: (String) -> Unit,
+    onProviderSignIn: () -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -106,8 +115,10 @@ internal fun MyMusicScreen(
         }
     }
 
-    // Optional music source (DEV build only). Its section sits at the top of the library, after the storage banner.
+    // Optional music source (DEV build only). It gets its own tab; without it the screen shows Telegram only.
     val providerHost = remember { ProviderMusicHosts.yandex() }
+    var source by remember(context) { mutableStateOf(MusicHomeSourceStore.read(context)) }
+    val shownSource = if (providerHost == null) MusicHomeSource.Telegram else source
 
     Scaffold(
         containerColor = palette.screen,
@@ -130,28 +141,42 @@ internal fun MyMusicScreen(
                         )
                     }
                 },
-                actions = {
-                    IconButton(onClick = onSearch) {
-                        Icon(Icons.Rounded.Search, stringResource(R.string.music_search_action), tint = palette.textPrimary)
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.surface)
             )
         }
     ) { padding ->
-        if (library == null) {
-            // The library of this account is still being read; no placeholder is shown in its place.
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item(key = "search") {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    SearchFieldButton(placeholder = stringResource(R.string.music_search_action), onClick = onSearch)
+                }
             }
-        } else {
-            LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
-                if (storageError) item(key = "storage-error") { StorageErrorBanner() }
-                if (providerHost != null) item(key = "provider-library") {
+            if (providerHost != null) item(key = "source-switch") {
+                MusicSourceSwitch(
+                    selected = shownSource,
+                    providerLabel = providerHost.tabLabel(),
+                    onSelect = { next ->
+                        source = next
+                        MusicHomeSourceStore.write(context, next)
+                    }
+                )
+            }
+            if (shownSource == MusicHomeSource.Provider && providerHost != null) {
+                item(key = "provider-library") {
                     providerHost.LibrarySection(
-                        onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) }
+                        onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) },
+                        onSignIn = onProviderSignIn
                     )
                 }
+            } else if (library == null) {
+                // The library of this account is still being read; no placeholder is shown in its place.
+                item(key = "library-loading") {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+            } else {
+                if (storageError) item(key = "storage-error") { StorageErrorBanner() }
                 item(key = "favorites") {
                     MusicSectionHeader(
                         title = stringResource(R.string.music_favorites_title),
@@ -389,6 +414,58 @@ private fun CollectionCard(title: String, count: Int, onClick: () -> Unit) {
             color = palette.textSecondary,
             fontSize = 12.sp,
             maxLines = 1
+        )
+    }
+}
+
+/**
+ * The Telegram / source switch under the search field. Two equal segments; the chosen one is filled with the accent
+ * wash and read out as selected.
+ */
+@Composable
+private fun MusicSourceSwitch(selected: MusicHomeSource, providerLabel: String, onSelect: (MusicHomeSource) -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(styledShape(14.dp))
+            .background(palette.surface2)
+            .padding(4.dp)
+            .selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        MusicSourceSegment(
+            label = stringResource(R.string.music_source_telegram),
+            selected = selected == MusicHomeSource.Telegram,
+            onClick = { onSelect(MusicHomeSource.Telegram) }
+        )
+        MusicSourceSegment(
+            label = providerLabel,
+            selected = selected == MusicHomeSource.Provider,
+            onClick = { onSelect(MusicHomeSource.Provider) }
+        )
+    }
+}
+
+@Composable
+private fun RowScope.MusicSourceSegment(label: String, selected: Boolean, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    Box(
+        Modifier.weight(1f)
+            .heightIn(min = 40.dp)
+            .clip(styledShape(11.dp))
+            .background(if (selected) palette.accentSoft else Color.Transparent)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            color = if (selected) palette.accentInk else palette.textSecondary,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            fontSize = 15.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

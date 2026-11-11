@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -109,13 +110,24 @@ internal fun MusicSearchScreen(
     downloadFile: (Int) -> Unit,
     onBack: () -> Unit,
     pickChatId: Long = 0L,
-    onPick: ((MessageExtraDraft) -> Unit)? = null
+    onPick: ((MessageExtraDraft) -> Unit)? = null,
+    focusOnOpen: Boolean = false
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val automaticDownload = LocalAutoDownloadFile.current
     var query by rememberSaveable(accountId) { mutableStateOf("") }
+    // Opened from the field of the music screen: the keyboard comes up at once, but only on the first open, not when
+    // the screen comes back from the background or a rotation.
+    val searchFocus = remember { FocusRequester() }
+    var focusRequested by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(focusOnOpen) {
+        if (focusOnOpen && !focusRequested) {
+            focusRequested = true
+            runCatching { searchFocus.requestFocus() }
+        }
+    }
     // The track a row asked to add to a playlist. Only results that are sent music with an origin qualify.
     var addTrack by remember(accountId) { mutableStateOf<PlaylistTrack?>(null) }
     var results by remember(accountId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
@@ -375,7 +387,8 @@ internal fun MusicSearchScreen(
                 SearchField(
                     query = query,
                     onChange = { query = it },
-                    placeholder = stringResource(R.string.music_search_hint)
+                    placeholder = stringResource(R.string.music_search_hint),
+                    focusRequester = searchFocus
                 )
             }
             if (query.isBlank()) Text(

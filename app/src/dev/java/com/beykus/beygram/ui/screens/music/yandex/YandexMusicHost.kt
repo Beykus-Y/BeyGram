@@ -1,6 +1,13 @@
 package com.beykus.beygram.ui.screens.music.yandex
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.Button
+import androidx.compose.ui.draw.clip
+import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -146,7 +153,10 @@ class YandexMusicHost : ProviderMusicHost {
     }
 
     @Composable
-    override fun LibrarySection(onPlay: ((List<ProviderTrack>, Int) -> Unit)?) {
+    override fun tabLabel(): String = stringResource(R.string.yandex_tab_label)
+
+    @Composable
+    override fun LibrarySection(onPlay: ((List<ProviderTrack>, Int) -> Unit)?, onSignIn: () -> Unit) {
         val context = LocalContext.current
         // Every hook runs on every composition; the early exits come after them, so the slots never change shape.
         val provider = remember(context) { MusicProviders.yandex(context) }
@@ -159,14 +169,11 @@ class YandexMusicHost : ProviderMusicHost {
             if (provider == null || uid == null) clearLibrary() else ensureLibrary(provider, uid)
         }
 
-        if (provider == null || !signedIn) return
-        Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-            Text(
-                stringResource(R.string.yandex_library_title),
-                color = palette.textPrimary,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-            )
+        if (provider == null || !signedIn) {
+            SignInCard(onSignIn)
+            return
+        }
+        Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
             if (libraryLoading) Column(
                 Modifier.fillMaxWidth().padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -319,6 +326,36 @@ class YandexMusicHost : ProviderMusicHost {
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+        }
+    }
+
+    /** The whole tab before sign-in: what the tab holds and a button to the sign-in screen. */
+    @Composable
+    private fun SignInCard(onSignIn: () -> Unit) {
+        val palette = beyGramPalette()
+        Column(
+            Modifier.fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .clip(styledShape(16.dp))
+                .background(palette.surface2)
+                .padding(16.dp)
+        ) {
+            Text(
+                stringResource(R.string.yandex_library_signin_title),
+                color = palette.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                stringResource(R.string.yandex_library_signin_text),
+                color = palette.textSecondary,
+                fontSize = 14.sp
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onSignIn, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.yandex_library_signin_action))
             }
         }
     }

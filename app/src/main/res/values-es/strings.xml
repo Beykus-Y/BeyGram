@@ -746,7 +746,8 @@
     <string name="music_favorite_state_on">En favoritos</string>
     <string name="music_favorites_title">Favoritos</string>
     <string name="music_find_replacement">Buscar un reemplazo</string>
-    <string name="music_library_title">Mi música</string>
+    <string name="music_source_telegram">Telegram</string>
+    <string name="music_library_title">Música</string>
     <string name="music_local_only_note">La biblioteca se guarda solo en este dispositivo</string>
     <string name="music_move_down">Mover hacia abajo</string>
     <string name="music_move_up">Mover hacia arriba</string>
