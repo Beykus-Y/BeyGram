@@ -62,7 +62,8 @@ object LrcParser {
             }
         }
         val lines = pending.map { (startMs, text) ->
-            LyricLine(startMs = (startMs + offsetMs).coerceAtLeast(0L), text = text)
+            // LRC convention: a positive offset makes lyrics appear earlier.
+            LyricLine(startMs = (startMs - offsetMs).coerceAtLeast(0L), text = text)
         }
         return SyncedLyrics(lines)
     }

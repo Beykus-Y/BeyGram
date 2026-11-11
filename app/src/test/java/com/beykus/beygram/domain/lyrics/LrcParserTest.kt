@@ -28,10 +28,15 @@ class LrcParserTest {
 
     @Test
     fun appliesOffsetTagAndClampsNegativeStarts() {
-        val shifted = LrcParser.parse("[offset:+500]\n[00:01.00]a")
-        assertEquals(listOf(1_500L), shifted.lines.map { it.startMs })
-        val clamped = LrcParser.parse("[offset:-2000]\n[00:00.50]b\n[00:03.00]c")
-        assertEquals(listOf(0L, 1_000L), clamped.lines.map { it.startMs })
+        // Positive offset: lyrics appear earlier (start = stamp - offset).
+        val earlier = LrcParser.parse("[offset:+500]\n[00:01.00]a")
+        assertEquals(listOf(500L), earlier.lines.map { it.startMs })
+        // Negative offset: lyrics appear later.
+        val later = LrcParser.parse("[offset:-2000]\n[00:00.50]b\n[00:03.00]c")
+        assertEquals(listOf(2_500L, 5_000L), later.lines.map { it.startMs })
+        // Clamped at zero when the shift would go negative.
+        val clamped = LrcParser.parse("[offset:+5000]\n[00:01.00]d")
+        assertEquals(listOf(0L), clamped.lines.map { it.startMs })
     }
 
     @Test
