@@ -35,7 +35,7 @@ internal object SilenceAnalyzer {
                     val key = cacheKey(item)
                     val length = file.length()
                     // Only the complete file: a partial download has fewer bytes than the message says it has.
-                    if (item.sizeBytes <= 0L || length != item.sizeBytes) continue
+                    if (!isCompleteCopy(item, length)) continue
                     if (SilenceEdgeStore.lookup(key, length) != null) continue
                     // A closed gate only postpones the work: the next queue change asks again.
                     if (!allowedInBackground(app)) return@launch
@@ -47,15 +47,26 @@ internal object SilenceAnalyzer {
         }
     }
 
-    /** Only complete music from a Telegram file with a stable id. Secret and view-once media are excluded. */
+    /**
+     * Only complete music with a stable identity: a Telegram file id, or a provider row key whose copy is written whole.
+     * Secret and view-once media are excluded.
+     */
     internal fun isMeasurable(item: PlaybackItem): Boolean =
         item.isMusic &&
             !item.systemPrivate &&
             item.growing == null &&
             item.path.isNotBlank() &&
-            item.fileId != null
+            (item.fileId != null || LazyTrackRegistry.isLazyKey(item.key))
 
-    internal fun cacheKey(item: PlaybackItem): String = "${item.accountId}:${item.fileId}"
+    internal fun cacheKey(item: PlaybackItem): String =
+        if (item.fileId == null) item.key else "${item.accountId}:${item.fileId}"
+
+    /**
+     * A Telegram file is complete when its size matches the message. A provider copy is downloaded under its final name
+     * only after the last byte, so any non-empty copy is complete.
+     */
+    private fun isCompleteCopy(item: PlaybackItem, length: Long): Boolean =
+        if (item.fileId == null) length > 0L else item.sizeBytes > 0L && length == item.sizeBytes
 
     /**
      * The stored measurement of a complete file. Null when the item is not measurable, the file is partial or changed,
@@ -71,6 +82,7 @@ internal object SilenceAnalyzer {
     private val completeLengths = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private fun completeFileLength(item: PlaybackItem): Long? {
+        if (item.fileId == null) return File(item.path).length().takeIf { it > 0L }
         if (item.sizeBytes <= 0L) return null
         completeLengths[item.path]?.let { return it.takeIf { length -> length == item.sizeBytes } }
         val length = File(item.path).length()
