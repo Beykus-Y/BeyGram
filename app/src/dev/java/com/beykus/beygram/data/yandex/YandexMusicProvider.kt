@@ -81,8 +81,15 @@ internal class YandexMusicProvider(
 
     /** Removes the session from this device. The token is not revoked on the service side. */
     suspend fun signOut() = withContext(Dispatchers.IO) {
-        store.clear()
-        mutableState.value = MusicProviderState.SignedOut
+        clearSession()
+    }
+
+    /** Deletes the stored session and publishes SignedOut. Under the lock, so a refresh cannot write it back. */
+    private fun clearSession() {
+        synchronized(refreshLock) {
+            store.clear()
+            mutableState.value = MusicProviderState.SignedOut
+        }
     }
 
     /** Reloads uid, name and subscription from the service, for the account card. */
@@ -95,10 +102,20 @@ internal class YandexMusicProvider(
                     displayName = account.value.displayName,
                     hasSubscription = account.value.hasPlus,
                 )
-                store.save(updated)
-                val info = updated.toAccount()
-                mutableState.value = MusicProviderState.SignedIn(info)
-                ProviderResult.Success(info)
+                // Write back only if the session is still the one this request started with: a sign-out
+                // (or a sign-in with another account) during the request must not be undone.
+                val saved = synchronized(refreshLock) {
+                    val current = store.load()
+                    if (current?.accessToken == session.accessToken) {
+                        store.save(updated)
+                        mutableState.value = MusicProviderState.SignedIn(updated.toAccount())
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (saved) ProviderResult.Success(updated.toAccount())
+                else ProviderResult.Failure(MusicProviderFailure.NotSignedIn)
             }
         }
     }
@@ -149,14 +166,22 @@ internal class YandexMusicProvider(
                 is ProviderResult.Success -> fresh.value
             }
             val first = block(current)
-            val failure = (first as? ProviderResult.Failure)?.failure
-            if (failure != MusicProviderFailure.SessionExpired || current.refreshToken == null) {
+            if ((first as? ProviderResult.Failure)?.failure != MusicProviderFailure.SessionExpired) {
                 return@withContext first
             }
-            when (val refreshed = refresh(current)) {
-                is ProviderResult.Failure -> refreshed
-                is ProviderResult.Success -> block(refreshed.value)
+            val retried = if (current.refreshToken == null) {
+                first
+            } else {
+                when (val refreshed = refresh(current)) {
+                    is ProviderResult.Failure -> refreshed
+                    is ProviderResult.Success -> block(refreshed.value)
+                }
             }
+            // Still rejected after the attempt: the session cannot be recovered, so the user is signed out here.
+            if ((retried as? ProviderResult.Failure)?.failure == MusicProviderFailure.SessionExpired) {
+                clearSession()
+            }
+            retried
         }
 
     private fun ensureFresh(session: YandexSession): ProviderResult<YandexSession> =

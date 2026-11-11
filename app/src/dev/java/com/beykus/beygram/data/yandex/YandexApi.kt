@@ -126,6 +126,8 @@ internal class YandexApi(private val http: YandexHttp) {
             (0 until array.length()).mapNotNull { index ->
                 val item = array.optJSONObject(index) ?: return@mapNotNull null
                 if (item.optString("codec") != "mp3") return@mapNotNull null
+                // Preview clips (about 30 seconds) are never full tracks, whatever the bitrate.
+                if (item.optBoolean("preview")) return@mapNotNull null
                 DownloadOption(
                     bitrateKbps = item.optInt("bitrateInKbps", 0),
                     url = item.optString("downloadInfoUrl"),
