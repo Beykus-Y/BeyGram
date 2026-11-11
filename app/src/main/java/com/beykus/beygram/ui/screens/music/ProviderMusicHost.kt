@@ -15,6 +15,13 @@ interface ProviderMusicHost {
      */
     @Composable
     fun SearchResults(query: String, onPlay: ((List<ProviderTrack>, Int) -> Unit)?)
+
+    /**
+     * Liked tracks and playlists of this source, shown at the top of the music library. Draws nothing when the
+     * source is not signed in. [onPlay] starts a list at an index; null means the rows cannot play yet.
+     */
+    @Composable
+    fun LibrarySection(onPlay: ((List<ProviderTrack>, Int) -> Unit)?)
 }
 
 object ProviderMusicHosts {

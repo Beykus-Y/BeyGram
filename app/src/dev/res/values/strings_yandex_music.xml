@@ -26,4 +26,8 @@
     <string name="yandex_diag_title">Диагностика ответа</string>
     <string name="yandex_diag_share">Поделиться</string>
     <string name="yandex_diag_empty">Ответ сервиса ещё не получен. Обновите карточку аккаунта.</string>
+    <string name="yandex_library_title">Яндекс Музыка</string>
+    <string name="yandex_library_liked">Мне нравится</string>
+    <string name="yandex_library_playlists">Плейлисты</string>
+    <string name="yandex_library_empty">Пока здесь пусто.</string>
 </resources>

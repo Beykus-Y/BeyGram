@@ -26,4 +26,8 @@
     <string name="yandex_diag_title">Antwortdiagnose</string>
     <string name="yandex_diag_share">Teilen</string>
     <string name="yandex_diag_empty">Noch keine Antwort des Dienstes. Aktualisieren Sie die Kontokarte.</string>
+    <string name="yandex_library_title">Yandex Music</string>
+    <string name="yandex_library_liked">Gefällt mir</string>
+    <string name="yandex_library_playlists">Playlists</string>
+    <string name="yandex_library_empty">Hier ist noch nichts.</string>
 </resources>

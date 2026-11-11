@@ -26,6 +26,7 @@ import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviderState
 import com.beykus.beygram.data.music.provider.MusicProviders
+import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -50,9 +51,12 @@ class YandexMusicHost : ProviderMusicHost {
     private var searchLoading by mutableStateOf(false)
 
     /** Starts a search for [text] unless the same one is already running or finished. */
-    private fun ensureSearch(provider: MusicProvider, text: String) {
-        if (text == searchText && (searchLoading || searchTracks != null || searchFailure != null)) return
+    private var searchUid: String? = null
+
+    private fun ensureSearch(provider: MusicProvider, text: String, uid: String) {
+        if (uid == searchUid && text == searchText && (searchLoading || searchTracks != null || searchFailure != null)) return
         searchJob?.cancel()
+        searchUid = uid
         searchText = text
         searchTracks = null
         searchFailure = null
@@ -76,21 +80,191 @@ class YandexMusicHost : ProviderMusicHost {
         searchLoading = false
     }
 
+    private var libraryJob: Job? = null
+    private var libraryUid: String? = null
+    private var libraryLoaded = false
+    private var libraryLiked by mutableStateOf<List<ProviderTrack>>(emptyList())
+    private var libraryPlaylists by mutableStateOf<List<ProviderPlaylist>>(emptyList())
+    private var libraryLoading by mutableStateOf(false)
+    private var libraryFailure by mutableStateOf<MusicProviderFailure?>(null)
+
+    /**
+     * Counts playback starts from this source. A playlist still loading when another row starts playing must not
+     * start later and replace that choice.
+     */
+    private var selectionGeneration = 0L
+
+    /** Loads liked tracks and playlists once per account. A different account starts again from nothing. */
+    private fun ensureLibrary(provider: MusicProvider, uid: String) {
+        if (libraryUid == uid && (libraryLoaded || libraryLoading)) return
+        libraryJob?.cancel()
+        libraryUid = uid
+        libraryLoaded = false
+        libraryLiked = emptyList()
+        libraryPlaylists = emptyList()
+        libraryFailure = null
+        libraryLoading = true
+        libraryJob = scope.launch {
+            val liked = withContext(Dispatchers.IO) { provider.likedTracks() }
+            val lists = withContext(Dispatchers.IO) { provider.playlists() }
+            libraryFailure = (liked as? ProviderResult.Failure)?.failure ?: (lists as? ProviderResult.Failure)?.failure
+            libraryLiked = (liked as? ProviderResult.Success)?.value.orEmpty()
+            libraryPlaylists = (lists as? ProviderResult.Success)?.value.orEmpty()
+            libraryLoaded = libraryFailure == null
+            libraryLoading = false
+        }
+    }
+
+    private fun clearLibrary() {
+        libraryJob?.cancel()
+        libraryUid = null
+        libraryLoaded = false
+        libraryLiked = emptyList()
+        libraryPlaylists = emptyList()
+        libraryFailure = null
+        libraryLoading = false
+    }
+
+    /** Plays the whole playlist from its first track, unless another selection was made while it loaded. */
+    private fun playPlaylist(provider: MusicProvider, kind: String, onPlay: (List<ProviderTrack>, Int) -> Unit) {
+        val mine = ++selectionGeneration
+        scope.launch {
+            val tracks = withContext(Dispatchers.IO) { provider.playlistTracks(kind) }
+            when (tracks) {
+                is ProviderResult.Success -> if (tracks.value.isNotEmpty() && mine == selectionGeneration) {
+                    onPlay(tracks.value, 0)
+                }
+                is ProviderResult.Failure -> libraryFailure = tracks.failure
+            }
+        }
+    }
+
+    /** A direct selection: it supersedes any playlist still loading. */
+    private fun startPlayback(tracks: List<ProviderTrack>, index: Int, onPlay: (List<ProviderTrack>, Int) -> Unit) {
+        selectionGeneration++
+        onPlay(tracks, index)
+    }
+
     @Composable
-    override fun SearchResults(query: String, onPlay: ((List<ProviderTrack>, Int) -> Unit)?) {
+    override fun LibrarySection(onPlay: ((List<ProviderTrack>, Int) -> Unit)?) {
         val context = LocalContext.current
         // Every hook runs on every composition; the early exits come after them, so the slots never change shape.
         val provider = remember(context) { MusicProviders.yandex(context) }
         val state by (provider?.state ?: SignedOutState).collectAsStateWithLifecycle()
         val signedIn = state is MusicProviderState.SignedIn
         val palette = beyGramPalette()
-        val text = query.trim()
 
-        LaunchedEffect(text, signedIn) {
-            if (provider == null || !signedIn) clearSearch() else ensureSearch(provider, text)
+        val uid = (state as? MusicProviderState.SignedIn)?.account?.uid
+        LaunchedEffect(uid) {
+            if (provider == null || uid == null) clearLibrary() else ensureLibrary(provider, uid)
         }
 
-        if (provider == null || !signedIn || text.isEmpty() || searchText != text) return
+        if (provider == null || !signedIn) return
+        Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            Text(
+                stringResource(R.string.yandex_library_title),
+                color = palette.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            )
+            if (libraryLoading) Column(
+                Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) { CircularProgressIndicator() }
+            libraryFailure?.let {
+                Text(
+                    stringResource(failureText(it)),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+            if (!libraryLoading && libraryLoaded && libraryLiked.isEmpty() && libraryPlaylists.isEmpty()) Text(
+                stringResource(R.string.yandex_library_empty),
+                color = palette.textSecondary,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            if (libraryLiked.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.yandex_library_liked),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+                libraryLiked.take(LIBRARY_PREVIEW_ROWS).forEachIndexed { index, track ->
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (onPlay != null && track.isAvailable) {
+                                    Modifier.clickable { startPlayback(libraryLiked, index, onPlay) }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            track.title,
+                            color = if (track.isAvailable) palette.textPrimary else palette.textSecondary,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            track.performer,
+                            color = palette.textSecondary,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            if (libraryPlaylists.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.yandex_library_playlists),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+                libraryPlaylists.forEach { playlist ->
+                    Text(
+                        playlist.title,
+                        color = palette.textPrimary,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (onPlay != null) Modifier.clickable { playPlaylist(provider, playlist.kind, onPlay) }
+                                else Modifier
+                            )
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    override fun SearchResults(query: String, onPlay: ((List<ProviderTrack>, Int) -> Unit)?) {
+        val context = LocalContext.current
+        // Every hook runs on every composition; the early exits come after them, so the slots never change shape.
+        val provider = remember(context) { MusicProviders.yandex(context) }
+        val state by (provider?.state ?: SignedOutState).collectAsStateWithLifecycle()
+        val uid = (state as? MusicProviderState.SignedIn)?.account?.uid
+        val signedIn = uid != null
+        val palette = beyGramPalette()
+        val text = query.trim()
+
+        LaunchedEffect(text, uid) {
+            if (provider == null || uid == null) clearSearch() else ensureSearch(provider, text, uid)
+        }
+
+        if (provider == null || !signedIn || text.isEmpty() || searchText != text || searchUid != uid) return
         val found = searchTracks
         Column(Modifier.fillMaxWidth()) {
             Text(
@@ -118,11 +292,16 @@ class YandexMusicHost : ProviderMusicHost {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
             found?.forEachIndexed { index, track ->
-                val playable = track.isAvailable && onPlay != null
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .then(if (playable) Modifier.clickable { onPlay?.invoke(found, index) } else Modifier)
+                        .then(
+                            if (onPlay != null && track.isAvailable) {
+                                Modifier.clickable { startPlayback(found, index, onPlay) }
+                            } else {
+                                Modifier
+                            }
+                        )
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Text(
@@ -152,6 +331,7 @@ class YandexMusicHost : ProviderMusicHost {
 
     private companion object {
         const val SEARCH_DEBOUNCE_MS = 350L
+        const val LIBRARY_PREVIEW_ROWS = 20
         /** Stands in for the provider state when the provider is absent, so the collection stays unconditional. */
         val SignedOutState = MutableStateFlow<MusicProviderState>(MusicProviderState.SignedOut)
     }
