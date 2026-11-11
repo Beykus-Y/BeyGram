@@ -330,8 +330,18 @@ private fun SignatureMixLine(
     )
 }
 
-/** Progress of the running mix, 0..1. Call it only from a draw lambda, so a tick redraws without recomposing. */
-private fun progressNow(transition: State<BgMixTransitionUi?>): Float = transition.value?.progress ?: 0f
+/**
+ * Progress of the running mix, 0..1. Call it only from a draw lambda, so a tick redraws without recomposing. Once the
+ * transition ends the last progress is kept, so the decoration does not snap back to the start while the line fades out.
+ */
+private fun progressNow(transition: State<BgMixTransitionUi?>): Float {
+    val current = transition.value?.progress
+    if (current != null) lastProgress.set(current.toBits())
+    return current ?: Float.fromBits(lastProgress.get())
+}
+
+/** Only one full player is on screen, so one holder is enough; it is read and written on the main thread in draw. */
+private val lastProgress = java.util.concurrent.atomic.AtomicInteger(0f.toBits())
 
 /** The ambient phase, or zero when the decoration must stand still. Call it only from a draw lambda. */
 private fun phaseNow(phase: FloatState, ambient: Boolean): Float = if (ambient) phase.floatValue else 0f
