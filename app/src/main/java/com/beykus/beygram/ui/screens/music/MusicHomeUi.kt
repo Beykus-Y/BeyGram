@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -103,11 +104,33 @@ internal fun MusicGrid(count: Int, columns: Int, cell: @Composable (Int) -> Unit
         verticalArrangement = Arrangement.spacedBy(MusicGridGap)
     ) {
         for (start in 0 until count step columns) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(MusicGridGap)) {
-                for (index in start until start + columns) {
-                    Box(Modifier.weight(1f)) { if (index < count) cell(index) }
-                }
-            }
+            MusicGridRow(start = start, count = count, columns = columns, cell = cell)
+        }
+    }
+}
+
+/**
+ * The same grid as [MusicGrid], one lazy item per row, for a grid that can grow long such as all playlists of the
+ * library: only the rows on screen are composed and keep their covers.
+ */
+internal fun LazyListScope.musicGridRows(key: String, count: Int, columns: Int, cell: @Composable (Int) -> Unit) {
+    val rows = (count + columns - 1) / columns
+    items(rows, key = { row -> "$key-$row" }) { row ->
+        Box(
+            Modifier.fillMaxWidth()
+                .padding(horizontal = MusicScreenGutter)
+                .padding(top = if (row == 0) 0.dp else MusicGridGap)
+        ) {
+            MusicGridRow(start = row * columns, count = count, columns = columns, cell = cell)
+        }
+    }
+}
+
+@Composable
+private fun MusicGridRow(start: Int, count: Int, columns: Int, cell: @Composable (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(MusicGridGap)) {
+        for (index in start until start + columns) {
+            Box(Modifier.weight(1f)) { if (index < count) cell(index) }
         }
     }
 }
