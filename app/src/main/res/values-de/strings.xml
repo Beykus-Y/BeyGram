@@ -800,6 +800,8 @@
     <string name="bgbeat_reanalyze">Rhythmus erneut analysieren</string>
     <string name="player_more">Mehr</string>
     <string name="player_bgmix_badge">BG Mix</string>
+    <string name="player_bgmix_transition_to">Übergang zu „%1$s“</string>
+    <string name="player_bgmix_transition_next">Übergang zum nächsten Titel</string>
     <string name="player_bgmix_explain">Der Modus für weiche Übergänge spielt. Zufallswiedergabe, Wiederholen und „Zurück“ funktionieren darin, der Ton setzt kurz aus. Tempo ist in diesem Modus nicht verfügbar.</string>
     <string name="player_sleep_status_track_end">Schlaftimer · bis zum Ende des Titels</string>
     <string name="player_sleep_until_track_end">Bis zum Ende des Titels</string>
