@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.PlaylistTrack
 import com.beykus.beygram.data.music.toPlaylistTrack
 import com.beykus.beygram.domain.model.AutoDownloadRequest
@@ -439,7 +440,7 @@ internal fun MusicSearchScreen(
                 if (providerHost != null && onPick == null) item(key = "provider_source") {
                     providerHost.SearchResults(
                         query = query,
-                        onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) }
+                        onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) }
                     )
                 }
                 // Public results have an independent state: a local miss must never imply no public matches.
