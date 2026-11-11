@@ -805,7 +805,8 @@
     <string name="player_bgmix_transition_to">Übergang zu „%1$s“</string>
     <string name="player_bgmix_transition_next">Übergang zum nächsten Titel</string>
     <string name="player_bgmix_explain">Der Modus für weiche Übergänge spielt. Zufallswiedergabe, Wiederholen und „Zurück“ funktionieren darin, der Ton setzt kurz aus. Tempo ist in diesem Modus nicht verfügbar.</string>
-    <string name="player_bgmix_badge_preparing">BG Mix · Vorbereitung</string>
+    <string name="player_bgmix_icon_active">BG Mix spielt den Titel</string>
+    <string name="player_bgmix_icon_preparing">BG Mix bereitet den Titel vor</string>
     <string name="player_bgmix_preparing_explain">BG Mix bereitet diesen Titel vor. Bis dahin läuft er im normalen Player; sobald die Datei geladen und bereit ist, übernimmt BG Mix ihn an derselben Stelle ohne Pause.</string>
     <string name="player_sleep_status_track_end">Schlaftimer · bis zum Ende des Titels</string>
     <string name="player_sleep_until_track_end">Bis zum Ende des Titels</string>

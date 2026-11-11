@@ -805,7 +805,8 @@
     <string name="player_bgmix_transition_to">Transition to “%1$s”</string>
     <string name="player_bgmix_transition_next">Transition to the next track</string>
     <string name="player_bgmix_explain">Smooth transitions mode is playing. Shuffle, repeat and Previous work inside it, with a brief gap in the sound. Speed is not available in this mode.</string>
-    <string name="player_bgmix_badge_preparing">BG Mix · preparing</string>
+    <string name="player_bgmix_icon_active">BG Mix is playing the track</string>
+    <string name="player_bgmix_icon_preparing">BG Mix is preparing the track</string>
     <string name="player_bgmix_preparing_explain">BG Mix is preparing this track. For now it plays in the regular player; once the file is downloaded and ready, BG Mix picks it up at the same place without a gap.</string>
     <string name="player_sleep_status_track_end">Sleep timer · until the end of the track</string>
     <string name="player_sleep_until_track_end">Until the end of the track</string>

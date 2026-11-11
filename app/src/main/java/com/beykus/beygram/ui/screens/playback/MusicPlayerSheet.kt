@@ -797,17 +797,21 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
     }
     if (player.bgMix || player.bgMixPreparing) {
         var explain by remember { mutableStateOf(false) }
+        // Two letters instead of a badge: grey while BG Mix prepares the track, the theme accent once BG Mix plays it.
+        val active = player.bgMix
+        val markDescription = stringResource(if (active) R.string.player_bgmix_icon_active else R.string.player_bgmix_icon_preparing)
         Text(
-            stringResource(if (player.bgMix) R.string.player_bgmix_badge else R.string.player_bgmix_badge_preparing),
-            color = palette.accentInk,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
+            stringResource(R.string.player_bgmix_mark),
+            color = if (active) palette.accent else palette.textSecondary.copy(alpha = 0.6f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp,
             modifier = Modifier
-                .padding(top = 6.dp)
-                .clip(styledShape(8.dp))
-                .background(palette.accentSoft)
+                .padding(top = 4.dp)
+                .clip(styledShape(6.dp))
                 .clickable(role = Role.Button) { explain = true }
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .semantics { contentDescription = markDescription }
+                .padding(horizontal = 6.dp, vertical = 4.dp)
         )
         if (explain) AlertDialog(
             onDismissRequest = { explain = false },
