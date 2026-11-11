@@ -586,7 +586,8 @@ object PlaybackEngine {
 
     /**
      * Plays Yandex Music tracks as one queue. Rows carry no file: each is downloaded when it becomes current or next.
-     * Tracks the provider reports as unavailable are left out; [startIndex] counts the tracks as given.
+     * Tracks the provider reports as unavailable are left out; [startIndex] counts the tracks as given. The queue starts at
+     * the chosen track: the rows above it were never played, so the queue must not show them as played.
      */
     fun playYandexTracks(
         context: Context,
@@ -597,7 +598,7 @@ object PlaybackEngine {
         if (playable.isEmpty()) return
         val startTrackId = tracks.getOrNull(startIndex)?.trackId
         val index = playable.indexOfFirst { it.trackId == startTrackId }.coerceAtLeast(0)
-        val items = playable.map { track ->
+        val items = playable.drop(index).map { track ->
             PlaybackItem(
                 key = track.key,
                 kind = MediaKind.Audio,
@@ -609,7 +610,7 @@ object PlaybackEngine {
                 album = track.albumTitle.orEmpty(),
             )
         }
-        playQueue(context, items, index, source = null)
+        playQueue(context, items, 0, source = null)
     }
 
     /**

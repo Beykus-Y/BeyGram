@@ -2118,6 +2118,7 @@
     <string name="player_source_group">Группа</string>
     <string name="player_source_saved">Избранное</string>
     <string name="player_source_local">Файл на устройстве</string>
+    <string name="player_source_provider_yandex">Яндекс Музыка</string>
     <string name="player_menu">Действия плеера</string>
     <string name="player_queue">Очередь</string>
     <string name="player_equalizer">Эквалайзер</string>
