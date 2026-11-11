@@ -406,12 +406,6 @@ internal fun MusicSearchScreen(
                 modifier = Modifier.fillMaxWidth().padding(16.dp)
             )
             LazyColumn(Modifier.weight(1f)) {
-                if (providerHost != null && onPick == null) item(key = "provider_source") {
-                    providerHost.SearchResults(
-                        query = query,
-                        onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) }
-                    )
-                }
                 items(results, key = { "${it.chatId}:${it.id}" }) { message ->
                     val item = rows.firstOrNull { it.origin?.messageId == message.id && it.origin?.chatId == message.chatId }
                     if (item != null) MusicRow(
@@ -426,6 +420,13 @@ internal fun MusicSearchScreen(
                         } else {
                             null
                         }
+                    )
+                }
+                // Provider results come after the local rows, so the local heading keeps its own rows.
+                if (providerHost != null && onPick == null) item(key = "provider_source") {
+                    providerHost.SearchResults(
+                        query = query,
+                        onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) }
                     )
                 }
                 // Public results have an independent state: a local miss must never imply no public matches.

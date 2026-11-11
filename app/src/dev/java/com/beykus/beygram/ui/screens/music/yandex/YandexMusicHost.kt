@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviderState
 import com.beykus.beygram.data.music.provider.MusicProviders
@@ -29,13 +30,51 @@ import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.music.ProviderMusicHost
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Yandex Music results inside the music search. DEV only; loaded by name from [com.beykus.beygram.ui.screens.music.ProviderMusicHosts]. */
 class YandexMusicHost : ProviderMusicHost {
+    /** Searches run here, not in the composition, so a lazy item leaving the screen does not cancel or drop them. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var searchJob: Job? = null
+    private var searchText by mutableStateOf("")
+    private var searchTracks by mutableStateOf<List<ProviderTrack>?>(null)
+    private var searchFailure by mutableStateOf<MusicProviderFailure?>(null)
+    private var searchLoading by mutableStateOf(false)
+
+    /** Starts a search for [text] unless the same one is already running or finished. */
+    private fun ensureSearch(provider: MusicProvider, text: String) {
+        if (text == searchText && (searchLoading || searchTracks != null || searchFailure != null)) return
+        searchJob?.cancel()
+        searchText = text
+        searchTracks = null
+        searchFailure = null
+        searchLoading = text.isNotEmpty()
+        if (text.isEmpty()) return
+        searchJob = scope.launch {
+            delay(SEARCH_DEBOUNCE_MS)
+            when (val result = withContext(Dispatchers.IO) { provider.search(text) }) {
+                is ProviderResult.Success -> searchTracks = result.value
+                is ProviderResult.Failure -> searchFailure = result.failure
+            }
+            searchLoading = false
+        }
+    }
+
+    private fun clearSearch() {
+        searchJob?.cancel()
+        searchText = ""
+        searchTracks = null
+        searchFailure = null
+        searchLoading = false
+    }
 
     @Composable
     override fun SearchResults(query: String, onPlay: ((List<ProviderTrack>, Int) -> Unit)?) {
@@ -46,25 +85,13 @@ class YandexMusicHost : ProviderMusicHost {
         val signedIn = state is MusicProviderState.SignedIn
         val palette = beyGramPalette()
         val text = query.trim()
-        var tracks by remember(text, signedIn) { mutableStateOf<List<ProviderTrack>?>(null) }
-        var failure by remember(text, signedIn) { mutableStateOf<MusicProviderFailure?>(null) }
-        var loading by remember(text, signedIn) { mutableStateOf(false) }
 
-        // Restarted on every change of the query or the sign-in, so a superseded request never repopulates the list.
         LaunchedEffect(text, signedIn) {
-            tracks = null
-            failure = null
-            if (provider == null || !signedIn || text.isEmpty()) return@LaunchedEffect
-            loading = true
-            delay(SEARCH_DEBOUNCE_MS)
-            when (val result = withContext(Dispatchers.IO) { provider.search(text) }) {
-                is ProviderResult.Success -> tracks = result.value
-                is ProviderResult.Failure -> failure = result.failure
-            }
-            loading = false
+            if (provider == null || !signedIn) clearSearch() else ensureSearch(provider, text)
         }
 
-        if (provider == null || !signedIn || text.isEmpty()) return
+        if (provider == null || !signedIn || text.isEmpty() || searchText != text) return
+        val found = searchTracks
         Column(Modifier.fillMaxWidth()) {
             Text(
                 stringResource(R.string.yandex_search_title),
@@ -72,11 +99,11 @@ class YandexMusicHost : ProviderMusicHost {
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
             )
-            if (loading) Column(
+            if (searchLoading) Column(
                 Modifier.fillMaxWidth().padding(vertical = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) { CircularProgressIndicator() }
-            failure?.let {
+            searchFailure?.let {
                 Text(
                     stringResource(failureText(it)),
                     color = palette.textSecondary,
@@ -84,7 +111,6 @@ class YandexMusicHost : ProviderMusicHost {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
-            val found = tracks
             if (found != null && found.isEmpty()) Text(
                 stringResource(R.string.yandex_search_empty),
                 color = palette.textSecondary,
