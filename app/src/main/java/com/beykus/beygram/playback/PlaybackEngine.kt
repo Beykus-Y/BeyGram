@@ -374,8 +374,6 @@ object PlaybackEngine {
     private var bgMixHandoverJob: Job? = null
     /** Adds tracks that finished downloading to the running BG Mix session and asks for the next ones; see [startBgMixFeed]. */
     private var bgMixFeedJob: Job? = null
-    /** Queue items whose download the running BG Mix session has already asked for. */
-    private val bgMixRequestedKeys = mutableSetOf<String>()
 
     /** Key of the track that was moved past early for trailing silence. Cleared by the next media item transition. */
     private var trailingSkippedKey: String? = null
@@ -1802,16 +1800,19 @@ object PlaybackEngine {
      */
     private fun startBgMixFeed() {
         bgMixFeedJob?.cancel()
-        bgMixRequestedKeys.clear()
         bgMixFeedJob = scope.launch {
             while (true) {
                 val driver = bgMix?.takeIf { it.isActive } ?: return@launch
                 if (driver.pendingIndex == null) return@launch
                 driver.appendReady(::bgMixFileFor)
                 val first = driver.pendingIndex ?: return@launch
-                for (index in first until minOf(first + BG_MIX_DOWNLOAD_AHEAD, driver.queueItems.size)) {
-                    val item = driver.queueItems[index]
-                    if (bgMixRequestedKeys.add(item.key)) PlaybackSources.handle(item.systemMediaId)?.request()
+                val context = appContext
+                val source = queueSource
+                if (context != null && source != null) {
+                    for (index in first until minOf(first + BG_MIX_DOWNLOAD_AHEAD, driver.queueItems.size)) {
+                        // Speculative traffic goes through the automatic-download policy, like the regular prefetch.
+                        prefetchItem(context, source, driver.queueItems[index])
+                    }
                 }
                 delay(BG_MIX_FEED_INTERVAL_MS)
             }
@@ -1860,9 +1861,15 @@ object PlaybackEngine {
                 delay(if (state.intentPlaying) BG_HANDOVER_POLL_MS else BG_HANDOVER_IDLE_POLL_MS)
                 continue
             }
-            if (handOverToBgMix(context, state, file)) return
-            failures++
-            delay(BG_HANDOVER_RETRY_MS)
+            when (handOverToBgMix(context, state, file)) {
+                true -> return
+                // The queue changed while the session was being prepared: prepare again for the new one.
+                null -> continue
+                false -> {
+                    failures++
+                    delay(BG_HANDOVER_RETRY_MS)
+                }
+            }
         }
     }
 
@@ -1877,22 +1884,30 @@ object PlaybackEngine {
 
     /**
      * Prepares a BG Mix session for the queue from the playing track while ExoPlayer keeps playing, then starts it at
-     * ExoPlayer's position and lets ExoPlayer go. False when the session could not be prepared or the track changed.
+     * ExoPlayer's position and lets ExoPlayer go. False when the session could not be prepared or the track changed, null
+     * when the queue was edited meanwhile and the session has to be prepared again.
      */
-    private suspend fun handOverToBgMix(context: Context, state: PlaybackState, file: PlaybackItem): Boolean {
+    private suspend fun handOverToBgMix(context: Context, state: PlaybackState, file: PlaybackItem): Boolean? {
         val driver = bgMixDriver(context)
         val single = state.repeatMode == PlaybackRepeatMode.One
         val items = state.queue.map { if (it.key == file.key) file else it }
         val shuffled = state.shuffleEnabled && !single
-        // The native session has no shuffle order: the current track goes first and the rest are mixed, as in startBgMix.
-        val order = if (shuffled) listOf(file) + items.filterIndexed { i, _ -> i != state.queueIndex }.shuffled() else items
+        // The native session has no shuffle order. It takes the rest of ExoPlayer's own shuffle order from the current
+        // track on, so tracks that already played do not come back; Repeat All keeps the played ones after them.
+        val order = if (shuffled) bgMixShuffleOrder(items, state.queueIndex, state.repeatMode) else items
         val index = if (shuffled) 0 else state.queueIndex
+        val queueKeys = state.queue.map { it.key }
+        fun queueChanged(): Boolean = _state.value.queue.map { it.key } != queueKeys || _state.value.shuffleEnabled != state.shuffleEnabled
         if (!driver.stage(order, index, single, ::bgMixFileFor)) return false
         val status = driver.stagedStatus
         val loaded = status?.let {
             withTimeoutOrNull(BG_HANDOVER_PREPARE_TIMEOUT_MS) {
                 it.first { snapshot -> snapshot?.decks?.getOrNull(snapshot.master)?.let { deck -> deck.loaded && deck.durationSeconds > 0.0 } == true }
             }
+        }
+        if (queueChanged()) {
+            driver.discardStaged()
+            return null
         }
         if (loaded == null || !stillHandingOver(file)) {
             driver.discardStaged()
@@ -1911,6 +1926,10 @@ object PlaybackEngine {
             driver.stagedStatus?.first { snapshot -> snapshot?.decks?.getOrNull(snapshot.master)?.playing == true }
         }
         delay(BG_HANDOVER_OVERLAP_MS)
+        if (queueChanged()) {
+            driver.discardStaged()
+            return null
+        }
         if (!stillHandingOver(file) || !requestBgFocus(context)) {
             driver.discardStaged()
             return false
@@ -1925,6 +1944,17 @@ object PlaybackEngine {
         return true
     }
 
+    /** The queue in ExoPlayer's shuffle order from [currentIndex] on; with Repeat All, the tracks before it follow. */
+    private fun bgMixShuffleOrder(items: List<PlaybackItem>, currentIndex: Int, repeat: PlaybackRepeatMode): List<PlaybackItem> {
+        val order = exo?.let { target -> runCatching { target.shuffleOrder.toIndexOrder() }.getOrNull() }
+            ?.takeIf { it.size == items.size && currentIndex in it }
+            ?: return listOf(items[currentIndex]) + items.filterIndexed { i, _ -> i != currentIndex }.shuffled()
+        val at = order.indexOf(currentIndex)
+        val upcoming = order.drop(at)
+        val played = if (repeat == PlaybackRepeatMode.All) order.take(at) else emptyList()
+        return (upcoming + played).map { items[it] }
+    }
+
     /** The handover still applies: the same track plays on ExoPlayer and nothing took the queue meanwhile. */
     private fun stillHandingOver(file: PlaybackItem): Boolean {
         val now = _state.value
@@ -1935,11 +1965,11 @@ object PlaybackEngine {
      * The native queue ran out before the next file finished downloading. The regular player streams that track at once,
      * and BG Mix takes the queue back once its file is complete.
      */
-    private fun continueBgMixQueueOnExo(items: List<PlaybackItem>, index: Int) {
+    private fun continueBgMixQueueOnExo(items: List<PlaybackItem>, index: Int, autoPlay: Boolean = true) {
         val context = appContext ?: return
         if (!bgMixActive() || index !in items.indices) return
         stopBgMix()
-        startQueue(context, PlaybackQueue(items, index), queueSource, startPositionMs = null, startFraction = 0f, autoPlay = true)
+        startQueue(context, PlaybackQueue(items, index), queueSource, startPositionMs = null, startFraction = 0f, autoPlay = autoPlay)
     }
 
     private fun bgMixHasNext(index: Int, size: Int): Boolean =
@@ -2076,7 +2106,6 @@ object PlaybackEngine {
         cancelBgMixHandover()
         bgMixFeedJob?.cancel()
         bgMixFeedJob = null
-        bgMixRequestedKeys.clear()
         bgMixJob?.cancel()
         bgMixJob = null
         bgMixSeekJob?.cancel()
@@ -2170,7 +2199,10 @@ object PlaybackEngine {
                 state.repeatMode == PlaybackRepeatMode.One -> restartBgMix(state.queue, if (last) 0 else state.queueIndex + 1, 0L, state.intentPlaying || state.ended)
                 // The next track is still downloading and not in the native queue yet: the regular player streams it.
                 !last && bgMix?.hasNativeAfter(state.queueIndex) == false && bgMix?.pendingIndex != null ->
-                    bgMix?.pendingIndex?.let { continueBgMixQueueOnExo(state.queue, it) }
+                    bgMix?.pendingIndex?.let {
+                        // Like the regular Next, a paused queue stays paused on the new track.
+                        continueBgMixQueueOnExo(state.queue, it, autoPlay = state.playing || state.intentPlaying || state.ended)
+                    }
                 !last -> bgMix?.next()
                 state.repeatMode == PlaybackRepeatMode.All -> restartBgMix(state.queue, 0, 0L, state.intentPlaying || state.ended)
             }
@@ -3164,10 +3196,15 @@ object PlaybackEngine {
         } else {
             state.queue.indices.toList()
         }
-        prefetchCandidates(state, playbackOrder).forEach { item ->
+        prefetchCandidates(state, playbackOrder).forEach { item -> prefetchItem(context, source, item) }
+    }
+
+    /** Fetches [item] ahead under the automatic-download policy, so Data Saver, roaming and size limits apply. */
+    private fun prefetchItem(context: Context, source: PlaybackQueueSource, item: PlaybackItem) {
+        run {
             if (BotTrackResolver.isBotKey(item.key) && item.path.isBlank()) {
                 // A bot result is fetched ahead like a file, under the same automatic-download policy.
-                if (item.key in prefetchedKeys) return@forEach
+                if (item.key in prefetchedKeys) return@run
                 val request = AutoDownloadRequest(
                     fileId = 0,
                     kind = item.kind,
@@ -3183,16 +3220,16 @@ object PlaybackEngine {
                     prefetchedKeys.add(item.key)
                     BotTrackResolver.request(item.key)
                 }
-                return@forEach
+                return@run
             }
-            val fileId = item.fileId ?: return@forEach
-            if (source.accountId != item.accountId) return@forEach
+            val fileId = item.fileId ?: return@run
+            if (source.accountId != item.accountId) return@run
             // Speculative traffic must use the repository automatic path; the manual callback is reserved for
             // the track playback actually opens, so Data Saver/network cancellation can track prefetch downloads.
-            if (source.autoDownload == null) return@forEach
-            if (item.key in prefetchedKeys) return@forEach
-            val fileState = runCatching { source.observeFile(fileId).value }.getOrNull() ?: return@forEach
-            if (fileState.localPath != null || fileState.isDownloading) return@forEach
+            if (source.autoDownload == null) return@run
+            if (item.key in prefetchedKeys) return@run
+            val fileState = runCatching { source.observeFile(fileId).value }.getOrNull() ?: return@run
+            if (fileState.localPath != null || fileState.isDownloading) return@run
             val request = AutoDownloadRequest(
                 fileId = fileId,
                 kind = item.kind,
