@@ -21,4 +21,7 @@
     <string name="yandex_error_network">No connection. Check your network and try again.</string>
     <string name="yandex_error_unavailable">The service is unavailable in your region or is not responding.</string>
     <string name="yandex_error_generic">Sign-in failed. Try again.</string>
+    <string name="yandex_diag_title">Response diagnostics</string>
+    <string name="yandex_diag_share">Share</string>
+    <string name="yandex_diag_empty">No service response yet. Refresh the account card.</string>
 </resources>

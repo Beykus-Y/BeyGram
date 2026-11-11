@@ -40,6 +40,7 @@ import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.yandex.YandexDeviceCode
 import com.beykus.beygram.data.yandex.YandexMusicProvider
 import com.beykus.beygram.data.yandex.YandexSignInPoll
+import com.beykus.beygram.data.yandex.shareYandexSubscriptionDiagnostics
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassScreenBackground
@@ -86,6 +87,8 @@ private fun YandexSignInScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     var consented by rememberSaveable { mutableStateOf(false) }
+    var showDiagnostics by rememberSaveable { mutableStateOf(false) }
+    var diagnosticsError by remember { mutableStateOf<String?>(null) }
     var starting by remember { mutableStateOf(false) }
     // The pending code lives in the provider, so a recreated screen (rotation) shows it and resumes polling.
     var code by remember { mutableStateOf(provider.pendingSignIn()?.code) }
@@ -162,6 +165,38 @@ private fun YandexSignInScreen(onBack: () -> Unit) {
                             color = palette.textSecondary, fontSize = 14.sp,
                             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 12.dp)
                         )
+                        SettingsRowDivider()
+                        SettingsLink(
+                            icon = Icons.Rounded.Tune,
+                            title = stringResource(R.string.yandex_diag_title),
+                            onClick = { showDiagnostics = !showDiagnostics }
+                        )
+                        if (showDiagnostics) {
+                            val summary = provider.subscriptionDiagnostics
+                            Text(
+                                summary ?: stringResource(R.string.yandex_diag_empty),
+                                color = palette.textSecondary, fontSize = 12.sp,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
+                            )
+                            if (summary != null) {
+                                SettingsLink(
+                                    icon = Icons.Rounded.SwapHoriz,
+                                    title = stringResource(R.string.yandex_diag_share),
+                                    onClick = {
+                                        scope.launch {
+                                            diagnosticsError = shareYandexSubscriptionDiagnostics(context, summary)
+                                        }
+                                    }
+                                )
+                            }
+                            diagnosticsError?.let {
+                                Text(
+                                    it,
+                                    color = palette.danger, fontSize = 13.sp,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
                         SettingsRowDivider()
                         SettingsLink(
                             icon = Icons.Rounded.SwapHoriz,
