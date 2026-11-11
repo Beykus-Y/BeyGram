@@ -678,7 +678,7 @@ object PlaybackEngine {
         // Голосовое или кружок поверх музыки очередь не сбрасывают: музыка продолжится и дальше пойдёт по очереди.
         interruptedMusic = interruptedAfterStart(currentState, interruptedMusic, item, queueSource)
         queueSource = null
-        startSingle(context, item, startPositionMs = null, startFraction = 0f)
+        startSingle(context, item, startPositionMs = startPositionMs, startFraction = 0f)
     }
 
     private fun mergePlaybackItem(item: PlaybackItem, previous: PlaybackItem?): PlaybackItem = item.copy(

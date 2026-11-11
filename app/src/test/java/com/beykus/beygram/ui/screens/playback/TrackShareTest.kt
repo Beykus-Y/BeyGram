@@ -82,4 +82,9 @@ class TrackShareTest {
         assertNull(parseShareTimecodeMs("1:75", 200))
         assertNull(parseShareTimecodeMs("5:00", 200))
     }
+
+    @Test
+    fun localizedDigitsAreAccepted() {
+        assertEquals(83_000L, parseShareTimecodeMs("\u0661:\u0662\u0663", 200))
+    }
 }
