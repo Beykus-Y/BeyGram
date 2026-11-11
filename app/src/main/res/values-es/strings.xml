@@ -702,7 +702,7 @@
     <string name="settings_crossfade_desc">Mezcla suavemente el final de una pista con el inicio de la siguiente. Solo música; desactivado por defecto.</string>
     <string name="settings_skip_silence_desc">Quita las pausas al final y al principio de las pistas.</string>
     <string name="settings_bgmix_title">BG Mix (transiciones entre pistas)</string>
-    <string name="settings_bgmix_desc">Transiciones suaves y sin pausas entre pistas. Solo funciona cuando toda la cola está descargada. Experimental; los mensajes de voz y de vídeo no se ven afectados.</string>
+    <string name="settings_bgmix_desc">Transiciones suaves entre pistas sin pausas. La pista empieza a sonar enseguida y BG Mix la toma en cuanto su archivo se descarga; las siguientes pistas se descargan por adelantado. Experimental; no afecta a mensajes de voz ni de vídeo.</string>
     <string name="chat_settings_scope_note">Cambia el fondo solo de este chat</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Toca para revelar</string>
@@ -805,6 +805,8 @@
     <string name="player_bgmix_transition_to">Transición a «%1$s»</string>
     <string name="player_bgmix_transition_next">Transición a la siguiente pista</string>
     <string name="player_bgmix_explain">Está sonando el modo de transiciones suaves. Aleatorio, repetir y «Anterior» funcionan dentro de él, con una breve pausa en el sonido. La velocidad no está disponible en este modo.</string>
+    <string name="player_bgmix_badge_preparing">BG Mix · preparando</string>
+    <string name="player_bgmix_preparing_explain">BG Mix está preparando esta pista. Mientras tanto suena en el reproductor normal; cuando el archivo se descargue y esté listo, BG Mix la continuará en el mismo punto sin pausa.</string>
     <string name="player_sleep_status_track_end">Temporizador · hasta el final de la pista</string>
     <string name="player_sleep_until_track_end">Hasta el final de la pista</string>
     <string name="player_sleep_custom">Otro tiempo…</string>

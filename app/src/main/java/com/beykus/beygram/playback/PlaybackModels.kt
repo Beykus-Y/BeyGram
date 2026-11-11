@@ -135,6 +135,11 @@ data class PlaybackState(
     val waitingForNetwork: Boolean = false,
     /** The queue plays through BG Mix, which has no shuffle, repeat or speed; those buttons hand the queue to the regular player. */
     val bgMixActive: Boolean = false,
+    /**
+     * BG Mix is on and takes this queue over as soon as the playing track is ready for it: its file finished downloading
+     * and BG Mix prepared it. Until then the regular player plays, so the track starts at once.
+     */
+    val bgMixPreparing: Boolean = false,
     /** Плеер хотя бы раз сообщил, что файл реально играет. Отметка «прослушано» ставится по этому флагу, а не по нажатию. */
     val started: Boolean = false,
     /** Файл доиграл до конца. Кружок в ленте сворачивается, а новый запуск начинает файл сначала. */

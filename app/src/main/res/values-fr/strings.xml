@@ -728,7 +728,7 @@
     <string name="settings_crossfade_desc">Enchaîne en douceur la fin d’un morceau avec le début du suivant. Musique uniquement, désactivé par défaut.</string>
     <string name="settings_skip_silence_desc">Supprime les silences en fin et en début de morceau.</string>
     <string name="settings_bgmix_title">BG Mix (transitions entre morceaux)</string>
-    <string name="settings_bgmix_desc">Transitions fluides et sans coupure entre les morceaux. Fonctionne seulement quand toute la file est téléchargée. Expérimental ; les messages vocaux et vidéo ne sont pas concernés.</string>
+    <string name="settings_bgmix_desc">Transitions fluides entre les morceaux, sans pause. Un morceau démarre tout de suite et BG Mix le reprend dès que son fichier est téléchargé ; les morceaux suivants sont téléchargés à l’avance. Expérimental ; les messages vocaux et vidéo ne sont pas concernés.</string>
     <string name="chat_settings_scope_note">Modifie le fond d’écran de cette conversation uniquement</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Touchez pour révéler</string>
@@ -831,6 +831,8 @@
     <string name="player_bgmix_transition_to">Transition vers « %1$s »</string>
     <string name="player_bgmix_transition_next">Transition vers le morceau suivant</string>
     <string name="player_bgmix_explain">Le mode de transitions fluides est actif. Aléatoire, répétition et « Précédent » y fonctionnent, avec une brève coupure du son. La vitesse n’est pas disponible dans ce mode.</string>
+    <string name="player_bgmix_badge_preparing">BG Mix · préparation</string>
+    <string name="player_bgmix_preparing_explain">BG Mix prépare ce morceau. En attendant, il joue dans le lecteur habituel ; dès que le fichier est téléchargé et prêt, BG Mix le reprend au même endroit, sans coupure.</string>
     <string name="player_sleep_status_track_end">Minuteur · jusqu’à la fin du morceau</string>
     <string name="player_sleep_until_track_end">Jusqu’à la fin du morceau</string>
     <string name="player_sleep_custom">Durée personnalisée…</string>

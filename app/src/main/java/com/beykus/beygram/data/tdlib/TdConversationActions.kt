@@ -761,6 +761,16 @@ internal class TdConversationActions(
         (page + listOfNotNull(target)).distinctBy { it.id }.sortedBy { it.id }
     }
 
+    /** Only the message itself: TDLib answers from its local database when it has the message, without a history page. */
+    suspend fun single(chatId: Long, messageId: Long): Result<ChatMessage?> = conversationResult {
+        val target = if (chatId == 0L || messageId <= 0) null else try {
+            request(TdApi.GetMessage(chatId, messageId))
+        } catch (error: TdRequestError) {
+            if (error.code == 404) null else throw error
+        }
+        target?.let(map)
+    }
+
     suspend fun context(chatId: Long, messageId: Long): Result<MessageContext> = conversationResult {
         if (chatId == 0L || messageId <= 0) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
         val target = request(TdApi.GetMessage(chatId, messageId))

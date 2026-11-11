@@ -702,7 +702,7 @@
     <string name="settings_crossfade_desc">Smoothly blends the end of one track into the start of the next. Music only; off by default.</string>
     <string name="settings_skip_silence_desc">Removes the gaps at the end and the start of tracks.</string>
     <string name="settings_bgmix_title">BG Mix (transitions between tracks)</string>
-    <string name="settings_bgmix_desc">Smooth gapless transitions between tracks. Works only when the whole queue is downloaded. Experimental; voice and video messages are not affected.</string>
+    <string name="settings_bgmix_desc">Smooth gapless transitions between tracks. A track starts playing at once, and BG Mix picks it up as soon as its file is downloaded; the next tracks are downloaded ahead. Experimental; voice and video messages are not affected.</string>
     <string name="chat_settings_scope_note">Changes wallpaper for this chat only</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Tap to reveal</string>
@@ -805,6 +805,8 @@
     <string name="player_bgmix_transition_to">Transition to “%1$s”</string>
     <string name="player_bgmix_transition_next">Transition to the next track</string>
     <string name="player_bgmix_explain">Smooth transitions mode is playing. Shuffle, repeat and Previous work inside it, with a brief gap in the sound. Speed is not available in this mode.</string>
+    <string name="player_bgmix_badge_preparing">BG Mix · preparing</string>
+    <string name="player_bgmix_preparing_explain">BG Mix is preparing this track. For now it plays in the regular player; once the file is downloaded and ready, BG Mix picks it up at the same place without a gap.</string>
     <string name="player_sleep_status_track_end">Sleep timer · until the end of the track</string>
     <string name="player_sleep_until_track_end">Until the end of the track</string>
     <string name="player_sleep_custom">Custom time…</string>

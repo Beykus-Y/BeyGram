@@ -795,10 +795,10 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
             modifier = Modifier.padding(top = 4.dp)
         )
     }
-    if (player.bgMix) {
+    if (player.bgMix || player.bgMixPreparing) {
         var explain by remember { mutableStateOf(false) }
         Text(
-            stringResource(R.string.player_bgmix_badge),
+            stringResource(if (player.bgMix) R.string.player_bgmix_badge else R.string.player_bgmix_badge_preparing),
             color = palette.accentInk,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
@@ -813,7 +813,12 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
             onDismissRequest = { explain = false },
             containerColor = palette.surface,
             title = { Text(stringResource(R.string.player_bgmix_badge), color = palette.textPrimary) },
-            text = { Text(stringResource(R.string.player_bgmix_explain), color = palette.textSecondary) },
+            text = {
+                Text(
+                    stringResource(if (player.bgMix) R.string.player_bgmix_explain else R.string.player_bgmix_preparing_explain),
+                    color = palette.textSecondary
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { explain = false }) {
                     Text(stringResource(R.string.common_close), color = palette.textSecondary)
