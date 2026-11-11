@@ -39,6 +39,14 @@ object ProviderCovers {
     private val failed = HashMap<String, Long>()
     private const val RETRY_AFTER_MS = 5L * 60 * 1000
 
+    /**
+     * Bumped by [clear]. A download that started before a clear does not publish its file: the cover of a signed-out
+     * account never comes back after the cache was emptied. Publishing and clearing hold [publishLock].
+     */
+    @Volatile
+    private var generation = 0
+    private val publishLock = Any()
+
     private fun root(context: Context): File = File(context.applicationContext.cacheDir, DIRECTORY)
 
     /**
@@ -71,12 +79,16 @@ object ProviderCovers {
     /** Deletes every cached cover, for example after sign-out. */
     suspend fun clear(context: Context) = withContext(Dispatchers.IO) {
         synchronized(failed) { failed.clear() }
-        root(context).listFiles()?.forEach { it.delete() }
+        synchronized(publishLock) {
+            generation++
+            root(context).listFiles()?.forEach { it.delete() }
+        }
     }
 
     private fun download(context: Context, url: String, target: File): File? {
         val dir = root(context)
         dir.mkdirs()
+        val startedIn = generation
         val partial = File(dir, target.name + ".part")
         var connection: HttpURLConnection? = null
         return try {
@@ -98,7 +110,12 @@ object ProviderCovers {
                     }
                 }
             }
-            if (written == 0L || !partial.renameTo(target)) throw IOException("empty cover")
+            if (written == 0L) throw IOException("empty cover")
+            val published = synchronized(publishLock) { startedIn == generation && partial.renameTo(target) }
+            if (!published) {
+                partial.delete()
+                return null
+            }
             trim(dir)
             target
         } catch (e: CancellationException) {
