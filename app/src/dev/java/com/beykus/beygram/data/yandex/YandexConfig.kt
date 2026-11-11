@@ -12,8 +12,8 @@ internal object YandexConfig {
     const val API_BASE = "https://api.music.yandex.net"
 
     /** Header values the music service expects from a client. Kept identical to the public protocol notes. */
-    const val CLIENT_HEADER = "YandexMusicAndroid/24023621"
-    const val USER_AGENT = "Yandex-Music-Android/5.0"
+    const val CLIENT_HEADER = "YandexMusicAndroid/24024312"
+    const val USER_AGENT = "okhttp/4.12.0"
 
     /** Salt of the legacy download link signature (download-info XML). */
     const val DOWNLOAD_SIGN_SALT = "XGRlBW9FXlekgbPrRHuSiA"
