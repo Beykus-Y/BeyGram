@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.playback
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.playback.GrowingPlaybackSource
 import com.beykus.beygram.playback.PlaybackItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -45,5 +46,23 @@ class TrackShareTest {
             chat(4, canPost = false)
         )
         assertEquals(listOf(1L), shareTargetChats(chats).map { it.id })
+    }
+
+    @Test fun finishedGrowingDownloadIsSharedFromItsFile() {
+        fun growing(done: Boolean) = GrowingPlaybackSource(
+            totalSize = 100L,
+            readablePrefix = { 100L },
+            isComplete = { done },
+            completedPath = { if (done) "/music/done.opus" else null },
+            isDownloading = { !done },
+            onNeedMore = {},
+            advertiseLength = false
+        )
+        val running = track().copy(path = "/partial/a.opus", growing = growing(done = false))
+        assertFalse(canShareTrack(completedShareItem(running), originUnprotected = true))
+        val finished = track().copy(path = "/partial/a.opus", growing = growing(done = true))
+        val resolved = completedShareItem(finished)
+        assertEquals("/music/done.opus", resolved.path)
+        assertTrue(canShareTrack(resolved, originUnprotected = true))
     }
 }

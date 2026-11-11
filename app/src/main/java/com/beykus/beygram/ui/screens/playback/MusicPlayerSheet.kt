@@ -1193,7 +1193,7 @@ private fun PlayerActions(
     // not to protect its content; a chat that cannot be checked here gets no share.
     val shareSource = LocalPlaybackRepositorySource.current
     val shareAllowed = shareSource != null &&
-        canShareTrack(item, originUnprotected = item.origin == null || originChat?.hasProtectedContent == false)
+        canShareTrack(completedShareItem(item), originUnprotected = item.origin == null || originChat?.hasProtectedContent == false)
     val favorite = track != null && containsTrack(library?.favorites, track)
     val favoriteLabel = stringResource(R.string.music_favorite_label)
     val favoriteOnState = stringResource(R.string.music_favorite_state_on)
@@ -1231,7 +1231,7 @@ private fun PlayerActions(
         if (shareAllowed) {
             add(PlayerActionUi(Icons.Rounded.Share, shareLabel, onClick = {
                 shareSource?.let { source ->
-                    pendingShare = PendingTrackShare(item, shareTimecode(PlaybackEngine.state.value.positionMs), source)
+                    pendingShare = PendingTrackShare(completedShareItem(item), shareTimecode(PlaybackEngine.state.value.positionMs), source)
                 }
             }))
         }

@@ -41,6 +41,18 @@ internal fun canShareTrack(item: PlaybackItem, originUnprotected: Boolean): Bool
     item.isMusic && item.path.isNotBlank() && item.growing == null &&
         !item.secret && !item.isSecretChat && !item.viewOnce && originUnprotected
 
+/**
+ * The track as it is on disk now. A growing source that has finished downloading is replaced by its completed file, so
+ * an Ogg/Opus track that started before its download ended can still be shared. Anything still downloading is returned
+ * unchanged and fails [canShareTrack].
+ */
+internal fun completedShareItem(item: PlaybackItem): PlaybackItem {
+    val growing = item.growing ?: return item
+    if (!growing.isComplete()) return item
+    val completed = growing.completedPath()?.takeIf { it.isNotBlank() } ?: return item
+    return item.copy(path = completed, growing = null)
+}
+
 /** Chats that may receive a shared track: writable, and neither secret nor protecting its content. */
 internal fun shareTargetChats(chats: List<ChatPreview>): List<ChatPreview> =
     chats.filter { it.canPost && !it.isSecret && !it.hasProtectedContent }.distinctBy { it.id }
@@ -91,14 +103,15 @@ internal fun ShareTrackDialog(repository: TelegramRepository, item: PlaybackItem
         onSend = { targets, _ ->
             sending = true
             failure = null
+            val shareItem = completedShareItem(item)
             val trackAllowed = canShareTrack(
-                item,
+                shareItem,
                 originUnprotected = item.origin == null || originChatNow(repository, item)?.hasProtectedContent == false
             )
             val allowedChats = shareTargetChats(repository.chats.value + repository.archivedChats.value)
                 .map { it.id }
                 .toSet()
-            val media = if (trackAllowed) trackOutgoingMedia(item) else null
+            val media = if (trackAllowed) trackOutgoingMedia(shareItem) else null
             val failed = mutableListOf<ForwardTarget>()
             for (target in targets) {
                 val sent = media != null && target.chatId in allowedChats &&
