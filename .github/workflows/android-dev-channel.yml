@@ -77,10 +77,15 @@ jobs:
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          # Public OAuth pair for the experimental Yandex Music sign-in (DEV build only). Empty disables it.
+          YANDEX_MUSIC_CLIENT_ID: ${{ secrets.YANDEX_MUSIC_CLIENT_ID }}
+          YANDEX_MUSIC_CLIENT_SECRET: ${{ secrets.YANDEX_MUSIC_CLIENT_SECRET }}
         run: |
           {
             echo "telegramApiId=${TELEGRAM_API_ID:-0}"
             echo "telegramApiHash=${TELEGRAM_API_HASH:-}"
+            echo "yandexMusicClientId=${YANDEX_MUSIC_CLIENT_ID:-}"
+            echo "yandexMusicClientSecret=${YANDEX_MUSIC_CLIENT_SECRET:-}"
           } > secrets.properties
 
       - name: Run unit tests
