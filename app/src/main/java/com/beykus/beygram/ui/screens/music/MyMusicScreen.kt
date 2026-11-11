@@ -1,13 +1,10 @@
 package com.beykus.beygram.ui.screens.music
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import com.beykus.beygram.ui.components.topAppBarSurface
-import com.beykus.beygram.ui.design.styledShape
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,21 +12,24 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.NewReleases
+import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.WarningAmber
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.rounded.Whatshot
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -61,12 +60,18 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MUSIC_FAVORITES_PLAYLIST_ID
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.music.MusicOutcome
-import com.beykus.beygram.data.music.MusicPlaylist
 import com.beykus.beygram.data.music.PlaylistTrack
 import com.beykus.beygram.domain.repository.TelegramRepository
+import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.ui.components.SearchFieldButton
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import kotlinx.coroutines.launch
 
 /**
@@ -145,156 +150,130 @@ internal fun MyMusicScreen(
             )
         }
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
-            item(key = "search") {
-                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    SearchFieldButton(placeholder = stringResource(R.string.music_search_action), onClick = onSearch)
-                }
-            }
-            if (providerHost != null) item(key = "source-switch") {
-                MusicSourceSwitch(
-                    selected = shownSource,
-                    providerLabel = providerHost.tabLabel(),
-                    onSelect = { next ->
-                        source = next
-                        MusicHomeSourceStore.write(context, next)
-                    }
-                )
-            }
-            if (shownSource == MusicHomeSource.Provider && providerHost != null) {
-                item(key = "provider-library") {
-                    providerHost.LibrarySection(
-                        onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) },
-                        onSignIn = onProviderSignIn
-                    )
-                }
-            } else if (library == null) {
-                // The library of this account is still being read; no placeholder is shown in its place.
-                item(key = "library-loading") {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            val gridColumns = coverColumns(maxWidth)
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                item(key = "search") {
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        SearchFieldButton(placeholder = stringResource(R.string.music_search_action), onClick = onSearch)
                     }
                 }
-            } else {
-                if (storageError) item(key = "storage-error") { StorageErrorBanner() }
-                item(key = "favorites") {
-                    MusicSectionHeader(
-                        title = stringResource(R.string.music_favorites_title),
-                        actionLabel = if (favorites.isEmpty()) null else stringResource(R.string.music_show_all),
-                        onAction = { onOpenPlaylist(MUSIC_FAVORITES_PLAYLIST_ID) }
+                if (providerHost != null) item(key = "source-switch") {
+                    MusicSourceSwitch(
+                        selected = shownSource,
+                        providerLabel = providerHost.tabLabel(),
+                        onSelect = { next ->
+                            source = next
+                            MusicHomeSourceStore.write(context, next)
+                        }
                     )
                 }
-                if (favorites.isEmpty()) item(key = "favorites-empty") {
-                    MusicEmptyText(stringResource(R.string.music_empty_favorites))
-                }
-                itemsIndexed(
-                    favorites.take(MUSIC_PREVIEW_ROWS),
-                    key = { index, track -> "favorites:$index:${track.itemId}" }
-                ) { index, track ->
-                    MusicTrackRow(
-                        track = track,
-                        unavailable = false,
-                        onClick = { playSection(MUSIC_FAVORITES_PLAYLIST_ID, favorites, index) }
-                    )
-                }
-
-                item(key = "recent") {
-                    MusicSectionHeader(
-                        title = stringResource(R.string.music_section_recent),
-                        actionLabel = if (recent.isEmpty()) null else stringResource(R.string.music_show_all),
-                        onAction = { onOpenPlaylist(MusicCollectionKind.Recent.id) }
-                    )
-                }
-                if (recent.isEmpty()) item(key = "recent-empty") {
-                    MusicEmptyText(stringResource(R.string.music_empty_recent))
-                }
-                itemsIndexed(
-                    recent.take(MUSIC_PREVIEW_ROWS),
-                    key = { index, track -> "recent:$index:${track.itemId}" }
-                ) { index, track ->
-                    MusicTrackRow(
-                        track = track,
-                        unavailable = false,
-                        onClick = { playSection(MusicCollectionKind.Recent.id, recent, index) }
-                    )
-                }
-
-                item(key = "downloaded") {
-                    MusicSectionHeader(
-                        title = stringResource(R.string.music_section_downloaded),
-                        actionLabel = if (downloaded.isNullOrEmpty()) null else stringResource(R.string.music_show_all),
-                        onAction = { onOpenPlaylist(MusicCollectionKind.Downloaded.id) }
-                    )
-                }
-                when {
-                    downloaded == null -> item(key = "downloaded-loading") { MusicLoadingRow() }
-                    downloaded.isEmpty() -> item(key = "downloaded-empty") {
-                        MusicEmptyText(stringResource(R.string.music_empty_downloaded))
-                    }
-                    else -> itemsIndexed(
-                        downloaded.take(MUSIC_PREVIEW_ROWS),
-                        key = { index, track -> "downloaded:$index:${track.itemId}" }
-                    ) { index, track ->
-                        MusicTrackRow(
-                            track = track,
-                            unavailable = false,
-                            onClick = { playSection(MusicCollectionKind.Downloaded.id, downloaded, index) }
+                if (shownSource == MusicHomeSource.Provider && providerHost != null) {
+                    item(key = "provider-library") {
+                        providerHost.LibrarySection(
+                            onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) },
+                            onSignIn = onProviderSignIn
                         )
                     }
-                }
-
-                item(key = "playlists") {
-                    MusicSectionHeader(
-                        title = stringResource(R.string.music_section_playlists),
-                        actionLabel = null,
-                        onAction = {}
-                    )
-                }
-                if (playlists.isEmpty()) item(key = "playlists-empty") {
-                    MusicEmptyText(stringResource(R.string.music_empty_playlists))
-                }
-                items(playlists, key = { it.id }) { playlist ->
-                    PlaylistRow(playlist = playlist, onClick = { onOpenPlaylist(playlist.id) })
-                }
-                item(key = "playlists-create") {
-                    MusicActionRow(
-                        icon = Icons.Rounded.Add,
-                        label = stringResource(R.string.music_playlist_create),
-                        onClick = { creating = true }
-                    )
-                }
-
-                if (collections.isNotEmpty()) {
-                    item(key = "collections") {
-                        MusicSectionHeader(
-                            title = stringResource(R.string.music_section_collections),
-                            actionLabel = null,
-                            onAction = {}
-                        )
-                    }
-                    item(key = "collections-row") {
-                        LazyRow(
-                            Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(collections, key = { it.first.id }) { (kind, count) ->
-                                CollectionCard(
-                                    title = stringResource(musicCollectionTitleRes(kind)),
-                                    count = count,
-                                    onClick = { onOpenPlaylist(kind.id) }
+                } else if (library == null) {
+                    // The library of this account is still being read: gray stand-ins keep the shape of the screen.
+                    item(key = "library-loading") { MusicLoadingSkeleton() }
+                } else {
+                    if (storageError) item(key = "storage-error") { StorageErrorBanner() }
+                    item(key = "quick-tiles") {
+                        val tiles = buildList {
+                            add(MusicTile(Icons.Rounded.Star, stringResource(R.string.music_favorites_title), favorites.size, MUSIC_FAVORITES_PLAYLIST_ID))
+                            add(MusicTile(Icons.Rounded.History, stringResource(R.string.music_section_recent), recent.size, MusicCollectionKind.Recent.id))
+                            add(MusicTile(Icons.Rounded.DownloadDone, stringResource(R.string.music_section_downloaded), downloaded?.size, MusicCollectionKind.Downloaded.id))
+                            collections.forEach { (kind, count) ->
+                                add(MusicTile(collectionIcon(kind), stringResource(musicCollectionTitleRes(kind)), count, kind.id))
+                            }
+                        }
+                        Column(Modifier.padding(top = 8.dp)) {
+                            MusicTileGrid(count = tiles.size) { index ->
+                                val tile = tiles[index]
+                                MusicQuickTile(
+                                    icon = tile.icon,
+                                    title = tile.title,
+                                    count = tile.count?.let { pluralStringResource(R.plurals.music_track_count, it, it) },
+                                    onClick = { onOpenPlaylist(tile.routeId) }
                                 )
                             }
                         }
                     }
-                }
-                item(key = "local-only-note") {
-                    Text(
-                        stringResource(R.string.music_local_only_note),
-                        color = palette.textSecondary,
-                        fontSize = 12.sp,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
-                    )
+
+                    item(key = "playlists-heading") {
+                        Spacer(Modifier.height(8.dp))
+                        MusicGroupHeading(title = stringResource(R.string.music_section_playlists))
+                    }
+                    // The first card creates a playlist, so an empty library still shows where playlists go. Each row is its
+                    // own lazy item, so a library of hundreds of playlists keeps only the covers on screen.
+                    musicGridRows(key = "playlists", count = playlists.size + 1, columns = gridColumns) { index ->
+                        if (index == 0) {
+                            MusicCoverCard(
+                                title = stringResource(R.string.music_playlist_create),
+                                subtitle = null,
+                                onClick = { creating = true }
+                            ) { modifier ->
+                                Box(
+                                    modifier.clip(styledShape(14.dp)).background(palette.accentSoft),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Rounded.Add, null, tint = palette.accentInk, modifier = Modifier.size(32.dp))
+                                }
+                            }
+                        } else {
+                            val playlist = playlists[index - 1]
+                            MusicCoverCard(
+                                title = playlist.title,
+                                subtitle = pluralStringResource(R.plurals.music_track_count, playlist.tracks.size, playlist.tracks.size),
+                                onClick = { onOpenPlaylist(playlist.id) }
+                            ) { modifier ->
+                                TrackArtwork(
+                                    artworkPath = playlist.coverPath,
+                                    audioPath = null,
+                                    modifier = modifier,
+                                    background = palette.accentSoft,
+                                    tint = palette.accentInk,
+                                    symbolSize = 32.dp,
+                                    cornerRadius = 14.dp
+                                )
+                            }
+                        }
+                    }
+
+                    item(key = "recent-heading") {
+                        Spacer(Modifier.height(8.dp))
+                        MusicGroupHeading(
+                            title = stringResource(R.string.music_section_recent),
+                            actionLabel = if (recent.isEmpty()) null else stringResource(R.string.music_show_all),
+                            onAction = { onOpenPlaylist(MusicCollectionKind.Recent.id) }
+                        )
+                    }
+                    item(key = "recent-card") {
+                        MusicCardColumn {
+                            if (recent.isEmpty()) {
+                                MusicEmptyText(stringResource(R.string.music_empty_recent))
+                            } else {
+                                recent.take(MUSIC_PREVIEW_ROWS).forEachIndexed { index, track ->
+                                    MusicTrackRow(
+                                        track = track,
+                                        unavailable = false,
+                                        onClick = { playSection(MusicCollectionKind.Recent.id, recent, index) },
+                                        coverPath = rememberTelegramTrackCover(telegram, accountId, track.origin)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item(key = "local-only-note") {
+                        Text(
+                            stringResource(R.string.music_local_only_note),
+                            color = palette.textSecondary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 12.dp)
+                        )
+                    }
                 }
             }
         }
@@ -320,50 +299,15 @@ internal fun MyMusicScreen(
     )
 }
 
-/** A stored playlist in the list: cover, name and track count. */
-@Composable
-private fun PlaylistRow(playlist: MusicPlaylist, onClick: () -> Unit) {
-    val palette = beyGramPalette()
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 64.dp)
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        MusicPlaylistCover(coverPath = playlist.coverPath, size = 44.dp, cornerRadius = 12.dp)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(playlist.title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                pluralStringResource(R.plurals.music_track_count, playlist.tracks.size, playlist.tracks.size),
-                color = palette.textSecondary,
-                fontSize = 13.sp,
-                maxLines = 1
-            )
-        }
-        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = palette.textSecondary)
-    }
-}
+/** One quick-access tile of the Telegram tab and the list it opens. [count] is null while it is looked up. */
+private data class MusicTile(val icon: ImageVector, val title: String, val count: Int?, val routeId: String)
 
-/** A row with an icon and a label that starts something, such as creating a playlist. */
-@Composable
-private fun MusicActionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
-    val palette = beyGramPalette()
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp)
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            Modifier.size(44.dp).clip(styledShape(12.dp)).background(palette.accentSoft),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        Text(label, color = palette.accent, fontWeight = FontWeight.SemiBold)
-    }
+private fun collectionIcon(kind: MusicCollectionKind): ImageVector = when (kind) {
+    MusicCollectionKind.Recent -> Icons.Rounded.History
+    MusicCollectionKind.Downloaded -> Icons.Rounded.DownloadDone
+    MusicCollectionKind.Frequent -> Icons.Rounded.Whatshot
+    MusicCollectionKind.Added -> Icons.Rounded.NewReleases
+    MusicCollectionKind.Lately -> Icons.Rounded.Restore
 }
 
 /** The warning above the list when the library could not be read: changes made then are not saved. */
@@ -389,47 +333,19 @@ private fun StorageErrorBanner() {
     }
 }
 
-/** A smart collection in the horizontal row: its title and how many tracks it holds. */
-@Composable
-private fun CollectionCard(title: String, count: Int, onClick: () -> Unit) {
-    val palette = beyGramPalette()
-    Column(
-        Modifier.size(width = 150.dp, height = 96.dp)
-            .clip(styledShape(16.dp))
-            .background(palette.accentSoft)
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            title,
-            color = palette.accentInk,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            pluralStringResource(R.plurals.music_track_count, count, count),
-            color = palette.textSecondary,
-            fontSize = 12.sp,
-            maxLines = 1
-        )
-    }
-}
 
 /**
  * The Telegram / source switch under the search field. Two equal segments; the chosen one is filled with the accent
  * wash and read out as selected.
  */
 @Composable
-private fun MusicSourceSwitch(selected: MusicHomeSource, providerLabel: String, onSelect: (MusicHomeSource) -> Unit) {
+internal fun MusicSourceSwitch(selected: MusicHomeSource, providerLabel: String, onSelect: (MusicHomeSource) -> Unit) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(styledShape(14.dp))
-            .background(palette.surface2)
+            // A glass pill in Liquid Glass, the sunken surface in the other styles.
+            .glassCard(LocalDesignSystem.current, palette.surface2, palette.textSecondary, styledShape(14.dp))
             .padding(4.dp)
             .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -450,11 +366,17 @@ private fun MusicSourceSwitch(selected: MusicHomeSource, providerLabel: String, 
 @Composable
 private fun RowScope.MusicSourceSegment(label: String, selected: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
+    val motion = rememberMotionSpec(MotionToken.TabSelect)
+    val fill by animateColorAsState(
+        if (selected) palette.accentSoft else palette.accentSoft.copy(alpha = 0f),
+        animationSpec = motion.animationSpec(),
+        label = "music-source-fill"
+    )
     Box(
         Modifier.weight(1f)
             .heightIn(min = 40.dp)
             .clip(styledShape(11.dp))
-            .background(if (selected) palette.accentSoft else Color.Transparent)
+            .background(fill)
             .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center

@@ -308,6 +308,7 @@ internal fun MusicPlaylistScreen(
                         track = track,
                         unavailable = isUnavailable,
                         onClick = if (isUnavailable) null else ({ playAt(index, null) }),
+                        coverPath = if (isUnavailable) null else rememberTelegramTrackCover(telegram, accountId, track.origin),
                         trailing = {
                             if (stored != null) Box {
                                 IconButton(onClick = { trackMenu = track.itemId }) {
