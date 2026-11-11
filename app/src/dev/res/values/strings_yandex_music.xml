@@ -21,6 +21,8 @@
     <string name="yandex_error_network">Нет соединения. Проверьте сеть и попробуйте снова.</string>
     <string name="yandex_error_unavailable">Сервис недоступен в вашем регионе или временно не отвечает.</string>
     <string name="yandex_error_generic">Не удалось войти. Попробуйте снова.</string>
+    <string name="yandex_search_title">Яндекс Музыка</string>
+    <string name="yandex_search_empty">Ничего не найдено в Яндекс Музыке.</string>
     <string name="yandex_diag_title">Диагностика ответа</string>
     <string name="yandex_diag_share">Поделиться</string>
     <string name="yandex_diag_empty">Ответ сервиса ещё не получен. Обновите карточку аккаунта.</string>

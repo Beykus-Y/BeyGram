@@ -73,6 +73,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
+import com.beykus.beygram.ui.screens.music.ProviderMusicHosts
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -136,6 +137,8 @@ internal fun MusicSearchScreen(
     var publicSearchedQuery by remember(accountId) { mutableStateOf<String?>(null) }
     val publicJob = remember(accountId) { mutableStateOf<Job?>(null) }
     val publicRequestGeneration = remember(accountId) { AtomicLong() }
+    // Optional music source (DEV build only). Its results sit below the local ones and play through the shared queue.
+    val providerHost = remember { ProviderMusicHosts.yandex() }
     DisposableEffect(accountId, conversation) {
         onDispose {
             localRequestGeneration.incrementAndGet()
@@ -417,6 +420,13 @@ internal fun MusicSearchScreen(
                         } else {
                             null
                         }
+                    )
+                }
+                // Provider results come after the local rows, so the local heading keeps its own rows.
+                if (providerHost != null && onPick == null) item(key = "provider_source") {
+                    providerHost.SearchResults(
+                        query = query,
+                        onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) }
                     )
                 }
                 // Public results have an independent state: a local miss must never imply no public matches.
