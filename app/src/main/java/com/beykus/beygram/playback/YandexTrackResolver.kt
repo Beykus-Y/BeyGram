@@ -1,5 +1,10 @@
 package com.beykus.beygram.playback
 
+import android.content.Context
+import com.beykus.beygram.data.music.provider.MusicProvider
+import com.beykus.beygram.data.music.provider.MusicProviderFailure
+import com.beykus.beygram.data.music.provider.MusicProviders
+import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import java.io.File
 import java.io.IOException
@@ -47,6 +52,45 @@ internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFI
             Result.success(fetchCopy(File(cacheDir, DIR_NAME), trackId, linkOf))
         }
     }
+
+    private val wiringLock = Any()
+
+    @Volatile
+    private var wiredTo: MusicProvider? = null
+
+    /**
+     * Connects Yandex rows to the signed-in provider. The provider exists only in the DEV build, so Stable does nothing
+     * here. Calling it again for the same provider does nothing.
+     */
+    fun ensureConfigured(context: Context) {
+        val app = context.applicationContext
+        val provider = MusicProviders.yandex(app) ?: return
+        synchronized(wiringLock) {
+            if (wiredTo === provider) return
+            wiredTo = provider
+        }
+        configure(app.cacheDir) { trackId -> linkFor(provider, trackId) }
+    }
+
+    /**
+     * A temporary failure throws, so the row is tried again after the cooldown. A verdict (no subscription, no sign-in,
+     * track missing, changed service format) returns null, and the row fails like an unreadable file.
+     */
+    private suspend fun linkFor(provider: MusicProvider, trackId: String): YandexAudioLink? =
+        when (val result = provider.audio(trackId)) {
+            is ProviderResult.Success -> YandexAudioLink(result.value.url, result.value.codec)
+            is ProviderResult.Failure -> when (result.failure) {
+                MusicProviderFailure.RateLimited,
+                MusicProviderFailure.Unavailable,
+                MusicProviderFailure.Network,
+                MusicProviderFailure.SessionExpired,
+                MusicProviderFailure.Unknown -> throw IOException("Yandex audio is temporarily unavailable")
+                MusicProviderFailure.NotSignedIn,
+                MusicProviderFailure.SubscriptionRequired,
+                MusicProviderFailure.NotFound,
+                MusicProviderFailure.ServiceChanged -> null
+            }
+        }
 
     private suspend fun fetchCopy(
         dir: File,

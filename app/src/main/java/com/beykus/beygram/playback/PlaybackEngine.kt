@@ -632,6 +632,7 @@ object PlaybackEngine {
         onStarted: (() -> Unit)?,
         startPositionMs: Long? = null
     ) {
+        YandexTrackResolver.ensureConfigured(context)
         if (onStarted != null) startedCallback = item.key to onStarted
         val currentState = _state.value
         if (bgMixActive() && currentState.item?.key == item.key) {
