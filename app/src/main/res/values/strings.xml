@@ -2353,6 +2353,8 @@
     <string name="bgbeat_reanalyze">Повторить анализ ритма</string>
     <string name="player_more">Ещё</string>
     <string name="player_bgmix_badge">BG Mix</string>
+    <string name="player_bgmix_transition_to">Переход к «%1$s»</string>
+    <string name="player_bgmix_transition_next">Переход к следующему треку</string>
     <string name="player_bgmix_explain">Сейчас играет режим плавных переходов. Перемешивание, повтор и «Назад» работают в нём, при этом звук на миг прерывается. Скорость в этом режиме недоступна.</string>
     <string name="player_sleep_status_track_end">Таймер сна · до конца трека</string>
     <string name="player_sleep_until_track_end">До конца трека</string>

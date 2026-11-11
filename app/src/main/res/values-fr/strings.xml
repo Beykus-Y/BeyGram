@@ -826,6 +826,8 @@
     <string name="bgbeat_reanalyze">Analyser à nouveau le rythme</string>
     <string name="player_more">Plus</string>
     <string name="player_bgmix_badge">BG Mix</string>
+    <string name="player_bgmix_transition_to">Transition vers « %1$s »</string>
+    <string name="player_bgmix_transition_next">Transition vers le morceau suivant</string>
     <string name="player_bgmix_explain">Le mode de transitions fluides est actif. Aléatoire, répétition et « Précédent » y fonctionnent, avec une brève coupure du son. La vitesse n’est pas disponible dans ce mode.</string>
     <string name="player_sleep_status_track_end">Minuteur · jusqu’à la fin du morceau</string>
     <string name="player_sleep_until_track_end">Jusqu’à la fin du morceau</string>

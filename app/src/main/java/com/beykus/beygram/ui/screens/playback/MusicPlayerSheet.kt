@@ -630,6 +630,7 @@ private fun PlayerDetails(
 
     TrackMetadata(player, reduced)
     PlayerSeekSection(player)
+    if (player.bgMix) BgMixTransitionLine()
     Spacer(Modifier.height(6.dp))
     TransportControls(player, reduced)
     Spacer(Modifier.height(14.dp))

@@ -800,6 +800,8 @@
     <string name="bgbeat_reanalyze">Analizar el ritmo de nuevo</string>
     <string name="player_more">Más</string>
     <string name="player_bgmix_badge">BG Mix</string>
+    <string name="player_bgmix_transition_to">Transición a «%1$s»</string>
+    <string name="player_bgmix_transition_next">Transición a la siguiente pista</string>
     <string name="player_bgmix_explain">Está sonando el modo de transiciones suaves. Aleatorio, repetir y «Anterior» funcionan dentro de él, con una breve pausa en el sonido. La velocidad no está disponible en este modo.</string>
     <string name="player_sleep_status_track_end">Temporizador · hasta el final de la pista</string>
     <string name="player_sleep_until_track_end">Hasta el final de la pista</string>
