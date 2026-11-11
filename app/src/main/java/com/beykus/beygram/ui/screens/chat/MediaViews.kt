@@ -444,7 +444,12 @@ internal fun MediaPreview(
      */
     onStickerOpen: (() -> Unit)? = null,
     /** The chat may supply an ordered, lazily paged music queue instead of a standalone track. */
-    onMusicPlay: ((PlaybackItem) -> Unit)? = null,
+    onMusicPlay: ((PlaybackItem, Long?) -> Unit)? = null,
+    /**
+     * A play request from outside the row, for example a tap on the caption of a shared track. Each tap is a new
+     * instance, so the same timecode can be requested twice. Its start position is in milliseconds.
+     */
+    externalPlay: AudioPlayRequest? = null,
     /** Selection mode is on: a tap on the bubble selects the message instead of opening it. */
     selectionActive: Boolean = false,
 ) {
@@ -510,7 +515,10 @@ internal fun MediaPreview(
     // Голосовое ждёт загрузки в своём пузыре, поэтому здесь ожидание относится только к музыке.
     val row = remember(media.fileId) { Any() }
     val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
-    fun playAudio() {
+    // The start asked for while the file is still downloading; the last tap wins, a plain row tap clears it.
+    var pendingStartMs by remember(media.fileId) { mutableStateOf<Long?>(null) }
+    fun playAudio(startMs: Long? = null) {
+        pendingStartMs = startMs
         if (media.kind == MediaKind.Audio && thumbId != media.fileId && thumb.localPath == null && !media.isSecret) {
             // One wait per track: taps while the cover downloads must not stack observers. The process-scoped
             // observer keeps the player cover updated after this row leaves the composition.
@@ -533,16 +541,20 @@ internal fun MediaPreview(
         else {
             val item = media.playbackItem(audioPath, audioTitle, origin,
                 artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce)
-            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item) else startAudio(context, item)
+            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item, startMs) else startAudio(context, item, startMs)
+            pendingStartMs = null
         }
     }
+    LaunchedEffect(externalPlay) { externalPlay?.let { playAudio(it.startMs) } }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
         if (waitingForAudio && audioPath != null) {
             pendingPlaybackRow.value = null
             val item = media.playbackItem(audioPath, audioTitle, origin,
                 artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce)
-            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item) else startAudio(context, item)
+            val startMs = pendingStartMs
+            pendingStartMs = null
+            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item, startMs) else startAudio(context, item, startMs)
         }
     }
     DisposableEffect(row) {
@@ -1687,9 +1699,12 @@ private fun AudioInPlayer(
 }
 
 /** Музыка из чата и просмотрщика идёт через общий плеер. Новый файл заменяет текущий, в том числе кружок в ленте. */
-private fun startAudio(context: Context, item: PlaybackItem) {
-    PlaybackEngine.toggle(context, item)
+private fun startAudio(context: Context, item: PlaybackItem, startMs: Long? = null) {
+    PlaybackEngine.toggle(context, item, startPositionMs = startMs)
 }
+
+/** A request to play a track from a chat bubble outside its row; [startMs] null means from the start. */
+internal class AudioPlayRequest(val startMs: Long?)
 
 internal fun openExternalMedia(context: Context, path: String, mime: String): String? = runCatching {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))

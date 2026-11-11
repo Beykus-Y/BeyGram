@@ -32,6 +32,21 @@ internal fun shareTimecode(positionMs: Long): String {
     return if (hours > 0L) "%d:%02d:%02d".format(hours, minutes, seconds) else "%d:%02d".format(minutes, seconds)
 }
 
+private val SHARE_TIMECODE = Regex("""^(?:(\d{1,3}):)?([0-5]?\d):([0-5]\d)$""")
+
+/**
+ * The start position, in milliseconds, of a shared track whose caption is exactly a timecode written by [shareTimecode].
+ * Null for any other caption, and for a timecode at or past the end of a track whose length is known, so such a message
+ * plays from the start instead of ending at once.
+ */
+fun parseShareTimecodeMs(caption: String, durationSeconds: Int): Long? {
+    val match = SHARE_TIMECODE.matchEntire(caption.trim()) ?: return null
+    val hours = match.groupValues[1].toLongOrNull() ?: 0L
+    val seconds = hours * 3600L + match.groupValues[2].toLong() * 60L + match.groupValues[3].toLong()
+    if (durationSeconds > 0 && seconds >= durationSeconds) return null
+    return seconds * 1000L
+}
+
 /**
  * Only a complete local music file is sent. A track from a secret chat, a view-once message or a chat that protects
  * its content from copying is never offered. [originUnprotected] is true only when the track's chat is known not to

@@ -130,6 +130,7 @@ import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
+import com.beykus.beygram.ui.screens.playback.parseShareTimecodeMs
 import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
@@ -1862,13 +1863,13 @@ fun ChatScreen(
                                     conversation.addPollOption(chat.id, messageId, text)
                                 },
                                 onAutoDownloadFile = onAutoDownloadFile,
-                                onMusicPlay = { selected ->
+                                onMusicPlay = { selected, startMs ->
                                     // Never build a cross-topic, protected or secret conversation playlist.
                                     if (chat.isSecret || chat.hasProtectedContent || selected.systemPrivate) {
-                                        PlaybackEngine.toggle(context, selected.copy(secret = true))
+                                        PlaybackEngine.toggle(context, selected.copy(secret = true), startPositionMs = startMs)
                                     } else if (PlaybackEngine.state.value.item?.key == selected.key) {
                                         // A second tap preserves any pages already appended to the active queue.
-                                        PlaybackEngine.toggle(context, selected)
+                                        PlaybackEngine.toggle(context, selected, startPositionMs = startMs)
                                     } else {
                                         val fallback = context.getString(R.string.media_kind_audio)
                                         val initial = orderedChatMusic(
@@ -1901,7 +1902,8 @@ fun ChatScreen(
                                             PlaybackQueueSource(
                                                 accountId, observeFile, onDownloadFile, onAutoDownloadFile,
                                                 loadMore = { nextMusicPage() }
-                                            )
+                                            ),
+                                            startPositionMs = startMs
                                         )
                                     }
                                 },
@@ -2821,7 +2823,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onRateTranscription: ((Boolean) -> Unit)? = null,
     speechRecognitionUi: SpeechRecognitionUi = SpeechRecognitionUi(),
     onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
-    onMusicPlay: ((PlaybackItem) -> Unit)? = null,
+    onMusicPlay: ((PlaybackItem, Long?) -> Unit)? = null,
     commentsBar: (@Composable () -> Unit)? = null,
     selectionMode: Boolean = false,
     selected: Boolean = false,
@@ -2882,6 +2884,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val longPressLabel = stringResource(if (longPressSelects) R.string.message_action_select else R.string.a11y_message_actions)
     val selectionLabel = if (selectionMode) stringResource(if (selected) R.string.message_selection_deselect else R.string.message_selection_select) else null
     val selectionState = if (selectionMode) stringResource(if (selected) R.string.message_selection_selected else R.string.message_selection_not_selected) else null
+    var captionPlay by remember(message.id) { mutableStateOf<AudioPlayRequest?>(null) }
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
             onReply = { onReply?.invoke(message.id) }) { swipe ->
@@ -2907,6 +2910,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                             onClickLabel = when {
                                 selectionMode -> selectionLabel
                                 sticker -> openStickerSetLabel
+                                message.media?.kind == MediaKind.Audio -> null
                                 message.media != null && !message.media.kind.playsInline() -> openMediaLabel
                                 else -> null
                             },
@@ -2915,6 +2919,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 when {
                                     selectionMode -> onToggleSelection()
                                     sticker -> stickerMedia?.let { onStickerOpen?.invoke(it) }
+                                    // A tap on the caption of a track, such as a shared timecode, plays it in the music player.
+                                    message.media?.kind == MediaKind.Audio ->
+                                        captionPlay = AudioPlayRequest(parseShareTimecodeMs(message.text, message.media.durationSeconds))
                                     message.media != null && !message.media.kind.playsInline() -> onOpen()
                                 }
                             },
@@ -2960,6 +2967,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 viewOnce = message.isViewOnce,
                                 autoDownloadFile = onAutoDownloadFile,
                                 onMusicPlay = onMusicPlay,
+                                externalPlay = captionPlay,
                                 onStickerOpen = onStickerOpen?.let { callback ->
                                     stickerMedia?.let { stickerMedia ->
                                         { if (selectionMode) onToggleSelection() else callback(stickerMedia) }

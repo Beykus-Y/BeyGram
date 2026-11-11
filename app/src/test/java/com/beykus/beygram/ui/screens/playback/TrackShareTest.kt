@@ -7,6 +7,7 @@ import com.beykus.beygram.playback.GrowingPlaybackSource
 import com.beykus.beygram.playback.PlaybackItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -64,5 +65,21 @@ class TrackShareTest {
         val resolved = completedShareItem(finished)
         assertEquals("/music/done.opus", resolved.path)
         assertTrue(canShareTrack(resolved, originUnprotected = true))
+    }
+
+    @Test
+    fun timecodeCaptionRoundTripsToStartPosition() {
+        assertEquals(83_000L, parseShareTimecodeMs(shareTimecode(83_900L), 200))
+        assertEquals(3_725_000L, parseShareTimecodeMs(shareTimecode(3_725_000L), 4_000))
+        assertEquals(0L, parseShareTimecodeMs("0:00", 200))
+        assertEquals(83_000L, parseShareTimecodeMs(" 1:23 ", 0))
+    }
+
+    @Test
+    fun otherCaptionsAndTimecodesPastTheEndStartFromTheBeginning() {
+        assertNull(parseShareTimecodeMs("", 200))
+        assertNull(parseShareTimecodeMs("listen at 1:23", 200))
+        assertNull(parseShareTimecodeMs("1:75", 200))
+        assertNull(parseShareTimecodeMs("5:00", 200))
     }
 }
