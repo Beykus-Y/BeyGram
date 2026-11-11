@@ -87,15 +87,19 @@ private fun YandexSignInScreen(onBack: () -> Unit) {
 
     var consented by rememberSaveable { mutableStateOf(false) }
     var starting by remember { mutableStateOf(false) }
-    var code by remember { mutableStateOf<YandexDeviceCode?>(null) }
+    // The pending code lives in the provider, so a recreated screen (rotation) shows it and resumes polling.
+    var code by remember { mutableStateOf(provider.pendingSignIn()?.code) }
     var failure by remember { mutableStateOf<MusicProviderFailure?>(null) }
 
     // Polls the token endpoint at the service's interval until the user confirms, the code expires, or it fails.
     LaunchedEffect(code) {
         val current = code ?: return@LaunchedEffect
+        val pending = provider.pendingSignIn() ?: run {
+            code = null
+            return@LaunchedEffect
+        }
         var intervalMs = current.intervalSec * 1_000L
-        val deadline = System.currentTimeMillis() + current.expiresInSec * 1_000L
-        while (System.currentTimeMillis() < deadline) {
+        while (System.currentTimeMillis() < pending.deadlineMs) {
             delay(intervalMs)
             when (val poll = provider.pollSignIn(current)) {
                 YandexSignInPoll.Pending -> Unit
@@ -111,6 +115,7 @@ private fun YandexSignInScreen(onBack: () -> Unit) {
                 }
             }
         }
+        provider.clearPendingSignIn()
         failure = MusicProviderFailure.SessionExpired
         code = null
     }
