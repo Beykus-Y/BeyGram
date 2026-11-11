@@ -1525,6 +1525,19 @@ internal fun chatListDensityFor(density: ListDensity): ChatListDensity = when (d
     ListDensity.Spacious -> ChatListDensity(rowVerticalPadding = 14.dp)
 }
 
+/**
+ * The fill of the row of the chat open in the right pane, per style: the Signature ink tile, the Material 3 secondary
+ * container, 12 % of the main colour for Material 2, a tonal lens on glass and the accent wash of Default.
+ */
+@Composable
+internal fun openChatRowFill(design: com.beykus.beygram.ui.design.DesignSystem, accentSoft: Color, accent: Color, ink: Color): Color = when {
+    design.style == DesignStyle.Signature -> ink.copy(alpha = 0.08f)
+    design.style == DesignStyle.Material3 -> MaterialTheme.colorScheme.secondaryContainer
+    design.style == DesignStyle.Material2 -> accent.copy(alpha = 0.12f)
+    design.usesGlassPanels -> ink.copy(alpha = 0.10f)
+    else -> accentSoft
+}
+
 /** Telegram shows a chat as unread either because of a server unread count or an explicit manual marker. */
 internal fun showsUnreadIndicator(chat: ChatPreview): Boolean = chat.unreadCount > 0 || chat.isMarkedAsUnread
 
@@ -1537,7 +1550,13 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
     onClick: () -> Unit, onLongClick: (() -> Unit)? = null, highlighted: Boolean = false) {
     val palette = beyGramPalette()
     val listDensity = LocalChatListDensity.current
-    val main = LocalDesignSystem.current.mainScreen
+    val design = LocalDesignSystem.current
+    val main = design.mainScreen
+    // A short window fits one more row with the 44 dp avatar and 6 dp padding, unless the user chose another density.
+    val shortWindow = LocalWindowLayout.current.heightCompact
+    val rowPadding = if (shortWindow && listDensity.rowVerticalPadding == ChatListDensity().rowVerticalPadding) 6.dp
+    else listDensity.rowVerticalPadding
+    val avatarSize = if (shortWindow) minOf(main.avatarSize, 44.dp) else main.avatarSize
     val unread = showsUnreadIndicator(chat)
     val emptyPreview = (chat.lastMessage as? UiText.Raw)?.text?.isBlank() == true
     val preview = previewLine(chat, emptyPreview)
@@ -1560,17 +1579,17 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
     Row(
         modifier = Modifier.fillMaxWidth()
             .then(if (main.rowInset > 0.dp) Modifier.padding(horizontal = main.rowInset).clip(tileShape) else Modifier)
-            .background(if (highlighted) palette.accentSoft else Color.Transparent)
+            .background(if (highlighted) openChatRowFill(design, palette.accentSoft, palette.accent, palette.textPrimary) else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick, role = Role.Button)
             .semantics(mergeDescendants = true) {
                 contentDescription = description
                 // TalkBack announces which conversation is already open in the right pane.
                 if (highlighted) selected = true
             }
-            .padding(horizontal = (20.dp - main.rowInset).coerceAtLeast(0.dp), vertical = listDensity.rowVerticalPadding),
+            .padding(horizontal = (20.dp - main.rowInset).coerceAtLeast(0.dp), vertical = rowPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ChatAvatar(chat, main.avatarSize, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+        ChatAvatar(chat, avatarSize, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
