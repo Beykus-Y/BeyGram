@@ -39,6 +39,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -178,33 +185,81 @@ private fun ChatsPanes(
             Box(Modifier.width(listPaneWidth).fillMaxHeight().padding(start = 0.dp, end = 4.dp, bottom = 8.dp).clip(card)) { listColumn() }
             Box(Modifier.weight(1f).then(detailBase).padding(start = 4.dp, end = 8.dp, bottom = 8.dp).clip(card)) { detail() }
         }
-        else -> Row(modifier) {
-            Box(
-                Modifier.width(listPaneWidth).fillMaxHeight()
-                    .then(
-                        if (separator == ChatPaneSeparator.Shadow) Modifier.zIndex(1f).shadow(3.dp, RectangleShape, clip = false)
-                        else Modifier
-                    )
-            ) { listColumn() }
-            when (separator) {
-                ChatPaneSeparator.Line -> Box(Modifier.fillMaxHeight().width(1.dp).background(palette.divider))
-                ChatPaneSeparator.TonalLine -> Box(Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
-                ChatPaneSeparator.RimGradient -> Box(
-                    Modifier.fillMaxHeight().width(1.dp).background(
-                        Brush.verticalGradient(
-                            listOf(
-                                palette.textSecondary.copy(alpha = 0.34f),
-                                palette.textSecondary.copy(alpha = 0.08f)
-                            )
-                        )
-                    )
+        else -> {
+            // On a wide window the divider can be dragged and the width is remembered; elsewhere it is a plain line.
+            val resizable = layout.widthExpanded && !layout.heightCompact
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var dragged by remember {
+                mutableStateOf(
+                    runCatching {
+                        context.getSharedPreferences("wide_layout", android.content.Context.MODE_PRIVATE)
+                            .getFloat("list_pane_dp", 0f)
+                    }.getOrDefault(0f).takeIf { it > 0f }
                 )
-                else -> Unit
             }
-            Box(Modifier.weight(1f).then(detailBase)) { detail() }
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            BoxWithConstraints(modifier) {
+                val maxList = (maxWidth.value - ChatsListPaneMinWidthDp).coerceAtLeast(ChatsListPaneMinWidthDp)
+                val paneWidth = if (resizable) (dragged ?: listPaneWidth.value).coerceIn(ChatsListPaneMinWidthDp, maxList).dp else listPaneWidth
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalChatPaneWidthDp provides (maxWidth.value - paneWidth.value - if (resizable) 12f else 1f)
+                ) {
+                Row(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier.width(paneWidth).fillMaxHeight()
+                            .then(
+                                if (separator == ChatPaneSeparator.Shadow) Modifier.zIndex(1f).shadow(3.dp, RectangleShape, clip = false)
+                                else Modifier
+                            )
+                    ) { listColumn() }
+                    Box(
+                        Modifier.fillMaxHeight().width(if (resizable) 12.dp else 1.dp)
+                            .then(
+                                if (resizable) Modifier.pointerInput(maxList) {
+                                    detectHorizontalDragGestures(
+                                        onDragEnd = {
+                                            dragged?.let { w ->
+                                                runCatching {
+                                                    context.getSharedPreferences("wide_layout", android.content.Context.MODE_PRIVATE)
+                                                        .edit().putFloat("list_pane_dp", w).apply()
+                                                }
+                                            }
+                                        }
+                                    ) { change, dx ->
+                                        change.consume()
+                                        val now = (dragged ?: paneWidth.value) + dx / density.density
+                                        dragged = now.coerceIn(ChatsListPaneMinWidthDp, maxList)
+                                    }
+                                } else Modifier
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        when (separator) {
+                            ChatPaneSeparator.Line -> Box(Modifier.fillMaxHeight().width(1.dp).background(palette.divider))
+                            ChatPaneSeparator.TonalLine -> Box(Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                            ChatPaneSeparator.RimGradient -> Box(
+                                Modifier.fillMaxHeight().width(1.dp).background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            palette.textSecondary.copy(alpha = 0.34f),
+                                            palette.textSecondary.copy(alpha = 0.08f)
+                                        )
+                                    )
+                                )
+                            )
+                            else -> Unit
+                        }
+                    }
+                    Box(Modifier.weight(1f).then(detailBase)) { detail() }
+                }
+                }
+            }
         }
     }
 }
+
+/** The width the chat pane really has (after a drag of the divider); null outside the split layout. */
+internal val LocalChatPaneWidthDp = androidx.compose.runtime.compositionLocalOf<Float?> { null }
 
 /** How the list pane and the chat pane are told apart. */
 internal enum class ChatPaneSeparator { Line, TonalLine, Shadow, Cards, RimGradient }
