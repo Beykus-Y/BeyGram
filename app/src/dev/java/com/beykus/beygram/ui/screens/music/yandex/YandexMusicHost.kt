@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.music.yandex
 
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Spacer
@@ -38,6 +39,7 @@ import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.music.ProviderMusicHost
+import com.beykus.beygram.ui.screens.music.ProviderTrackRow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -152,6 +154,8 @@ class YandexMusicHost : ProviderMusicHost {
         onPlay(tracks, index)
     }
 
+    override fun isAvailable(context: Context): Boolean = MusicProviders.yandex(context) != null
+
     @Composable
     override fun tabLabel(): String = stringResource(R.string.yandex_tab_label)
 
@@ -200,33 +204,14 @@ class YandexMusicHost : ProviderMusicHost {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
                 libraryLiked.take(LIBRARY_PREVIEW_ROWS).forEachIndexed { index, track ->
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .then(
-                                if (onPlay != null && track.isAvailable) {
-                                    Modifier.clickable { startPlayback(libraryLiked, index, onPlay) }
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            track.title,
-                            color = if (track.isAvailable) palette.textPrimary else palette.textSecondary,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            track.performer,
-                            color = palette.textSecondary,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    ProviderTrackRow(
+                        track = track,
+                        onClick = if (onPlay != null && track.isAvailable) {
+                            { startPlayback(libraryLiked, index, onPlay) }
+                        } else {
+                            null
+                        }
+                    )
                 }
             }
             if (libraryPlaylists.isNotEmpty()) {
@@ -299,33 +284,14 @@ class YandexMusicHost : ProviderMusicHost {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
             found?.forEachIndexed { index, track ->
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (onPlay != null && track.isAvailable) {
-                                Modifier.clickable { startPlayback(found, index, onPlay) }
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        track.title,
-                        color = if (track.isAvailable) palette.textPrimary else palette.textSecondary,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        track.performer,
-                        color = palette.textSecondary,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                ProviderTrackRow(
+                    track = track,
+                    onClick = if (onPlay != null && track.isAvailable) {
+                        { startPlayback(found, index, onPlay) }
+                    } else {
+                        null
+                    }
+                )
             }
         }
     }

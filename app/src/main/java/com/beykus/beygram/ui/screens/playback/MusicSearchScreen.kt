@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.PlaylistTrack
 import com.beykus.beygram.data.music.toPlaylistTrack
 import com.beykus.beygram.domain.model.AutoDownloadRequest
@@ -122,12 +123,6 @@ internal fun MusicSearchScreen(
     // the screen comes back from the background or a rotation.
     val searchFocus = remember { FocusRequester() }
     var focusRequested by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(focusOnOpen) {
-        if (focusOnOpen && !focusRequested) {
-            focusRequested = true
-            runCatching { searchFocus.requestFocus() }
-        }
-    }
     // The track a row asked to add to a playlist. Only results that are sent music with an origin qualify.
     var addTrack by remember(accountId) { mutableStateOf<PlaylistTrack?>(null) }
     var results by remember(accountId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
@@ -390,6 +385,12 @@ internal fun MusicSearchScreen(
                     placeholder = stringResource(R.string.music_search_hint),
                     focusRequester = searchFocus
                 )
+                // Runs inside the Scaffold content, after the field is attached; the request counts only once it worked.
+                LaunchedEffect(focusOnOpen) {
+                    if (focusOnOpen && !focusRequested) {
+                        focusRequested = runCatching { searchFocus.requestFocus() }.isSuccess
+                    }
+                }
             }
             if (query.isBlank()) Text(
                 stringResource(if (onPick != null) R.string.music_attach_intro else R.string.music_search_intro),
@@ -439,7 +440,7 @@ internal fun MusicSearchScreen(
                 if (providerHost != null && onPick == null) item(key = "provider_source") {
                     providerHost.SearchResults(
                         query = query,
-                        onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) }
+                        onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) }
                     )
                 }
                 // Public results have an independent state: a local miss must never imply no public matches.

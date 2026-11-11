@@ -172,11 +172,37 @@ internal fun MusicTrackRow(
     coverPath: String? = null,
     trailing: @Composable () -> Unit = {}
 ) {
+    val subtitle = if (unavailable) stringResource(R.string.music_unavailable) else track.performer
+    MusicTrackRowLayout(
+        title = track.title,
+        subtitle = subtitle,
+        durationSeconds = track.durationSeconds,
+        coverPath = coverPath,
+        unavailable = unavailable,
+        current = rememberIsCurrentTrack(track.origin),
+        onClick = onClick,
+        trailing = trailing
+    )
+}
+
+/**
+ * The one track row of the music screens, for every source: cover, title, subtitle and length. [current] gives the
+ * accent title and a sound mark over the cover; [unavailable] dims the row.
+ */
+@Composable
+internal fun MusicTrackRowLayout(
+    title: String,
+    subtitle: String,
+    durationSeconds: Int,
+    coverPath: String?,
+    unavailable: Boolean,
+    current: Boolean,
+    onClick: (() -> Unit)?,
+    trailing: @Composable () -> Unit = {}
+) {
     val palette = beyGramPalette()
     val untitled = stringResource(R.string.music_untitled)
-    val subtitle = if (unavailable) stringResource(R.string.music_unavailable) else track.performer
-    val duration = formatClockDuration(track.durationSeconds)
-    val current = rememberIsCurrentTrack(track.origin)
+    val duration = formatClockDuration(durationSeconds)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 64.dp)
             .alpha(if (unavailable) 0.45f else 1f)
@@ -209,7 +235,7 @@ internal fun MusicTrackRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                track.title.ifBlank { untitled },
+                title.ifBlank { untitled },
                 color = if (current) palette.accent else palette.textPrimary,
                 fontWeight = if (current) FontWeight.SemiBold else null,
                 maxLines = 1,
@@ -244,6 +270,14 @@ internal fun rememberIsCurrentTrack(origin: PlaybackOrigin?): Boolean {
                 playing.accountId == origin.accountId
         }.distinctUntilChanged()
     }
+    val current by flow.collectAsStateWithLifecycle(initialValue = false)
+    return current
+}
+
+/** Whether the player holds the item with [key] right now, playing or paused. Used by source tracks without a chat. */
+@Composable
+internal fun rememberIsCurrentItem(key: String): Boolean {
+    val flow = remember(key) { PlaybackEngine.state.map { it.item?.key == key }.distinctUntilChanged() }
     val current by flow.collectAsStateWithLifecycle(initialValue = false)
     return current
 }

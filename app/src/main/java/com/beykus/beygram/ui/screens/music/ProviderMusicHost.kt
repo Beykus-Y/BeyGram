@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.music
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.data.music.provider.ProviderTrack
@@ -9,6 +10,12 @@ import com.beykus.beygram.data.music.provider.ProviderTrack
  * references the implementation, which is loaded by class name (see [ProviderMusicHosts]).
  */
 interface ProviderMusicHost {
+    /**
+     * Whether this build can reach the source at all, for example has its sign-in keys. When it cannot, the music
+     * screen shows no tab for it instead of a sign-in that leads nowhere.
+     */
+    fun isAvailable(context: Context): Boolean = true
+
     /**
      * Results of [query] from this source, shown below the local results. Draws nothing when the source is not
      * signed in or the query is blank. [onPlay] starts a list at an index; null means the rows cannot play yet.

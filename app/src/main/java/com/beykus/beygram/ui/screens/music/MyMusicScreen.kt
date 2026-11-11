@@ -57,12 +57,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.MUSIC_FAVORITES_PLAYLIST_ID
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.music.MusicOutcome
 import com.beykus.beygram.data.music.PlaylistTrack
 import com.beykus.beygram.domain.repository.TelegramRepository
-import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.ui.components.SearchFieldButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.topAppBarSurface
@@ -120,8 +120,9 @@ internal fun MyMusicScreen(
         }
     }
 
-    // Optional music source (DEV build only). It gets its own tab; without it the screen shows Telegram only.
-    val providerHost = remember { ProviderMusicHosts.yandex() }
+    // Optional music source (DEV build only). It gets its own tab; without it, or when this build cannot reach it,
+    // the screen shows Telegram only.
+    val providerHost = remember(context) { ProviderMusicHosts.yandex()?.takeIf { it.isAvailable(context) } }
     var source by remember(context) { mutableStateOf(MusicHomeSourceStore.read(context)) }
     val shownSource = if (providerHost == null) MusicHomeSource.Telegram else source
 
@@ -171,7 +172,7 @@ internal fun MyMusicScreen(
                 if (shownSource == MusicHomeSource.Provider && providerHost != null) {
                     item(key = "provider-library") {
                         providerHost.LibrarySection(
-                            onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) },
+                            onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) },
                             onSignIn = onProviderSignIn
                         )
                     }
