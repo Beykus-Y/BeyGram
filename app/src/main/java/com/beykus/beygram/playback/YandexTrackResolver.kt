@@ -80,13 +80,14 @@ internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFI
         when (val result = provider.audio(trackId)) {
             is ProviderResult.Success -> YandexAudioLink(result.value.url, result.value.codec)
             is ProviderResult.Failure -> when (result.failure) {
+                // Sign-in and subscription can change while the app runs, so these are retried, never kept as verdicts.
                 MusicProviderFailure.RateLimited,
                 MusicProviderFailure.Unavailable,
                 MusicProviderFailure.Network,
                 MusicProviderFailure.SessionExpired,
-                MusicProviderFailure.Unknown -> throw IOException("Yandex audio is temporarily unavailable")
                 MusicProviderFailure.NotSignedIn,
                 MusicProviderFailure.SubscriptionRequired,
+                MusicProviderFailure.Unknown -> throw IOException("Yandex audio is not available right now")
                 MusicProviderFailure.NotFound,
                 MusicProviderFailure.ServiceChanged -> null
             }
