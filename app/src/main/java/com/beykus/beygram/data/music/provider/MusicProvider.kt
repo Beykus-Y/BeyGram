@@ -13,7 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
  *   not returned in models and not stored in playback sessions. [ProviderAudio.url] is short-lived; request it
  *   right before playback and never persist it.
  * - Tracks from a provider are never forwarded, exported or added to a profile by the app. The UI decides this
- *   from [ProviderTrack.key] prefix, see [YANDEX_TRACK_KEY_PREFIX].
+ *   from [ProviderTrack.key] prefix, see [YANDEX_TRACK_KEY_PREFIX]. Only a link to the track's page on the service
+ *   may be shared, as text (see [ProviderTracks.shareLink]).
  */
 interface MusicProvider {
     /** Current sign-in state. Updated by the implementation after sign-in, sign-out and token expiry. */

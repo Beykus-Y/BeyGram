@@ -5,7 +5,7 @@
     <string name="yandex_signin_title">Yandex ID</string>
     <string name="yandex_signin_intro">Inicio con código: se abrirá la página de Yandex, donde confirmará el acceso. BeyGram nunca pide su contraseña.</string>
     <string name="yandex_signin_group">Antes de iniciar sesión</string>
-    <string name="yandex_signin_warning">Yandex Music no abre su música a aplicaciones de terceros. Iniciar sesión funciona igual que en el cliente oficial, y Yandex puede restringir la cuenta. Use solo su cuenta con suscripción. Las pistas de Yandex no se pueden reenviar, guardar ni exportar.</string>
+    <string name="yandex_signin_warning">Yandex Music no abre su música a aplicaciones de terceros. Iniciar sesión funciona igual que en el cliente oficial, y Yandex puede restringir la cuenta. Use solo su cuenta con suscripción. Los archivos de las pistas de Yandex no se pueden reenviar, guardar ni exportar, pero puede compartir un enlace a la pista.</string>
     <string name="yandex_signin_consent">Entiendo el riesgo y lo acepto</string>
     <string name="yandex_signin_start">Iniciar sesión con Yandex ID</string>
     <string name="yandex_signin_retry">Intentar de nuevo</string>

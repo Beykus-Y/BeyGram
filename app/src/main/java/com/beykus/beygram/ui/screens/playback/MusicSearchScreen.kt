@@ -112,7 +112,8 @@ internal fun MusicSearchScreen(
     onBack: () -> Unit,
     pickChatId: Long = 0L,
     onPick: ((MessageExtraDraft) -> Unit)? = null,
-    focusOnOpen: Boolean = false
+    focusOnOpen: Boolean = false,
+    providerFirst: Boolean = false
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -398,28 +399,43 @@ internal fun MusicSearchScreen(
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
-            if (query.isNotBlank() && (loading || searchedQuery == query.trim() || error != null)) {
-                Text(
-                    stringResource(R.string.music_local_title),
-                    color = palette.textPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            // Opened from the source tab of the music screen, the source's results come first and the account's own
+            // results follow under their heading; otherwise the heading stays above the list.
+            val localHeader: @Composable () -> Unit = {
+                if (query.isNotBlank() && (loading || searchedQuery == query.trim() || error != null)) {
+                    Text(
+                        stringResource(R.string.music_local_title),
+                        color = palette.textPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+                error?.let {
+                    Text(it, color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                }
+                if (loading && results.isEmpty()) Row(
+                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) { CircularProgressIndicator() }
+                if (!loading && searchedQuery == query.trim() && results.isEmpty() && error == null) Text(
+                    stringResource(R.string.music_local_empty),
+                    color = palette.textSecondary,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp)
                 )
             }
-            error?.let {
-                Text(it, color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-            }
-            if (loading && results.isEmpty()) Row(
-                Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) { CircularProgressIndicator() }
-            if (!loading && searchedQuery == query.trim() && results.isEmpty() && error == null) Text(
-                stringResource(R.string.music_local_empty),
-                color = palette.textSecondary,
-                modifier = Modifier.fillMaxWidth().padding(16.dp)
-            )
+            val providerOnTop = providerFirst && providerHost != null && onPick == null
+            if (!providerOnTop) Column { localHeader() }
             LazyColumn(Modifier.weight(1f)) {
+                if (providerOnTop) {
+                    item(key = "provider_source") {
+                        providerHost?.SearchResults(
+                            query = query,
+                            onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) }
+                        )
+                    }
+                    item(key = "local_header") { Column { localHeader() } }
+                }
                 items(results, key = { "${it.chatId}:${it.id}" }) { message ->
                     val item = rows.firstOrNull { it.origin?.messageId == message.id && it.origin?.chatId == message.chatId }
                     if (item != null) MusicRow(
@@ -437,7 +453,7 @@ internal fun MusicSearchScreen(
                     )
                 }
                 // Provider results come after the local rows, so the local heading keeps its own rows.
-                if (providerHost != null && onPick == null) item(key = "provider_source") {
+                if (providerHost != null && onPick == null && !providerOnTop) item(key = "provider_source") {
                     providerHost.SearchResults(
                         query = query,
                         onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) }

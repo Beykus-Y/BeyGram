@@ -21,7 +21,6 @@ object ProviderArtwork {
     const val PLAYER_COVER_PX = 400
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val coverUrls = HashMap<String, String>()
     private var watching = false
 
     /** Plays source [tracks] from [startIndex], as [PlaybackEngine.playYandexTracks] does, with covers in the player. */
@@ -31,13 +30,7 @@ object ProviderArtwork {
         PlaybackEngine.playYandexTracks(context, tracks, startIndex)
     }
 
-    private fun remember(tracks: List<ProviderTrack>) {
-        synchronized(coverUrls) {
-            // Only the latest queues matter; an old queue's addresses go once the map grows large.
-            if (coverUrls.size > MAX_REMEMBERED) coverUrls.clear()
-            tracks.forEach { track -> track.coverUrl?.let { coverUrls[track.key] = it } }
-        }
-    }
+    private fun remember(tracks: List<ProviderTrack>) = ProviderTracks.remember(tracks)
 
     /**
      * Follows the current item once per process and fetches the cover of each source track that becomes current, and
@@ -56,7 +49,7 @@ object ProviderArtwork {
                 .distinctUntilChangedBy { it?.first }
                 .collect { current ->
                     val (key, path) = current ?: return@collect
-                    val url = synchronized(coverUrls) { coverUrls[key] } ?: return@collect
+                    val url = ProviderTracks.byKey(key)?.coverUrl ?: return@collect
                     launch {
                         // A cover the cache has since deleted is fetched again, not left as a dead path.
                         if (path != null && withContext(Dispatchers.IO) { File(path).isFile }) return@launch
@@ -71,11 +64,12 @@ object ProviderArtwork {
         MusicProviders.yandex(app)?.let { provider ->
             scope.launch {
                 provider.state.collect { state ->
-                    if (state is MusicProviderState.SignedOut) ProviderCovers.clear(app)
+                    if (state is MusicProviderState.SignedOut) {
+                        ProviderTracks.clearLikes()
+                        ProviderCovers.clear(app)
+                    }
                 }
             }
         }
     }
-
-    private const val MAX_REMEMBERED = 5_000
 }

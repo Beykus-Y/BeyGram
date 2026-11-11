@@ -52,6 +52,7 @@ import com.beykus.beygram.data.music.provider.ProviderAlbum
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
+import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.screens.music.MusicCardColumn
@@ -150,7 +151,10 @@ class YandexMusicHost : ProviderMusicHost {
         libraryLoading = true
         libraryJob = scope.launch {
             val stored = if (known == null) withContext(Dispatchers.IO) { YandexLibrarySnapshots.read(context, uid) } else known
-            if (stored != null && libraryUid == uid) library = stored
+            if (stored != null && libraryUid == uid) {
+                library = stored
+                ProviderTracks.rememberLikedIds(stored.likedIds)
+            }
             if (stored != null && !force && !isStale(stored)) {
                 libraryLoading = false
                 return@launch
@@ -160,6 +164,7 @@ class YandexMusicHost : ProviderMusicHost {
             when (fresh) {
                 is ProviderResult.Success -> {
                     library = fresh.value
+                    ProviderTracks.rememberLikedIds(fresh.value.likedIds)
                     libraryFailure = null
                     // Not after a sign-out during the request: the snapshot of a signed-out account is not kept.
                     val stillSignedIn = (provider.state.value as? MusicProviderState.SignedIn)?.account?.uid == uid
@@ -262,6 +267,26 @@ class YandexMusicHost : ProviderMusicHost {
         val provider = libraryProvider ?: return
         val uid = libraryUid ?: return
         ensureLibrary(context, provider, uid, force = true)
+    }
+
+    override fun albumRef(albumId: String): String = YandexCollectionRef.album(albumId)
+
+    @Composable
+    override fun CollectionScreen(ref: String, onBack: () -> Unit, onOpenCollection: (String) -> Unit) {
+        val context = LocalContext.current
+        val provider = remember(context) { MusicProviders.yandex(context) }
+        val parsed = remember(ref) { YandexCollectionRef.parse(ref) }
+        if (parsed == null) {
+            LaunchedEffect(ref) { onBack() }
+            return
+        }
+        YandexCollectionScreen(
+            ref = parsed,
+            provider = provider,
+            snapshot = library,
+            onBack = onBack,
+            onOpenCollection = onOpenCollection
+        )
     }
 
     @Composable

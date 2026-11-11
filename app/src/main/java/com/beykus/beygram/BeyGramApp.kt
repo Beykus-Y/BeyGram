@@ -215,6 +215,8 @@ import com.beykus.beygram.ui.screens.playback.LocalOpenEqualizer
 import com.beykus.beygram.ui.screens.playback.LocalOpenMusicSearch
 import com.beykus.beygram.ui.screens.playback.LocalOpenMyMusic
 import com.beykus.beygram.ui.screens.bgmusic.LocalOpenMusicPlaylist
+import com.beykus.beygram.ui.screens.music.ProviderMusicHosts
+import com.beykus.beygram.ui.screens.music.LocalOpenProviderAlbum
 import com.beykus.beygram.ui.screens.music.MyMusicScreen
 import com.beykus.beygram.ui.screens.music.MusicPlaylistScreen
 import com.beykus.beygram.ui.screens.music.ChatLibraryLink
@@ -440,6 +442,12 @@ private fun BeyGramAppContent(
     var musicSignInReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Experiments.name) }
     // Set when the music screen opened the search from its field: the keyboard comes up at once.
     var musicSearchFocusOnOpen by rememberSaveable { mutableStateOf(false) }
+    // Set when that field was on the source tab: the source's results come first.
+    var musicSearchProviderFirst by rememberSaveable { mutableStateOf(false) }
+    // Collection screens of the optional music source, one per line: an album opened from a playlist stacks on it,
+    // and Back returns through them to the route the first one was opened from.
+    var musicCollectionStack by rememberSaveable { mutableStateOf("") }
+    var musicCollectionReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
     var musicPlaylistId by rememberSaveable { mutableStateOf("") }
     // Where Back from the playlist goes: My Music, the chat whose `.bgmusic` preview opened it, or the chat info
     // when the playlist is a chat's collection.
@@ -1625,6 +1633,21 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = musicSearchReturnRouteName }
     BackHandler(enabled = route == AppRoute.MyMusic) { routeName = myMusicReturnRouteName }
+    fun closeMusicCollection() {
+        val rest = musicCollectionStack.lines().filter { it.isNotBlank() }.dropLast(1)
+        musicCollectionStack = rest.joinToString("\n")
+        if (rest.isEmpty()) routeName = musicCollectionReturnRouteName
+    }
+    fun openMusicCollection(ref: String) {
+        if (routeName == AppRoute.MusicCollection.name) {
+            musicCollectionStack = (musicCollectionStack.lines().filter { it.isNotBlank() } + ref).joinToString("\n")
+        } else {
+            musicCollectionReturnRouteName = routeName
+            musicCollectionStack = ref
+            routeName = AppRoute.MusicCollection.name
+        }
+    }
+    BackHandler(enabled = route == AppRoute.MusicCollection) { closeMusicCollection() }
     BackHandler(enabled = route == AppRoute.MusicPlaylist) { routeName = musicPlaylistReturnRouteName }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
@@ -2195,7 +2218,11 @@ private fun BeyGramAppContent(
         LocalOpenMusicSearch provides {
             musicSearchReturnRouteName = routeName
             musicSearchFocusOnOpen = false
+            musicSearchProviderFirst = false
             routeName = AppRoute.MusicSearch.name
+        },
+        LocalOpenProviderAlbum provides { albumId: String ->
+            ProviderMusicHosts.yandex()?.let { host -> openMusicCollection(host.albumRef(albumId)) }
         },
         LocalRailCreateChat provides { routeName = AppRoute.NewChat.name },
         LocalOpenMyMusic provides {
@@ -2693,15 +2720,17 @@ GlobalSearchScreen(
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
                     onBack = { routeName = musicSearchReturnRouteName },
-                    focusOnOpen = musicSearchFocusOnOpen
+                    focusOnOpen = musicSearchFocusOnOpen,
+                    providerFirst = musicSearchProviderFirst
                 )
                 AppRoute.MyMusic -> MyMusicScreen(
                     accountId = selectedAccountId,
                     telegram = repository,
                     onBack = { routeName = myMusicReturnRouteName },
-                    onSearch = {
+                    onSearch = { providerFirst ->
                         musicSearchReturnRouteName = AppRoute.MyMusic.name
                         musicSearchFocusOnOpen = true
+                        musicSearchProviderFirst = providerFirst
                         routeName = AppRoute.MusicSearch.name
                     },
                     onOpenPlaylist = { playlistId ->
@@ -2713,8 +2742,21 @@ GlobalSearchScreen(
                     onProviderSignIn = {
                         musicSignInReturnRouteName = AppRoute.MyMusic.name
                         routeName = AppRoute.MusicAccountSignIn.name
-                    }
+                    },
+                    onOpenCollection = ::openMusicCollection
                 )
+                AppRoute.MusicCollection -> {
+                    // Reachable only when the build has a music source; its screen draws the collection.
+                    val host = ProviderMusicHosts.yandex()
+                    val ref = musicCollectionStack.lines().lastOrNull { it.isNotBlank() }
+                    if (host != null && ref != null) key(ref) {
+                        host.CollectionScreen(
+                            ref = ref,
+                            onBack = ::closeMusicCollection,
+                            onOpenCollection = ::openMusicCollection
+                        )
+                    }
+                }
                 AppRoute.MusicPlaylist -> MusicPlaylistScreen(
                     accountId = selectedAccountId,
                     telegram = repository,
@@ -2723,6 +2765,7 @@ GlobalSearchScreen(
                     onSearch = {
                         musicSearchReturnRouteName = AppRoute.MusicPlaylist.name
                         musicSearchFocusOnOpen = false
+                        musicSearchProviderFirst = false
                         routeName = AppRoute.MusicSearch.name
                     }
                 )
