@@ -1,8 +1,10 @@
 package com.beykus.beygram.ui.screens.music
 
 import android.content.Context
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.ProviderTrack
 
 /**
@@ -28,12 +30,33 @@ interface ProviderMusicHost {
     fun tabLabel(): String
 
     /**
-     * Liked tracks and playlists of this source: the whole content of its tab on the music screen. Before sign-in it
-     * shows a card whose button calls [onSignIn]. [onPlay] starts a list at an index; null means the rows cannot play
-     * yet.
+     * Keeps the library of this source fresh for its tab and returns the signed-in account, or null before sign-in.
+     * The tab calls it in its composition while it is shown, then builds its list with [libraryItems].
      */
     @Composable
-    fun LibrarySection(onPlay: ((List<ProviderTrack>, Int) -> Unit)?, onSignIn: () -> Unit)
+    fun rememberLibraryAccount(): MusicProviderAccount?
+
+    /**
+     * Liked tracks, playlists and albums of this source: the whole content of its tab, as lazy items of the music
+     * screen list. Cover grids give one item per row of [columns], so a large library keeps only the covers on screen.
+     * Before sign-in ([account] null) it shows a card whose button calls [onSignIn]. [onPlay] starts a list at an
+     * index; null means the rows cannot play yet. [onOpenCollection] opens a collection screen by its reference; null
+     * means collections play on tap instead.
+     */
+    fun LazyListScope.libraryItems(
+        account: MusicProviderAccount?,
+        columns: Int,
+        onPlay: ((List<ProviderTrack>, Int) -> Unit)?,
+        onSignIn: () -> Unit,
+        onOpenCollection: ((String) -> Unit)?
+    )
+
+    /** True while the tab reloads its library from the service. */
+    @Composable
+    fun isRefreshing(): Boolean
+
+    /** Reloads the library of the tab from the service, for the pull-to-refresh gesture. */
+    fun refresh()
 }
 
 object ProviderMusicHosts {
