@@ -6,6 +6,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 private const val YANDEX_KEY_PREFIX = "ym:"
 
@@ -66,18 +67,21 @@ internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFI
     override fun pathOf(track: String): String = track
 
     override fun discardCopy(path: String) {
+        YandexAudioDownloader.reserved.remove(path)
         File(path).delete()
     }
 
     override fun handOverCopy(path: String) {
         val dir = File(path).parentFile ?: return
         if (dir.name != DIR_NAME) return
+        // The entry already names the copy (live), so it is safe to stop reserving it before the prune runs.
+        YandexAudioDownloader.reserved.remove(path)
         pruneCopies(dir)
     }
 
-    /** Removes copies that neither a queue row nor a live entry still names. */
+    /** Removes copies that no queue row, live entry or download in progress still names. */
     private fun pruneCopies(dir: File) {
-        val keep = livePaths() + PlaybackEngine.musicPathsInUse()
+        val keep = livePaths() + PlaybackEngine.musicPathsInUse() + YandexAudioDownloader.reserved
         dir.listFiles().orEmpty().forEach { file ->
             if (file.absolutePath !in keep) file.delete()
         }
@@ -93,13 +97,25 @@ internal object YandexAudioDownloader {
     private const val READ_TIMEOUT_MS = 30_000
 
     /**
+     * Paths being written, and finished copies the resolver has not recorded yet. A prune must not remove them: a
+     * download reserves its path before the first byte, and keeps the reservation until the resolver takes the copy.
+     */
+    internal val reserved: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
      * Returns the complete file. A partial download is removed, so a copy in the cache is always whole.
      * The connection bypasses the local proxy: the service answers only inside its own region.
      */
     fun download(link: YandexAudioLink, dir: File): File {
         dir.mkdirs()
         val target = File(dir, "${UUID.randomUUID()}.${extensionFor(link.codec)}")
-        val connection = MihomoProxyClient.openConnection(URL(link.url), proxy = null)
+        reserved += target.absolutePath
+        val connection = try {
+            MihomoProxyClient.openConnection(URL(link.url), proxy = null)
+        } catch (error: Throwable) {
+            reserved -= target.absolutePath
+            throw error
+        }
         try {
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
@@ -110,6 +126,7 @@ internal object YandexAudioDownloader {
             if (target.length() == 0L) throw IOException("Audio download was empty")
             return target
         } catch (error: Throwable) {
+            reserved -= target.absolutePath
             target.delete()
             throw error
         } finally {
