@@ -585,6 +585,34 @@ object PlaybackEngine {
     }
 
     /**
+     * Plays Yandex Music tracks as one queue. Rows carry no file: each is downloaded when it becomes current or next.
+     * Tracks the provider reports as unavailable are left out; [startIndex] counts the tracks as given.
+     */
+    fun playYandexTracks(
+        context: Context,
+        tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>,
+        startIndex: Int,
+    ) {
+        val playable = tracks.filter { it.isAvailable }
+        if (playable.isEmpty()) return
+        val startTrackId = tracks.getOrNull(startIndex)?.trackId
+        val index = playable.indexOfFirst { it.trackId == startTrackId }.coerceAtLeast(0)
+        val items = playable.map { track ->
+            PlaybackItem(
+                key = track.key,
+                kind = MediaKind.Audio,
+                path = "",
+                title = track.title,
+                durationSeconds = (track.durationMs / 1_000L).toInt(),
+                performer = track.performer,
+                trackTitle = track.title,
+                album = track.albumTitle.orEmpty(),
+            )
+        }
+        playQueue(context, items, index, source = null)
+    }
+
+    /**
      * Queue variant with a lazy TDLib source. Tracks that are not downloaded yet stay in the queue and are resolved
      * on demand; only the current item and 1–2 following items may request a download.
      */
@@ -632,6 +660,7 @@ object PlaybackEngine {
         onStarted: (() -> Unit)?,
         startPositionMs: Long? = null
     ) {
+        YandexTrackResolver.ensureConfigured(context)
         if (onStarted != null) startedCallback = item.key to onStarted
         val currentState = _state.value
         if (bgMixActive() && currentState.item?.key == item.key) {
@@ -1808,7 +1837,7 @@ object PlaybackEngine {
                 val first = driver.pendingIndex ?: return@launch
                 val context = appContext
                 val source = queueSource
-                if (context != null && source != null) {
+                if (context != null) {
                     for (index in first until minOf(first + BG_MIX_DOWNLOAD_AHEAD, driver.queueItems.size)) {
                         // Speculative traffic goes through the automatic-download policy, like the regular prefetch.
                         prefetchItem(context, source, driver.queueItems[index])
@@ -3188,7 +3217,8 @@ object PlaybackEngine {
      */
     @OptIn(UnstableApi::class)
     private fun prefetchNext() {
-        val source = queueSource ?: return
+        // A provider queue has no TDLib source, but its rows still prefetch through the same policy.
+        val source = queueSource
         val context = appContext ?: return
         val state = _state.value
         val playbackOrder = if (state.shuffleEnabled && exo != null) {
@@ -3200,7 +3230,7 @@ object PlaybackEngine {
     }
 
     /** Fetches [item] ahead under the automatic-download policy, so Data Saver, roaming and size limits apply. */
-    private fun prefetchItem(context: Context, source: PlaybackQueueSource, item: PlaybackItem) {
+    private fun prefetchItem(context: Context, source: PlaybackQueueSource?, item: PlaybackItem) {
         run {
             val lazySource = LazyTrackRegistry.sourceFor(item.key)
             if (lazySource != null && item.path.isBlank()) {
@@ -3224,7 +3254,7 @@ object PlaybackEngine {
                 return@run
             }
             val fileId = item.fileId ?: return@run
-            if (source.accountId != item.accountId) return@run
+            if (source == null || source.accountId != item.accountId) return@run
             // Speculative traffic must use the repository automatic path; the manual callback is reserved for
             // the track playback actually opens, so Data Saver/network cancellation can track prefetch downloads.
             if (source.autoDownload == null) return@run
