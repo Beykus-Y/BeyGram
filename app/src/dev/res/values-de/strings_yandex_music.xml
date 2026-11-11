@@ -21,4 +21,7 @@
     <string name="yandex_error_network">Keine Verbindung. Prüfen Sie das Netzwerk und versuchen Sie es erneut.</string>
     <string name="yandex_error_unavailable">Der Dienst ist in Ihrer Region nicht verfügbar oder antwortet nicht.</string>
     <string name="yandex_error_generic">Anmeldung fehlgeschlagen. Versuchen Sie es erneut.</string>
+    <string name="yandex_diag_title">Antwortdiagnose</string>
+    <string name="yandex_diag_share">Teilen</string>
+    <string name="yandex_diag_empty">Noch keine Antwort des Dienstes. Aktualisieren Sie die Kontokarte.</string>
 </resources>

@@ -103,9 +103,16 @@ internal class YandexMusicProvider(
         }
     }
 
+    /** Last subscription status seen from the service, for the on-screen diagnostics row. No tokens or names. */
+    @Volatile
+    var subscriptionDiagnostics: String? = null
+        private set
+
     /** DEV diagnostics: the flag the app derived and the key names the service sent. No tokens or names. */
     private fun logSubscription(account: YandexAccount) {
-        Log.i(TAG_SUBSCRIPTION, "hasPlus=${account.hasPlus}; ${account.plusSummary}")
+        val line = "hasPlus=${account.hasPlus}; ${account.plusSummary}"
+        Log.i(TAG_SUBSCRIPTION, line)
+        subscriptionDiagnostics = line
     }
 
     /** Removes the session from this device. The token is not revoked on the service side. */
