@@ -195,6 +195,10 @@ object PlaybackEngine {
 
     private val _sleepTimer = MutableStateFlow<SleepTimerState?>(null)
     val sleepTimer: StateFlow<SleepTimerState?> = _sleepTimer.asStateFlow()
+
+    private val _bgMixTransition = MutableStateFlow<BgMixTransitionUi?>(null)
+    /** The BG Mix transition that is mixing right now, or null; kept apart from [state] so its ticks touch only the status line. */
+    val bgMixTransition: StateFlow<BgMixTransitionUi?> = _bgMixTransition.asStateFlow()
     private var sleepTimerJob: Job? = null
 
     /** A sleep timer survives track changes inside one account, but never a switch to another account. */
@@ -1674,6 +1678,7 @@ object PlaybackEngine {
             it.prepare()
         }
         transitionToken++
+        _bgMixTransition.value = null
         clearDeferredSeek()
         pendingStartFraction = 0f
         startedCallback = startedCallback?.takeIf { it.first == item.key }
@@ -1742,6 +1747,13 @@ object PlaybackEngine {
     private fun applyBgMix(status: BgMixStatus) {
         val driver = bgMix ?: return
         val before = _state.value
+        _bgMixTransition.value = nextBgMixTransition(
+            previous = _bgMixTransition.value,
+            status = status,
+            previousIndex = before.queueIndex,
+            indexOfNative = driver::indexOfNative,
+            itemAt = driver::itemAt
+        )
         val playingNativeId = status.queue.firstOrNull { it.state == "playing" }?.id
         val index = playingNativeId?.let { driver.indexOfNative(it) } ?: _state.value.queueIndex
         val item = driver.itemAt(index) ?: return
@@ -1835,6 +1847,7 @@ object PlaybackEngine {
         bgMixSeekJob = null
         bgMixOriginalQueue = null
         bgMix?.stop()
+        _bgMixTransition.value = null
         releaseBgFocus()
         releaseBgWakeLock()
         bgResumeOnFocusGain = false
