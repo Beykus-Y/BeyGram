@@ -73,8 +73,10 @@ if(HAVE_BGMEDIA)
         "${BGMEDIA_DIR}/third_party/miniaudio"
     )
 
+    # MusicalTimeline (timeline loudness and the analysed flag) lives in bgmedia_rig, not bgmedia_core.
     target_link_libraries(bgbeat_jni PRIVATE
         bgmedia_core
+        bgmedia_rig
         bgmedia_miniaudio
         android
         log
