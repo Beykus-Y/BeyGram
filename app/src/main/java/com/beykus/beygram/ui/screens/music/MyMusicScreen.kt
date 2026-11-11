@@ -120,8 +120,9 @@ internal fun MyMusicScreen(
         }
     }
 
-    // Optional music source (DEV build only). It gets its own tab; without it the screen shows Telegram only.
-    val providerHost = remember { ProviderMusicHosts.yandex() }
+    // Optional music source (DEV build only). It gets its own tab; without it, or when this build cannot reach it,
+    // the screen shows Telegram only.
+    val providerHost = remember(context) { ProviderMusicHosts.yandex()?.takeIf { it.isAvailable(context) } }
     var source by remember(context) { mutableStateOf(MusicHomeSourceStore.read(context)) }
     val shownSource = if (providerHost == null) MusicHomeSource.Telegram else source
 

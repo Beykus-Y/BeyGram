@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.music.yandex
 
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Spacer
@@ -152,6 +153,8 @@ class YandexMusicHost : ProviderMusicHost {
         selectionGeneration++
         onPlay(tracks, index)
     }
+
+    override fun isAvailable(context: Context): Boolean = MusicProviders.yandex(context) != null
 
     @Composable
     override fun tabLabel(): String = stringResource(R.string.yandex_tab_label)
