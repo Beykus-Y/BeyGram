@@ -26,4 +26,8 @@
     <string name="yandex_diag_title">Response diagnostics</string>
     <string name="yandex_diag_share">Share</string>
     <string name="yandex_diag_empty">No service response yet. Refresh the account card.</string>
+    <string name="yandex_library_title">Yandex Music</string>
+    <string name="yandex_library_liked">Liked</string>
+    <string name="yandex_library_playlists">Playlists</string>
+    <string name="yandex_library_empty">Nothing here yet.</string>
 </resources>

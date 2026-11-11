@@ -62,6 +62,7 @@ import com.beykus.beygram.data.music.MusicPlaylist
 import com.beykus.beygram.data.music.PlaylistTrack
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.playback.PlaybackEngine
 import kotlinx.coroutines.launch
 
 /**
@@ -105,6 +106,9 @@ internal fun MyMusicScreen(
         }
     }
 
+    // Optional music source (DEV build only). Its section sits at the top of the library, after the storage banner.
+    val providerHost = remember { ProviderMusicHosts.yandex() }
+
     Scaffold(
         containerColor = palette.screen,
         topBar = {
@@ -143,6 +147,11 @@ internal fun MyMusicScreen(
         } else {
             LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
                 if (storageError) item(key = "storage-error") { StorageErrorBanner() }
+                if (providerHost != null) item(key = "provider-library") {
+                    providerHost.LibrarySection(
+                        onPlay = { tracks, index -> PlaybackEngine.playYandexTracks(context, tracks, index) }
+                    )
+                }
                 item(key = "favorites") {
                     MusicSectionHeader(
                         title = stringResource(R.string.music_favorites_title),
