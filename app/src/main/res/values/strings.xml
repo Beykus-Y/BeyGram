@@ -2250,7 +2250,7 @@
     <string name="settings_crossfade_desc">Плавно сводит конец одного трека с началом следующего. Только для музыки, по умолчанию выключено.</string>
     <string name="settings_skip_silence_desc">Убирает паузы в конце и начале треков.</string>
     <string name="settings_bgmix_title">BG Mix (переходы между треками)</string>
-    <string name="settings_bgmix_desc">Плавные переходы между треками без пауз. Работает только когда вся очередь скачана. Экспериментально, голосовые и видеосообщения не затрагиваются.</string>
+    <string name="settings_bgmix_desc">Плавные переходы между треками без пауз. Трек начинает играть сразу, а BG Mix подхватывает его, как только файл скачан; следующие треки докачиваются заранее. Экспериментально, голосовые и видеосообщения не затрагиваются.</string>
     <string name="chat_settings_scope_note">Меняет обои только в этом чате</string>
     <string name="media_spoiler_title">Спойлер</string>
     <string name="media_spoiler_reveal">Нажмите, чтобы открыть</string>
@@ -2358,6 +2358,10 @@
     <string name="player_bgmix_transition_to">Переход к «%1$s»</string>
     <string name="player_bgmix_transition_next">Переход к следующему треку</string>
     <string name="player_bgmix_explain">Сейчас играет режим плавных переходов. Перемешивание, повтор и «Назад» работают в нём, при этом звук на миг прерывается. Скорость в этом режиме недоступна.</string>
+    <string name="player_bgmix_mark">BG</string>
+    <string name="player_bgmix_icon_active">BG Mix играет трек</string>
+    <string name="player_bgmix_icon_preparing">BG Mix готовит трек</string>
+    <string name="player_bgmix_preparing_explain">BG Mix готовит этот трек. Пока он играет в обычном плеере, а когда файл скачается и будет готов, BG Mix подхватит его с того же места без паузы.</string>
     <string name="player_sleep_status_track_end">Таймер сна · до конца трека</string>
     <string name="player_sleep_until_track_end">До конца трека</string>
     <string name="player_sleep_custom">Своё время…</string>

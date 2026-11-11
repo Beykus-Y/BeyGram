@@ -41,7 +41,7 @@ suspend fun restoreMusicSession(
 }
 
 /**
- * Resolves Telegram origins against the account's *current* TDLib state, with at most three lookups in flight.
+ * Resolves Telegram origins against the account's *current* TDLib state, with at most six lookups in flight.
  * The result keeps the input positions: a null slot means the message is gone, protected, secret, not audio, or not sent.
  * Callers decide what a gap means; nothing is dropped silently here. An origin that belongs to another account is never
  * looked up in this repository.
@@ -51,7 +51,7 @@ suspend fun resolveMusicOrigins(
     accountId: String,
     origins: List<PlaybackOrigin?>
 ): List<PlaybackItem?> {
-    val semaphore = Semaphore(3)
+    val semaphore = Semaphore(6)
     return coroutineScope {
         origins.map { origin ->
             async {
@@ -73,8 +73,10 @@ private suspend fun resolveMusicOrigin(
             repository.observeChat(origin.chatId).value
         }
     if (chat == null || chat.isSecret || chat.hasProtectedContent) return null
-    val message = repository.messageContext(origin.chatId, origin.messageId)
-        .getOrNull()?.messages?.firstOrNull { it.chatId == origin.chatId && it.id == origin.messageId }
+    // Only the message is needed. A context page here cost three TDLib requests and 40 mapped messages per track,
+    // which held a whole playlist start for seconds.
+    val message = repository.singleMessage(origin.chatId, origin.messageId).getOrNull()
+        ?.takeIf { it.chatId == origin.chatId && it.id == origin.messageId }
         ?: return null
     val media = message.media ?: return null
     if (media.kind != MediaKind.Audio || media.isSecret || media.isSecretChat ||

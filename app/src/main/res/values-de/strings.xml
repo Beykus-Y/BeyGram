@@ -702,7 +702,7 @@
     <string name="settings_crossfade_desc">Blendet das Ende eines Titels weich in den Anfang des nächsten über. Nur für Musik, standardmäßig aus.</string>
     <string name="settings_skip_silence_desc">Entfernt die Pausen am Ende und am Anfang von Titeln.</string>
     <string name="settings_bgmix_title">BG Mix (Übergänge zwischen Titeln)</string>
-    <string name="settings_bgmix_desc">Weiche, lückenlose Übergänge zwischen Titeln. Funktioniert nur, wenn die ganze Warteschlange geladen ist. Experimentell; Sprach- und Videonachrichten bleiben unberührt.</string>
+    <string name="settings_bgmix_desc">Sanfte Übergänge zwischen Titeln ohne Pausen. Ein Titel startet sofort, und BG Mix übernimmt ihn, sobald seine Datei geladen ist; die nächsten Titel werden vorab geladen. Experimentell; Sprach- und Videonachrichten sind nicht betroffen.</string>
     <string name="chat_settings_scope_note">Ändert das Hintergrundbild nur für diesen Chat</string>
     <string name="media_spoiler_title">Spoiler</string>
     <string name="media_spoiler_reveal">Zum Anzeigen tippen</string>
@@ -805,6 +805,10 @@
     <string name="player_bgmix_transition_to">Übergang zu „%1$s“</string>
     <string name="player_bgmix_transition_next">Übergang zum nächsten Titel</string>
     <string name="player_bgmix_explain">Der Modus für weiche Übergänge spielt. Zufallswiedergabe, Wiederholen und „Zurück“ funktionieren darin, der Ton setzt kurz aus. Tempo ist in diesem Modus nicht verfügbar.</string>
+    <string name="player_bgmix_mark">BG</string>
+    <string name="player_bgmix_icon_active">BG Mix spielt den Titel</string>
+    <string name="player_bgmix_icon_preparing">BG Mix bereitet den Titel vor</string>
+    <string name="player_bgmix_preparing_explain">BG Mix bereitet diesen Titel vor. Bis dahin läuft er im normalen Player; sobald die Datei geladen und bereit ist, übernimmt BG Mix ihn an derselben Stelle ohne Pause.</string>
     <string name="player_sleep_status_track_end">Schlaftimer · bis zum Ende des Titels</string>
     <string name="player_sleep_until_track_end">Bis zum Ende des Titels</string>
     <string name="player_sleep_custom">Eigene Zeit …</string>

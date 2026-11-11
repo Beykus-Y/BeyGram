@@ -269,6 +269,12 @@ interface ConversationRepository {
     fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?>
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
     /**
+     * One message by id, without the history around it; null when it is gone. Used where only the message itself matters,
+     * such as checking music queue entries before playback, so a long playlist does not wait on a history page per track.
+     */
+    suspend fun singleMessage(chatId: Long, messageId: Long): Result<ChatMessage?> =
+        messageContext(chatId, messageId).map { context -> context.messages.firstOrNull { it.chatId == chatId && it.id == messageId } }
+    /**
      * Messages in one chat whose text matches [query] and whose sender/attachment type match [filter]. Pass 0 for the
      * first page, then the previous page's nextFromMessageId. [filter]'s date range is applied to each returned page
      * without changing that cursor, so a page can be empty while [MessageSearchPage.nextFromMessageId] still allows more.

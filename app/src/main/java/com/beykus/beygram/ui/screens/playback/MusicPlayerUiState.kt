@@ -69,6 +69,8 @@ internal data class MusicPlayerUi(
     val failed: Boolean,
     val waitingForNetwork: Boolean = false,
     val bgMix: Boolean = false,
+    /** BG Mix takes this track over once it is ready; the mark shows already, the BG Mix-only controls do not. */
+    val bgMixPreparing: Boolean = false,
     val ended: Boolean,
     val canNext: Boolean,
     val canPrevious: Boolean,
@@ -91,6 +93,7 @@ internal fun PlaybackState.musicPlayerUi(): MusicPlayerUi? {
         failed = failed,
         waitingForNetwork = waitingForNetwork,
         bgMix = bgMixActive,
+        bgMixPreparing = bgMixPreparing && !bgMixActive,
         ended = ended,
         canNext = canNext,
         canPrevious = canPrevious,
