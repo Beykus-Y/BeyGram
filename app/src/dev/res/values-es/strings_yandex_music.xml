@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yandex_settings_group">Yandex Music</string>
+    <string name="yandex_settings_entry">Iniciar sesión con Yandex ID</string>
+    <string name="yandex_signin_title">Yandex ID</string>
+    <string name="yandex_signin_intro">Inicio con código: se abrirá la página de Yandex, donde confirmará el acceso. BeyGram nunca pide su contraseña.</string>
+    <string name="yandex_signin_group">Antes de iniciar sesión</string>
+    <string name="yandex_signin_warning">Yandex Music no abre su música a aplicaciones de terceros. Iniciar sesión funciona igual que en el cliente oficial, y Yandex puede restringir la cuenta. Use solo su cuenta con suscripción. Las pistas de Yandex no se pueden reenviar, guardar ni exportar.</string>
+    <string name="yandex_signin_consent">Entiendo el riesgo y lo acepto</string>
+    <string name="yandex_signin_start">Iniciar sesión con Yandex ID</string>
+    <string name="yandex_signin_retry">Intentar de nuevo</string>
+    <string name="yandex_signin_code_title">Introduzca este código en la página de Yandex</string>
+    <string name="yandex_signin_waiting">Esperando confirmación. Esta pantalla se actualiza sola.</string>
+    <string name="yandex_signin_open">Abrir la página de Yandex</string>
+    <string name="yandex_account_group">Cuenta</string>
+    <string name="yandex_account_unnamed">Cuenta de Yandex</string>
+    <string name="yandex_account_subscription_on">Suscripción activa: pistas completas disponibles</string>
+    <string name="yandex_account_subscription_off">Sin suscripción: pistas completas no disponibles</string>
+    <string name="yandex_account_refresh">Actualizar datos</string>
+    <string name="yandex_account_sign_out">Cerrar sesión en Yandex</string>
+    <string name="yandex_error_network">Sin conexión. Compruebe la red e inténtelo de nuevo.</string>
+    <string name="yandex_error_unavailable">El servicio no está disponible en su región o no responde.</string>
+    <string name="yandex_error_generic">No se pudo iniciar sesión. Inténtelo de nuevo.</string>
+</resources>

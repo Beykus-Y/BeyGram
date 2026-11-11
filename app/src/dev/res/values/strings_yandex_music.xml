@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yandex_settings_group">Яндекс Музыка</string>
+    <string name="yandex_settings_entry">Вход в Yandex ID</string>
+    <string name="yandex_signin_title">Yandex ID</string>
+    <string name="yandex_signin_intro">Вход по коду: откроется страница Яндекса, где вы подтвердите доступ. Пароль в BeyGram не вводится.</string>
+    <string name="yandex_signin_group">Перед входом</string>
+    <string name="yandex_signin_warning">Яндекс Музыка не открывает доступ к музыке для сторонних приложений. Вход работает так же, как в официальном клиенте, и Яндекс может ограничить аккаунт. Используйте только свой аккаунт с подпиской. Треки Яндекса нельзя пересылать, сохранять и экспортировать.</string>
+    <string name="yandex_signin_consent">Я понимаю риск и принимаю его</string>
+    <string name="yandex_signin_start">Войти через Yandex ID</string>
+    <string name="yandex_signin_retry">Попробовать снова</string>
+    <string name="yandex_signin_code_title">Введите код на странице Яндекса</string>
+    <string name="yandex_signin_waiting">Ждём подтверждения. Экран обновится сам.</string>
+    <string name="yandex_signin_open">Открыть страницу Яндекса</string>
+    <string name="yandex_account_group">Аккаунт</string>
+    <string name="yandex_account_unnamed">Аккаунт Яндекса</string>
+    <string name="yandex_account_subscription_on">Подписка есть: доступны полные треки</string>
+    <string name="yandex_account_subscription_off">Подписки нет: полные треки недоступны</string>
+    <string name="yandex_account_refresh">Обновить данные</string>
+    <string name="yandex_account_sign_out">Выйти из Яндекса</string>
+    <string name="yandex_error_network">Нет соединения. Проверьте сеть и попробуйте снова.</string>
+    <string name="yandex_error_unavailable">Сервис недоступен в вашем регионе или временно не отвечает.</string>
+    <string name="yandex_error_generic">Не удалось войти. Попробуйте снова.</string>
+</resources>
