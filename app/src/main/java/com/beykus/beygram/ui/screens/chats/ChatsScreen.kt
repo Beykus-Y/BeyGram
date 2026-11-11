@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -95,6 +96,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
@@ -474,7 +476,10 @@ fun ChatsScreen(
                     dismissOnBackPress = false
                 )
             ) {
-                Surface(Modifier.fillMaxSize(), color = palette.screen) { manager() }
+                // A tablet window is far wider than a folder rule needs: the manager is a 640 dp column in the middle.
+                Box(Modifier.fillMaxSize().background(palette.screen), contentAlignment = Alignment.TopCenter) {
+                    Surface(Modifier.fillMaxHeight().widthIn(max = 640.dp).fillMaxWidth(), color = palette.screen) { manager() }
+                }
             }
         } else {
             manager()
@@ -871,8 +876,17 @@ fun ChatsScreen(
 
     // The root Box is bounded by MainTabsScaffold: above the bottom navigation on phones,
     // beside the navigation rail on wide screens. Its FAB is never drawn under the system navigation bar.
+    // In the split layout the strip over the status bar matches the chat pane's: both take the header colour of the style
+    // (Signature and glass stay on the screen colour), so the two panes do not carry two tones above them.
+    val statusBarPx = WindowInsets.statusBars.getTop(density).toFloat()
+    val bandFill = if (compactHeader && !glassChrome && design.style != DesignStyle.Signature) palette.surface else null
     Box(
         modifier = Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
+            .then(
+                if (bandFill != null) Modifier.drawBehind {
+                    drawRect(bandFill, size = androidx.compose.ui.geometry.Size(size.width, statusBarPx))
+                } else Modifier
+            )
             .windowInsetsPadding(
                 WindowInsets.safeDrawing.only(
                     // In the two-pane layout the pane's right edge is in the middle of the window:

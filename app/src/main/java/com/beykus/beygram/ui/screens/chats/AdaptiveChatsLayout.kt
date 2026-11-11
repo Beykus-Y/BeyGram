@@ -38,7 +38,20 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
-import com.beykus.beygram.ui.components.NavigationPlacement
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.zIndex
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.ui.components.LocalWindowLayout
+import com.beykus.beygram.ui.design.GlassPanel
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.usesGlassPanels
+import com.beykus.beygram.ui.screens.chat.ChatWallpaperLayer
+import com.beykus.beygram.ui.screens.chat.LocalChatWallpaper
+import com.beykus.beygram.ui.components.WindowNavigation
 import com.beykus.beygram.ui.components.WindowLayout
 import com.beykus.beygram.ui.components.beyGramPalette
 
@@ -113,7 +126,7 @@ internal fun ChatsTwoPaneScaffold(
         )
         return
     }
-    val slim = layout.navigation == NavigationPlacement.SlimRail
+    val slim = layout.navigation == WindowNavigation.SlimRail
     Row(Modifier.fillMaxSize()) {
         navigationRail()
         ChatsPanes(
@@ -140,7 +153,10 @@ internal fun ChatsTwoPaneScaffold(
     }
 }
 
-/** Список, разделитель и переписка. */
+/**
+ * Список, разделитель и переписка. Разделитель зависит от стиля: линия у Default и Signature, тень списка у Material 2,
+ * два скруглённых контейнера на широком окне у Material 3, светлый градиент ободка у Стекла.
+ */
 @Composable
 private fun ChatsPanes(
     modifier: Modifier,
@@ -149,28 +165,66 @@ private fun ChatsPanes(
     detail: @Composable () -> Unit
 ) {
     val palette = beyGramPalette()
-    Row(modifier) {
-        Box(Modifier.width(listPaneWidth).fillMaxHeight()) { listColumn() }
-        Box(Modifier.fillMaxHeight().width(1.dp).background(palette.divider))
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                // The chat owns the end inset; the start one already belongs to the list pane/rail.
-                .consumeWindowInsets(
-                    WindowInsets.safeDrawing.only(WindowInsetsSides.Start)
+    val design = LocalDesignSystem.current
+    val layout = LocalWindowLayout.current
+    val separator = chatPaneSeparator(design.style, design.usesGlassPanels, layout.widthExpanded)
+    val detailBase = Modifier
+        .fillMaxHeight()
+        // The chat owns the end inset; the start one already belongs to the list pane/rail.
+        .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
+    when (separator) {
+        ChatPaneSeparator.Cards -> Row(modifier.background(MaterialTheme.colorScheme.surfaceContainer)) {
+            val card = RoundedCornerShape(20.dp)
+            Box(Modifier.width(listPaneWidth).fillMaxHeight().padding(start = 0.dp, end = 4.dp, bottom = 8.dp).clip(card)) { listColumn() }
+            Box(Modifier.weight(1f).then(detailBase).padding(start = 4.dp, end = 8.dp, bottom = 8.dp).clip(card)) { detail() }
+        }
+        else -> Row(modifier) {
+            Box(
+                Modifier.width(listPaneWidth).fillMaxHeight()
+                    .then(
+                        if (separator == ChatPaneSeparator.Shadow) Modifier.zIndex(1f).shadow(3.dp, RectangleShape, clip = false)
+                        else Modifier
+                    )
+            ) { listColumn() }
+            when (separator) {
+                ChatPaneSeparator.Line -> Box(Modifier.fillMaxHeight().width(1.dp).background(palette.divider))
+                ChatPaneSeparator.TonalLine -> Box(Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                ChatPaneSeparator.RimGradient -> Box(
+                    Modifier.fillMaxHeight().width(1.dp).background(
+                        Brush.verticalGradient(
+                            listOf(
+                                palette.textSecondary.copy(alpha = 0.34f),
+                                palette.textSecondary.copy(alpha = 0.08f)
+                            )
+                        )
+                    )
                 )
-        ) { detail() }
+                else -> Unit
+            }
+            Box(Modifier.weight(1f).then(detailBase)) { detail() }
+        }
     }
 }
 
+/** How the list pane and the chat pane are told apart. */
+internal enum class ChatPaneSeparator { Line, TonalLine, Shadow, Cards, RimGradient }
+
+internal fun chatPaneSeparator(style: DesignStyle, glass: Boolean, widthExpanded: Boolean): ChatPaneSeparator = when {
+    glass -> ChatPaneSeparator.RimGradient
+    style == DesignStyle.Material2 -> ChatPaneSeparator.Shadow
+    style == DesignStyle.Material3 -> if (widthExpanded) ChatPaneSeparator.Cards else ChatPaneSeparator.TonalLine
+    else -> ChatPaneSeparator.Line
+}
+
 /**
- * Пустая правая панель, пока чат не выбран. Это не ошибка и не загрузка: подсказка объясняет,
- * что список остаётся слева и переписка откроется рядом.
+ * Пустая правая панель, пока чат не выбран. Она рисует те же обои, что и открытый чат, поэтому при выборе чата
+ * меняется содержимое, а не сам фон панели. Подсказка одна: «Выберите чат»; в низком окне остаются значок и строка.
  */
 @Composable
 internal fun ChatsDetailPlaceholder(modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val compact = LocalWindowLayout.current.heightCompact
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -180,37 +234,52 @@ internal fun ChatsDetailPlaceholder(modifier: Modifier = Modifier) {
             ),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            modifier = Modifier.widthIn(max = 320.dp).padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Box(
-                modifier = Modifier.size(64.dp).clip(CircleShape).background(palette.surface2),
-                contentAlignment = Alignment.Center
-            ) {
+        ChatWallpaperLayer(LocalChatWallpaper.current)
+        val title = stringResource(R.string.chats_detail_empty_title)
+        val content: @Composable () -> Unit = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Rounded.ChatBubbleOutline,
                     contentDescription = null,
-                    tint = palette.accent,
-                    modifier = Modifier.size(28.dp)
+                    tint = if (design.style == DesignStyle.Signature) palette.textPrimary else palette.accentInk,
+                    modifier = Modifier.size(if (compact) 18.dp else 22.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = title,
+                    color = palette.textPrimary,
+                    fontSize = if (compact) 14.sp else 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.semantics { heading() }
                 )
             }
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = stringResource(R.string.chats_detail_empty_title),
-                color = palette.textPrimary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.semantics { heading() }
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = stringResource(R.string.chats_detail_empty_hint),
-                color = palette.textSecondary,
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center
-            )
+        }
+        val padding = Modifier.padding(horizontal = 18.dp, vertical = if (compact) 8.dp else 12.dp)
+        when {
+            // Material 2: the classic empty state, a grey glyph and a secondary line without a plate.
+            design.style == DesignStyle.Material2 -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Rounded.ChatBubbleOutline, null, tint = palette.textSecondary, modifier = Modifier.size(if (compact) 32.dp else 48.dp))
+                Spacer(Modifier.height(8.dp))
+                Text(title, color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.semantics { heading() })
+            }
+            // Signature: ink on the canvas, no plate, no accent glyph.
+            design.style == DesignStyle.Signature -> Box(padding) { content() }
+            // Glass: a glass pill over the wallpaper (blurred, frosted or dense by quality).
+            design.usesGlassPanels -> GlassPanel(
+                design = design,
+                tint = palette.surface,
+                rim = palette.textSecondary,
+                backdropBase = palette.screen,
+                shape = CircleShape
+            ) { Box(padding) { content() } }
+            // Default and Material 3: a pill on the surface (Material 3 on the higher tonal container).
+            else -> Box(
+                Modifier.clip(CircleShape).background(
+                    if (design.style == DesignStyle.Material3) MaterialTheme.colorScheme.surfaceContainerHigh else palette.surface
+                ).then(padding)
+            ) { content() }
         }
     }
 }

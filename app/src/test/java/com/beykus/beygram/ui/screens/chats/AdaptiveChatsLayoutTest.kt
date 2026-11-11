@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.ui.components.WindowLayout
 
 class AdaptiveChatsLayoutTest {
@@ -66,5 +67,14 @@ class AdaptiveChatsLayoutTest {
         assertEquals(CreateChatPlacement.RailTop, createChatPlacement(tablet, true, false))
         assertEquals(CreateChatPlacement.Header, createChatPlacement(landscape, true, true))
         assertEquals(CreateChatPlacement.Header, createChatPlacement(tablet, true, true))
+    }
+
+    @Test fun paneSeparatorFollowsTheStyle() {
+        assertEquals(ChatPaneSeparator.Line, chatPaneSeparator(DesignStyle.Default, false, true))
+        assertEquals(ChatPaneSeparator.Line, chatPaneSeparator(DesignStyle.Signature, false, true))
+        assertEquals(ChatPaneSeparator.Shadow, chatPaneSeparator(DesignStyle.Material2, false, false))
+        assertEquals(ChatPaneSeparator.TonalLine, chatPaneSeparator(DesignStyle.Material3, false, false))
+        assertEquals(ChatPaneSeparator.Cards, chatPaneSeparator(DesignStyle.Material3, false, true))
+        assertEquals(ChatPaneSeparator.RimGradient, chatPaneSeparator(DesignStyle.LiquidGlass, true, true))
     }
 }

@@ -4,7 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 
 /** Где живёт навигация по разделам при данном размере окна. */
-enum class NavigationPlacement {
+enum class WindowNavigation {
     /** Нижнее меню (телефон в портрете). */
     BottomBar,
 
@@ -34,17 +34,17 @@ data class WindowLayout(val widthDp: Float, val heightDp: Float) {
     /** Широкое окно с обычной высотой: рейка с подписями. */
     val widthExpanded: Boolean get() = widthDp >= RailLabelledMinWidthDp
 
-    val navigation: NavigationPlacement
+    val navigation: WindowNavigation
         get() = when {
-            !twoPane -> NavigationPlacement.BottomBar
-            heightCompact -> NavigationPlacement.SlimRail
-            widthExpanded -> NavigationPlacement.Rail
-            else -> NavigationPlacement.BottomBarInListPane
+            !twoPane -> WindowNavigation.BottomBar
+            heightCompact -> WindowNavigation.SlimRail
+            widthExpanded -> WindowNavigation.Rail
+            else -> WindowNavigation.BottomBarInListPane
         }
 
     /** Навигация стоит вертикальной рейкой у ведущего края окна. */
     val usesRail: Boolean
-        get() = navigation == NavigationPlacement.SlimRail || navigation == NavigationPlacement.Rail
+        get() = navigation == WindowNavigation.SlimRail || navigation == WindowNavigation.Rail
 
     companion object {
         const val TwoPaneMinWidthDp = 600f
