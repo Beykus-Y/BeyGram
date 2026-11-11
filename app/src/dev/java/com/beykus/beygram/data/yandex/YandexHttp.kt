@@ -3,9 +3,10 @@ package com.beykus.beygram.data.yandex
 import com.beykus.beygram.data.vpn.MihomoProxyClient
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+
+private const val HTTP_TOO_MANY_REQUESTS = 429
 
 /** Raw result of one request. The body is never logged. */
 internal class YandexResponse(val code: Int, val body: String, val retryAfterMs: Long?)
@@ -56,7 +57,7 @@ internal class YandexHttp(
             val code = connection.responseCode
             val stream = if (code in 200..399) connection.inputStream else connection.errorStream
             val body = stream?.let { BufferedReader(InputStreamReader(it, Charsets.UTF_8)).use { r -> r.readText() } }.orEmpty()
-            val retryAfter = if (code == HttpURLConnection.HTTP_TOO_MANY_REQUESTS) {
+            val retryAfter = if (code == HTTP_TOO_MANY_REQUESTS) {
                 val seconds = connection.getHeaderField("Retry-After")?.trim()?.toLongOrNull()
                 val ms = seconds?.times(1_000L) ?: YandexConfig.DEFAULT_RETRY_AFTER_MS
                 synchronized(lock) { blockedUntil = now() + ms }
