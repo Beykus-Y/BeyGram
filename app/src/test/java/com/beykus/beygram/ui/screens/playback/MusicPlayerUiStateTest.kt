@@ -242,6 +242,9 @@ class MusicPlayerUiStateTest {
         assertEquals(PlaybackSourceKind.Channel, playbackSourceKind(true, false, true, false))
         assertEquals(PlaybackSourceKind.Group, playbackSourceKind(true, false, false, true))
         assertEquals(PlaybackSourceKind.Chat, playbackSourceKind(true, false, false, false))
+        // A music-service track has no Telegram origin and must never be called a file on the device.
+        assertEquals(PlaybackSourceKind.Provider, playbackSourceKind(false, false, false, false, isProviderTrack = true))
+        assertEquals(PlaybackSourceKind.Provider, playbackSourceKind(true, true, true, true, isProviderTrack = true))
     }
 
     @Test

@@ -338,7 +338,9 @@ internal enum class PlaybackSourceKind {
     SavedMessages,
     Channel,
     Group,
-    Chat
+    Chat,
+    /** A track of a connected music service (not a file on the device and not a Telegram chat). */
+    Provider
 }
 
 /** What the "Playing from" header should call the current source. */
@@ -346,8 +348,10 @@ internal fun playbackSourceKind(
     hasOrigin: Boolean,
     isSavedMessages: Boolean,
     isChannel: Boolean,
-    isGroup: Boolean
+    isGroup: Boolean,
+    isProviderTrack: Boolean = false
 ): PlaybackSourceKind = when {
+    isProviderTrack -> PlaybackSourceKind.Provider
     !hasOrigin -> PlaybackSourceKind.Local
     isSavedMessages -> PlaybackSourceKind.SavedMessages
     isChannel -> PlaybackSourceKind.Channel
