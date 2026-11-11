@@ -242,7 +242,7 @@ fun ChatsScreen(
     onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit,
     onGlobalSearch: (String) -> Unit = {},
-    onMusicSearch: () -> Unit = {},
+    onOpenMusic: () -> Unit = {},
     /**
      * Чат, открытый в правой панели: его строка подсвечена и помечена для TalkBack.
      * Пока панель показывает заглушку «Выберите чат», сюда приходит null.
@@ -586,10 +586,10 @@ fun ChatsScreen(
                             onClick = { moreOpen = false; onAccountPicker() }
                         )
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.music_search_action)) },
+                            text = { Text(stringResource(R.string.music_library_title)) },
                             // The music note is the one accent of this menu; the rest stay in ink.
                             leadingIcon = { Icon(Icons.Rounded.MusicNote, null, tint = palette.accentInk) },
-                            onClick = { moreOpen = false; focusManager.clearFocus(); onMusicSearch() }
+                            onClick = { moreOpen = false; focusManager.clearFocus(); onOpenMusic() }
                         )
                         if (folderSnapshot.initialized) DropdownMenuItem(
                             text = { Text(stringResource(R.string.folder_manage_title)) },
@@ -673,8 +673,8 @@ fun ChatsScreen(
             ChatsConnectionLine(connectionStatus)
 
             Spacer(Modifier.height(design.mainScreen.headerGap))
-            // Music search is reachable directly from the daily chat list; it reuses the same
-            // MusicSearch route, account context and queue as Settings and the full player.
+            // The music screen is reachable directly from the daily chat list: the note always opens it, the same
+            // screen as Settings → Music. Its search field opens the music search.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
                     SearchField(
@@ -687,13 +687,13 @@ fun ChatsScreen(
                     onClick = {
                         // Leaving a focused search field should dismiss its IME before the route changes.
                         focusManager.clearFocus()
-                        onMusicSearch()
+                        onOpenMusic()
                     },
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         Icons.Rounded.MusicNote,
-                        contentDescription = stringResource(R.string.music_search_action),
+                        contentDescription = stringResource(R.string.music_library_title),
                         tint = palette.accentInk,
                         modifier = Modifier.size(24.dp)
                     )

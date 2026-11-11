@@ -747,7 +747,8 @@
     <string name="music_favorite_state_on">In favorites</string>
     <string name="music_favorites_title">Favorites</string>
     <string name="music_find_replacement">Find a replacement</string>
-    <string name="music_library_title">My music</string>
+    <string name="music_source_telegram">Telegram</string>
+    <string name="music_library_title">Music</string>
     <string name="music_local_only_note">The library is stored only on this device</string>
     <string name="music_move_down">Move down</string>
     <string name="music_move_up">Move up</string>

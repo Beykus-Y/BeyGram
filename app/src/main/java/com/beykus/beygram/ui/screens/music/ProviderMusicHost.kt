@@ -16,12 +16,17 @@ interface ProviderMusicHost {
     @Composable
     fun SearchResults(query: String, onPlay: ((List<ProviderTrack>, Int) -> Unit)?)
 
+    /** Short name of this source on the source switch of the music screen. */
+    @Composable
+    fun tabLabel(): String
+
     /**
-     * Liked tracks and playlists of this source, shown at the top of the music library. Draws nothing when the
-     * source is not signed in. [onPlay] starts a list at an index; null means the rows cannot play yet.
+     * Liked tracks and playlists of this source: the whole content of its tab on the music screen. Before sign-in it
+     * shows a card whose button calls [onSignIn]. [onPlay] starts a list at an index; null means the rows cannot play
+     * yet.
      */
     @Composable
-    fun LibrarySection(onPlay: ((List<ProviderTrack>, Int) -> Unit)?)
+    fun LibrarySection(onPlay: ((List<ProviderTrack>, Int) -> Unit)?, onSignIn: () -> Unit)
 }
 
 object ProviderMusicHosts {

@@ -30,4 +30,8 @@
     <string name="yandex_library_liked">Мне нравится</string>
     <string name="yandex_library_playlists">Плейлисты</string>
     <string name="yandex_library_empty">Пока здесь пусто.</string>
+    <string name="yandex_tab_label">Яндекс</string>
+    <string name="yandex_library_signin_title">Яндекс Музыка</string>
+    <string name="yandex_library_signin_text">Войдите в Yandex ID, и здесь появятся ваши лайки и плейлисты.</string>
+    <string name="yandex_library_signin_action">Войти</string>
 </resources>

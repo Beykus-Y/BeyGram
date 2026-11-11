@@ -436,6 +436,10 @@ private fun BeyGramAppContent(
     // Search can open from Settings or a global player on any screen; Back returns to that origin.
     var musicSearchReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var myMusicReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
+    // The music sign-in opens from Experiments or from the source tab of the music screen; Back returns there.
+    var musicSignInReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Experiments.name) }
+    // Set when the music screen opened the search from its field: the keyboard comes up at once.
+    var musicSearchFocusOnOpen by rememberSaveable { mutableStateOf(false) }
     var musicPlaylistId by rememberSaveable { mutableStateOf("") }
     // Where Back from the playlist goes: My Music, the chat whose `.bgmusic` preview opened it, or the chat info
     // when the playlist is a chat's collection.
@@ -1616,7 +1620,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Experiments) { routeName = AppRoute.Settings.name }
-    BackHandler(enabled = route == AppRoute.MusicAccountSignIn) { routeName = AppRoute.Experiments.name }
+    BackHandler(enabled = route == AppRoute.MusicAccountSignIn) { routeName = musicSignInReturnRouteName }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = musicSearchReturnRouteName }
@@ -1711,10 +1715,10 @@ private fun BeyGramAppContent(
                 globalSearchSession.reset(typed)
                 routeName = AppRoute.GlobalSearch.name
             },
-            onMusicSearch = {
+            onOpenMusic = {
                 // Keep the actual origin: a split-screen chat must return to that chat on Back.
-                musicSearchReturnRouteName = routeName
-                routeName = AppRoute.MusicSearch.name
+                myMusicReturnRouteName = routeName
+                routeName = AppRoute.MyMusic.name
             },
             onChatClick = { chat ->
                 selectedChatId = chat.id
@@ -2190,6 +2194,7 @@ private fun BeyGramAppContent(
         LocalAddProfileAudio provides repository::addPlaybackItemToProfile,
         LocalOpenMusicSearch provides {
             musicSearchReturnRouteName = routeName
+            musicSearchFocusOnOpen = false
             routeName = AppRoute.MusicSearch.name
         },
         LocalRailCreateChat provides { routeName = AppRoute.NewChat.name },
@@ -2687,18 +2692,27 @@ GlobalSearchScreen(
                     conversation = repository,
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
-                    onBack = { routeName = musicSearchReturnRouteName }
+                    onBack = { routeName = musicSearchReturnRouteName },
+                    focusOnOpen = musicSearchFocusOnOpen
                 )
                 AppRoute.MyMusic -> MyMusicScreen(
                     accountId = selectedAccountId,
                     telegram = repository,
                     onBack = { routeName = myMusicReturnRouteName },
-                    onSearch = { musicSearchReturnRouteName = AppRoute.MyMusic.name; routeName = AppRoute.MusicSearch.name },
+                    onSearch = {
+                        musicSearchReturnRouteName = AppRoute.MyMusic.name
+                        musicSearchFocusOnOpen = true
+                        routeName = AppRoute.MusicSearch.name
+                    },
                     onOpenPlaylist = { playlistId ->
                         musicPlaylistReturnRouteName = AppRoute.MyMusic.name
                         musicPlaylistId = playlistId
                         musicPlaylistAccountId = selectedAccountId
                         routeName = AppRoute.MusicPlaylist.name
+                    },
+                    onProviderSignIn = {
+                        musicSignInReturnRouteName = AppRoute.MyMusic.name
+                        routeName = AppRoute.MusicAccountSignIn.name
                     }
                 )
                 AppRoute.MusicPlaylist -> MusicPlaylistScreen(
@@ -2706,7 +2720,11 @@ GlobalSearchScreen(
                     telegram = repository,
                     playlistId = musicPlaylistId,
                     onBack = { routeName = musicPlaylistReturnRouteName },
-                    onSearch = { musicSearchReturnRouteName = AppRoute.MusicPlaylist.name; routeName = AppRoute.MusicSearch.name }
+                    onSearch = {
+                        musicSearchReturnRouteName = AppRoute.MusicPlaylist.name
+                        musicSearchFocusOnOpen = false
+                        routeName = AppRoute.MusicSearch.name
+                    }
                 )
                 AppRoute.Equalizer -> EqualizerScreen(
                     settings = equalizerSettings,
@@ -2952,12 +2970,15 @@ GlobalSearchScreen(
                 )
                 AppRoute.Experiments -> ExperimentsScreen(
                     onBack = { routeName = AppRoute.Settings.name },
-                    onMusicAccount = { routeName = AppRoute.MusicAccountSignIn.name }
+                    onMusicAccount = {
+                        musicSignInReturnRouteName = AppRoute.Experiments.name
+                        routeName = AppRoute.MusicAccountSignIn.name
+                    }
                 )
                 AppRoute.MusicAccountSignIn -> {
                     // Reachable only when the build has a music source with a sign-in screen.
                     val host = ProviderSettingsHosts.yandex()
-                    if (host != null) host.SignInScreen(onBack = { routeName = AppRoute.Experiments.name })
+                    if (host != null) host.SignInScreen(onBack = { routeName = musicSignInReturnRouteName })
                 }
                 AppRoute.NavigationSettings -> NavigationSettingsScreen(
                     visibility = tabVisibility,

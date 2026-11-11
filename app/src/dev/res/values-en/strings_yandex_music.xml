@@ -30,4 +30,8 @@
     <string name="yandex_library_liked">Liked</string>
     <string name="yandex_library_playlists">Playlists</string>
     <string name="yandex_library_empty">Nothing here yet.</string>
+    <string name="yandex_tab_label">Yandex</string>
+    <string name="yandex_library_signin_title">Yandex Music</string>
+    <string name="yandex_library_signin_text">Sign in with Yandex ID to see your liked tracks and playlists here.</string>
+    <string name="yandex_library_signin_action">Sign in</string>
 </resources>
