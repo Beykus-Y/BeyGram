@@ -5,7 +5,11 @@ import android.content.Intent
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -64,12 +68,49 @@ object ProviderTracks {
         context.startActivity(Intent.createChooser(send, chooserTitle).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
+    /**
+     * Marks the ids of the account's whole liked list as liked, so a track seen first in an album or playlist shows
+     * its real state. Ids already known keep their state.
+     */
+    fun rememberLikedIds(ids: Collection<String>) {
+        _liked.update { known -> ids.associateWith { true } + known }
+        _likedListKnown.value = true
+    }
+
+    private val _likedListKnown = MutableStateFlow(false)
+
+    /** True once the whole liked list of the account was read: a track missing from it is then not liked. */
+    val likedListKnown: StateFlow<Boolean> = _likedListKnown.asStateFlow()
+
+    /** Forgets every like, for example after sign-out. */
+    fun clearLikes() {
+        _likedListKnown.value = false
+        _liked.value = emptyMap()
+    }
+
+    /** Process-wide, so a like outlives the menu or screen that asked for it. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** [setLiked] on the process scope; [onFailure] runs on the main thread when the service refused it. */
+    fun setLikedInBackground(context: Context, track: ProviderTrack, liked: Boolean, onFailure: () -> Unit) {
+        val app = context.applicationContext
+        scope.launch {
+            if (setLiked(app, track, liked) is ProviderResult.Failure) onFailure()
+        }
+    }
+
     /** Likes or unlikes [track] in the service library. The local state changes at once and returns on failure. */
     suspend fun setLiked(context: Context, track: ProviderTrack, liked: Boolean): ProviderResult<Unit> {
         val provider = MusicProviders.yandex(context) ?: return ProviderResult.Failure(MusicProviderFailure.Unavailable)
         val before = _liked.value[track.trackId]
         _liked.update { it + (track.trackId to liked) }
-        val result = withContext(Dispatchers.IO) { provider.setLiked(track.trackId, liked) }
+        val result = try {
+            withContext(Dispatchers.IO) { provider.setLiked(track.trackId, liked) }
+        } catch (e: CancellationException) {
+            // Not known whether the service saved it: the state goes back to what it was before.
+            _liked.update { if (before == null) it - track.trackId else it + (track.trackId to before) }
+            throw e
+        }
         if (result is ProviderResult.Failure) {
             _liked.update { if (before == null) it - track.trackId else it + (track.trackId to before) }
         }

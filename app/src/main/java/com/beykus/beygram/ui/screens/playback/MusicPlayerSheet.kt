@@ -394,7 +394,12 @@ private fun PlayerHeader(
                     HorizontalDivider(color = palette.divider)
                 }
                 // A track of an optional source: like, its album and a link to share instead of the file.
-                PlayerProviderTrackMenuItems(key = player.item.key, onDismiss = { speedMenu = false })
+                PlayerProviderTrackMenuItems(
+                    key = player.item.key,
+                    onDismiss = { speedMenu = false },
+                    // The album opens behind the player, so the player closes first.
+                    onLeavePlayer = onCollapse
+                )
                 Text(
                     stringResource(R.string.player_speed_title),
                     color = palette.textSecondary,

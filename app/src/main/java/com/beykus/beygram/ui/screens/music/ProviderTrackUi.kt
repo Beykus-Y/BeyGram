@@ -10,12 +10,9 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.ui.components.beyGramPalette
-import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -78,9 +75,10 @@ internal fun ProviderTrackMenuItems(
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
-    val scope = rememberCoroutineScope()
     val likes by ProviderTracks.liked.collectAsStateWithLifecycle()
-    val liked = likes[track.trackId] ?: track.liked ?: false
+    val listKnown by ProviderTracks.likedListKnown.collectAsStateWithLifecycle()
+    // Unknown until the liked list of the account was read: no toggle is offered that could do the opposite.
+    val liked = likes[track.trackId] ?: track.liked ?: false.takeIf { listKnown }
     val failed = stringResource(R.string.music_provider_like_failed)
     val chooser = stringResource(R.string.music_provider_share_link)
     if (showPlayNext && track.isAvailable) DropdownMenuItem(
@@ -91,7 +89,7 @@ internal fun ProviderTrackMenuItems(
             ProviderTracks.playNext(context, track)
         }
     )
-    DropdownMenuItem(
+    if (liked != null) DropdownMenuItem(
         text = { Text(stringResource(if (liked) R.string.music_provider_unlike else R.string.music_provider_like)) },
         leadingIcon = {
             Icon(
@@ -102,10 +100,9 @@ internal fun ProviderTrackMenuItems(
         },
         onClick = {
             onDismiss()
-            scope.launch {
-                if (ProviderTracks.setLiked(context, track, !liked) is ProviderResult.Failure) {
-                    Toast.makeText(context, failed, Toast.LENGTH_SHORT).show()
-                }
+            // Runs outside the menu, which leaves the composition at once; a failure still rolls back and is shown.
+            ProviderTracks.setLikedInBackground(context, track, !liked) {
+                Toast.makeText(context.applicationContext, failed, Toast.LENGTH_SHORT).show()
             }
         }
     )
@@ -128,15 +125,19 @@ internal fun ProviderTrackMenuItems(
     )
 }
 
-/** The menu entries of the source track the player holds, or nothing for a Telegram track. */
+/**
+ * The menu entries of the source track the player holds, or nothing for a Telegram track. [onLeavePlayer] closes the
+ * full player before the album screen opens under it.
+ */
 @Composable
-internal fun PlayerProviderTrackMenuItems(key: String, onDismiss: () -> Unit) {
+internal fun PlayerProviderTrackMenuItems(key: String, onDismiss: () -> Unit, onLeavePlayer: () -> Unit) {
     if (!ProviderTracks.isProviderKey(key)) return
     val track = ProviderTracks.byKey(key) ?: return
+    val openAlbum = LocalOpenProviderAlbum.current
     ProviderTrackMenuItems(
         track = track,
         onDismiss = onDismiss,
         showPlayNext = false,
-        onOpenAlbum = LocalOpenProviderAlbum.current
+        onOpenAlbum = openAlbum?.let { open -> { albumId -> onLeavePlayer(); open(albumId) } }
     )
 }

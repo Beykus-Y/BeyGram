@@ -64,7 +64,10 @@ object ProviderArtwork {
         MusicProviders.yandex(app)?.let { provider ->
             scope.launch {
                 provider.state.collect { state ->
-                    if (state is MusicProviderState.SignedOut) ProviderCovers.clear(app)
+                    if (state is MusicProviderState.SignedOut) {
+                        ProviderTracks.clearLikes()
+                        ProviderCovers.clear(app)
+                    }
                 }
             }
         }

@@ -51,16 +51,17 @@ import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.styledShape
-import com.beykus.beygram.ui.screens.music.MusicCardColumn
 import com.beykus.beygram.ui.screens.music.MusicCollectionHeader
 import com.beykus.beygram.ui.screens.music.MusicEmptyText
 import com.beykus.beygram.ui.screens.music.MusicLoadingRow
+import com.beykus.beygram.ui.screens.music.MusicScreenGutter
 import com.beykus.beygram.ui.screens.music.ProviderTrackMenuItems
 import com.beykus.beygram.ui.screens.music.ProviderTrackRow
 import com.beykus.beygram.ui.screens.music.musicCollectionSummary
 import com.beykus.beygram.ui.screens.music.rememberProviderCover
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -131,6 +132,7 @@ internal fun YandexCollectionScreen(
                             is ProviderResult.Success -> fresh.value
                         }
                     likedIds = ids
+                    ProviderTracks.rememberLikedIds(ids)
                     provider.tracks(ids.take(LIKED_PAGE))
                 }
                 is YandexCollectionRef.Playlist -> provider.playlistTracks(ref.kind, ref.ownerUid)
@@ -170,28 +172,43 @@ internal fun YandexCollectionScreen(
         }
     }
     var pageLoading by remember(ref) { mutableStateOf(false) }
+    // A page the service refused waits for the retry button, so a failing page is not asked for in a loop.
+    var pageFailed by remember(ref) { mutableStateOf(false) }
+    // The service returned an empty page: the rest of the ids has no tracks to show, so no page is asked again.
+    var pagesDone by remember(ref) { mutableStateOf(false) }
     LaunchedEffect(ref, provider) {
         if (ref != YandexCollectionRef.Liked || provider == null) return@LaunchedEffect
-        snapshotFlow { nearEnd }.distinctUntilChanged().filter { it }.collect {
+        // Ready for a page: near the end, nothing loading and tracks left. Each finished page makes it false and then
+        // true again while the end is still in view, so the next page follows.
+        snapshotFlow {
+            val ids = likedIds
+            nearEnd && !loading && !pageLoading && !pageFailed && !pagesDone && failure == null && ids != null && tracks.size < ids.size
+        }.distinctUntilChanged().filter { it }.collect {
             val ids = likedIds ?: return@collect
-            if (pageLoading || loading || tracks.size >= ids.size) return@collect
             pageLoading = true
             val next = withContext(Dispatchers.IO) { provider.tracks(ids.drop(tracks.size).take(LIKED_PAGE)) }
             if (next is ProviderResult.Success) {
                 val page = next.value.map { it.copy(liked = true) }
                 ProviderTracks.remember(page)
-                tracks = tracks + page
+                if (page.isEmpty()) pagesDone = true else tracks = tracks + page
+            } else {
+                pageFailed = true
             }
             pageLoading = false
         }
     }
 
+    // The latest tap wins: a queue still loading for an earlier tap is dropped.
+    var playJob by remember(ref) { mutableStateOf<Job?>(null) }
+
     /** Plays from [index]; the liked list loads the rest of its first tracks so the queue goes on past the page. */
     fun play(index: Int, shuffle: Boolean) {
+        playJob?.cancel()
+        playJob = null
         val ids = likedIds
         if (ref == YandexCollectionRef.Liked && provider != null && ids != null && ids.size > tracks.size) {
             val startId = tracks.getOrNull(index)?.trackId
-            scope.launch {
+            playJob = scope.launch {
                 val all = withContext(Dispatchers.IO) { provider.tracks(ids.take(LIKED_PLAY_LIMIT)) }
                 val list = (all as? ProviderResult.Success)?.value ?: tracks
                 val start = list.indexOfFirst { it.trackId == startId }
@@ -270,21 +287,26 @@ internal fun YandexCollectionScreen(
                     }
                 }
                 tracks.isEmpty() -> item(key = "empty") { MusicEmptyText(stringResource(R.string.yandex_library_empty)) }
-                else -> item(key = "tracks") {
-                    MusicCardColumn {
-                        tracks.forEachIndexed { index, track ->
-                            TrackRowWithMenu(
-                                track = track,
-                                number = if (ref is YandexCollectionRef.Album) index + 1 else null,
-                                inAlbum = (ref as? YandexCollectionRef.Album)?.id,
-                                onClick = if (track.isAvailable) ({ play(index, false) }) else null,
-                                onOpenCollection = onOpenCollection
-                            )
-                        }
+                // One lazy item per row: a liked list of thousands composes only what is on screen, and the list
+                // position tells when to load the next page.
+                else -> itemsIndexed(tracks, key = { index, track -> "track-$index-${track.trackId}" }) { index, track ->
+                    Box(Modifier.padding(horizontal = MusicScreenGutter)) {
+                        TrackRowWithMenu(
+                            track = track,
+                            number = if (ref is YandexCollectionRef.Album) index + 1 else null,
+                            inAlbum = (ref as? YandexCollectionRef.Album)?.id,
+                            onClick = if (track.isAvailable) ({ play(index, false) }) else null,
+                            onOpenCollection = onOpenCollection
+                        )
                     }
                 }
             }
             if (pageLoading) item(key = "page-loading") { MusicLoadingRow() }
+            if (pageFailed) item(key = "page-failure") {
+                Box(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Button(onClick = { pageFailed = false }) { Text(stringResource(R.string.yandex_library_retry)) }
+                }
+            }
         }
     }
 }
