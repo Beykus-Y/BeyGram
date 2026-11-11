@@ -831,6 +831,7 @@
     <string name="player_bgmix_transition_to">Transition vers « %1$s »</string>
     <string name="player_bgmix_transition_next">Transition vers le morceau suivant</string>
     <string name="player_bgmix_explain">Le mode de transitions fluides est actif. Aléatoire, répétition et « Précédent » y fonctionnent, avec une brève coupure du son. La vitesse n’est pas disponible dans ce mode.</string>
+    <string name="player_bgmix_mark">BG</string>
     <string name="player_bgmix_icon_active">BG Mix joue le morceau</string>
     <string name="player_bgmix_icon_preparing">BG Mix prépare le morceau</string>
     <string name="player_bgmix_preparing_explain">BG Mix prépare ce morceau. En attendant, il joue dans le lecteur habituel ; dès que le fichier est téléchargé et prêt, BG Mix le reprend au même endroit, sans coupure.</string>

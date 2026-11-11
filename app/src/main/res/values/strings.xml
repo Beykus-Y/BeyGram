@@ -2358,7 +2358,7 @@
     <string name="player_bgmix_transition_to">Переход к «%1$s»</string>
     <string name="player_bgmix_transition_next">Переход к следующему треку</string>
     <string name="player_bgmix_explain">Сейчас играет режим плавных переходов. Перемешивание, повтор и «Назад» работают в нём, при этом звук на миг прерывается. Скорость в этом режиме недоступна.</string>
-    <string name="player_bgmix_mark" translatable="false">BG</string>
+    <string name="player_bgmix_mark">BG</string>
     <string name="player_bgmix_icon_active">BG Mix играет трек</string>
     <string name="player_bgmix_icon_preparing">BG Mix готовит трек</string>
     <string name="player_bgmix_preparing_explain">BG Mix готовит этот трек. Пока он играет в обычном плеере, а когда файл скачается и будет готов, BG Mix подхватит его с того же места без паузы.</string>
