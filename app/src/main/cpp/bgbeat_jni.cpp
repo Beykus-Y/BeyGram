@@ -130,6 +130,7 @@ private:
 #include "bgmedia/analysis/AnalysisConfig.hpp"
 #include "bgmedia/analysis/AnalysisResult.hpp"
 #include "bgmedia/cache/AnalysisCache.hpp"
+#include "bgmedia/motion3/MusicalTimeline.hpp"
 #include "bgmedia/audio/AudioData.hpp"
 #include "bgmedia/version.hpp"
 #include "miniaudio.h"
@@ -212,6 +213,20 @@ std::string serializeResultToJson(
             }
             json << "{\"min\": " << minVal << ", \"max\": " << maxVal << "}";
         }
+    }
+    json << "],\n";
+
+    // Musical timeline evidence: whether the track was analysed, and the loudness of the phrase at
+    // each downbeat (0 quiet .. 1 loud, -1 unknown).
+    const bgmedia::motion::MusicalTimeline timeline = bgmedia::motion::MusicalTimeline::fromAnalysis(r);
+    json << "  \"analyzed\": " << (timeline.analyzed() ? "true" : "false") << ",\n";
+    json << "  \"phraseLoudness\": [";
+    bool firstLoudness = true;
+    for (const auto& b : r.beats) {
+        if (!b.downbeat) continue;
+        if (!firstLoudness) json << ", ";
+        firstLoudness = false;
+        json << "{\"time\": " << b.time << ", \"value\": " << timeline.phraseLoudnessAt(b.time) << "}";
     }
     json << "],\n";
 
