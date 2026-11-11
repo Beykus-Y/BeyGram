@@ -116,8 +116,8 @@ internal class PlaybackSourceHandle(
     fun resolve(): ResolvedPlaybackSource? {
         val current = item
         if (current.path.isNotBlank()) return ResolvedPlaybackSource(current.path, current.growing)
-        if (BotTrackResolver.isBotKey(current.key)) {
-            return BotTrackResolver.resolved(current.key)?.let { ResolvedPlaybackSource(it.path, null) }
+        LazyTrackRegistry.sourceFor(current.key)?.let { lazy ->
+            return lazy.resolvedPath(current.key)?.let { ResolvedPlaybackSource(it, null) }
         }
         val fileId = current.fileId ?: return null
         val source = queueSource?.takeIf { it.accountId == current.accountId } ?: return null
@@ -138,7 +138,7 @@ internal class PlaybackSourceHandle(
      */
     fun publish(resolved: ResolvedPlaybackSource) {
         val current = item
-        if (BotTrackResolver.isBotKey(current.key)) BotTrackResolver.published(current.key)
+        LazyTrackRegistry.sourceFor(current.key)?.published(current.key)
         if (current.path == resolved.path && current.growing === resolved.growing) return
         val updated = current.copy(path = resolved.path, growing = resolved.growing)
         item = updated
@@ -147,8 +147,9 @@ internal class PlaybackSourceHandle(
 
     fun request() {
         val current = item
-        if (BotTrackResolver.isBotKey(current.key) && current.path.isBlank()) {
-            BotTrackResolver.request(current.key)
+        val lazy = LazyTrackRegistry.sourceFor(current.key)
+        if (lazy != null && current.path.isBlank()) {
+            lazy.request(current.key)
             return
         }
         val fileId = current.fileId ?: return
@@ -158,11 +159,12 @@ internal class PlaybackSourceHandle(
 
     /** False for a lazy item that has neither a path nor an account-scoped observer to obtain one. */
     fun canResolve(): Boolean =
-        item.path.isNotBlank() || BotTrackResolver.isBotKey(item.key) ||
+        item.path.isNotBlank() || LazyTrackRegistry.isLazyKey(item.key) ||
             (item.fileId != null && queueSource?.accountId == item.accountId)
 
-    /** A bot result that the bot could not deliver: the wait ends with an error so the queue moves on. */
-    fun failed(): Boolean = item.path.isBlank() && BotTrackResolver.isBotKey(item.key) && BotTrackResolver.failed(item.key)
+    /** A row whose provider could not deliver it: the wait ends with an error so the queue moves on. */
+    fun failed(): Boolean =
+        item.path.isBlank() && LazyTrackRegistry.sourceFor(item.key)?.failed(item.key) == true
 }
 
 /**
@@ -335,7 +337,7 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
             sleep(now - startedAt)
             resolved = handle.resolve()
             if (resolved != null) return resolved
-            if (handle.failed()) throw IOException("The bot did not deliver this track")
+            if (handle.failed()) throw IOException("The track source did not deliver this track")
             if (now - startedAt >= OPEN_TIMEOUT_MS) {
                 throw PlaybackNetworkWaitException("Audio is not available")
             }

@@ -56,7 +56,7 @@ fun parseShareTimecodeMs(caption: String, durationSeconds: Int): Long? {
  */
 internal fun canShareTrack(item: PlaybackItem, originUnprotected: Boolean): Boolean =
     item.isMusic && item.path.isNotBlank() && item.growing == null &&
-        !item.secret && !item.isSecretChat && !item.viewOnce && originUnprotected
+        !item.secret && !item.isSecretChat && !item.viewOnce && !item.isRestrictedCatalog && originUnprotected
 
 /**
  * The track as it is on disk now. A growing source that has finished downloading is replaced by its completed file, so

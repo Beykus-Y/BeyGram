@@ -3202,8 +3202,9 @@ object PlaybackEngine {
     /** Fetches [item] ahead under the automatic-download policy, so Data Saver, roaming and size limits apply. */
     private fun prefetchItem(context: Context, source: PlaybackQueueSource, item: PlaybackItem) {
         run {
-            if (BotTrackResolver.isBotKey(item.key) && item.path.isBlank()) {
-                // A bot result is fetched ahead like a file, under the same automatic-download policy.
+            val lazySource = LazyTrackRegistry.sourceFor(item.key)
+            if (lazySource != null && item.path.isBlank()) {
+                // A row without a file (bot result or provider track) is fetched ahead like a file, under the same policy.
                 if (item.key in prefetchedKeys) return@run
                 val request = AutoDownloadRequest(
                     fileId = 0,
@@ -3218,7 +3219,7 @@ object PlaybackEngine {
                 }.getOrDefault(false)
                 if (allowed) {
                     prefetchedKeys.add(item.key)
-                    BotTrackResolver.request(item.key)
+                    lazySource.request(item.key)
                 }
                 return@run
             }

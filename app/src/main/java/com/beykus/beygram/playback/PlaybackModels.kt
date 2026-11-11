@@ -106,6 +106,9 @@ data class PlaybackItem(
     /** Neither secret attachments, secret-chat media nor view-once content may reach queues or system metadata. */
     val systemPrivate: Boolean get() = secret || isSecretChat || viewOnce
 
+    /** Tracks of an external catalog may not be forwarded, shared, exported or put on a profile. */
+    val isRestrictedCatalog: Boolean get() = LazyTrackRegistry.sourceFor(key)?.restricted == true
+
     /** System-visible id for private content must not expose the Telegram file id or message origin. */
     val systemMediaId: String
         get() = if (systemPrivate) "beygram-secret-${Integer.toHexString(key.hashCode())}" else key
@@ -517,7 +520,7 @@ internal fun prefetchCandidates(
     val result = ArrayList<PlaybackItem>(max)
     for (queueIndex in following) {
         val item = state.queue[queueIndex]
-        if (item.systemPrivate || (item.fileId == null && !BotTrackResolver.isBotKey(item.key))) continue
+        if (item.systemPrivate || (item.fileId == null && !LazyTrackRegistry.isLazyKey(item.key))) continue
         if (item.path.isNotBlank() || item.growing != null) continue
         result += item
         if (result.size == max) break
