@@ -146,6 +146,7 @@ import com.beykus.beygram.ui.screens.diagnostics.ResourcesScreen
 import com.beykus.beygram.ui.screens.diagnostics.ReportProblemScreen
 import com.beykus.beygram.ui.screens.settings.LastSeenSettingsScreen
 import com.beykus.beygram.ui.screens.settings.ExperimentsScreen
+import com.beykus.beygram.ui.screens.settings.ProviderSettingsHosts
 import com.beykus.beygram.ui.screens.settings.NavigationSettingsScreen
 import com.beykus.beygram.ui.screens.settings.PrivacySettingsScreen
 import com.beykus.beygram.ui.screens.settings.StealthSettingsScreen
@@ -1615,6 +1616,7 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Experiments) { routeName = AppRoute.Settings.name }
+    BackHandler(enabled = route == AppRoute.MusicAccountSignIn) { routeName = AppRoute.Experiments.name }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = musicSearchReturnRouteName }
@@ -2948,7 +2950,15 @@ GlobalSearchScreen(
                     accountId = selectedAccountId,
                     onBack = { routeName = AppRoute.Settings.name }
                 )
-                AppRoute.Experiments -> ExperimentsScreen(onBack = { routeName = AppRoute.Settings.name })
+                AppRoute.Experiments -> ExperimentsScreen(
+                    onBack = { routeName = AppRoute.Settings.name },
+                    onMusicAccount = { routeName = AppRoute.MusicAccountSignIn.name }
+                )
+                AppRoute.MusicAccountSignIn -> {
+                    // Reachable only when the build has a music source with a sign-in screen.
+                    val host = ProviderSettingsHosts.yandex()
+                    if (host != null) host.SignInScreen(onBack = { routeName = AppRoute.Experiments.name })
+                }
                 AppRoute.NavigationSettings -> NavigationSettingsScreen(
                     visibility = tabVisibility,
                     onVisibilityChange = onTabVisibilityChange,

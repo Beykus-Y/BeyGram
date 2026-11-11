@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yandex_settings_group">Yandex Music</string>
+    <string name="yandex_settings_entry">Anmeldung mit Yandex ID</string>
+    <string name="yandex_signin_title">Yandex ID</string>
+    <string name="yandex_signin_intro">Anmeldung per Code: Die Yandex-Seite öffnet sich, dort bestätigen Sie den Zugriff. BeyGram fragt nicht nach Ihrem Passwort.</string>
+    <string name="yandex_signin_group">Vor der Anmeldung</string>
+    <string name="yandex_signin_warning">Yandex Music öffnet seine Musik nicht für Fremd-Apps. Die Anmeldung funktioniert wie im offiziellen Client, und Yandex kann das Konto einschränken. Nutzen Sie nur Ihr eigenes Konto mit Abo. Yandex-Titel dürfen nicht weitergegeben, gespeichert oder exportiert werden.</string>
+    <string name="yandex_signin_consent">Ich verstehe das Risiko und akzeptiere es</string>
+    <string name="yandex_signin_start">Mit Yandex ID anmelden</string>
+    <string name="yandex_signin_retry">Erneut versuchen</string>
+    <string name="yandex_signin_code_title">Geben Sie diesen Code auf der Yandex-Seite ein</string>
+    <string name="yandex_signin_waiting">Warte auf Bestätigung. Diese Ansicht aktualisiert sich selbst.</string>
+    <string name="yandex_signin_open">Yandex-Seite öffnen</string>
+    <string name="yandex_account_group">Konto</string>
+    <string name="yandex_account_unnamed">Yandex-Konto</string>
+    <string name="yandex_account_subscription_on">Abo aktiv: vollständige Titel verfügbar</string>
+    <string name="yandex_account_subscription_off">Kein Abo: vollständige Titel nicht verfügbar</string>
+    <string name="yandex_account_refresh">Daten aktualisieren</string>
+    <string name="yandex_account_sign_out">Von Yandex abmelden</string>
+    <string name="yandex_error_network">Keine Verbindung. Prüfen Sie das Netzwerk und versuchen Sie es erneut.</string>
+    <string name="yandex_error_unavailable">Der Dienst ist in Ihrer Region nicht verfügbar oder antwortet nicht.</string>
+    <string name="yandex_error_generic">Anmeldung fehlgeschlagen. Versuchen Sie es erneut.</string>
+</resources>

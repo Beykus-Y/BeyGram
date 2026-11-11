@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yandex_settings_group">Yandex Music</string>
+    <string name="yandex_settings_entry">Connexion avec Yandex ID</string>
+    <string name="yandex_signin_title">Yandex ID</string>
+    <string name="yandex_signin_intro">Connexion par code : la page Yandex s’ouvre et vous y confirmez l’accès. BeyGram ne demande jamais votre mot de passe.</string>
+    <string name="yandex_signin_group">Avant de vous connecter</string>
+    <string name="yandex_signin_warning">Yandex Music n’ouvre pas sa musique aux applications tierces. La connexion fonctionne comme sur le client officiel, et Yandex peut restreindre le compte. Utilisez uniquement votre propre compte avec abonnement. Les titres Yandex ne peuvent être ni transmis, ni enregistrés, ni exportés.</string>
+    <string name="yandex_signin_consent">Je comprends le risque et je l’accepte</string>
+    <string name="yandex_signin_start">Se connecter avec Yandex ID</string>
+    <string name="yandex_signin_retry">Réessayer</string>
+    <string name="yandex_signin_code_title">Saisissez ce code sur la page Yandex</string>
+    <string name="yandex_signin_waiting">En attente de confirmation. Cet écran se met à jour seul.</string>
+    <string name="yandex_signin_open">Ouvrir la page Yandex</string>
+    <string name="yandex_account_group">Compte</string>
+    <string name="yandex_account_unnamed">Compte Yandex</string>
+    <string name="yandex_account_subscription_on">Abonnement actif : titres complets disponibles</string>
+    <string name="yandex_account_subscription_off">Pas d’abonnement : titres complets indisponibles</string>
+    <string name="yandex_account_refresh">Actualiser les données</string>
+    <string name="yandex_account_sign_out">Se déconnecter de Yandex</string>
+    <string name="yandex_error_network">Pas de connexion. Vérifiez le réseau et réessayez.</string>
+    <string name="yandex_error_unavailable">Le service est indisponible dans votre région ou ne répond pas.</string>
+    <string name="yandex_error_generic">Échec de la connexion. Réessayez.</string>
+</resources>

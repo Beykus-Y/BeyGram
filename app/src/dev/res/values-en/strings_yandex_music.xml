@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yandex_settings_group">Yandex Music</string>
+    <string name="yandex_settings_entry">Sign in with Yandex ID</string>
+    <string name="yandex_signin_title">Yandex ID</string>
+    <string name="yandex_signin_intro">Sign in with a code: the Yandex page opens and you confirm access there. BeyGram never asks for your password.</string>
+    <string name="yandex_signin_group">Before you sign in</string>
+    <string name="yandex_signin_warning">Yandex Music does not open its music to third-party apps. Signing in works the same way as the official client, and Yandex may restrict the account. Use only your own account with a subscription. Yandex tracks cannot be forwarded, saved or exported.</string>
+    <string name="yandex_signin_consent">I understand the risk and accept it</string>
+    <string name="yandex_signin_start">Sign in with Yandex ID</string>
+    <string name="yandex_signin_retry">Try again</string>
+    <string name="yandex_signin_code_title">Enter this code on the Yandex page</string>
+    <string name="yandex_signin_waiting">Waiting for confirmation. This screen updates by itself.</string>
+    <string name="yandex_signin_open">Open the Yandex page</string>
+    <string name="yandex_account_group">Account</string>
+    <string name="yandex_account_unnamed">Yandex account</string>
+    <string name="yandex_account_subscription_on">Subscription active: full tracks available</string>
+    <string name="yandex_account_subscription_off">No subscription: full tracks unavailable</string>
+    <string name="yandex_account_refresh">Refresh details</string>
+    <string name="yandex_account_sign_out">Sign out of Yandex</string>
+    <string name="yandex_error_network">No connection. Check your network and try again.</string>
+    <string name="yandex_error_unavailable">The service is unavailable in your region or is not responding.</string>
+    <string name="yandex_error_generic">Sign-in failed. Try again.</string>
+</resources>

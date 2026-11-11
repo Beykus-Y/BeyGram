@@ -39,7 +39,7 @@ import com.beykus.beygram.ui.screens.profile.ProfileToolbar
  * and BG Mix has transitions of its own, so they stay available when BG Mix is off.
  */
 @Composable
-fun ExperimentsScreen(onBack: () -> Unit) {
+fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     BackHandler(onBack = onBack)
@@ -59,6 +59,9 @@ fun ExperimentsScreen(onBack: () -> Unit) {
                 color = palette.textSecondary, fontSize = 14.sp,
                 modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp)
             )
+            // Sources that exist only in some builds (see ProviderSettingsHosts). Stable draws nothing here.
+            val musicHost = remember { ProviderSettingsHosts.yandex() }
+            if (musicHost != null) musicHost.ExperimentsEntries(onOpenSignIn = onMusicAccount)
             SettingsGroup(stringResource(R.string.settings_experiments_group_music)) {
                 SettingsToggle(
                     icon = Icons.Rounded.SwapHoriz,

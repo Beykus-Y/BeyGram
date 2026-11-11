@@ -180,7 +180,7 @@ internal fun SettingsGroup(title: String, content: @Composable ColumnScope.() ->
 }
 
 @Composable
-private fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) {
+internal fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
