@@ -27,7 +27,7 @@
     <string name="yandex_diag_share">Partager</string>
     <string name="yandex_diag_empty">Aucune réponse du service pour l\'instant. Actualisez la carte du compte.</string>
     <string name="yandex_library_title">Yandex Music</string>
-    <string name="yandex_library_liked">J'aime</string>
+    <string name="yandex_library_liked">J\'aime</string>
     <string name="yandex_library_playlists">Playlists</string>
     <string name="yandex_library_empty">Rien ici pour l\'instant.</string>
 </resources>
