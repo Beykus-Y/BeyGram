@@ -245,6 +245,8 @@ class YandexMusicHost : ProviderMusicHost {
             }
         }, onPlay)
 
+    override fun isAvailable(context: Context): Boolean = MusicProviders.yandex(context) != null
+
     @Composable
     override fun tabLabel(): String = stringResource(R.string.yandex_tab_label)
 

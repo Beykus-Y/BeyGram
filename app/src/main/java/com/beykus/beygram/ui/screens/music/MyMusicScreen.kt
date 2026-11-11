@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -27,10 +28,10 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material.icons.rounded.Whatshot
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -121,8 +122,9 @@ internal fun MyMusicScreen(
         }
     }
 
-    // Optional music source (DEV build only). It gets its own tab; without it the screen shows Telegram only.
-    val providerHost = remember { ProviderMusicHosts.yandex() }
+    // Optional music source (DEV build only). It gets its own tab; without it, or when this build cannot reach it,
+    // the screen shows Telegram only.
+    val providerHost = remember(context) { ProviderMusicHosts.yandex()?.takeIf { it.isAvailable(context) } }
     var source by remember(context) { mutableStateOf(MusicHomeSourceStore.read(context)) }
     val shownSource = if (providerHost == null) MusicHomeSource.Telegram else source
 
@@ -160,67 +162,69 @@ internal fun MyMusicScreen(
             onRefresh = { providerHost?.refresh() },
             modifier = Modifier.fillMaxSize().padding(padding)
         ) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-            item(key = "search") {
-                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    SearchFieldButton(
-                        placeholder = stringResource(R.string.music_search_action),
-                        onClick = { onSearch(shownSource == MusicHomeSource.Provider) }
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val gridColumns = coverColumns(maxWidth)
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                item(key = "search") {
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        SearchFieldButton(
+                            placeholder = stringResource(R.string.music_search_action),
+                            onClick = { onSearch(shownSource == MusicHomeSource.Provider) }
+                        )
+                    }
+                }
+                if (providerHost != null) item(key = "source-switch") {
+                    MusicSourceSwitch(
+                        selected = shownSource,
+                        providerLabel = providerHost.tabLabel(),
+                        onSelect = { next ->
+                            source = next
+                            MusicHomeSourceStore.write(context, next)
+                        }
                     )
                 }
-            }
-            if (providerHost != null) item(key = "source-switch") {
-                MusicSourceSwitch(
-                    selected = shownSource,
-                    providerLabel = providerHost.tabLabel(),
-                    onSelect = { next ->
-                        source = next
-                        MusicHomeSourceStore.write(context, next)
+                if (shownSource == MusicHomeSource.Provider && providerHost != null) {
+                    item(key = "provider-library") {
+                        providerHost.LibrarySection(
+                            onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) },
+                            onSignIn = onProviderSignIn,
+                            onOpenCollection = onOpenCollection
+                        )
                     }
-                )
-            }
-            if (shownSource == MusicHomeSource.Provider && providerHost != null) {
-                item(key = "provider-library") {
-                    providerHost.LibrarySection(
-                        onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) },
-                        onSignIn = onProviderSignIn,
-                        onOpenCollection = onOpenCollection
-                    )
-                }
-            } else if (library == null) {
-                // The library of this account is still being read: gray stand-ins keep the shape of the screen.
-                item(key = "library-loading") { MusicLoadingSkeleton() }
-            } else {
-                if (storageError) item(key = "storage-error") { StorageErrorBanner() }
-                item(key = "quick-tiles") {
-                    val tiles = buildList {
-                        add(MusicTile(Icons.Rounded.Star, stringResource(R.string.music_favorites_title), favorites.size, MUSIC_FAVORITES_PLAYLIST_ID))
-                        add(MusicTile(Icons.Rounded.History, stringResource(R.string.music_section_recent), recent.size, MusicCollectionKind.Recent.id))
-                        add(MusicTile(Icons.Rounded.DownloadDone, stringResource(R.string.music_section_downloaded), downloaded?.size, MusicCollectionKind.Downloaded.id))
-                        collections.forEach { (kind, count) ->
-                            add(MusicTile(collectionIcon(kind), stringResource(musicCollectionTitleRes(kind)), count, kind.id))
+                } else if (library == null) {
+                    // The library of this account is still being read: gray stand-ins keep the shape of the screen.
+                    item(key = "library-loading") { MusicLoadingSkeleton() }
+                } else {
+                    if (storageError) item(key = "storage-error") { StorageErrorBanner() }
+                    item(key = "quick-tiles") {
+                        val tiles = buildList {
+                            add(MusicTile(Icons.Rounded.Star, stringResource(R.string.music_favorites_title), favorites.size, MUSIC_FAVORITES_PLAYLIST_ID))
+                            add(MusicTile(Icons.Rounded.History, stringResource(R.string.music_section_recent), recent.size, MusicCollectionKind.Recent.id))
+                            add(MusicTile(Icons.Rounded.DownloadDone, stringResource(R.string.music_section_downloaded), downloaded?.size, MusicCollectionKind.Downloaded.id))
+                            collections.forEach { (kind, count) ->
+                                add(MusicTile(collectionIcon(kind), stringResource(musicCollectionTitleRes(kind)), count, kind.id))
+                            }
+                        }
+                        Column(Modifier.padding(top = 8.dp)) {
+                            MusicTileGrid(count = tiles.size) { index ->
+                                val tile = tiles[index]
+                                MusicQuickTile(
+                                    icon = tile.icon,
+                                    title = tile.title,
+                                    count = tile.count?.let { pluralStringResource(R.plurals.music_track_count, it, it) },
+                                    onClick = { onOpenPlaylist(tile.routeId) }
+                                )
+                            }
                         }
                     }
-                    Column(Modifier.padding(top = 8.dp)) {
-                        MusicTileGrid(count = tiles.size) { index ->
-                            val tile = tiles[index]
-                            MusicQuickTile(
-                                icon = tile.icon,
-                                title = tile.title,
-                                count = tile.count?.let { pluralStringResource(R.plurals.music_track_count, it, it) },
-                                onClick = { onOpenPlaylist(tile.routeId) }
-                            )
-                        }
-                    }
-                }
 
-                item(key = "playlists-heading") {
-                    Spacer(Modifier.height(8.dp))
-                    MusicGroupHeading(title = stringResource(R.string.music_section_playlists))
-                }
-                item(key = "playlists-grid") {
-                    // The first card creates a playlist, so an empty library still shows where playlists go.
-                    MusicCoverGrid(count = playlists.size + 1) { index ->
+                    item(key = "playlists-heading") {
+                        Spacer(Modifier.height(8.dp))
+                        MusicGroupHeading(title = stringResource(R.string.music_section_playlists))
+                    }
+                    // The first card creates a playlist, so an empty library still shows where playlists go. Each row is its
+                    // own lazy item, so a library of hundreds of playlists keeps only the covers on screen.
+                    musicGridRows(key = "playlists", count = playlists.size + 1, columns = gridColumns) { index ->
                         if (index == 0) {
                             MusicCoverCard(
                                 title = stringResource(R.string.music_playlist_create),
@@ -253,39 +257,39 @@ internal fun MyMusicScreen(
                             }
                         }
                     }
-                }
 
-                item(key = "recent-heading") {
-                    Spacer(Modifier.height(8.dp))
-                    MusicGroupHeading(
-                        title = stringResource(R.string.music_section_recent),
-                        actionLabel = if (recent.isEmpty()) null else stringResource(R.string.music_show_all),
-                        onAction = { onOpenPlaylist(MusicCollectionKind.Recent.id) }
-                    )
-                }
-                item(key = "recent-card") {
-                    MusicCardColumn {
-                        if (recent.isEmpty()) {
-                            MusicEmptyText(stringResource(R.string.music_empty_recent))
-                        } else {
-                            recent.take(MUSIC_PREVIEW_ROWS).forEachIndexed { index, track ->
-                                MusicTrackRow(
-                                    track = track,
-                                    unavailable = false,
-                                    onClick = { playSection(MusicCollectionKind.Recent.id, recent, index) },
-                                    coverPath = rememberTelegramTrackCover(telegram, accountId, track.origin)
-                                )
+                    item(key = "recent-heading") {
+                        Spacer(Modifier.height(8.dp))
+                        MusicGroupHeading(
+                            title = stringResource(R.string.music_section_recent),
+                            actionLabel = if (recent.isEmpty()) null else stringResource(R.string.music_show_all),
+                            onAction = { onOpenPlaylist(MusicCollectionKind.Recent.id) }
+                        )
+                    }
+                    item(key = "recent-card") {
+                        MusicCardColumn {
+                            if (recent.isEmpty()) {
+                                MusicEmptyText(stringResource(R.string.music_empty_recent))
+                            } else {
+                                recent.take(MUSIC_PREVIEW_ROWS).forEachIndexed { index, track ->
+                                    MusicTrackRow(
+                                        track = track,
+                                        unavailable = false,
+                                        onClick = { playSection(MusicCollectionKind.Recent.id, recent, index) },
+                                        coverPath = rememberTelegramTrackCover(telegram, accountId, track.origin)
+                                    )
+                                }
                             }
                         }
                     }
-                }
-                item(key = "local-only-note") {
-                    Text(
-                        stringResource(R.string.music_local_only_note),
-                        color = palette.textSecondary,
-                        fontSize = 12.sp,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 12.dp)
-                    )
+                    item(key = "local-only-note") {
+                        Text(
+                            stringResource(R.string.music_local_only_note),
+                            color = palette.textSecondary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 12.dp)
+                        )
+                    }
                 }
             }
         }
