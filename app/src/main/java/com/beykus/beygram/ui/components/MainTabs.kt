@@ -83,6 +83,7 @@ import com.beykus.beygram.ui.design.DesignSystem
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.glassHighlight
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.usesGlassPanels
@@ -644,7 +645,7 @@ internal fun MainTabsScaffold(
                     slim = slimRail,
                     bottomContent = if (slimRail) { { NowPlayingBar(hideWhenImeVisible = true, railCover = true) } } else null
                 )
-                Column(
+                    Column(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -668,15 +669,14 @@ internal fun MainTabsScaffold(
             // measured as one block; a screen that draws under the dock pads its list by that height, every other
             // screen simply ends above it.
             val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            val backdrop = LocalGlassBackdrop.current
+            // Each scaffold records into its own layer. During a tab transition two scaffolds are composed at once;
+            // with one shared layer the screen that drew last replaced the picture of the other one, so Settings could
+            // keep showing a frozen frame of Chats while taps went to Settings.
             // Only the content is recorded. The bar sits outside this subtree, so the panel never samples a layer
             // that is being written in the same pass - that self-reference is a native crash in the render thread.
             // Nothing is recorded unless the dock really blurs it: Balanced, Lite and old Android pay nothing.
-            val recordContent = if (design.recordsGlassBackdrop && backdrop != null) {
-                Modifier.glassBackdropSource(backdrop)
-            } else {
-                Modifier
-            }
+            val backdrop = if (design.recordsGlassBackdrop) rememberGlassBackdrop() else null
+            val recordContent = if (backdrop != null) Modifier.glassBackdropSource(backdrop) else Modifier
             // Only the glass dock blurs what is under it, so only there does the list run beneath the capsule.
             val underDock = contentUnderDock && design.usesGlassPanels
             var overlayHeight by remember(design) { mutableStateOf(0.dp) }
@@ -697,20 +697,22 @@ internal fun MainTabsScaffold(
                         stateHolder.SaveableStateProvider(key) { content() }
                     }
                 }
-                if (!imeVisible) Column(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .onSizeChanged { overlayHeight = with(density) { it.height.toDp() } }
-                ) {
-                    // The mini-player floats with the dock and keeps the same gap above the capsule the list gets.
-                    Box(Modifier.padding(bottom = DefaultNavigationDockGap)) {
-                        NowPlayingBar(hideWhenImeVisible = true, floatingDock = true)
+                if (!imeVisible) CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
+                    Column(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                            .onSizeChanged { overlayHeight = with(density) { it.height.toDp() } }
+                    ) {
+                        // The mini-player floats with the dock and keeps the same gap above the capsule the list gets.
+                        Box(Modifier.padding(bottom = DefaultNavigationDockGap)) {
+                            NowPlayingBar(hideWhenImeVisible = true, floatingDock = true)
+                        }
+                        MainTabBar(
+                            tabs = tabs,
+                            selected = selected,
+                            onSelect = onSelect,
+                            onPanelHeightChange = { measuredBarHeight = it }
+                        )
                     }
-                    MainTabBar(
-                        tabs = tabs,
-                        selected = selected,
-                        onSelect = onSelect,
-                        onPanelHeightChange = { measuredBarHeight = it }
-                    )
                 }
             }
         } else {
