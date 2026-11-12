@@ -830,6 +830,7 @@ fun ChatsScreen(
                         left = actionFor(chat, swipePreferences.left),
                         right = actionFor(chat, swipePreferences.right),
                         onPerformed = onSwipePerformed,
+                        actionScope = snackbarScope,
                         highlighted = chat.id == highlightedChatId
                     )
                 }
@@ -891,6 +892,7 @@ fun ChatsScreen(
                             left = actionFor(chat, swipePreferences.left),
                             right = actionFor(chat, swipePreferences.right),
                             onPerformed = onSwipePerformed,
+                            actionScope = snackbarScope,
                             highlighted = chat.id == highlightedChatId
                         )
                         // Material 2 separates rows with a real divider; the other styles rely on spacing.
