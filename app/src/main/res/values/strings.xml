@@ -2257,6 +2257,14 @@
     <string name="settings_music_title">Музыка</string>
     <string name="music_search_hint">Название или исполнитель</string>
     <string name="music_search_action">Поиск музыки</string>
+    <string name="music_search_more">Ещё</string>
+    <string name="music_search_filter_all">Все</string>
+    <string name="music_search_filter_chats">В чатах</string>
+    <string name="music_search_filter_public">Публичные</string>
+    <string name="music_search_recent">Недавние запросы</string>
+    <string name="music_search_recent_clear">Очистить</string>
+    <string name="music_search_recent_remove">Удалить запрос «%1$s»</string>
+    <string name="music_search_intro_title">Найдите музыку</string>
     <string name="music_search_intro">Ищем музыкальные аудиосообщения в ваших чатах и каналах. Нажмите трек, чтобы слушать его в плеере BeyGram.</string>
     <string name="music_search_empty">Ничего не найдено</string>
     <string name="music_local_title">В ваших чатах</string>

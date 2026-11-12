@@ -673,6 +673,14 @@
     <string name="settings_music_title">Musik</string>
     <string name="music_search_hint">Titel oder Interpret</string>
     <string name="music_search_action">Musik suchen</string>
+    <string name="music_search_more">Mehr</string>
+    <string name="music_search_filter_all">Alle</string>
+    <string name="music_search_filter_chats">In Chats</string>
+    <string name="music_search_filter_public">Öffentlich</string>
+    <string name="music_search_recent">Letzte Suchen</string>
+    <string name="music_search_recent_clear">Leeren</string>
+    <string name="music_search_recent_remove">Suche „%1$s“ entfernen</string>
+    <string name="music_search_intro_title">Musik finden</string>
     <string name="music_search_intro">Durchsucht Musik-Audionachrichten in deinen Chats und Kanälen. Tippe auf einen Titel, um ihn im BeyGram-Player abzuspielen.</string>
     <string name="music_search_empty">Nichts gefunden</string>
     <string name="music_local_title">In deinen Chats</string>

@@ -46,6 +46,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.runtime.key
+import androidx.compose.ui.text.style.TextAlign
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.data.music.provider.ProviderTrack
+import com.beykus.beygram.domain.repository.TelegramRepository
+import com.beykus.beygram.ui.screens.chats.FilterChip
+import com.beykus.beygram.ui.screens.music.MUSIC_SEARCH_PREVIEW_ROWS
+import com.beykus.beygram.ui.screens.music.MusicCardColumn
+import com.beykus.beygram.ui.screens.music.MusicGroupHeading
+import com.beykus.beygram.ui.screens.music.MusicSearchMessage
+import com.beykus.beygram.ui.screens.music.MusicSearchSection
+import com.beykus.beygram.ui.screens.music.MusicSearchSkeletonRows
+import com.beykus.beygram.ui.screens.music.MusicTrackRowLayout
+import com.beykus.beygram.ui.screens.music.rememberIsCurrentItem
+import com.beykus.beygram.ui.screens.music.rememberIsCurrentTrack
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.PlaylistTrack
@@ -147,6 +166,11 @@ internal fun MusicSearchScreen(
     val publicRequestGeneration = remember(accountId) { AtomicLong() }
     // Optional music source (DEV build only). Its results sit below the local ones and play through the shared queue.
     val providerHost = remember { ProviderMusicHosts.yandex() }
+    // Covers of chat tracks are small pictures fetched on their own, never a download the user asked for.
+    val backgroundDownload = remember(conversation) { (conversation as? TelegramRepository)?.let { it::downloadFileInBackground } }
+
+    /** Keeps the query in the recent list once the user did something with a result. */
+    fun keepQuery() = MusicSearchHistory.remember(context, accountId, query)
     DisposableEffect(accountId, conversation) {
         onDispose {
             localRequestGeneration.incrementAndGet()
@@ -244,6 +268,7 @@ internal fun MusicSearchScreen(
     )
 
     fun saveBotTrack(result: InlineBotResult) {
+        keepQuery()
         scope.launch {
             val saved = conversation.saveMusicBotTrack(result.queryId, result.id).getOrNull()
             if (saved == null) {
@@ -267,6 +292,7 @@ internal fun MusicSearchScreen(
     }
 
     fun playBotTrack(result: InlineBotResult) {
+        keepQuery()
         val selection = latestSelection.incrementAndGet()
         // The queue is the list the user tapped in; a new query while the track downloads must not change it.
         val tappedResults = publicResults
@@ -331,6 +357,7 @@ internal fun MusicSearchScreen(
     }
 
     fun enqueueRow(item: PlaybackItem, atEnd: Boolean) {
+        keepQuery()
         PlaybackEngine.enqueue(context, item, PlaybackQueueSource(accountId, observeFile, downloadFile, automaticDownload), atEnd)
         Toast.makeText(
             context,
@@ -345,6 +372,7 @@ internal fun MusicSearchScreen(
     }
 
     fun play(message: ChatMessage) {
+        keepQuery()
         latestSelection.incrementAndGet()
         val queue = results.mapNotNull { musicItem(it, chats, observeFile, accountId) }
         val index = queue.indexOfFirst { it.origin?.chatId == message.chatId && it.origin?.messageId == message.id }
@@ -357,6 +385,85 @@ internal fun MusicSearchScreen(
         )
     }
 
+    val hasProvider = providerHost != null && onPick == null
+    val sources = remember(hasProvider) { musicSearchSources(hasProvider) }
+    var source by rememberSaveable(accountId) {
+        mutableStateOf(if (providerFirst && hasProvider) MusicSearchSource.Provider else MusicSearchSource.All)
+    }
+    if (source !in sources) source = MusicSearchSource.All
+    val historyFlow = remember(context, accountId) { MusicSearchHistory.observe(context, accountId) }
+    val history by historyFlow.collectAsStateWithLifecycle()
+    val providerPlay: (List<ProviderTrack>, Int) -> Unit = { tracks, index ->
+        keepQuery()
+        ProviderArtwork.playTracks(context, tracks, index)
+    }
+    val trimmed = query.trim()
+    val localDone = searchedQuery == trimmed
+    val publicDone = publicSearchedQuery == trimmed
+
+    @Composable
+    fun ChatRow(message: ChatMessage) {
+        val item = rows.firstOrNull { it.origin?.messageId == message.id && it.origin?.chatId == message.chatId } ?: return
+        val chat = chats[message.chatId]
+        val protectedChat = chat?.hasProtectedContent == true
+        MusicSearchTrackRow(
+            title = item.trackTitle.ifBlank { item.title },
+            subtitle = listOf(item.performer, chat?.title.orEmpty()).filter { it.isNotBlank() }.joinToString(" · "),
+            durationSeconds = item.durationSeconds,
+            coverPath = rememberSearchCover(message, protectedChat, observeFile, backgroundDownload),
+            current = rememberIsCurrentTrack(item.origin),
+            onClick = { play(message) },
+            onPlayNext = if (onPick == null) { { enqueueRow(item, atEnd = false) } } else null,
+            onEnqueue = if (onPick == null) { { enqueueRow(item, atEnd = true) } } else null,
+            onSend = onPick?.let { pick -> musicFileDraft(message, chats, item.title)?.let { draft -> { keepQuery(); pick(draft) } } },
+            onAddToPlaylist = if (onPick == null && !protectedChat) {
+                item.toPlaylistTrack()?.let { track -> { keepQuery(); addTrack = track } }
+            } else {
+                null
+            }
+        )
+    }
+
+    @Composable
+    fun PublicRow(result: InlineBotResult) {
+        MusicSearchTrackRow(
+            title = result.title,
+            subtitle = result.description,
+            durationSeconds = 0,
+            coverPath = null,
+            current = rememberIsCurrentItem(BotTrackResolver.keyOf(result.queryId, result.id)),
+            onClick = { playBotTrack(result) },
+            loading = loadingBotKey == "${result.queryId}:${result.id}",
+            onPlayNext = if (onPick == null) { { enqueueBot(result, atEnd = false) } } else null,
+            onEnqueue = if (onPick == null) { { enqueueBot(result, atEnd = true) } } else null,
+            onSaveFavorite = if (onPick == null) { { saveBotTrack(result) } } else null,
+            onSend = onPick?.let { pick ->
+                { keepQuery(); pick(MessageExtraDraft.MusicBotResult(result.queryId, result.id, result.title)) }
+            }
+        )
+    }
+
+    /** States of the chats section above its rows: searching, failure, nothing found. */
+    @Composable
+    fun ChatStates() {
+        error?.let { MusicSearchMessage(it) }
+        // The debounce counts as searching too, so the section keeps its shape while the user types.
+        if (results.isEmpty() && error == null && (loading || !localDone)) MusicSearchSkeletonRows()
+        if (!loading && localDone && results.isEmpty() && error == null) {
+            MusicSearchMessage(stringResource(R.string.music_local_empty))
+        }
+    }
+
+    /** States of the public section above its rows. */
+    @Composable
+    fun PublicStates() {
+        if (publicLoading || !publicDone) MusicSearchSkeletonRows()
+        if (!publicLoading && publicDone && !publicAvailable) MusicSearchMessage(stringResource(R.string.music_public_unavailable))
+        if (!publicLoading && publicDone && publicAvailable && publicResults.isEmpty()) {
+            MusicSearchMessage(stringResource(R.string.music_public_empty))
+        }
+    }
+
     Scaffold(
         containerColor = palette.screen,
         topBar = {
@@ -364,7 +471,7 @@ internal fun MusicSearchScreen(
                 modifier = Modifier.topAppBarSurface(),
                 title = {
                     Text(
-                        stringResource(if (onPick != null) R.string.music_attach_title else R.string.settings_music_title),
+                        stringResource(if (onPick != null) R.string.music_attach_title else R.string.music_search_action),
                         color = palette.textPrimary,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -393,121 +500,126 @@ internal fun MusicSearchScreen(
                     }
                 }
             }
-            if (query.isBlank()) Text(
-                stringResource(if (onPick != null) R.string.music_attach_intro else R.string.music_search_intro),
-                color = palette.textSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-            // Opened from the source tab of the music screen, the source's results come first and the account's own
-            // results follow under their heading; otherwise the heading stays above the list.
-            val localHeader: @Composable () -> Unit = {
-                if (query.isNotBlank() && (loading || searchedQuery == query.trim() || error != null)) {
-                    Text(
-                        stringResource(R.string.music_local_title),
-                        color = palette.textPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            LazyRow(
+                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(sources, key = { it.name }) { option ->
+                    FilterChip(
+                        title = when (option) {
+                            MusicSearchSource.All -> stringResource(R.string.music_search_filter_all)
+                            MusicSearchSource.Chats -> stringResource(R.string.music_search_filter_chats)
+                            MusicSearchSource.Provider -> providerHost?.tabLabel().orEmpty()
+                            MusicSearchSource.Public -> stringResource(R.string.music_search_filter_public)
+                        },
+                        selected = source == option,
+                        count = null,
+                        onClick = { source = option }
                     )
                 }
-                error?.let {
-                    Text(it, color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                }
-                if (loading && results.isEmpty()) Row(
-                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) { CircularProgressIndicator() }
-                if (!loading && searchedQuery == query.trim() && results.isEmpty() && error == null) Text(
-                    stringResource(R.string.music_local_empty),
-                    color = palette.textSecondary,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp)
-                )
             }
-            val providerOnTop = providerFirst && providerHost != null && onPick == null
-            if (!providerOnTop) Column { localHeader() }
-            LazyColumn(Modifier.weight(1f)) {
-                if (providerOnTop) {
-                    item(key = "provider_source") {
-                        providerHost?.SearchResults(
-                            query = query,
-                            onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) }
-                        )
-                    }
-                    item(key = "local_header") { Column { localHeader() } }
-                }
-                items(results, key = { "${it.chatId}:${it.id}" }) { message ->
-                    val item = rows.firstOrNull { it.origin?.messageId == message.id && it.origin?.chatId == message.chatId }
-                    if (item != null) MusicRow(
-                        title = item.title,
-                        subtitle = chats[message.chatId]?.title.orEmpty(),
-                        onClick = { play(message) },
-                        onPlayNext = if (onPick == null) { { enqueueRow(item, atEnd = false) } } else null,
-                        onEnqueue = if (onPick == null) { { enqueueRow(item, atEnd = true) } } else null,
-                        onSend = onPick?.let { pick -> musicFileDraft(message, chats, item.title)?.let { draft -> { pick(draft) } } },
-                        onAddToPlaylist = if (onPick == null && chats[message.chatId]?.hasProtectedContent != true) {
-                            item.toPlaylistTrack()?.let { track -> { addTrack = track } }
-                        } else {
-                            null
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+                if (trimmed.isEmpty()) {
+                    if (history.isNotEmpty()) {
+                        item(key = "history") {
+                            Column(Modifier.fillMaxWidth()) {
+                                MusicGroupHeading(
+                                    title = stringResource(R.string.music_search_recent),
+                                    actionLabel = stringResource(R.string.music_search_recent_clear),
+                                    onAction = { MusicSearchHistory.clear(context, accountId) }
+                                )
+                                MusicCardColumn {
+                                    history.forEach { recent ->
+                                        RecentQueryRow(
+                                            text = recent,
+                                            onClick = { query = recent },
+                                            onRemove = { MusicSearchHistory.remove(context, accountId, recent) }
+                                        )
+                                    }
+                                }
+                            }
                         }
-                    )
-                }
-                // Provider results come after the local rows, so the local heading keeps its own rows.
-                if (providerHost != null && onPick == null && !providerOnTop) item(key = "provider_source") {
-                    providerHost.SearchResults(
-                        query = query,
-                        onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) }
-                    )
-                }
-                // Public results have an independent state: a local miss must never imply no public matches.
-                if (query.isNotBlank() && (publicLoading || publicSearchedQuery == query.trim())) {
-                    item(key = "public_header") {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                            Text(stringResource(R.string.music_public_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
-                            Text(stringResource(R.string.music_public_note), color = palette.textSecondary, fontSize = 13.sp)
+                    } else {
+                        item(key = "intro") {
+                            MusicSearchIntro(
+                                stringResource(if (onPick != null) R.string.music_attach_intro else R.string.music_search_intro)
+                            )
                         }
                     }
-                    if (publicLoading) item(key = "public_loading") {
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                            horizontalArrangement = Arrangement.Center
-                        ) { CircularProgressIndicator() }
-                    }
-                    if (!publicLoading && publicSearchedQuery == query.trim() && !publicAvailable) item(key = "public_unavailable") {
-                        Text(
-                            stringResource(R.string.music_public_unavailable),
-                            color = palette.textSecondary,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                    }
-                    if (!publicLoading && publicSearchedQuery == query.trim() &&
-                        publicAvailable && publicResults.isEmpty()
-                    ) item(key = "public_empty") {
-                        Text(
-                            stringResource(R.string.music_public_empty),
-                            color = palette.textSecondary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                    }
-                    items(publicResults, key = { "public:${it.queryId}:${it.id}" }) { result ->
-                        MusicRow(
-                            title = result.title,
-                            subtitle = result.description,
-                            onClick = { playBotTrack(result) },
-                            loading = loadingBotKey == "${result.queryId}:${result.id}",
-                            onPlayNext = if (onPick == null) { { enqueueBot(result, atEnd = false) } } else null,
-                            onEnqueue = if (onPick == null) { { enqueueBot(result, atEnd = true) } } else null,
-                            onSaveFavorite = if (onPick == null) { { saveBotTrack(result) } } else null,
-                            onSend = onPick?.let { pick -> { pick(MessageExtraDraft.MusicBotResult(result.queryId, result.id, result.title)) } }
-                        )
-                    }
+                    return@LazyColumn
                 }
-                if (nextOffset.isNotEmpty() && !loading) item(key = "more") {
-                    Button(
-                        onClick = { searchedQuery?.let { runSearch(it, nextOffset) } },
-                        modifier = Modifier.fillMaxWidth().padding(16.dp)
-                    ) { Text(stringResource(R.string.music_load_more)) }
+                when (source) {
+                    MusicSearchSource.All -> {
+                        item(key = "chats_overview") {
+                            MusicSearchSection(
+                                title = stringResource(R.string.music_local_title),
+                                onMore = if (results.size > MUSIC_SEARCH_PREVIEW_ROWS || nextOffset.isNotEmpty()) {
+                                    { source = MusicSearchSource.Chats }
+                                } else {
+                                    null
+                                }
+                            ) {
+                                ChatStates()
+                                results.take(MUSIC_SEARCH_PREVIEW_ROWS).forEach { message ->
+                                    key("${message.chatId}:${message.id}") { ChatRow(message) }
+                                }
+                            }
+                        }
+                        if (hasProvider) item(key = "provider_overview") {
+                            providerHost?.SearchResults(
+                                query = query,
+                                onPlay = providerPlay,
+                                limit = MUSIC_SEARCH_PREVIEW_ROWS,
+                                onMore = { source = MusicSearchSource.Provider }
+                            )
+                        }
+                        item(key = "public_overview") {
+                            MusicSearchSection(
+                                title = stringResource(R.string.music_public_title),
+                                onMore = if (publicResults.size > MUSIC_SEARCH_PREVIEW_ROWS) {
+                                    { source = MusicSearchSource.Public }
+                                } else {
+                                    null
+                                }
+                            ) {
+                                PublicStates()
+                                publicResults.take(MUSIC_SEARCH_PREVIEW_ROWS).forEach { result ->
+                                    key("public:${result.queryId}:${result.id}") { PublicRow(result) }
+                                }
+                            }
+                        }
+                    }
+                    MusicSearchSource.Chats -> {
+                        item(key = "chats_header") {
+                            MusicSearchSection(title = stringResource(R.string.music_local_title), onMore = null, carded = false) {
+                                ChatStates()
+                            }
+                        }
+                        items(results, key = { "${it.chatId}:${it.id}" }) { message -> ChatRow(message) }
+                        if (nextOffset.isNotEmpty() && !loading) item(key = "more") {
+                            Button(
+                                onClick = { searchedQuery?.let { runSearch(it, nextOffset) } },
+                                modifier = Modifier.fillMaxWidth().padding(16.dp)
+                            ) { Text(stringResource(R.string.music_load_more)) }
+                        }
+                    }
+                    MusicSearchSource.Provider -> item(key = "provider_source") {
+                        providerHost?.SearchResults(query = query, onPlay = providerPlay, limit = null, onMore = null)
+                    }
+                    MusicSearchSource.Public -> {
+                        item(key = "public_header") {
+                            MusicSearchSection(
+                                title = stringResource(R.string.music_public_title),
+                                onMore = null,
+                                carded = false,
+                                note = stringResource(R.string.music_public_note)
+                            ) {
+                                PublicStates()
+                            }
+                        }
+                        items(publicResults, key = { "public:${it.queryId}:${it.id}" }) { result -> PublicRow(result) }
+                    }
                 }
             }
         }
@@ -517,10 +629,93 @@ internal fun MusicSearchScreen(
     }
 }
 
+/** The sources the music search can show; the optional source only where the build has one and not when attaching. */
+internal enum class MusicSearchSource { All, Chats, Provider, Public }
+
+internal fun musicSearchSources(hasProvider: Boolean): List<MusicSearchSource> =
+    MusicSearchSource.entries.filter { it != MusicSearchSource.Provider || hasProvider }
+
+/** The small cover of a chat track, downloaded in the background. Protected and secret tracks show the placeholder. */
 @Composable
-private fun MusicRow(
+private fun rememberSearchCover(
+    message: ChatMessage,
+    protectedChat: Boolean,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    backgroundDownload: ((Int) -> Unit)?
+): String? {
+    val media = message.media
+    val thumb = media?.thumbnailFileId?.takeIf {
+        !protectedChat && !media.isSecret && !media.isSecretChat && !message.isViewOnce && it != media.fileId && it > 0
+    } ?: return null
+    val flow = remember(thumb) { observeFile(thumb) }
+    val file by flow.collectAsStateWithLifecycle()
+    val path = file.localPath?.takeIf { it.isNotBlank() }
+    LaunchedEffect(thumb, path == null) {
+        if (path == null) backgroundDownload?.invoke(thumb)
+    }
+    return path
+}
+
+/** Shown on an empty field before anything was searched: what the search covers. */
+@Composable
+private fun MusicSearchIntro(text: String) {
+    val palette = beyGramPalette()
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 36.dp, vertical = 56.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            Modifier.size(64.dp).clip(CircleShape).background(palette.accentSoft),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.MusicNote, null, tint = palette.accentInk, modifier = Modifier.size(32.dp))
+        }
+        Spacer(Modifier.height(14.dp))
+        Text(
+            stringResource(R.string.music_search_intro_title),
+            color = palette.textPrimary,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(text, color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+    }
+}
+
+/** A recent query: tap searches it again, the cross forgets it. */
+@Composable
+private fun RecentQueryRow(text: String, onClick: () -> Unit, onRemove: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 52.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(start = 16.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Rounded.History, null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(
+            text,
+            color = palette.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Rounded.Close, stringResource(R.string.music_search_recent_remove, text), tint = palette.textSecondary)
+        }
+    }
+}
+
+/** A search result in the shared track row, with the queue menu and the add or send buttons of the search. */
+@Composable
+private fun MusicSearchTrackRow(
     title: String,
     subtitle: String,
+    durationSeconds: Int,
+    coverPath: String?,
+    current: Boolean,
     onClick: (() -> Unit)?,
     onSend: (() -> Unit)? = null,
     onAddToPlaylist: (() -> Unit)? = null,
@@ -531,47 +726,40 @@ private fun MusicRow(
 ) {
     val palette = beyGramPalette()
     var menuOpen by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 64.dp)
-            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            Modifier.size(44.dp).clip(styledShape(12.dp)).background(palette.accentSoft),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Rounded.MusicNote, null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (subtitle.isNotBlank()) Text(subtitle, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        if (loading) CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(22.dp), strokeWidth = 2.dp, color = palette.accent)
-        if (onPlayNext != null || onEnqueue != null || onSaveFavorite != null) Box {
-            IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                onPlayNext?.let { next ->
-                    DropdownMenuItem(text = { Text(stringResource(R.string.queue_play_next)) }, onClick = { menuOpen = false; next() })
+    MusicTrackRowLayout(
+        title = title,
+        subtitle = subtitle,
+        durationSeconds = durationSeconds,
+        coverPath = coverPath,
+        unavailable = false,
+        current = current,
+        onClick = onClick,
+        trailing = {
+            if (loading) CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(22.dp), strokeWidth = 2.dp, color = palette.accent)
+            if (onPlayNext != null || onEnqueue != null || onSaveFavorite != null) Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
                 }
-                onEnqueue?.let { enqueue ->
-                    DropdownMenuItem(text = { Text(stringResource(R.string.queue_add_to_end)) }, onClick = { menuOpen = false; enqueue() })
-                }
-                onSaveFavorite?.let { save ->
-                    DropdownMenuItem(text = { Text(stringResource(R.string.music_bot_save_favorite)) }, onClick = { menuOpen = false; save() })
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    onPlayNext?.let { next ->
+                        DropdownMenuItem(text = { Text(stringResource(R.string.queue_play_next)) }, onClick = { menuOpen = false; next() })
+                    }
+                    onEnqueue?.let { enqueue ->
+                        DropdownMenuItem(text = { Text(stringResource(R.string.queue_add_to_end)) }, onClick = { menuOpen = false; enqueue() })
+                    }
+                    onSaveFavorite?.let { save ->
+                        DropdownMenuItem(text = { Text(stringResource(R.string.music_bot_save_favorite)) }, onClick = { menuOpen = false; save() })
+                    }
                 }
             }
+            if (onAddToPlaylist != null) IconButton(onClick = onAddToPlaylist, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.Add, stringResource(R.string.music_add_track_action, title), tint = palette.accent)
+            }
+            if (onSend != null) IconButton(onClick = onSend, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.music_attach_pick, title), tint = palette.accent)
+            }
         }
-        if (onAddToPlaylist != null) IconButton(onClick = onAddToPlaylist, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.Rounded.Add, stringResource(R.string.music_add_track_action, title), tint = palette.accent)
-        }
-        if (onSend != null) IconButton(onClick = onSend, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.music_attach_pick, title), tint = palette.accent)
-        }
-    }
+    )
 }
 
 /**
