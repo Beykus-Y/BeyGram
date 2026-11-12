@@ -1837,12 +1837,14 @@ object PlaybackEngine {
                 if (driver.pendingIndex == null) return@launch
                 driver.appendReady(::bgMixFileFor)
                 val first = driver.pendingIndex ?: return@launch
+                // Only the track right after the playing one is part of playback; the rows after it follow the policy.
+                val playingNext = _state.value.queueIndex + 1
                 val context = appContext
                 val source = queueSource
                 if (context != null) {
                     for (index in first until minOf(first + BG_MIX_DOWNLOAD_AHEAD, driver.queueItems.size)) {
                         // Speculative traffic goes through the automatic-download policy, like the regular prefetch.
-                        prefetchItem(context, source, driver.queueItems[index], playbackNext = index == first)
+                        prefetchItem(context, source, driver.queueItems[index], playbackNext = index == playingNext)
                     }
                 }
                 delay(BG_MIX_FEED_INTERVAL_MS)
