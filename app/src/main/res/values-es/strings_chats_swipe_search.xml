@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chats_action_unread">Marcar como no leído</string>
+    <string name="chats_swipe_settings">Acciones de deslizamiento</string>
+    <string name="chats_swipe_left">Deslizar a la izquierda</string>
+    <string name="chats_swipe_right">Deslizar a la derecha</string>
+    <string name="chats_swipe_pin">Fijar</string>
+    <string name="chats_swipe_unpin">Desfijar</string>
+    <string name="chats_swipe_mute">Silenciar</string>
+    <string name="chats_swipe_unmute">Activar sonido</string>
+    <string name="chats_swipe_more">Acciones del chat</string>
+    <string name="chats_swipe_read_unread">Leído / no leído</string>
+    <string name="chats_swipe_pin_toggle">Fijar / desfijar</string>
+    <string name="chats_swipe_mute_toggle">Sonido / silencio</string>
+    <string name="chats_archive_moved">Chat archivado</string>
+    <string name="chats_archive_undo">Deshacer</string>
+    <string name="global_search_category_all">Todo</string>
+    <string name="global_search_category_people">Personas</string>
+    <string name="global_search_category_media">Multimedia</string>
+    <string name="global_search_filters">Filtros</string>
+    <string name="global_search_recent">Chats recientes</string>
+    <string name="global_search_local_cached">Resultados rápidos de tus chats</string>
+    <string name="global_search_result_photo">Foto</string>
+    <string name="global_search_result_video">Vídeo</string>
+    <string name="global_search_result_animation">GIF</string>
+    <string name="global_search_result_sticker">Sticker</string>
+    <string name="global_search_result_audio">Audio</string>
+    <string name="global_search_result_document">Documento</string>
+    <string name="global_search_result_voice">Mensaje de voz</string>
+    <string name="global_search_result_video_note">Videomensaje</string>
+</resources>
