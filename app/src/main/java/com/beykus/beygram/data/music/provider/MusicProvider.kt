@@ -52,6 +52,13 @@ interface MusicProvider {
      */
     suspend fun playlistTracks(kind: String, ownerUid: String? = null): ProviderResult<List<ProviderTrack>>
 
+    /**
+     * The playlist with this uuid, when the account owns it or follows it. A playlist of another user that the account
+     * does not follow is not found, and the caller opens it in the browser instead.
+     */
+    suspend fun playlistByUuid(uuid: String): ProviderResult<ProviderPlaylist> =
+        ProviderResult.Failure(MusicProviderFailure.Unavailable)
+
     suspend fun lyrics(trackId: String): ProviderResult<ProviderLyrics>
 
     /**
@@ -113,6 +120,8 @@ data class ProviderPlaylist(
     val ownerUid: String? = null,
     /** Name of the owner, shown under playlists of other users. */
     val ownerName: String? = null,
+    /** Uuid used in the playlist's web address, such as `/playlists/<uuid>`. Null when the service does not report it. */
+    val uuid: String? = null,
 )
 
 data class ProviderAlbum(

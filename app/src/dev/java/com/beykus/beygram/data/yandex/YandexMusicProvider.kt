@@ -195,6 +195,25 @@ internal class YandexMusicProvider(
     override suspend fun likedPlaylists(): ProviderResult<List<ProviderPlaylist>> =
         withSession { s -> api.likedPlaylists(s.accessToken, s.uid) }
 
+    /**
+     * Looks the playlist up among the playlists the service lists for the account: its own, then the ones it follows.
+     * The uuid the service reports must equal the link's, so no other playlist opens by mistake.
+     */
+    override suspend fun playlistByUuid(uuid: String): ProviderResult<ProviderPlaylist> {
+        val wanted = uuid.trim().lowercase()
+        val own = playlists()
+        if (own is ProviderResult.Success) {
+            own.value.firstOrNull { it.hasUuid(wanted) }?.let { return ProviderResult.Success(it) }
+        }
+        val liked = likedPlaylists()
+        if (liked is ProviderResult.Success) {
+            liked.value.firstOrNull { it.hasUuid(wanted) }?.let { return ProviderResult.Success(it) }
+        }
+        return ProviderResult.Failure(MusicProviderFailure.NotFound)
+    }
+
+    private fun ProviderPlaylist.hasUuid(wanted: String): Boolean = uuid?.trim()?.lowercase() == wanted
+
     override suspend fun likedAlbums(): ProviderResult<List<ProviderAlbum>> =
         withSession { s -> api.likedAlbums(s.accessToken, s.uid) }
 

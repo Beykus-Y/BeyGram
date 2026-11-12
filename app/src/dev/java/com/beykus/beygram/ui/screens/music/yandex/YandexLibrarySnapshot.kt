@@ -98,6 +98,7 @@ internal object YandexLibrarySnapshots {
         .put("own", playlist.isOwn)
         .put("ownerUid", playlist.ownerUid ?: JSONObject.NULL)
         .put("ownerName", playlist.ownerName ?: JSONObject.NULL)
+        .put("uuid", playlist.uuid ?: JSONObject.NULL)
 
     private fun playlistOf(o: JSONObject): ProviderPlaylist? {
         val kind = o.optString("kind").takeIf { it.isNotBlank() } ?: return null
@@ -109,6 +110,7 @@ internal object YandexLibrarySnapshots {
             isOwn = o.optBoolean("own"),
             ownerUid = o.nullableString("ownerUid"),
             ownerName = o.nullableString("ownerName"),
+            uuid = o.nullableString("uuid"),
         )
     }
 

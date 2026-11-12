@@ -1150,6 +1150,18 @@ private fun BeyGramAppContent(
                                     else -> openWithSystemHandler(context, target.url)
                                 }
                             }
+                            is YandexMusicTarget.Playlist -> {
+                                // Opens the playlist in the app when the account owns or follows it; any other gives the browser.
+                                val result = MusicProviders.yandex(context)?.playlistByUuid(music.uuid)
+                                if (selectedAccountId != sourceAccountId) return@launch
+                                val playlist = when (val loaded = result) {
+                                    is ProviderResult.Success -> loaded.value
+                                    else -> null
+                                }
+                                val host = ProviderMusicHosts.yandex()
+                                if (playlist != null && host != null) openMusicCollection(host.playlistRef(playlist))
+                                else openWithSystemHandler(context, target.url)
+                            }
                         }
                         // External URLs, email and phone are owned by the formatter's system-handler path.
                         is MessageEntityLink.ExternalUrl,

@@ -271,6 +271,8 @@ class YandexMusicHost : ProviderMusicHost {
 
     override fun albumRef(albumId: String): String = YandexCollectionRef.album(albumId)
 
+    override fun playlistRef(playlist: ProviderPlaylist): String = YandexCollectionRef.playlist(playlist)
+
     @Composable
     override fun CollectionScreen(ref: String, onBack: () -> Unit, onOpenCollection: (String) -> Unit) {
         val context = LocalContext.current

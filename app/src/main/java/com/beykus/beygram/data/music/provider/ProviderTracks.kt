@@ -72,6 +72,15 @@ object ProviderTracks {
         shareText(context, if (title.isBlank()) link else "$title\n$link", chooserTitle)
     }
 
+    /** Address of a playlist's page on the service. It opens in the service's app or site. */
+    fun playlistWebLink(uuid: String): String = "$YANDEX_MUSIC_WEB/playlists/$uuid"
+
+    /** Opens the system share sheet with the playlist name and its link. */
+    fun sharePlaylistLink(context: Context, title: String, uuid: String, chooserTitle: String) {
+        val link = playlistWebLink(uuid)
+        shareText(context, if (title.isBlank()) link else "$title\n$link", chooserTitle)
+    }
+
     private fun shareText(context: Context, text: String, chooserTitle: String) {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"

@@ -46,6 +46,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.ProviderArtwork
+import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
@@ -103,7 +104,7 @@ internal fun YandexCollectionScreen(
             when (ref) {
                 YandexCollectionRef.Liked -> CollectionHead(likedTitle, "", null, snapshot?.likedIds?.size)
                 is YandexCollectionRef.Playlist -> snapshot?.playlists
-                    ?.firstOrNull { it.kind == ref.kind && (ref.ownerUid == null && it.isOwn || it.ownerUid == ref.ownerUid) }
+                    ?.firstOrNull { it.isRefOf(ref) }
                     ?.let { CollectionHead(it.title, if (it.isOwn) "" else it.ownerName.orEmpty(), it.coverUrl, it.trackCount) }
                     ?: CollectionHead(playlistTitle, "", null, null)
                 is YandexCollectionRef.Album -> snapshot?.albums?.firstOrNull { it.id == ref.id }
@@ -113,6 +114,10 @@ internal fun YandexCollectionScreen(
                     ?: CollectionHead("", "", null, null)
             }
         )
+    }
+    // A playlist's uuid comes from the library snapshot, so the menu appears as soon as the snapshot is loaded.
+    val playlistUuid = (ref as? YandexCollectionRef.Playlist)?.let { playlistRef ->
+        snapshot?.playlists?.firstOrNull { it.isRefOf(playlistRef) }?.uuid
     }
     var tracks by remember(ref) { mutableStateOf<List<ProviderTrack>>(emptyList()) }
     var loading by remember(ref) { mutableStateOf(true) }
@@ -236,7 +241,18 @@ internal fun YandexCollectionScreen(
                     }
                 },
                 actions = {
-                    if (ref is YandexCollectionRef.Album) YandexAlbumMenu(albumId = ref.id, title = head.title)
+                    if (ref is YandexCollectionRef.Album) {
+                        val menuTitle = head.title
+                        YandexCollectionMenu(menuKey = ref.id, webLink = ProviderTracks.albumWebLink(ref.id)) { context, label ->
+                            ProviderTracks.shareAlbumLink(context, menuTitle, ref.id, label)
+                        }
+                    }
+                    playlistUuid?.let { uuid ->
+                        val menuTitle = head.title
+                        YandexCollectionMenu(menuKey = uuid, webLink = ProviderTracks.playlistWebLink(uuid)) { context, label ->
+                            ProviderTracks.sharePlaylistLink(context, menuTitle, uuid, label)
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.surface)
             )
@@ -354,13 +370,16 @@ private fun TrackRowWithMenu(
     )
 }
 
-/** The overflow menu of an album screen: share the album's link, or open its page in a browser. */
+/**
+ * The overflow menu of an album or playlist screen: share its link through [onShare], or open its page in a browser.
+ * [menuKey] keeps the open state apart for each collection.
+ */
 @Composable
-private fun YandexAlbumMenu(albumId: String, title: String) {
+private fun YandexCollectionMenu(menuKey: String, webLink: String, onShare: (android.content.Context, String) -> Unit) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val shareLabel = stringResource(R.string.music_provider_share_link)
-    var menu by remember(albumId) { mutableStateOf(false) }
+    var menu by remember(menuKey) { mutableStateOf(false) }
     Box {
         IconButton(onClick = { menu = true }) {
             Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textPrimary)
@@ -370,19 +389,23 @@ private fun YandexAlbumMenu(albumId: String, title: String) {
                 text = { Text(shareLabel) },
                 onClick = {
                     menu = false
-                    ProviderTracks.shareAlbumLink(context, title, albumId, shareLabel)
+                    onShare(context, shareLabel)
                 }
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.music_open_in_browser)) },
                 onClick = {
                     menu = false
-                    openInBrowser(context, ProviderTracks.albumWebLink(albumId))
+                    openInBrowser(context, webLink)
                 }
             )
         }
     }
 }
+
+/** Whether this playlist is the one a collection reference names: the account's own playlist, or one of its owner's. */
+private fun ProviderPlaylist.isRefOf(ref: YandexCollectionRef.Playlist): Boolean =
+    kind == ref.kind && (ref.ownerUid == null && isOwn || ownerUid == ref.ownerUid)
 
 /** Starts [list] at [index], or shuffled when [shuffle] is set. */
 private fun startList(context: android.content.Context, list: List<ProviderTrack>, index: Int, shuffle: Boolean) {

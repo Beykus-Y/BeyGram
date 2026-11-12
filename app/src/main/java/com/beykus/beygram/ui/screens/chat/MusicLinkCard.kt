@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,6 +32,7 @@ import com.beykus.beygram.data.music.provider.MusicProviderState
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderAlbum
 import com.beykus.beygram.data.music.provider.ProviderArtwork
+import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.deeplink.MessageEntityLink
@@ -54,6 +56,7 @@ import kotlinx.coroutines.flow.StateFlow
 private sealed interface MusicLinkData {
     data class Track(val track: ProviderTrack) : MusicLinkData
     data class Album(val album: ProviderAlbum, val tracks: List<ProviderTrack>) : MusicLinkData
+    data class Playlist(val playlist: ProviderPlaylist) : MusicLinkData
     data object Failed : MusicLinkData
 }
 
@@ -142,6 +145,10 @@ private fun MusicLinkBody(
                 is ProviderResult.Success -> MusicLinkData.Album(result.value.album, result.value.tracks)
                 is ProviderResult.Failure -> MusicLinkData.Failed
             }
+            is YandexMusicTarget.Playlist -> when (val result = provider.playlistByUuid(target.uuid)) {
+                is ProviderResult.Success -> MusicLinkData.Playlist(result.value)
+                is ProviderResult.Failure -> MusicLinkData.Failed
+            }
         }
         if (loaded != MusicLinkData.Failed) MusicLinkCache.put(link.url, loaded)
         value = loaded
@@ -169,6 +176,7 @@ private fun MusicLinkBody(
         }
         is MusicLinkData.Track -> MusicTrackCard(shown.track, onOpen)
         is MusicLinkData.Album -> MusicAlbumCard(album = shown.album, tracks = shown.tracks, onOpen = onOpen)
+        is MusicLinkData.Playlist -> MusicPlaylistCard(shown.playlist, onOpen)
     }
 }
 
@@ -238,6 +246,23 @@ private fun MusicAlbumCard(album: ProviderAlbum, tracks: List<ProviderTrack>, on
         progress = progressOf(playback, current),
         onBodyClick = onOpen,
         onPlay = onPlay
+    )
+}
+
+/** A playlist card: its cover, the track count and the owner. Tapping it opens the playlist; it has no play button. */
+@Composable
+private fun MusicPlaylistCard(playlist: ProviderPlaylist, onOpen: (() -> Unit)?) {
+    MusicLinkRow(
+        kindLine = "${stringResource(R.string.music_playlist_label)} · " +
+            pluralStringResource(R.plurals.music_track_count, playlist.trackCount, playlist.trackCount),
+        title = playlist.title,
+        subtitle = if (playlist.isOwn) "" else playlist.ownerName.orEmpty(),
+        coverUrl = playlist.coverUrl,
+        current = false,
+        playing = false,
+        progress = 0f,
+        onBodyClick = onOpen,
+        onPlay = null
     )
 }
 
