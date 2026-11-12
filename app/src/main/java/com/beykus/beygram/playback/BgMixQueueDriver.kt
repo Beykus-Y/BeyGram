@@ -1,5 +1,6 @@
 package com.beykus.beygram.playback
 
+import com.beykus.beygram.media.bgmix.BgMixAudible
 import com.beykus.beygram.media.bgmix.BgMixPlayer
 import com.beykus.beygram.media.bgmix.BgMixStatus
 import kotlinx.coroutines.flow.StateFlow
@@ -159,6 +160,9 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         staged?.player?.play()
     }
 
+    /** Where the staged session is heard, measured against the audio clock; null while that cannot be told yet. */
+    fun stagedAudible(): BgMixAudible? = staged?.player?.audible()
+
     /**
      * Adds the queue items that have become complete files since the session started, in queue order: an item that
      * is still downloading holds back the ones after it, so the native order never differs from the queue. Returns
@@ -278,3 +282,17 @@ internal fun bgMixAdmitsSource(source: PlaybackQueueSource?): Boolean = source?.
 /** The queue with the cover [path] on every item of [key]; other items are returned as they are. */
 internal fun List<PlaybackItem>.withArtwork(key: String, path: String): List<PlaybackItem> =
     map { item -> if (item.key == key && item.artworkPath != path) item.copy(artworkPath = path) else item }
+
+/**
+ * How far BG Mix is ahead of ExoPlayer, in milliseconds: positive when the audio BG Mix plays now is further into the
+ * track than ExoPlayer's position at the same moment.
+ */
+internal fun bgMixAlignmentOffsetMs(audible: BgMixAudible, exoMs: Double): Double =
+    audible.audibleSeconds * 1_000.0 - exoMs
+
+/**
+ * Where BG Mix must be sought so that, once the audio it has already queued has played out, it sits at ExoPlayer's
+ * position: ExoPlayer plays on through that same queued time meanwhile.
+ */
+internal fun bgMixAlignmentSeekMs(audible: BgMixAudible, exoMs: Double): Double =
+    exoMs + audible.bufferedSeconds * 1_000.0

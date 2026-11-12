@@ -35,6 +35,7 @@ import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.media.bgmix.BgMixAudible
 import com.beykus.beygram.media.bgmix.BgMixNative
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
 import com.beykus.beygram.media.bgmix.BgMixStatus
@@ -194,8 +195,15 @@ object PlaybackEngine {
     private const val BG_HANDOVER_MIN_REMAINING_MS = 15_000L
     private const val BG_HANDOVER_PREPARE_TIMEOUT_MS = 30_000L
     private const val BG_HANDOVER_START_TIMEOUT_MS = 500L
-    /** Lead of the native position over ExoPlayer's, about the delay before the native output is heard. */
+    /** Lead of the native position over ExoPlayer's: only the starting guess, the alignment measures the real one. */
     private const val BG_HANDOVER_LEAD_MS = 120L
+    /** The silent BG Mix output is lined up with ExoPlayer by measurement, with at most this many seeks. */
+    private const val BG_ALIGN_ATTEMPTS = 3
+    /** Within this many milliseconds the output counts as lined up with ExoPlayer. */
+    private const val BG_ALIGN_TOLERANCE_MS = 8.0
+    /** How long to wait for the output to present audio: the first time, and again after each seek. */
+    private const val BG_ALIGN_WAIT_MS = 1_500L
+    private const val BG_ALIGN_POLL_MS = 10L
     /** Both outputs play together this long, so the handover never leaves a gap. */
     private const val BG_HANDOVER_OVERLAP_MS = 60L
     /** ExoPlayer falls and BG Mix rises over this long, in equal steps, once BG Mix has started silently. */
@@ -1972,7 +1980,7 @@ object PlaybackEngine {
             return false
         }
         val target = exo ?: run { driver.discardStaged(); return false }
-        // The native output is heard a little after it starts, so it starts that much ahead of ExoPlayer's position.
+        // A starting guess: the alignment below measures where the native output is really heard.
         val positionMs = target.currentPosition + BG_HANDOVER_LEAD_MS
         if (!driver.seekStaged(positionMs / 1000.0)) {
             driver.discardStaged()
@@ -1986,6 +1994,8 @@ object PlaybackEngine {
             driver.stagedStatus?.first { snapshot -> snapshot?.decks?.getOrNull(snapshot.master)?.playing == true }
         }
         delay(BG_HANDOVER_OVERLAP_MS)
+        // Still silent: the output is lined up with ExoPlayer by measurement before anything of it is heard.
+        alignStagedSilently(target, driver)
         if (queueChanged()) {
             driver.discardStaged()
             return null
@@ -2042,6 +2052,46 @@ object PlaybackEngine {
         driver.setVolume(1f)
         return true
     }
+
+    /**
+     * Lines the silent BG Mix output up with ExoPlayer before any of it is heard. It measures where BG Mix is heard on the
+     * audio clock and seeks it while it is silent. The new audio starts once the audio already queued has played out, and
+     * by then ExoPlayer has moved on by that same amount, so the target is ExoPlayer's position plus the queued audio. The
+     * check repeats until the difference is within [BG_ALIGN_TOLERANCE_MS]. False when no measurement came, and the
+     * starting guess stays.
+     */
+    private suspend fun alignStagedSilently(target: ExoPlayer, driver: BgMixQueueDriver): Boolean {
+        val offsetsMs = mutableListOf<Long>()
+        fun finish(aligned: Boolean): Boolean {
+            recordAppEvent(
+                kind = EventKind.PERFORMANCE,
+                code = "bgmix_handover_alignment",
+                text = if (aligned) "Переход в BG Mix: звук выровнен с плеером" else "Переход в BG Mix: выровнять звук не удалось",
+                attrs = mapOf("offsets_ms" to offsetsMs.joinToString(",")),
+            )
+            return aligned
+        }
+        repeat(BG_ALIGN_ATTEMPTS) {
+            val audible = awaitStagedAudible(driver) ?: return finish(false)
+            val exoMs = target.currentPosition.toDouble()
+            val offsetMs = bgMixAlignmentOffsetMs(audible, exoMs)
+            offsetsMs += offsetMs.toLong()
+            if (kotlin.math.abs(offsetMs) <= BG_ALIGN_TOLERANCE_MS) return finish(true)
+            if (!driver.seekStaged(bgMixAlignmentSeekMs(audible, exoMs) / 1_000.0)) return finish(false)
+        }
+        return finish(true)
+    }
+
+    /** The staged output's audible position, waited for briefly: the track presents its first frames a moment after a seek. */
+    private suspend fun awaitStagedAudible(driver: BgMixQueueDriver): BgMixAudible? =
+        withTimeoutOrNull(BG_ALIGN_WAIT_MS) {
+            var audible = driver.stagedAudible()
+            while (audible == null) {
+                delay(BG_ALIGN_POLL_MS)
+                audible = driver.stagedAudible()
+            }
+            audible
+        }
 
     /** Whether the handover that started as [generation] still owns [driver]: no stop and no new track has taken it. */
     private fun stillHandedOver(generation: Int, driver: BgMixQueueDriver): Boolean =
