@@ -114,6 +114,7 @@ internal class YandexApi(private val http: YandexHttp) {
             isOwn = ownerUid == uid,
             ownerUid = ownerUid,
             ownerName = owner?.optString("name")?.takeIf { it.isNotBlank() } ?: owner?.optString("login")?.takeIf { it.isNotBlank() },
+            uuid = item.optString("playlistUuid").takeIf { it.isNotBlank() },
         )
     }
 

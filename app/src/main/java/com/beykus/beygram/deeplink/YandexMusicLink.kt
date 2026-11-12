@@ -7,7 +7,8 @@ import java.net.URI
 
 /**
  * What a Yandex Music address opens inside the app. Only the forms the app can open natively are listed. Every other
- * address (home, charts, radio, artists, playlists until they are supported) stays a plain web link in the browser.
+ * address (home, charts, radio, artists, and playlists in the `/users/<login>/playlists/<id>` form) stays a plain web
+ * link in the browser.
  */
 sealed interface YandexMusicTarget {
     /** `/album/<id>`: the album screen. */
@@ -15,6 +16,13 @@ sealed interface YandexMusicTarget {
 
     /** `/track/<id>` or `/album/<id>/track/<id>`: the track starts playing. [albumId] is kept when the address has one. */
     data class Track(val trackId: String, val albumId: String?) : YandexMusicTarget
+
+    /**
+     * `/playlists/<uuid>` or `/playlists/lk.<uuid>`: the playlist screen, when the account owns or follows the playlist.
+     * [uuid] is the path part in lowercase, with its `lk.` prefix when the address has one, so the two forms never match
+     * each other.
+     */
+    data class Playlist(val uuid: String) : YandexMusicTarget
 }
 
 private val YANDEX_MUSIC_HOSTS = setOf(
@@ -26,6 +34,9 @@ private val YANDEX_MUSIC_HOSTS = setOf(
 )
 
 private val NUMERIC_ID = Regex("[0-9]{1,20}")
+
+/** A playlist uuid, with the optional `lk.` prefix that some addresses carry. */
+private val PLAYLIST_UUID = Regex("(?:lk\\.)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", RegexOption.IGNORE_CASE)
 
 /**
  * Parses a Yandex Music web address. The query and the fragment (`utm_*` tags, share markers) do not change the target,
@@ -47,6 +58,8 @@ fun yandexMusicTarget(raw: String): YandexMusicTarget? {
         parts.size == 4 && parts[0] == "album" && parts[2] == "track" &&
             parts[1].isNumericId() && parts[3].isNumericId() -> YandexMusicTarget.Track(parts[3], parts[1])
         parts.size == 2 && parts[0] == "track" && parts[1].isNumericId() -> YandexMusicTarget.Track(parts[1], null)
+        parts.size == 2 && parts[0] == "playlists" && PLAYLIST_UUID.matches(parts[1]) ->
+            YandexMusicTarget.Playlist(parts[1].lowercase())
         else -> null
     }
 }

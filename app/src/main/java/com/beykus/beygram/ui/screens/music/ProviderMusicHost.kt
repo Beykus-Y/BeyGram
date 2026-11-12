@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.data.music.provider.MusicProviderAccount
+import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderTrack
 
 /**
@@ -68,6 +69,9 @@ interface ProviderMusicHost {
 
     /** Reference of the album screen of [albumId], for opening it from the player. */
     fun albumRef(albumId: String): String
+
+    /** Reference of the screen of [playlist], for opening it from a link. */
+    fun playlistRef(playlist: ProviderPlaylist): String
 }
 
 object ProviderMusicHosts {

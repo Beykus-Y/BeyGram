@@ -40,9 +40,23 @@ class YandexMusicLinkTest {
         assertNull(yandexMusicTarget("https://user@music.yandex.ru/album/1"))
     }
 
+    @Test fun `playlists open by their uuid, with or without the lk prefix and in any letter case`() {
+        assertEquals(
+            YandexMusicTarget.Playlist("39a8f319-4740-d4ed-9629-b6a38b01a1dc"),
+            yandexMusicTarget("https://music.yandex.ru/playlists/39a8f319-4740-d4ed-9629-b6a38b01a1dc?utm_source=desktop&utm_medium=copy_link")
+        )
+        assertEquals(
+            YandexMusicTarget.Playlist("lk.fd280462-dabc-4ecd-a4d2-94110e7552dc"),
+            yandexMusicTarget("https://music.yandex.ru/playlists/lk.fd280462-dabc-4ecd-a4d2-94110e7552dc")
+        )
+        assertEquals(
+            YandexMusicTarget.Playlist("39a8f319-4740-d4ed-9629-b6a38b01a1dc"),
+            yandexMusicTarget("music.yandex.ru/playlists/39A8F319-4740-D4ED-9629-B6A38B01A1DC")
+        )
+    }
+
     @Test fun `forms the native open does not handle stay null, so they open in the browser`() {
-        assertNull(yandexMusicTarget("https://music.yandex.ru/playlists/39a8f319-4740-d4ed-9629-b6a38b01a1dc"))
-        assertNull(yandexMusicTarget("https://music.yandex.ru/playlists/lk.fd280462-dabc-4ecd-a4d2-94110e7552dc"))
+        assertNull(yandexMusicTarget("https://music.yandex.ru/playlists/not-a-uuid"))
         assertNull(yandexMusicTarget("https://music.yandex.ru/users/music-blog/playlists/1250"))
         assertNull(yandexMusicTarget("https://music.yandex.ru/artist/123"))
         assertNull(yandexMusicTarget("https://music.yandex.ru/"))
@@ -62,11 +76,16 @@ class YandexMusicLinkTest {
         assertEquals(MessageEntityLink.YandexMusic(url, YandexMusicTarget.Track("140731042", "37293134")), link)
     }
 
-    @Test fun `a playlist link that is not supported yet stays an ordinary external link`() {
+    @Test fun `a playlist link becomes a native link entity, a login-form playlist stays an ordinary link`() {
         val url = "https://music.yandex.ru/playlists/39a8f319-4740-d4ed-9629-b6a38b01a1dc?utm_source=desktop&utm_medium=copy_link"
         assertEquals(
-            MessageEntityLink.ExternalUrl(url),
+            MessageEntityLink.YandexMusic(url, YandexMusicTarget.Playlist("39a8f319-4740-d4ed-9629-b6a38b01a1dc")),
             messageEntityLink(MessageTextEntity(0, url.length, TextStyleKind.Url, ""), url)
+        )
+        val login = "https://music.yandex.ru/users/music-blog/playlists/1250"
+        assertEquals(
+            MessageEntityLink.ExternalUrl(login),
+            messageEntityLink(MessageTextEntity(0, login.length, TextStyleKind.Url, ""), login)
         )
     }
 }
