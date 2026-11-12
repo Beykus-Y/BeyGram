@@ -44,7 +44,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -196,6 +198,9 @@ object PlaybackEngine {
     private const val BG_HANDOVER_LEAD_MS = 120L
     /** Both outputs play together this long, so the handover never leaves a gap. */
     private const val BG_HANDOVER_OVERLAP_MS = 60L
+    /** ExoPlayer falls and BG Mix rises over this long, in equal steps, once BG Mix has started silently. */
+    private const val BG_HANDOVER_FADE_MS = 200L
+    private const val BG_HANDOVER_FADE_STEPS = 10
     private const val SLEEP_FADE_STEP_MS = 100L
     private const val UNDO_CLOSE_MS = 5_000L
     private const val BG_WAKE_LOCK_TIMEOUT_MS = 6 * 60 * 60_000L
@@ -1774,9 +1779,13 @@ object PlaybackEngine {
         exo?.let {
             crossfader.cancel(it)
             it.stop()
+            // The handover took ExoPlayer's level down; it comes back for its next playback.
+            it.volume = 1f
             it.clearMediaItems()
             // A paused placeholder keeps the session's current item (title, duration) and notification alive.
             it.playWhenReady = false
+            // Focus handling returns only after the pause: while ExoPlayer still asks to play, it takes the focus from BG Mix.
+            setExoFocusHandling(it, handle = true)
             it.setMediaItem(placeholderItem(item))
             it.prepare()
         }
@@ -1953,6 +1962,8 @@ object PlaybackEngine {
             driver.discardStaged()
             return false
         }
+        // BG Mix starts silent: its first samples must not land on top of ExoPlayer at full level.
+        driver.setStagedVolume(0f)
         driver.playStaged()
         // ExoPlayer keeps playing until the native output runs, so the handover has no gap.
         withTimeoutOrNull(BG_HANDOVER_START_TIMEOUT_MS) {
@@ -1963,18 +1974,57 @@ object PlaybackEngine {
             driver.discardStaged()
             return null
         }
+        // ExoPlayer must not pause for the focus change that BG Mix causes: the crossfade takes its level down instead.
+        setExoFocusHandling(target, handle = false)
         if (!stillHandingOver(file) || !requestBgFocus(context)) {
+            setExoFocusHandling(target, handle = true)
             driver.discardStaged()
             return false
         }
         if (!driver.commitStaged()) {
             releaseBgFocus()
+            setExoFocusHandling(target, handle = true)
             return false
         }
-        bgMixHandoverJob = null
-        bgMixOriginalQueue = if (shuffled) items else null
-        adoptBgMixSession(driver, index, positionMs = positionMs, autoPlay = true)
+        // From here the handover cannot be undone: the crossfade and the adoption finish even if the job is cancelled.
+        withContext(NonCancellable) {
+            // The equalizer moves to the BG Mix output while that output is still silent, so the re-attach is not heard.
+            _audioSessionId.value = driver.audioSessionId
+            crossfadeIntoBgMix(target, driver)
+            bgMixHandoverJob = null
+            bgMixOriginalQueue = if (shuffled) items else null
+            adoptBgMixSession(driver, index, positionMs = positionMs, autoPlay = true)
+        }
         return true
+    }
+
+    /**
+     * Hands the sound from ExoPlayer to the BG Mix output over [BG_HANDOVER_FADE_MS]. ExoPlayer falls and BG Mix rises along
+     * a quarter-sine pair, so the level holds while both play the same track.
+     */
+    private suspend fun crossfadeIntoBgMix(target: ExoPlayer, driver: BgMixQueueDriver) {
+        val from = target.volume
+        val quarterTurn = (kotlin.math.PI / 2).toFloat()
+        val step = BG_HANDOVER_FADE_MS / BG_HANDOVER_FADE_STEPS
+        for (n in 1..BG_HANDOVER_FADE_STEPS) {
+            val t = n.toFloat() / BG_HANDOVER_FADE_STEPS
+            target.volume = from * kotlin.math.cos(t * quarterTurn).toFloat()
+            driver.setVolume(kotlin.math.sin(t * quarterTurn).toFloat())
+            delay(step)
+        }
+        target.volume = 0f
+        driver.setVolume(1f)
+    }
+
+    /** Switches ExoPlayer's own audio-focus handling; the audio kind it plays with is kept. */
+    private fun setExoFocusHandling(target: ExoPlayer, handle: Boolean) {
+        target.setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(if (speechAttributes == true) C.AUDIO_CONTENT_TYPE_SPEECH else C.AUDIO_CONTENT_TYPE_MUSIC)
+                .build(),
+            handle
+        )
     }
 
     /** The queue in ExoPlayer's shuffle order from [currentIndex] on; with Repeat All, the tracks before it follow. */
