@@ -124,6 +124,16 @@ class BgMascotManager private constructor(private val context: Context) {
         visible.value = value
     }
 
+    /** Account switch: never keep an analysis or session from the previous account. */
+    fun onAccountChanged(newAccountId: String) {
+        if (newAccountId.isBlank()) return
+        cancelPrepare()
+        destroySession()
+        clock.reset()
+        failedIdentity = null
+        _uiState.value = if (settings.enabled.value) BgMascotUiState.Idle else BgMascotUiState.Disabled
+    }
+
     fun mediaTimeSeconds(nowNanos: Long): Double = clock.timeSeconds(nowNanos)
 
     fun sampleInto(out: FloatArray, mediaTime: Double): Int {
