@@ -20,11 +20,18 @@ interface ProviderMusicHost {
     fun isAvailable(context: Context): Boolean = true
 
     /**
-     * Results of [query] from this source, shown below the local results. Draws nothing when the source is not
-     * signed in or the query is blank. [onPlay] starts a list at an index; null means the rows cannot play yet.
+     * Results of [query] from this source as one section of the music search (see [MusicSearchSection]). Draws
+     * nothing when the source is not signed in or the query is blank. [limit] shows only the first rows in a card,
+     * for the overview, and [onMore] then opens the full list; [limit] null draws every result without a card.
+     * [onPlay] starts a list at an index; null means the rows cannot play yet.
      */
     @Composable
-    fun SearchResults(query: String, onPlay: ((List<ProviderTrack>, Int) -> Unit)?)
+    fun SearchResults(
+        query: String,
+        onPlay: ((List<ProviderTrack>, Int) -> Unit)?,
+        limit: Int?,
+        onMore: (() -> Unit)?
+    )
 
     /** Short name of this source on the source switch of the music screen. */
     @Composable

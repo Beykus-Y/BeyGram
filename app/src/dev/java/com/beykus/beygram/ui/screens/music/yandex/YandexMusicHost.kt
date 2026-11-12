@@ -18,7 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -55,6 +54,14 @@ import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.IconButton
+import com.beykus.beygram.ui.screens.music.LocalOpenProviderAlbum
+import com.beykus.beygram.ui.screens.music.MusicSearchMessage
+import com.beykus.beygram.ui.screens.music.MusicSearchSection
+import com.beykus.beygram.ui.screens.music.MusicSearchSkeletonRows
+import com.beykus.beygram.ui.screens.music.ProviderTrackMenuItems
 import com.beykus.beygram.ui.screens.music.MusicCardColumn
 import com.beykus.beygram.ui.screens.music.MusicCoverCard
 import com.beykus.beygram.ui.screens.music.MusicEmptyText
@@ -550,15 +557,20 @@ class YandexMusicHost : ProviderMusicHost {
     }
 
     @Composable
-    override fun SearchResults(query: String, onPlay: ((List<ProviderTrack>, Int) -> Unit)?) {
+    override fun SearchResults(
+        query: String,
+        onPlay: ((List<ProviderTrack>, Int) -> Unit)?,
+        limit: Int?,
+        onMore: (() -> Unit)?
+    ) {
         val context = LocalContext.current
         // Every hook runs on every composition; the early exits come after them, so the slots never change shape.
         val provider = remember(context) { MusicProviders.yandex(context) }
         val state by (provider?.state ?: SignedOutState).collectAsStateWithLifecycle()
         val uid = (state as? MusicProviderState.SignedIn)?.account?.uid
         val signedIn = uid != null
-        val palette = beyGramPalette()
         val text = query.trim()
+        val openAlbum = LocalOpenProviderAlbum.current
 
         LaunchedEffect(text, uid) {
             if (provider == null || uid == null) clearSearch() else ensureSearch(provider, text, uid)
@@ -566,42 +578,53 @@ class YandexMusicHost : ProviderMusicHost {
 
         if (provider == null || !signedIn || text.isEmpty() || searchText != text || searchUid != uid) return
         val found = searchTracks
-        Column(Modifier.fillMaxWidth()) {
-            Text(
-                stringResource(R.string.yandex_search_title),
-                color = palette.textPrimary,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-            )
-            if (searchLoading) Column(
-                Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) { CircularProgressIndicator() }
-            searchFailure?.let {
-                Text(
-                    stringResource(failureText(it)),
-                    color = palette.textSecondary,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-            if (found != null && found.isEmpty()) Text(
-                stringResource(R.string.yandex_search_empty),
-                color = palette.textSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-            found?.forEachIndexed { index, track ->
-                ProviderTrackRow(
+        val shown = if (limit != null) found?.take(limit) else found
+        MusicSearchSection(
+            title = stringResource(R.string.yandex_search_title),
+            onMore = if (limit != null && found != null && found.size > limit) onMore else null,
+            carded = limit != null
+        ) {
+            if (searchLoading) MusicSearchSkeletonRows()
+            searchFailure?.let { MusicSearchMessage(stringResource(failureText(it))) }
+            if (found != null && found.isEmpty()) MusicSearchMessage(stringResource(R.string.yandex_search_empty))
+            shown?.forEachIndexed { index, track ->
+                SearchTrackRow(
                     track = track,
                     onClick = if (onPlay != null && track.isAvailable) {
-                        { startPlayback(found, index, onPlay) }
+                        { startPlayback(found.orEmpty(), index, onPlay) }
                     } else {
                         null
-                    }
+                    },
+                    onOpenAlbum = openAlbum
                 )
             }
         }
+    }
+
+    /** A search result with the track menu: play next, like, its album and its link. */
+    @Composable
+    private fun SearchTrackRow(track: ProviderTrack, onClick: (() -> Unit)?, onOpenAlbum: ((String) -> Unit)?) {
+        val palette = beyGramPalette()
+        var menu by remember(track.trackId) { mutableStateOf(false) }
+        ProviderTrackRow(
+            track = track,
+            onClick = onClick,
+            trailing = {
+                Box {
+                    IconButton(onClick = { menu = true }) {
+                        Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        ProviderTrackMenuItems(
+                            track = track,
+                            onDismiss = { menu = false },
+                            showPlayNext = true,
+                            onOpenAlbum = onOpenAlbum
+                        )
+                    }
+                }
+            }
+        )
     }
 
     /** The whole tab before sign-in: what the tab holds and a button to the sign-in screen. */
