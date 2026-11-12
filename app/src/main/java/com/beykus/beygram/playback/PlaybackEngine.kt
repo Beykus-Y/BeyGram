@@ -621,6 +621,7 @@ object PlaybackEngine {
         tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>,
         startIndex: Int,
         loadMore: (suspend () -> List<com.beykus.beygram.data.music.provider.ProviderTrack>)? = null,
+        radio: PlaybackRadio? = null,
     ) {
         val playable = tracks.filter { it.isAvailable }
         if (playable.isEmpty()) return
@@ -633,7 +634,8 @@ object PlaybackEngine {
                 // Source rows carry no TDLib file, so these are never asked for.
                 observeFile = { fileId -> MutableStateFlow(MediaFileState(id = fileId)) },
                 download = {},
-                loadMore = { load().filter { it.isAvailable }.map(::providerPlaybackItem) }
+                loadMore = { load().filter { it.isAvailable }.map(::providerPlaybackItem) },
+                radio = radio
             )
         }
         playQueue(context, items, 0, source = source)
@@ -3160,6 +3162,9 @@ object PlaybackEngine {
 
     /** The source of the playing queue: its account and file observers. The queue panel reads Telegram download state through it. */
     internal fun activeQueueSource(): PlaybackQueueSource? = queueSource
+
+    /** The radio the current queue belongs to, null for an ordinary queue. Read by the player header. */
+    val activeRadio: PlaybackRadio? get() = queueSource?.radio
 
     private fun updateAudioSessionId() {
         val current = _state.value.item

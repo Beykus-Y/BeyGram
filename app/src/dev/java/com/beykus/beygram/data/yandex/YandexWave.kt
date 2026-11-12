@@ -4,6 +4,11 @@ import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import org.json.JSONObject
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -17,6 +22,41 @@ internal object YandexWave {
 
     /** How many empty or failed batches in a row end the attempt; the player asks again later. */
     const val MAX_EMPTY_BATCHES = 2
+
+    /** Where the radio was started from, as the official mobile client reports it for the personal wave. */
+    const val FROM = "radio-mobile-user-onyourwave"
+}
+
+/** One feedback event of a radio session. [timestampMs] is wall-clock time. */
+internal data class YandexWaveEvent(
+    val type: String,
+    val timestampMs: Long,
+    /** `id:albumId`; null only for [RADIO_STARTED]. */
+    val trackId: String? = null,
+    val playedSeconds: Double? = null,
+) {
+    fun toJson(): JSONObject {
+        val json = JSONObject().put("type", type).put("timestamp", isoTimestamp(timestampMs))
+        if (trackId != null) json.put("trackId", trackId)
+        if (playedSeconds != null) json.put("totalPlayedSeconds", playedSeconds)
+        return json
+    }
+
+    companion object {
+        const val RADIO_STARTED = "radioStarted"
+        const val TRACK_STARTED = "trackStarted"
+        const val TRACK_FINISHED = "trackFinished"
+        const val SKIP = "skip"
+        const val LIKE = "like"
+        const val UNLIKE = "unlike"
+
+        /** ISO 8601 in UTC with milliseconds, such as `2024-01-01T12:00:00.000Z`. */
+        fun isoTimestamp(ms: Long): String {
+            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+            format.timeZone = TimeZone.getTimeZone("UTC")
+            return format.format(Date(ms))
+        }
+    }
 }
 
 /** A next-batch request failed; the player keeps the queue and tries again after a pause. */
@@ -38,13 +78,32 @@ internal class YandexWaveSession(
     /** Tracks the session gave, as `id:albumId`, oldest first. Also used to drop repeats. */
     private val given = LinkedHashSet<String>()
 
+    /** Per player key: the track as `id:albumId` and the batch it came in, for feedback. */
+    private val byKey = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String?>>()
+
+    /** The session feedback goes to; changes when a forgotten session is replaced. */
+    @Volatile
+    var currentSessionId: String? = null
+        private set
+
+    /** The radio's `id:albumId` and batch of a player key, or null when this session did not give that track. */
+    fun trackOf(key: String): Pair<String, String?>? = byKey[key]
+
+    /** The batch the track `id:albumId` came in. */
+    fun batchOfTrack(queueId: String): String? = byKey.values.firstOrNull { it.first == queueId }?.second
+
+    /** The radio's `id:albumId` of a track id the session gave, for like events. */
+    fun trackIdOf(trackId: String): String? =
+        byKey.values.firstOrNull { it.first == trackId || it.first.startsWith("$trackId:") }?.first
+
     /** Opens the session. The tracks of the first batch, or the failure the UI shows. */
     suspend fun first(): ProviderResult<List<ProviderTrack>> = lock.withLock {
         when (val batch = start(seeds, emptyList())) {
             is ProviderResult.Failure -> batch
             is ProviderResult.Success -> {
                 sessionId = batch.value.sessionId
-                ProviderResult.Success(accept(batch.value.tracks))
+                currentSessionId = batch.value.sessionId
+                ProviderResult.Success(accept(batch.value.tracks, batch.value.batchId))
             }
         }
     }
@@ -64,20 +123,24 @@ internal class YandexWaveSession(
             if (batch.unknownSession || batch.terminated) {
                 // The tracks of an ended session may still be fine, but the next request needs a new session.
                 sessionId = null
-                val fresh = accept(batch.tracks)
+                val fresh = accept(batch.tracks, batch.batchId)
                 if (fresh.isNotEmpty()) return@withLock fresh
                 return@repeat
             }
             sessionId = batch.sessionId
-            val fresh = accept(batch.tracks)
+            currentSessionId = batch.sessionId
+            val fresh = accept(batch.tracks, batch.batchId)
             if (fresh.isNotEmpty()) return@withLock fresh
         }
         emptyList()
     }
 
     /** Keeps the tracks the session has not given before, and remembers them. */
-    private fun accept(tracks: List<ProviderTrack>): List<ProviderTrack> =
-        tracks.filter { given.add(queueId(it)) }
+    private fun accept(tracks: List<ProviderTrack>, batchId: String?): List<ProviderTrack> =
+        tracks.filter { track ->
+            val id = queueId(track)
+            given.add(id).also { fresh -> if (fresh) byKey[track.key] = id to batchId }
+        }
 
     companion object {
         /** A track as the radio requests name it: `id:albumId`, or the bare id when the track has no album. */

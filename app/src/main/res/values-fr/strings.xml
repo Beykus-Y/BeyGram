@@ -644,6 +644,7 @@
     <string name="player_source_saved">Messages enregistrés</string>
     <string name="player_source_local">Fichier sur l’appareil</string>
     <string name="player_source_provider_yandex">Yandex Music</string>
+    <string name="player_source_my_wave">Ma Vague</string>
     <string name="player_menu">Actions du lecteur</string>
     <string name="player_queue">File d’attente</string>
     <string name="player_equalizer">Égaliseur</string>

@@ -12,6 +12,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.playback.PlaybackOrigin
+import com.beykus.beygram.playback.PlaybackRadio
 import kotlinx.coroutines.flow.collect
 
 /**
@@ -34,7 +35,9 @@ internal val LocalPlaybackRepositorySource = compositionLocalOf<PlaybackReposito
 internal data class PlaybackSourceLabel(
     val text: String,
     val kind: PlaybackSourceKind,
-    val canOpen: Boolean
+    val canOpen: Boolean,
+    /** Small line above [text] in the player header; null keeps «Воспроизводится из». */
+    val caption: String? = null
 )
 
 /**
@@ -60,7 +63,11 @@ internal fun rememberOriginChat(origin: PlaybackOrigin?): ChatPreview? {
 
 /** Resolves music source names from the selected account's repository, never a different Telegram login. */
 @Composable
-internal fun rememberPlaybackSourceLabel(origin: PlaybackOrigin?, isProviderTrack: Boolean = false): PlaybackSourceLabel {
+internal fun rememberPlaybackSourceLabel(
+    origin: PlaybackOrigin?,
+    isProviderTrack: Boolean = false,
+    radio: PlaybackRadio? = null
+): PlaybackSourceLabel {
     val preview = rememberOriginChat(origin)
     val kind = playbackSourceKind(
         hasOrigin = origin != null,
@@ -85,6 +92,14 @@ internal fun rememberPlaybackSourceLabel(origin: PlaybackOrigin?, isProviderTrac
         PlaybackSourceKind.Group ->
             listOf(generic, title).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { generic }
         PlaybackSourceKind.Chat -> title.ifBlank { generic }
+    }
+    if (radio != null && kind == PlaybackSourceKind.Provider) {
+        // A radio names itself; the service moves to the small line above it.
+        val name = when (radio.kind) {
+            PlaybackRadio.Kind.MyWave -> stringResource(R.string.player_source_my_wave)
+        }
+        val radioText = listOfNotNull(name, radio.seedTitle?.takeIf { it.isNotBlank() }).joinToString(" · ")
+        return PlaybackSourceLabel(text = radioText, kind = kind, canOpen = false, caption = generic)
     }
     return PlaybackSourceLabel(text = text, kind = kind, canOpen = origin != null)
 }

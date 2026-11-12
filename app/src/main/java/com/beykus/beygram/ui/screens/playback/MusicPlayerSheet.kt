@@ -241,7 +241,9 @@ internal fun MusicPlayerSheet(
     var panel by rememberSaveable { mutableStateOf(PlayerPanel.Player) }
     val source = rememberPlaybackSourceLabel(
         origin = current.item.origin,
-        isProviderTrack = current.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX)
+        isProviderTrack = current.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX),
+        // Not a state: read again on each recomposition, which every queue change causes.
+        radio = PlaybackEngine.activeRadio
     )
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val cover = rememberCoverTokens(
@@ -337,7 +339,7 @@ private fun PlayerHeader(
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
     val closeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
-    val sourceLabel = stringResource(R.string.player_source_from)
+    val sourceLabel = source.caption ?: stringResource(R.string.player_source_from)
     val openSourceLabel = stringResource(R.string.media_show_in_chat)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
