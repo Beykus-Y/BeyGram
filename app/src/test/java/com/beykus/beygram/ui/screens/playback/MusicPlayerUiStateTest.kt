@@ -148,7 +148,8 @@ class MusicPlayerUiStateTest {
         assertEquals(QueueItemStatus.CurrentPlaying, ui.current!!.status)
         assertEquals(listOf(third), ui.upcoming.map { it.item })
         assertEquals(QueueItemStatus.NotDownloaded, ui.upcoming.single().status)
-        assertEquals(0, ui.readyCount)
+        // The header counts every ready row of the queue, the played one before the current track included.
+        assertEquals(1, ui.readyCount)
         assertEquals(2, ui.upcoming.single().index)
     }
 
@@ -165,7 +166,7 @@ class MusicPlayerUiStateTest {
         )
         val ready = state.musicQueueUi(progress = com.beykus.beygram.playback.LazyTrackProgress(ready = setOf("c")))!!
         assertEquals(QueueItemStatus.Ready, ready.upcoming.single().status)
-        assertEquals(1, ready.readyCount)
+        assertEquals(2, ready.readyCount)
     }
 
     @Test
