@@ -68,6 +68,7 @@ import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
@@ -778,27 +779,25 @@ private fun BeyGramAppContent(
     // The music library follows the selected account. Listen history is recorded for the whole process by BeyGramApplication.
     val musicLibrary = remember(context) { MusicLibraries.get(context) }
     LaunchedEffect(selectedAccountId) { musicLibrary.setActiveAccount(selectedAccountId) }
-    // Restore only after the selected account's real repository is authorized. Paused restoration never
+    // Restore only after the selected account's real repository is authorized and online. Paused restoration never
     // prepares a stream or starts a service. Identity is validated against TDLib before creating a queue.
-    LaunchedEffect(authState, selectedAccountId, repositorySelection, connectionState) {
-        // Reconnect may make a previously unavailable TDLib message resolvable again.
+    // Each account gets one pass per launch: a reconnect does not check the saved messages again. A pass that was
+    // cut short by a lost connection is not marked done, so the next connection runs it.
+    val musicRestorePassed = remember { mutableSetOf<String>() }
+    val connected = connectionState == TelegramConnectionState.Connected
+    LaunchedEffect(authState, selectedAccountId, repositorySelection, connected) {
         if (authState != AuthState.Ready || repositorySelection == null) return@LaunchedEffect
         val owner = selectedAccountId
         PlaybackEngine.setActiveAccount(owner)
+        if (!connected || owner in musicRestorePassed) return@LaunchedEffect
         val saved = musicSessionStore.load(owner)
         // Writing is done by the playback layer for the whole process; this effect only restores after sign-in.
         if (saved != null && PlaybackEngine.state.value.item == null) {
             restoreMusicSession(context, repositorySelection, saved)
         }
+        musicRestorePassed += owner
     }
-    LaunchedEffect(Unit) {
-        PlaybackEngine.notices.collect { notice ->
-            when (notice) {
-                PlaybackNotice.TrackSkipped ->
-                    Toast.makeText(context, context.getString(R.string.playback_track_skipped), Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    // One collector: the track-skipped notice is shown once per event.
     LaunchedEffect(Unit) {
         PlaybackEngine.notices.collect { notice ->
             when (notice) {

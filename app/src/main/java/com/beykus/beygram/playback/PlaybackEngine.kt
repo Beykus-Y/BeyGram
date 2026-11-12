@@ -35,6 +35,7 @@ import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.media.bgmix.BgMixAudible
 import com.beykus.beygram.media.bgmix.BgMixNative
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
 import com.beykus.beygram.media.bgmix.BgMixStatus
@@ -194,8 +195,15 @@ object PlaybackEngine {
     private const val BG_HANDOVER_MIN_REMAINING_MS = 15_000L
     private const val BG_HANDOVER_PREPARE_TIMEOUT_MS = 30_000L
     private const val BG_HANDOVER_START_TIMEOUT_MS = 500L
-    /** Lead of the native position over ExoPlayer's, about the delay before the native output is heard. */
+    /** Lead of the native position over ExoPlayer's: only the starting guess, the alignment measures the real one. */
     private const val BG_HANDOVER_LEAD_MS = 120L
+    /** The silent BG Mix output is lined up with ExoPlayer by measurement, with at most this many seeks. */
+    private const val BG_ALIGN_ATTEMPTS = 3
+    /** Within this many milliseconds the output counts as lined up with ExoPlayer. */
+    private const val BG_ALIGN_TOLERANCE_MS = 8.0
+    /** How long to wait for the output to present audio: the first time, and again after each seek. */
+    private const val BG_ALIGN_WAIT_MS = 1_500L
+    private const val BG_ALIGN_POLL_MS = 10L
     /** Both outputs play together this long, so the handover never leaves a gap. */
     private const val BG_HANDOVER_OVERLAP_MS = 60L
     /** ExoPlayer falls and BG Mix rises over this long, in equal steps, once BG Mix has started silently. */
@@ -402,6 +410,8 @@ object PlaybackEngine {
      * so another account's file with the same numeric id is never updated.
      */
     fun updateArtwork(key: String, path: String) {
+        // The BG Mix queue is copied from its native session on every status tick: the cover must be in that copy too.
+        bgMix?.updateArtwork(key, path)
         val snapshot = _state.value
         val item = snapshot.item
         val queue = snapshot.queue
@@ -417,7 +427,8 @@ object PlaybackEngine {
         val index = (0 until target.mediaItemCount).firstOrNull {
             target.getMediaItemAt(it).mediaId == current.systemMediaId
         } ?: return
-        val replacement = mediaItemFor(current)
+        // During BG Mix ExoPlayer holds the placeholder; its metadata is what the notification and the lock screen show.
+        val replacement = if (bgMixActive()) placeholderItem(current) else mediaItemFor(current)
         // Only the metadata changed. Media3 updates an item with the same address in place, so the playhead is not
         // touched: an explicit seek here would flush the decoder buffers and cause a glitch in a fresh track.
         val existingUri = target.getMediaItemAt(index).localConfiguration?.uri
@@ -461,7 +472,11 @@ object PlaybackEngine {
             }
         exo = created
         appContext = context.applicationContext
-        persistence = MusicSessionPersistence(context.applicationContext, _state).also { it.start(scope) }
+        persistence = MusicSessionPersistence(
+            context.applicationContext,
+            _state,
+            activeAccount = { activeAccountId },
+        ).also { it.start(scope) }
         TrackTransitionSettings.load(context)
         _audioSessionId.value = null
         return object : ForwardingPlayer(created) {
@@ -856,7 +871,7 @@ object PlaybackEngine {
         queueSource = source
         queuePageGeneration++
         resetErrorPolicy()
-        dropClosedPlayer()
+        finishClosedPlayer()
         queuePageJob?.cancel()
         queuePageJob = null
         _queuePageLoading.value = false
@@ -914,7 +929,7 @@ object PlaybackEngine {
         transitionToken++
         queuePageGeneration++
         resetErrorPolicy()
-        dropClosedPlayer()
+        finishClosedPlayer()
         queuePageJob?.cancel()
         queuePageJob = null
         _queuePageLoading.value = false
@@ -1481,12 +1496,8 @@ object PlaybackEngine {
 
     /** Explicit user stop: closes the session, clears the queue and removes the notification. */
     fun stop() {
-        _state.value.item?.accountId?.let { owner ->
-            appContext?.let { context -> MusicSessionStore(context).clear(owner) }
-        }
-        closedPlayer = null
-        undoJob?.cancel()
-        _undoClose.value = false
+        _state.value.item?.accountId?.let { owner -> persistence?.forget(owner) }
+        finishClosedPlayer()
         releaseQueueAndHalt()
     }
 
@@ -1509,6 +1520,15 @@ object PlaybackEngine {
         closedPlayer = null
         undoJob?.cancel()
         _undoClose.value = false
+    }
+
+    /**
+     * New playback or an explicit stop ends the undo for good: the closed music session is forgotten now, so it cannot
+     * come back at the next start. Undo itself clears [closedPlayer] first and keeps the session.
+     */
+    private fun finishClosedPlayer() {
+        closedPlayer?.state?.item?.accountId?.let { owner -> persistence?.forget(owner) }
+        dropClosedPlayer()
     }
 
     private class ClosedPlayer(val state: PlaybackState, val source: PlaybackQueueSource?)
@@ -1540,10 +1560,13 @@ object PlaybackEngine {
         closedPlayer = ClosedPlayer(frozen, closedSource)
         _undoClose.value = true
         undoJob?.cancel()
+        // Closing for good drops the saved session too, so the closed track does not come back at the next start.
+        val owner = item.accountId
         undoJob = scope.launch {
             delay(UNDO_CLOSE_MS)
             _undoClose.value = false
             closedPlayer = null
+            persistence?.forget(owner)
         }
     }
 
@@ -1577,7 +1600,11 @@ object PlaybackEngine {
     private fun placeholderItem(item: PlaybackItem): MediaItem = MediaItem.Builder()
         .setMediaId(item.key)
         .setUri(Uri.fromFile(File(item.path)))
-        .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).setArtist(item.performer).build())
+        .setMediaMetadata(
+            MediaMetadata.Builder().setTitle(item.title).setArtist(item.performer).apply {
+                item.systemMetadata().artworkPath?.let { artworkUri(it) }?.let { setArtworkUri(it) }
+            }.build()
+        )
         .build()
 
     /** Tells the media session which of its player values changed. ExoPlayer events are ignored during BG Mix. */
@@ -1960,7 +1987,7 @@ object PlaybackEngine {
             return false
         }
         val target = exo ?: run { driver.discardStaged(); return false }
-        // The native output is heard a little after it starts, so it starts that much ahead of ExoPlayer's position.
+        // A starting guess: the alignment below measures where the native output is really heard.
         val positionMs = target.currentPosition + BG_HANDOVER_LEAD_MS
         if (!driver.seekStaged(positionMs / 1000.0)) {
             driver.discardStaged()
@@ -1974,6 +2001,8 @@ object PlaybackEngine {
             driver.stagedStatus?.first { snapshot -> snapshot?.decks?.getOrNull(snapshot.master)?.playing == true }
         }
         delay(BG_HANDOVER_OVERLAP_MS)
+        // Still silent: the output is lined up with ExoPlayer by measurement before anything of it is heard.
+        alignStagedSilently(target, driver)
         if (queueChanged()) {
             driver.discardStaged()
             return null
@@ -2030,6 +2059,49 @@ object PlaybackEngine {
         driver.setVolume(1f)
         return true
     }
+
+    /**
+     * Lines the silent BG Mix output up with ExoPlayer before any of it is heard. It measures where BG Mix is heard on the
+     * audio clock and seeks it while it is silent. The new audio starts once the audio already queued has played out, and
+     * by then ExoPlayer has moved on by that same amount, so the target is ExoPlayer's position plus the queued audio. The
+     * check repeats until the difference is within [BG_ALIGN_TOLERANCE_MS]. False when no measurement came, or when the
+     * difference is still out of tolerance once the corrections are spent; the handover goes on either way.
+     */
+    private suspend fun alignStagedSilently(target: ExoPlayer, driver: BgMixQueueDriver): Boolean {
+        val offsetsMs = mutableListOf<Long>()
+        fun finish(aligned: Boolean): Boolean {
+            recordAppEvent(
+                kind = EventKind.PERFORMANCE,
+                code = "bgmix_handover_alignment",
+                text = if (aligned) "Переход в BG Mix: звук выровнен с плеером" else "Переход в BG Mix: выровнять звук не удалось",
+                attrs = mapOf("offsets_ms" to offsetsMs.joinToString(",")),
+            )
+            return aligned
+        }
+        // At most BG_ALIGN_ATTEMPTS corrections; each one is checked by the measurement that follows it.
+        for (correction in 0..BG_ALIGN_ATTEMPTS) {
+            val audible = awaitStagedAudible(driver) ?: return finish(false)
+            val exoMs = target.currentPosition.toDouble()
+            val offsetMs = bgMixAlignmentOffsetMs(audible, exoMs)
+            offsetsMs += offsetMs.toLong()
+            if (kotlin.math.abs(offsetMs) <= BG_ALIGN_TOLERANCE_MS) return finish(true)
+            // After the last allowed correction this measurement is only the check, so nothing more is corrected.
+            if (correction == BG_ALIGN_ATTEMPTS) break
+            if (!driver.seekStaged(bgMixAlignmentSeekMs(audible, exoMs) / 1_000.0)) return finish(false)
+        }
+        return finish(false)
+    }
+
+    /** The staged output's audible position, waited for briefly: the track presents its first frames a moment after a seek. */
+    private suspend fun awaitStagedAudible(driver: BgMixQueueDriver): BgMixAudible? =
+        withTimeoutOrNull(BG_ALIGN_WAIT_MS) {
+            var audible = driver.stagedAudible()
+            while (audible == null) {
+                delay(BG_ALIGN_POLL_MS)
+                audible = driver.stagedAudible()
+            }
+            audible
+        }
 
     /** Whether the handover that started as [generation] still owns [driver]: no stop and no new track has taken it. */
     private fun stillHandedOver(generation: Int, driver: BgMixQueueDriver): Boolean =

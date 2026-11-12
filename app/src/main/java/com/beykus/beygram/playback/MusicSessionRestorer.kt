@@ -12,7 +12,7 @@ import kotlinx.coroutines.sync.withPermit
 
 /**
  * Rehydrates each persisted origin from the *current* TDLib account, never from stale file paths or file IDs.
- * A missing/deleted/protected message is dropped. The original selection must still exist or nothing is restored.
+ * A missing/deleted/protected message is dropped. The saved track itself must still resolve, or nothing is restored.
  */
 suspend fun restoreMusicSession(
     context: Context,
@@ -21,10 +21,13 @@ suspend fun restoreMusicSession(
 ): Boolean {
     if (PlaybackEngine.state.value.item != null) return false
     val verified = resolveMusicOrigins(repository, saved.accountId, saved.origins)
+    // The saved track must still resolve. A lookup that fails right after connecting looks the same as a deleted message,
+    // so no other track takes its place: nothing is restored and the record stays until it expires.
     val selected = verified.getOrNull(saved.currentIndex) ?: return false
     val queue = verified.filterNotNull()
     val index = queue.indexOfFirst { it.key == selected.key }
     if (index < 0) return false
+    val positionMs = saved.positionMs
     PlaybackEngine.restoreQueue(
         context,
         queue,
@@ -32,7 +35,7 @@ suspend fun restoreMusicSession(
         PlaybackQueueSource(
             saved.accountId, repository::observeFile, repository::downloadFile, repository::autoDownloadFile
         ),
-        saved.positionMs,
+        positionMs,
         saved.shuffle,
         saved.repeat
     )
