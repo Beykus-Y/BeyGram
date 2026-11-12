@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chats
 
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -11,6 +12,9 @@ import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.GlobalSearchPeriod
 import com.beykus.beygram.domain.model.SharedMediaKind
 import kotlinx.coroutines.Job
+
+/** One primary level of discovery navigation; the original independent search sources remain unchanged. */
+internal enum class GlobalSearchCategory { All, Chats, Messages, Media, People }
 
 /** People/chat sources have no offset in TDLib, so a next page asks for a larger limit. */
 internal const val GLOBAL_SEARCH_PAGE_SIZE = 20
@@ -66,9 +70,17 @@ internal class GlobalSearchSource<T>(
  * navigation branch leaves composition. Search pages are deliberately reloaded after process
  * recreation; filters and the query are restored.
  */
-class GlobalSearchSession(initialQuery: String) {
+class GlobalSearchSession(
+    initialQuery: String,
+    firstVisibleIndex: Int = 0,
+    firstVisibleOffset: Int = 0
+) {
     val query = mutableStateOf(initialQuery)
     val filter = mutableStateOf(GlobalSearchFilter())
+    internal val category = mutableStateOf(GlobalSearchCategory.All)
+    internal val filtersExpanded = mutableStateOf(false)
+    /** Owned by the session so opening a hit and returning keeps the result scroll position. */
+    internal val listState = LazyListState(firstVisibleIndex, firstVisibleOffset)
 
     /** Changes on every explicit reset (new query, account switch), invalidating late answers. */
     val generation = mutableLongStateOf(0L)
@@ -100,11 +112,23 @@ class GlobalSearchSession(initialQuery: String) {
                     state.query.value,
                     state.filter.value.kind?.name.orEmpty(),
                     state.filter.value.chatType?.name.orEmpty(),
-                    state.filter.value.period.name
+                    state.filter.value.period.name,
+                    state.category.value.name,
+                    state.filtersExpanded.value.toString(),
+                    state.listState.firstVisibleItemIndex.toString(),
+                    state.listState.firstVisibleItemScrollOffset.toString()
                 )
             },
             restore = { saved ->
-                GlobalSearchSession(saved.getOrElse(0) { "" }).also { state ->
+                GlobalSearchSession(
+                    initialQuery = saved.getOrElse(0) { "" },
+                    firstVisibleIndex = saved.getOrNull(6)?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                    firstVisibleOffset = saved.getOrNull(7)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                ).also { state ->
+                    state.category.value = GlobalSearchCategory.entries.firstOrNull {
+                        it.name == saved.getOrNull(4)
+                    } ?: GlobalSearchCategory.All
+                    state.filtersExpanded.value = saved.getOrNull(5) == "true"
                     state.filter.value = GlobalSearchFilter(
                         kind = SharedMediaKind.entries.firstOrNull { it.name == saved.getOrNull(1) },
                         chatType = GlobalChatType.entries.firstOrNull { it.name == saved.getOrNull(2) },
@@ -125,6 +149,8 @@ class GlobalSearchSession(initialQuery: String) {
         publicChats.reset()
         query.value = newQuery
         filter.value = GlobalSearchFilter()
+        category.value = GlobalSearchCategory.All
+        filtersExpanded.value = false
         hits.value = emptyList()
         chatContexts.value = emptyMap()
         nextOffset.value = ""
