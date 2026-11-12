@@ -26,6 +26,8 @@ sealed interface MessageEntityLink {
     data class TelegramPhone(val phone: String) : MessageEntityLink
     /** tg://proxy or tg://socks; the raw URL remains a safe external fallback when no in-app prompt is available. */
     data class TelegramProxy(val url: String, val draft: TelegramProxyDraft) : MessageEntityLink
+    /** A Yandex Music address the app opens inside itself when it can; otherwise [url] opens in the browser. */
+    data class YandexMusic(val url: String, val target: YandexMusicTarget) : MessageEntityLink
 }
 
 private val COPYABLE_KINDS = setOf(
@@ -98,6 +100,7 @@ private fun urlLink(raw: String): MessageEntityLink? {
     if (value.startsWith("@")) normalizedPublicUsername(value)?.let { return MessageEntityLink.PublicChat(it) }
     telegramLink(value)?.let { return it }
     val normalized = if (!value.contains(":")) "https://$value" else value
+    yandexMusicEntityLink(normalized)?.let { return it }
     val scheme = runCatching { URI(normalized).scheme?.lowercase() }.getOrNull() ?: return null
     return when (scheme) {
         "http", "https" -> MessageEntityLink.ExternalUrl(normalized)
