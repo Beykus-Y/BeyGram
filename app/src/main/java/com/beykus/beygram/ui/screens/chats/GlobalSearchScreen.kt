@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -44,6 +45,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,6 +60,7 @@ import com.beykus.beygram.domain.model.GlobalChatType
 import com.beykus.beygram.domain.model.GlobalSearchPage
 import com.beykus.beygram.domain.model.GlobalSearchPeriod
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.SharedMediaKind
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.repository.ConversationRepository
@@ -102,6 +108,7 @@ fun GlobalSearchScreen(
     onOpenMessage: (chatId: Long, forumTopicId: Long, messageId: Long) -> Unit,
     onBack: () -> Unit,
     connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
+    recentChats: List<ChatPreview> = emptyList(),
     session: GlobalSearchSession = remember { GlobalSearchSession(initialQuery) }
 ) {
     val palette = beyGramPalette()
@@ -113,6 +120,12 @@ fun GlobalSearchScreen(
     // The one field accepts @name, plain names and t.me links. Only the public lookups use the
     // normalized text; message search still matches exactly what the user typed.
     val parsedQuery = remember(query) { parseGlobalSearchQuery(query) }
+    val category = session.category.value
+    var filtersExpanded by session.filtersExpanded
+    val showChats = category == GlobalSearchCategory.All || category == GlobalSearchCategory.Chats
+    val showPeople = category == GlobalSearchCategory.All || category == GlobalSearchCategory.People
+    val showMessages = category == GlobalSearchCategory.All || category == GlobalSearchCategory.Messages ||
+        category == GlobalSearchCategory.Media
     val offline = connectionState == TelegramConnectionState.WaitingForNetwork
     var filter by session.filter
     var hits by session.hits
@@ -136,6 +149,13 @@ fun GlobalSearchScreen(
     val publicChatItems = session.publicChats.items.value
         .takeIf { session.publicChats.completedQuery == query && session.publicChats.completedGeneration == generation }
         .orEmpty()
+    // Immediate cached results while TDLib search sources are still debouncing or offline.
+    // Server results are merged by chat ID, so the same chat is never shown twice.
+    val localChatItems = remember(query, parsedQuery, recentChats, chatItems) {
+        if (query.isBlank()) emptyList() else
+            (recentChats.filter { it.title.contains(parsedQuery.publicText, ignoreCase = true) } + chatItems)
+                .distinctBy { it.id }
+    }
     val visibleHits = hits.takeIf {
         session.completedRequest == (query to filter) && session.completedGeneration == generation
     }.orEmpty()
@@ -274,7 +294,66 @@ fun GlobalSearchScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
     ) {
         ProfileToolbar(stringResource(R.string.global_search_title), onBack)
-        SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.chats_search_placeholder))
+        SearchField(
+            query = query,
+            onChange = { updated ->
+                query = updated
+                scope.launch { session.listState.scrollToItem(0) }
+            },
+            placeholder = stringResource(R.string.chats_search_placeholder)
+        )
+        SearchChips(
+            options = GlobalSearchCategory.entries.filter { it != GlobalSearchCategory.All }
+                .map { it to stringResource(searchCategoryLabel(it)) },
+            selected = category.takeIf { it != GlobalSearchCategory.All },
+            all = stringResource(R.string.global_search_category_all),
+            onSelect = { next ->
+                val selected = next ?: GlobalSearchCategory.All
+                session.category.value = selected
+                if (selected == GlobalSearchCategory.Media && filter.kind == null) {
+                    filter = filter.copy(kind = SharedMediaKind.Media)
+                }
+                scope.launch { session.listState.scrollToItem(0) }
+            }
+        )
+        if (showMessages && query.isNotBlank()) {
+            val activeFilterCount = listOf(filter.kind, filter.chatType, filter.period.takeIf { it != GlobalSearchPeriod.Any })
+                .count { it != null }
+            TextButton(
+                onClick = { filtersExpanded = !filtersExpanded },
+                modifier = Modifier.padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp)
+            ) {
+                Text(
+                    stringResource(R.string.global_search_filters) +
+                        if (activeFilterCount > 0) " · $activeFilterCount" else "",
+                    color = palette.accentInk
+                )
+            }
+            if (filtersExpanded) {
+                Column(Modifier.padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SearchChips(
+                        options = SharedMediaKind.entries.map { it to stringResource(kindLabel(it)) },
+                        selected = filter.kind,
+                        all = stringResource(R.string.global_search_filter_all_types),
+                        onSelect = { filter = filter.copy(kind = it) }
+                    )
+                    SearchChips(
+                        options = GlobalChatType.entries.map { it to stringResource(chatTypeLabel(it)) },
+                        selected = filter.chatType,
+                        all = stringResource(R.string.global_search_filter_all_chats),
+                        onSelect = { filter = filter.copy(chatType = it) }
+                    )
+                    SearchChips(
+                        options = GlobalSearchPeriod.entries.filter { it != GlobalSearchPeriod.Any }
+                            .map { it to stringResource(periodLabel(it)) },
+                        selected = filter.period.takeIf { it != GlobalSearchPeriod.Any },
+                        all = stringResource(R.string.global_search_filter_any_period),
+                        onSelect = { filter = filter.copy(period = it ?: GlobalSearchPeriod.Any) }
+                    )
+                }
+            }
+        }
         if (offline) {
             Row(
                 Modifier.fillMaxWidth()
@@ -294,24 +373,48 @@ fun GlobalSearchScreen(
             }
         }
         if (query.isBlank()) {
-            Text(
-                stringResource(R.string.global_search_idle),
-                color = palette.textSecondary,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(20.dp)
-            )
+            LazyColumn(
+                Modifier.fillMaxWidth().weight(1f),
+                state = session.listState
+            ) {
+                item("recent-heading") {
+                    Text(
+                        stringResource(R.string.global_search_recent),
+                        color = palette.textSecondary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                    )
+                }
+                if (recentChats.isEmpty()) {
+                    item("search-help") {
+                        Text(
+                            stringResource(R.string.global_search_idle),
+                            color = palette.textSecondary,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(20.dp)
+                        )
+                    }
+                } else {
+                    items(recentChats.take(12), key = { "recent:${it.id}" }) { chat ->
+                        GlobalChatRow(chat, GlobalSearchChatScope.Local, observeFile, downloadFile) {
+                            openSearchChat(chat, GlobalSearchChatScope.Local, onOpenChat, onOpenPublicChat)
+                        }
+                    }
+                }
+            }
         } else {
-            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+            LazyColumn(Modifier.fillMaxWidth().weight(1f), state = session.listState) {
                 item("chats-header") {
                     SearchSectionHeader(
                         title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalChat)),
-                        count = chatItems.size,
+                        count = localChatItems.size,
                         loading = session.chats.searching.value,
                         failed = session.chats.failed.value,
                         onRetry = { session.chats.retryVersion.value++ }
                     )
                 }
-                if (chatItems.isEmpty()) {
+                if (localChatItems.isEmpty()) {
                     item("chats-state") {
                         SearchSourceState(
                             loading = session.chats.searching.value,
@@ -322,7 +425,7 @@ fun GlobalSearchScreen(
                         )
                     }
                 } else {
-                    items(chatItems, key = { "chat:${it.id}" }) { chat ->
+                    items(localChatItems, key = { "chat:${it.id}" }) { chat ->
                         GlobalChatRow(chat, GlobalSearchChatScope.Local, observeFile, downloadFile) {
                             openSearchChat(chat, GlobalSearchChatScope.Local, onOpenChat, onOpenPublicChat)
                         }
@@ -407,29 +510,6 @@ fun GlobalSearchScreen(
                         failed = failed,
                         onRetry = { retryVersion++ }
                     )
-                }
-                item("messages-filters") {
-                    Column(Modifier.padding(top = 2.dp, bottom = 4.dp)) {
-                        SearchChips(
-                            options = SharedMediaKind.entries.map { it to stringResource(kindLabel(it)) },
-                            selected = filter.kind,
-                            all = stringResource(R.string.global_search_filter_all_types),
-                            onSelect = { filter = filter.copy(kind = it) }
-                        )
-                        SearchChips(
-                            options = GlobalChatType.entries.map { it to stringResource(chatTypeLabel(it)) },
-                            selected = filter.chatType,
-                            all = stringResource(R.string.global_search_filter_all_chats),
-                            onSelect = { filter = filter.copy(chatType = it) }
-                        )
-                        SearchChips(
-                            options = GlobalSearchPeriod.entries.filter { it != GlobalSearchPeriod.Any }
-                                .map { it to stringResource(periodLabel(it)) },
-                            selected = filter.period.takeIf { it != GlobalSearchPeriod.Any },
-                            all = stringResource(R.string.global_search_filter_any_period),
-                            onSelect = { filter = filter.copy(period = it ?: GlobalSearchPeriod.Any) }
-                        )
-                    }
                 }
                 if (visibleHits.isEmpty()) {
                     item("messages-state") {
