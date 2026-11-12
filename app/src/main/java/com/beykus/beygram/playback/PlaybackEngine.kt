@@ -612,29 +612,44 @@ object PlaybackEngine {
      * Tracks the provider reports as unavailable are left out; [startIndex] counts the tracks as given. The queue starts at
      * the chosen track: the rows above it were never played, so the queue must not show them as played.
      */
+    /**
+     * Plays source [tracks] from [startIndex]. [loadMore] makes the queue endless (a radio such as «Моя волна»): the
+     * engine asks it for the next tracks when few are left, as it does for Telegram history pages.
+     */
     fun playYandexTracks(
         context: Context,
         tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>,
         startIndex: Int,
+        loadMore: (suspend () -> List<com.beykus.beygram.data.music.provider.ProviderTrack>)? = null,
     ) {
         val playable = tracks.filter { it.isAvailable }
         if (playable.isEmpty()) return
         val startTrackId = tracks.getOrNull(startIndex)?.trackId
         val index = playable.indexOfFirst { it.trackId == startTrackId }.coerceAtLeast(0)
-        val items = playable.drop(index).map { track ->
-            PlaybackItem(
-                key = track.key,
-                kind = MediaKind.Audio,
-                path = "",
-                title = track.title,
-                durationSeconds = (track.durationMs / 1_000L).toInt(),
-                performer = track.performer,
-                trackTitle = track.title,
-                album = track.albumTitle.orEmpty(),
+        val items = playable.drop(index).map(::providerPlaybackItem)
+        val source = loadMore?.let { load ->
+            PlaybackQueueSource(
+                accountId = LEGACY_PLAYBACK_ACCOUNT_ID,
+                // Source rows carry no TDLib file, so these are never asked for.
+                observeFile = { fileId -> MutableStateFlow(MediaFileState(id = fileId)) },
+                download = {},
+                loadMore = { load().filter { it.isAvailable }.map(::providerPlaybackItem) }
             )
         }
-        playQueue(context, items, 0, source = null)
+        playQueue(context, items, 0, source = source)
     }
+
+    private fun providerPlaybackItem(track: com.beykus.beygram.data.music.provider.ProviderTrack): PlaybackItem =
+        PlaybackItem(
+            key = track.key,
+            kind = MediaKind.Audio,
+            path = "",
+            title = track.title,
+            durationSeconds = (track.durationMs / 1_000L).toInt(),
+            performer = track.performer,
+            trackTitle = track.title,
+            album = track.albumTitle.orEmpty(),
+        )
 
     /**
      * Queue variant with a lazy TDLib source. Tracks that are not downloaded yet stay in the queue and are resolved
@@ -3196,12 +3211,14 @@ object PlaybackEngine {
         if (snapshot.queue.size - snapshot.queueIndex > 5 || queuePageJob?.isActive == true) return
         val generation = queuePageGeneration
         val currentAccount = snapshot.item.accountId
+        // Source tracks (such as «Моя волна») belong to no Telegram account, so the account switch check skips them.
+        val providerItem = snapshot.item.key.startsWith(com.beykus.beygram.data.music.provider.YANDEX_TRACK_KEY_PREFIX)
         _queuePageLoading.value = true
         queuePageJob = scope.launch {
             try {
                 val page = loader()
                 if (generation != queuePageGeneration || source !== queueSource ||
-                    (activeAccountId != null && currentAccount != activeAccountId)) return@launch
+                    (!providerItem && activeAccountId != null && currentAccount != activeAccountId)) return@launch
                 val now = _state.value
                 if (now.queue.isEmpty() || now.item?.accountId != currentAccount) return@launch
                 val fresh = appendMusicPage(now.queue, page, currentAccount)

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -49,10 +51,14 @@ import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.MusicProviderState
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderAlbum
+import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
+import com.beykus.beygram.data.yandex.YandexMusicProvider
+import com.beykus.beygram.data.yandex.YandexWave
+import com.beykus.beygram.data.yandex.YandexWaveSession
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.screens.music.MusicCardColumn
@@ -229,6 +235,39 @@ class YandexMusicHost : ProviderMusicHost {
         }
     }
 
+    private var waveStarting by mutableStateOf(false)
+    private var waveFailure by mutableStateOf<MusicProviderFailure?>(null)
+
+    /**
+     * Starts «Моя волна»: opens a radio session and plays its first batch; the player asks the session for more tracks
+     * as the queue runs low, so it never ends. A selection made while the session opens wins over the wave.
+     */
+    private fun startWave(context: Context, provider: MusicProvider) {
+        val yandex = provider as? YandexMusicProvider ?: return
+        if (waveStarting) return
+        val mine = ++selectionGeneration
+        waveStarting = true
+        waveFailure = null
+        val app = context.applicationContext
+        scope.launch {
+            val session = YandexWaveSession(
+                seeds = listOf(YandexWave.MY_WAVE_SEED),
+                start = { seeds, queue -> yandex.waveStart(seeds, queue) },
+                next = { id, queue -> yandex.waveNext(id, queue) },
+            )
+            val first = session.first()
+            waveStarting = false
+            when (first) {
+                is ProviderResult.Failure -> waveFailure = first.failure
+                is ProviderResult.Success -> when {
+                    mine != selectionGeneration -> Unit
+                    first.value.none { it.isAvailable } -> waveFailure = MusicProviderFailure.NotFound
+                    else -> ProviderArtwork.playTracks(app, first.value, 0) { session.more() }
+                }
+            }
+        }
+    }
+
     /** A direct selection: it supersedes any collection still loading. */
     private fun startPlayback(tracks: List<ProviderTrack>, index: Int, onPlay: (List<ProviderTrack>, Int) -> Unit) {
         selectionGeneration++
@@ -343,6 +382,14 @@ class YandexMusicHost : ProviderMusicHost {
         if (!account.hasSubscription) item(key = "yandex-no-subscription") {
             NoticeCard(stringResource(R.string.yandex_library_no_subscription))
         }
+        if (account.hasSubscription) item(key = "yandex-wave") {
+            val context = LocalContext.current
+            WaveTile(
+                starting = waveStarting,
+                failure = waveFailure,
+                onStart = if (onPlay != null) ({ startWave(context, provider) }) else null
+            )
+        }
         val failure = libraryFailure
         if (failure != null && !libraryLoading) item(key = "yandex-failure") {
             FailureCard(
@@ -454,6 +501,83 @@ class YandexMusicHost : ProviderMusicHost {
                 }
             }
         }
+    }
+
+    /** The «Моя волна» card at the top of the tab: one tap starts an endless stream of recommendations. */
+    @Composable
+    private fun WaveTile(starting: Boolean, failure: MusicProviderFailure?, onStart: (() -> Unit)?) {
+        val palette = beyGramPalette()
+        val subtitle = when {
+            starting -> stringResource(R.string.yandex_wave_starting)
+            failure != null -> stringResource(waveFailureText(failure))
+            else -> stringResource(R.string.yandex_wave_subtitle)
+        }
+        Row(
+            Modifier.fillMaxWidth()
+                .padding(horizontal = MusicScreenGutter)
+                .heightIn(min = 92.dp)
+                .musicCard()
+                .background(Brush.linearGradient(listOf(palette.accentSoft.copy(alpha = 0.55f), palette.accent.copy(alpha = 0.22f))))
+                .then(
+                    if (onStart != null && !starting) {
+                        Modifier.clickable(
+                            role = Role.Button,
+                            onClickLabel = stringResource(R.string.yandex_wave_play),
+                            onClick = onStart
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(56.dp).clip(CircleShape).background(palette.accent),
+                contentAlignment = Alignment.Center
+            ) {
+                if (starting) {
+                    CircularProgressIndicator(Modifier.size(24.dp), color = palette.onAccent, strokeWidth = 2.5.dp)
+                } else {
+                    Icon(Icons.Rounded.Waves, null, tint = palette.onAccent, modifier = Modifier.size(28.dp))
+                }
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.yandex_wave_title),
+                    color = palette.textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    subtitle,
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (onStart != null) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.Rounded.PlayArrow,
+                    null,
+                    tint = palette.accentInk,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+    }
+
+    private fun waveFailureText(failure: MusicProviderFailure): Int = when (failure) {
+        MusicProviderFailure.Network -> R.string.yandex_error_network
+        MusicProviderFailure.Unavailable, MusicProviderFailure.RateLimited -> R.string.yandex_error_unavailable
+        MusicProviderFailure.SubscriptionRequired -> R.string.yandex_library_no_subscription
+        else -> R.string.yandex_wave_failed
     }
 
     /** The wide «Мне нравится» tile: the count and a play button that starts the whole list. */

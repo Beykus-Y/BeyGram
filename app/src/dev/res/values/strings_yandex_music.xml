@@ -38,4 +38,9 @@
     <string name="yandex_library_no_subscription">Без подписки Яндекс Плюс полные треки не играют. Списки, лайки и обложки видны.</string>
     <string name="yandex_library_retry">Повторить</string>
     <string name="yandex_library_play">Слушать</string>
+    <string name="yandex_wave_title">Моя волна</string>
+    <string name="yandex_wave_subtitle">Бесконечный поток треков под ваш вкус</string>
+    <string name="yandex_wave_starting">Подбираем треки…</string>
+    <string name="yandex_wave_failed">Не удалось запустить волну. Нажмите, чтобы попробовать снова.</string>
+    <string name="yandex_wave_play">Слушать «Мою волну»</string>
 </resources>

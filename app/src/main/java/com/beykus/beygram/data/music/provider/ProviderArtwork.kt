@@ -24,10 +24,22 @@ object ProviderArtwork {
     private var watching = false
 
     /** Plays source [tracks] from [startIndex], as [PlaybackEngine.playYandexTracks] does, with covers in the player. */
-    fun playTracks(context: Context, tracks: List<ProviderTrack>, startIndex: Int) {
+    fun playTracks(context: Context, tracks: List<ProviderTrack>, startIndex: Int) = playTracks(context, tracks, startIndex, null)
+
+    /**
+     * Same, with an endless queue: [loadMore] returns the next tracks (empty when there are none yet). Loaded tracks
+     * are remembered too, so the player menu and covers work for them.
+     */
+    fun playTracks(
+        context: Context,
+        tracks: List<ProviderTrack>,
+        startIndex: Int,
+        loadMore: (suspend () -> List<ProviderTrack>)?,
+    ) {
         remember(tracks)
         watch(context)
-        PlaybackEngine.playYandexTracks(context, tracks, startIndex)
+        val remembering = loadMore?.let { load -> suspend { load().also { remember(it) } } }
+        PlaybackEngine.playYandexTracks(context, tracks, startIndex, remembering)
     }
 
     private fun remember(tracks: List<ProviderTrack>) = ProviderTracks.remember(tracks)

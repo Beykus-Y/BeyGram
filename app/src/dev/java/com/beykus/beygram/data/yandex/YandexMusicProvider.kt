@@ -254,7 +254,18 @@ internal class YandexMusicProvider(
         else api.audio(s.accessToken, trackId)
     }
 
-    // Session handling --------------------------------------------------------------------------------------------
+    // «Моя волна» ---------------------------------------------------------------------------------------------------
+
+    /** Starts a radio session from [seeds]. Without a subscription nothing would play, so it fails at once. */
+    suspend fun waveStart(seeds: List<String>, queue: List<String>): ProviderResult<YandexWaveBatch> = withSession { s ->
+        if (!s.hasSubscription) ProviderResult.Failure(MusicProviderFailure.SubscriptionRequired)
+        else api.waveStart(s.accessToken, seeds, queue)
+    }
+
+    suspend fun waveNext(sessionId: String, queue: List<String>): ProviderResult<YandexWaveBatch> =
+        withSession { s -> api.waveNext(s.accessToken, sessionId, queue) }
+
+        // Session handling --------------------------------------------------------------------------------------------
 
     /**
      * Runs [block] with a valid session. Refreshes the token first when it is about to expire, and once more
