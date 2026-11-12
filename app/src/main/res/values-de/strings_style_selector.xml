@@ -4,7 +4,6 @@
     <string name="style_preview_scene_messages">Unterhaltung</string>
     <string name="style_preview_scene_settings">Einstellungen</string>
     <string name="style_preview_description">Vorschau des Stils „%1$s“, Bildschirm „%2$s“</string>
-    <string name="style_preview_glass_note">Die Vorschau zeigt Glas ohne Hintergrundunschärfe. Die echte Unschärfe erscheint in der Oberfläche selbst.</string>
     <string name="style_preview_glass_fallback_note">Glas wird derzeit mit dichter Tönung und ohne Unschärfe gezeichnet, genau wie in der Vorschau.</string>
     <string name="style_preview_search">Suche</string>
     <string name="style_preview_folder_all">Alle</string>
@@ -23,6 +22,15 @@
     <string name="style_preview_chat4_name">Notizen</string>
     <string name="style_preview_chat4_message">Einkaufsliste</string>
     <string name="style_preview_chat4_time">Mo</string>
+    <string name="style_preview_chat5_name">Dima</string>
+    <string name="style_preview_chat5_message">Okay, schaue ich mir morgen an</string>
+    <string name="style_preview_chat5_time">Di</string>
+    <string name="style_preview_chat6_name">Familie</string>
+    <string name="style_preview_chat6_message">Essen am Samstag?</string>
+    <string name="style_preview_chat6_time">So</string>
+    <string name="style_preview_chat7_name">Arbeit</string>
+    <string name="style_preview_chat7_message">Bericht gesendet</string>
+    <string name="style_preview_chat7_time">Fr</string>
     <string name="style_preview_settings_general">Allgemein</string>
     <string name="style_preview_settings_notifications">Benachrichtigungen</string>
     <string name="style_preview_settings_sounds">Chat-Töne</string>

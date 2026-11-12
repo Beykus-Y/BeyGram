@@ -7,7 +7,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -49,15 +52,14 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -81,12 +83,12 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.SearchFieldVariant
 import com.beykus.beygram.ui.design.TopBarVariant
+import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.groupCardShape
-import kotlin.math.min
-import kotlin.math.roundToInt
+import com.beykus.beygram.ui.design.recordsGlassBackdrop
 
 /**
- * The screen a style preview shows. Each one is drawn from synthetic strings only: the preview never reads chats,
+ * The screens a style preview shows. Each one is drawn from synthetic strings only: the preview never reads chats,
  * contacts or the TDLib session, so a screenshot of the Appearance editor cannot leak anything personal.
  */
 internal enum class StyleScene(@StringRes val labelRes: Int) {
@@ -95,54 +97,79 @@ internal enum class StyleScene(@StringRes val labelRes: Int) {
     Settings(R.string.style_preview_scene_settings)
 }
 
+/** Every scene is laid out for this phone: a common Android screen, in density-independent pixels. */
+private val PhoneWidth = 360.dp
+private val PhoneHeight = 780.dp
+
+/** Width over height of that phone. A box of this shape shows the whole screen; any other shape centres it. */
+internal val PhoneAspect: Float = PhoneWidth.value / PhoneHeight.value
+
+/** The corners of the display in the miniature. */
+private val PhoneCorner = 26.dp
+
 /**
- * One screen of the app in the style of [config], drawn at phone size and scaled down into the box it is given.
+ * One screen of the app in the style of [config], laid out at phone size and drawn scaled into the box it is given.
  *
  * The scene is composed from the same components and tokens the real screens use (the bottom bar, the folder chips,
  * glass panels, the Material 2 app bar surface, the group card shape), so the picture changes exactly when the app
- * would. It is a picture: touches are swallowed and the caller decides what TalkBack hears about it. Glass is drawn
- * without a backdrop sample on purpose, so the preview never promises a blur it cannot render at this scale.
- *
- * [virtualWidth] is the narrowest phone the scene is laid out for; a wider box shows a wider phone instead of
- * magnifying the content beyond its real size.
+ * would. It is a picture: touches are swallowed and the caller decides what TalkBack hears about it. A Liquid Glass
+ * style that blurs samples the same backdrop as the real screens, so its panels blur what is behind them.
  */
 @Composable
 internal fun StyleScenePreview(
     config: AppearanceConfig,
     systemDark: Boolean,
     scene: StyleScene,
-    modifier: Modifier = Modifier,
-    virtualWidth: Dp = 360.dp
+    modifier: Modifier = Modifier
 ) {
-    ScaledScene(virtualWidth = virtualWidth, modifier = modifier) {
-        val density = LocalDensity.current
-        // The miniature keeps the proportions of the standard font size; the labels around it follow the user's
-        // font scale, so a 2x font does not turn the picture into a few clipped letters.
-        CompositionLocalProvider(LocalDensity provides Density(density.density, 1f)) {
+    ScaledPhone(modifier) {
+        when (scene) {
+            StyleScene.Messages -> AppearanceChatPreview(
+                config = config,
+                compact = false,
+                animate = false,
+                replayKey = 0,
+                modifier = Modifier.fillMaxSize(),
+                systemDark = systemDark
+            )
+            StyleScene.Chats, StyleScene.Settings -> AppearanceThemeScope(config, systemDark) {
+                val indicator = remember { MainTabIndicator() }
+                CompositionLocalProvider(LocalMainTabIndicator provides indicator) {
+                    if (scene == StyleScene.Chats) ChatsScene() else SettingsScene()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Lays [content] out at phone size and draws it centred in the box of [modifier], scaled to fit that box, with the
+ * outline of the screen.
+ *
+ * The scale is applied to the density, not to a picture of the content: the phone is measured and drawn in real
+ * pixels, so text, shadows, glass sampling and blur all come out at the scaled size, exactly as they do at full size.
+ * Font scale stays 1 inside, so a large system text size does not break the miniature.
+ */
+@Composable
+private fun ScaledPhone(modifier: Modifier, content: @Composable () -> Unit) {
+    val density = LocalDensity.current
+    val palette = beyGramPalette()
+    val screenShape = RoundedCornerShape(PhoneCorner)
+    BoxWithConstraints(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
+        if (maxWidth == Dp.Infinity || maxHeight == Dp.Infinity || maxWidth <= 0.dp || maxHeight <= 0.dp) {
+            return@BoxWithConstraints
+        }
+        val scale = minOf(maxWidth.value / PhoneWidth.value, maxHeight.value / PhoneHeight.value)
+        CompositionLocalProvider(LocalDensity provides Density(density.density * scale, 1f)) {
             Box(
-                Modifier.fillMaxSize()
-                    // A preview is not the window: system bar insets must not pad its bottom bar.
+                Modifier.requiredSize(PhoneWidth, PhoneHeight)
+                    .clip(screenShape)
+                    // The outline keeps the edge of the screen visible on AMOLED, where the screen and the page are both black.
+                    .border(1.dp, palette.divider, screenShape)
+                    // A preview is not the window: system bar insets must not pad its bars.
                     .consumeWindowInsets(WindowInsets.safeDrawing)
             ) {
-                when (scene) {
-                    StyleScene.Messages -> AppearanceChatPreview(
-                        config = config,
-                        compact = false,
-                        animate = false,
-                        replayKey = 0,
-                        modifier = Modifier.fillMaxSize(),
-                        systemDark = systemDark
-                    )
-                    StyleScene.Chats, StyleScene.Settings -> AppearanceThemeScope(config, systemDark) {
-                        val indicator = remember { MainTabIndicator() }
-                        CompositionLocalProvider(
-                            LocalGlassBackdrop provides null,
-                            LocalMainTabIndicator provides indicator
-                        ) {
-                            if (scene == StyleScene.Chats) ChatsScene() else SettingsScene()
-                        }
-                    }
-                }
+                content()
                 // The topmost sibling takes the touch, so the real tabs and chips underneath never react; the
                 // event still reaches the selectable card that holds the preview.
                 Box(Modifier.matchParentSize().pointerInput(Unit) {
@@ -153,67 +180,14 @@ internal fun StyleScenePreview(
     }
 }
 
-/**
- * Measures [content] at a phone-like width of at least [virtualWidth] and draws it scaled into the bounded box of
- * [modifier]. The scale never exceeds 1, so the preview is a miniature and never an enlargement.
- */
-@Composable
-private fun ScaledScene(virtualWidth: Dp, modifier: Modifier, content: @Composable () -> Unit) {
-    Layout(content = content, modifier = modifier.clipToBounds()) { measurables, constraints ->
-        val width = constraints.maxWidth
-        val height = constraints.maxHeight
-        if (width == Constraints.Infinity || height == Constraints.Infinity || width == 0 || height == 0) {
-            return@Layout layout(0, 0) {}
-        }
-        val scale = min(1f, width.toFloat() / virtualWidth.toPx())
-        val sceneWidth = (width / scale).roundToInt()
-        val sceneHeight = (height / scale).roundToInt()
-        val placeables = measurables.map { it.measure(Constraints.fixed(sceneWidth, sceneHeight)) }
-        layout(width, height) {
-            placeables.forEach {
-                it.placeWithLayer(0, 0) {
-                    scaleX = scale
-                    scaleY = scale
-                    transformOrigin = TransformOrigin(0f, 0f)
-                }
-            }
-        }
-    }
-}
-
-/** The chat list: header, search, folders, archive, a few chats, the create button and the bottom bar. */
+/** The chat list: header, search, folders, archive, the sample chats, the create button and the bottom bar. */
 @Composable
 private fun ChatsScene() {
-    val palette = beyGramPalette()
-    val design = LocalDesignSystem.current
-    val floating = design.navigationFloating
-    var navHeight by remember { mutableStateOf(0.dp) }
-    Box(Modifier.fillMaxSize().background(palette.screen)) {
-        Column(Modifier.fillMaxSize()) {
-            SceneTopBar {
-                ChatsHeader()
-            }
-            Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-                Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                    SceneArchiveRow()
-                    SampleChats.forEachIndexed { index, chat ->
-                        SceneChatRow(chat, index, divider = index < SampleChats.lastIndex)
-                    }
-                }
-                if (!floating) {
-                    SceneFab(Modifier.align(Alignment.BottomEnd).padding(16.dp))
-                }
-            }
-            if (!floating) SceneBottomBar(MainTab.Chats) { navHeight = it }
-        }
-        if (floating) {
-            SceneFab(
-                Modifier.align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = navHeight + 26.dp)
-            )
-            Box(Modifier.align(Alignment.BottomCenter)) {
-                SceneBottomBar(MainTab.Chats) { navHeight = it }
-            }
+    SceneScreen(selected = MainTab.Chats, fab = true, header = { ChatsHeader() }) {
+        Spacer(Modifier.height(4.dp))
+        SceneArchiveRow()
+        SampleChats.forEachIndexed { index, chat ->
+            SceneChatRow(chat, index, divider = index < SampleChats.lastIndex)
         }
     }
 }
@@ -223,50 +197,102 @@ private fun ChatsScene() {
 private fun SettingsScene() {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
-    val floating = design.navigationFloating
-    Box(Modifier.fillMaxSize().background(palette.screen)) {
-        Column(Modifier.fillMaxSize()) {
-            SceneTopBar {
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, null, tint = palette.textPrimary, modifier = Modifier.size(24.dp))
-                    }
-                    Text(
-                        stringResource(R.string.settings_title),
-                        color = palette.textPrimary,
-                        fontSize = 20.sp,
-                        fontWeight = design.mainScreen.titleWeight.takeIf { it != FontWeight.Bold } ?: FontWeight.SemiBold,
-                        maxLines = 1
-                    )
-                }
-            }
-            Column(
-                Modifier.weight(1f).fillMaxWidth().clipToBounds().padding(horizontal = design.spacing.screenPadding),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+    SceneScreen(
+        selected = MainTab.Settings,
+        fab = false,
+        header = {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Spacer(Modifier.height(4.dp))
-                SceneSectionLabel(R.string.style_preview_settings_general)
-                SceneGroup {
-                    SceneSettingRow(Icons.Rounded.Notifications, R.string.style_preview_settings_notifications, toggle = true)
-                    SceneGroupDivider()
-                    SceneSettingRow(Icons.AutoMirrored.Rounded.VolumeUp, R.string.style_preview_settings_sounds, toggle = false)
-                    SceneGroupDivider()
-                    SceneSettingRow(Icons.Rounded.Lock, R.string.style_preview_settings_privacy, toggle = null)
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, null, tint = palette.textPrimary, modifier = Modifier.size(24.dp))
                 }
-                SceneSectionLabel(R.string.style_preview_settings_data)
-                SceneGroup {
-                    SceneSettingRow(Icons.Rounded.Download, R.string.style_preview_settings_autodownload, toggle = null)
-                    SceneGroupDivider()
-                    SceneSettingRow(Icons.Rounded.Storage, R.string.style_preview_settings_storage, toggle = null)
-                }
+                Text(
+                    stringResource(R.string.settings_title),
+                    color = palette.textPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = design.mainScreen.titleWeight.takeIf { it != FontWeight.Bold } ?: FontWeight.SemiBold,
+                    maxLines = 1
+                )
             }
-            if (!floating) SceneBottomBar(MainTab.Settings) {}
         }
-        if (floating) {
-            Box(Modifier.align(Alignment.BottomCenter)) { SceneBottomBar(MainTab.Settings) {} }
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = design.spacing.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Spacer(Modifier.height(4.dp))
+            SceneSectionLabel(R.string.style_preview_settings_general)
+            SceneGroup {
+                SceneSettingRow(Icons.Rounded.Notifications, R.string.style_preview_settings_notifications, toggle = true)
+                SceneGroupDivider()
+                SceneSettingRow(Icons.AutoMirrored.Rounded.VolumeUp, R.string.style_preview_settings_sounds, toggle = false)
+                SceneGroupDivider()
+                SceneSettingRow(Icons.Rounded.Lock, R.string.style_preview_settings_privacy, toggle = null)
+            }
+            SceneSectionLabel(R.string.style_preview_settings_data)
+            SceneGroup {
+                SceneSettingRow(Icons.Rounded.Download, R.string.style_preview_settings_autodownload, toggle = null)
+                SceneGroupDivider()
+                SceneSettingRow(Icons.Rounded.Storage, R.string.style_preview_settings_storage, toggle = null)
+            }
+        }
+    }
+}
+
+/**
+ * One screen of the app on the phone: the header on top, the content under it, and the bottom bar in the placement of
+ * the style. The header, the bar and the create button float over the content, as they do in the app: the content
+ * starts below the header and, when the bar floats, runs under it. On a Liquid Glass style that blurs, only the
+ * content is recorded, and the header and the bar sample it; they are never recorded themselves, so no panel samples
+ * a layer it is drawn into.
+ */
+@Composable
+private fun SceneScreen(
+    selected: MainTab,
+    fab: Boolean,
+    header: @Composable () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val density = LocalDensity.current
+    val floating = design.navigationFloating
+    // The backdrop the screen provides to its panels; it records only where the device really blurs (Lite and Balanced
+    // draw their own tint, and other styles draw no glass at all).
+    val backdrop = LocalGlassBackdrop.current?.takeIf { design.recordsGlassBackdrop }
+    val recordContent = if (backdrop != null) Modifier.glassBackdropSource(backdrop) else Modifier
+    var headerHeight by remember { mutableStateOf(0.dp) }
+    var navHeight by remember { mutableStateOf(0.dp) }
+    CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
+        Box(Modifier.fillMaxSize().background(palette.screen)) {
+            // Below the header; above the bar unless the bar floats. The clip keeps rows from running into the bar.
+            Box(Modifier.fillMaxSize().padding(top = headerHeight, bottom = if (floating) 0.dp else navHeight)) {
+                Column(Modifier.fillMaxSize().clipToBounds().then(recordContent), content = content)
+            }
+            Box(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .onSizeChanged { headerHeight = with(density) { it.height.toDp() } }
+                    .testTag(SceneHeaderTag)
+            ) {
+                SceneTopBar(header)
+            }
+            if (fab) {
+                SceneFab(
+                    Modifier.align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = navHeight + (if (floating) 26.dp else 16.dp))
+                        .testTag(SceneFabTag)
+                )
+            }
+            Box(Modifier.align(Alignment.BottomCenter).testTag(SceneBarTag)) {
+                MainTabBar(
+                    tabs = MainTab.entries,
+                    selected = selected,
+                    onSelect = {},
+                    onPanelHeightChange = { navHeight = it }
+                )
+            }
         }
     }
 }
@@ -281,6 +307,8 @@ private fun SceneTopBar(content: @Composable () -> Unit) {
             design = design,
             tint = palette.surface,
             rim = palette.textSecondary,
+            // The recorded list has no background of its own, so the pane starts from the screen colour.
+            backdropBase = palette.screen,
             shape = RectangleShape,
             edge = GlassEdge.BottomHairline,
             modifier = Modifier.fillMaxWidth()
@@ -379,7 +407,8 @@ private fun SceneArchiveRow() {
             .heightIn(min = 56.dp)
             .then(if (main.archiveElevation > 0.dp) Modifier.shadow(main.archiveElevation, shape) else Modifier)
             .clip(shape).background(background)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .testTag(SceneArchiveTag),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(36.dp).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
@@ -401,11 +430,17 @@ private class SampleChat(
     val unread: Int
 )
 
+/**
+ * Enough rows to run under the floating bar, so its glass has something to sample on a phone-sized screen.
+ */
 private val SampleChats = listOf(
     SampleChat(R.string.style_preview_chat1_name, R.string.style_preview_chat1_message, R.string.style_preview_chat1_time, 2),
     SampleChat(R.string.style_preview_chat2_name, R.string.style_preview_chat2_message, R.string.style_preview_chat2_time, 0),
     SampleChat(R.string.style_preview_chat3_name, R.string.style_preview_chat3_message, R.string.style_preview_chat3_time, 0),
-    SampleChat(R.string.style_preview_chat4_name, R.string.style_preview_chat4_message, R.string.style_preview_chat4_time, 0)
+    SampleChat(R.string.style_preview_chat4_name, R.string.style_preview_chat4_message, R.string.style_preview_chat4_time, 0),
+    SampleChat(R.string.style_preview_chat5_name, R.string.style_preview_chat5_message, R.string.style_preview_chat5_time, 1),
+    SampleChat(R.string.style_preview_chat6_name, R.string.style_preview_chat6_message, R.string.style_preview_chat6_time, 0),
+    SampleChat(R.string.style_preview_chat7_name, R.string.style_preview_chat7_message, R.string.style_preview_chat7_time, 0)
 )
 
 /** One chat row: avatar size, title weight, badge corner and dividers all come from the style. */
@@ -495,17 +530,6 @@ private fun SceneFab(modifier: Modifier) {
     }
 }
 
-/** The real bottom bar of the app, in the placement the draft chooses. */
-@Composable
-private fun SceneBottomBar(selected: MainTab, onHeight: (Dp) -> Unit) {
-    MainTabBar(
-        tabs = MainTab.entries,
-        selected = selected,
-        onSelect = {},
-        onPanelHeightChange = onHeight
-    )
-}
-
 @Composable
 private fun SceneSectionLabel(@StringRes text: Int) {
     val palette = beyGramPalette()
@@ -564,3 +588,10 @@ private fun SceneSettingRow(icon: ImageVector, @StringRes title: Int, toggle: Bo
         }
     }
 }
+
+// Test tags of the parts whose placement the layout test checks: the header, the first row of the list, the create
+// button and the bottom bar.
+internal const val SceneHeaderTag = "style-preview-header"
+internal const val SceneArchiveTag = "style-preview-archive"
+internal const val SceneFabTag = "style-preview-fab"
+internal const val SceneBarTag = "style-preview-bar"
