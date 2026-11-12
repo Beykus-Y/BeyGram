@@ -1046,6 +1046,8 @@ object PlaybackEngine {
     private fun publishResolvedSource(resolved: PlaybackItem) {
         _state.update { it.withResolvedSource(resolved) }
         PlaybackSources.update(resolved.systemMediaId, resolved)
+        // The current provider row has its file now, so the rows after it may start downloading (see prefetchNext).
+        if (_state.value.item?.key == resolved.key && LazyTrackRegistry.isLazyKey(resolved.key)) prefetchNext()
     }
 
     /**
@@ -3374,9 +3376,21 @@ object PlaybackEngine {
         } else {
             state.queue.indices.toList()
         }
+        // While the current provider row is still being fetched, rows ahead of it wait: their downloads shared the
+        // bandwidth and the request queue with it and pushed the first sound back by seconds. The resolve of the
+        // current row calls this again (publishResolvedSource).
+        val currentPending = state.item?.let(::lazyRowPending) == true
         prefetchCandidates(state, playbackOrder).forEachIndexed { index, item ->
+            if (currentPending && LazyTrackRegistry.isLazyKey(item.key)) return@forEachIndexed
             prefetchItem(context, source, item, playbackNext = index == 0)
         }
+    }
+
+    /** A provider row (bot result or service track) whose file has not been fetched yet. */
+    private fun lazyRowPending(item: PlaybackItem): Boolean {
+        if (item.path.isNotBlank()) return false
+        val lazy = LazyTrackRegistry.sourceFor(item.key) ?: return false
+        return lazy.resolvedPath(item.key) == null && !lazy.failed(item.key)
     }
 
     /**

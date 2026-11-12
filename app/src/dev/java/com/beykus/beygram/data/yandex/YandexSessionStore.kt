@@ -28,8 +28,23 @@ internal data class YandexSession(
 internal class YandexSessionStore(context: Context) {
     private val file = File(context.noBackupFilesDir, FILE_NAME)
 
+    /**
+     * The decrypted session, kept after the first read. Every request asks for the session, and a Keystore decrypt
+     * on each one added tens of milliseconds before the first byte of a track. Only this store writes the file.
+     */
+    private var cached: YandexSession? = null
+    private var cacheValid = false
+
     @Synchronized
     fun load(): YandexSession? {
+        if (cacheValid) return cached
+        val loaded = readFile()
+        cached = loaded
+        cacheValid = true
+        return loaded
+    }
+
+    private fun readFile(): YandexSession? {
         if (!file.exists()) return null
         return try {
             val bytes = file.readBytes()
@@ -71,11 +86,15 @@ internal class YandexSessionStore(context: Context) {
             tmp.copyTo(file, overwrite = true)
             tmp.delete()
         }
+        cached = session
+        cacheValid = true
     }
 
     @Synchronized
     fun clear() {
         file.delete()
+        cached = null
+        cacheValid = true
     }
 
     /**

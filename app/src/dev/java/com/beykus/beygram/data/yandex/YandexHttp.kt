@@ -23,20 +23,27 @@ internal class YandexHttp(
     private var nextAllowedAt = 0L
     private var blockedUntil = 0L
 
-    /** Throws [IOException] when the network is unreachable. */
-    fun get(url: String, token: String? = null): YandexResponse =
-        send("GET", url, token, emptyMap())
+    /**
+     * Throws [IOException] when the network is unreachable. [paced] false skips the gap between requests: it is for
+     * helper files on the storage hosts (the download XML of a track), which are not API calls. A 429 pause still applies.
+     */
+    fun get(url: String, token: String? = null, paced: Boolean = true): YandexResponse =
+        send("GET", url, token, emptyMap(), paced)
 
     fun post(url: String, form: Map<String, String>, token: String? = null): YandexResponse =
-        send("POST", url, token, form)
+        send("POST", url, token, form, paced = true)
 
-    private fun send(method: String, url: String, token: String?, form: Map<String, String>): YandexResponse {
+    private fun send(method: String, url: String, token: String?, form: Map<String, String>, paced: Boolean): YandexResponse {
         synchronized(lock) {
-            val wait = maxOf(nextAllowedAt, blockedUntil) - now()
+            val wait = (if (paced) maxOf(nextAllowedAt, blockedUntil) else blockedUntil) - now()
             if (wait > 0) pause(wait)
-            nextAllowedAt = now() + YandexConfig.MIN_REQUEST_GAP_MS
+            if (paced) nextAllowedAt = now() + YandexConfig.MIN_REQUEST_GAP_MS
         }
         val connection = MihomoProxyClient.openConnection(URL(url), proxy = null)
+        // A response read to the end and closed leaves the connection in the pool, so the next request to the same host
+        // skips the TCP and TLS handshake (a few hundred milliseconds on a phone). Only a request that failed half-way
+        // is disconnected.
+        var reusable = false
         try {
             connection.requestMethod = method
             connection.connectTimeout = YandexConfig.CONNECT_TIMEOUT_MS
@@ -57,6 +64,7 @@ internal class YandexHttp(
             val code = connection.responseCode
             val stream = if (code in 200..399) connection.inputStream else connection.errorStream
             val body = stream?.let { BufferedReader(InputStreamReader(it, Charsets.UTF_8)).use { r -> r.readText() } }.orEmpty()
+            reusable = true
             val retryAfter = if (code == HTTP_TOO_MANY_REQUESTS) {
                 val seconds = connection.getHeaderField("Retry-After")?.trim()?.toLongOrNull()
                 val ms = seconds?.times(1_000L) ?: YandexConfig.DEFAULT_RETRY_AFTER_MS
@@ -67,7 +75,7 @@ internal class YandexHttp(
             }
             return YandexResponse(code, body, retryAfter)
         } finally {
-            connection.disconnect()
+            if (!reusable) connection.disconnect()
         }
     }
 
