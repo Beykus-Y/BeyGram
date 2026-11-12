@@ -17,6 +17,9 @@ class MascotClock {
 
         /** Share of the residual error corrected on every player tick. */
         private const val CORRECTION = 0.2
+
+        /** A single tick may trim at most this much time; avoids a visible backwards jerk. */
+        private const val MAX_CORRECTION_MS = 12L
     }
 
     private var anchorPositionMs = 0L
@@ -52,9 +55,12 @@ class MascotClock {
             anchorNanos = nowNanos
         } else {
             // Keep the frame-to-frame motion smooth; pull the anchor towards the
-            // player by a small fraction instead of jumping on every tick.
+            // player by a small, bounded step instead of jumping on every tick.
+            // A real seek is caught by the threshold above.
             val error = target - estimate
-            anchorPositionMs = (estimate + (error * CORRECTION).toLong()).coerceAtLeast(0L)
+            val correction = (error * CORRECTION).toLong()
+                .coerceIn(-MAX_CORRECTION_MS, MAX_CORRECTION_MS)
+            anchorPositionMs = (estimate + correction).coerceAtLeast(0L)
             anchorNanos = nowNanos
         }
         initialized = true
