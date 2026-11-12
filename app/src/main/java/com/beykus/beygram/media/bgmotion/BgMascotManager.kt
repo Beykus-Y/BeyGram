@@ -92,6 +92,7 @@ class BgMascotManager private constructor(private val context: Context) {
     private var sessionLease: BgAnalysisLease? = null
     private var prepareJob: Job? = null
     private var prepareToken: Long = 0L
+    private var prepareGeneration: Long = 0L
     private var preparingIdentity: BgBeatAnalysisIdentity? = null
     private var failedIdentity: BgBeatAnalysisIdentity? = null
     private var pendingLeaseRef: AtomicReference<BgAnalysisLease?>? = null
@@ -176,6 +177,7 @@ class BgMascotManager private constructor(private val context: Context) {
         )
 
         if (!enabled) {
+            cancelPrepare()
             destroySession()
             failedIdentity = null
             if (_uiState.value !is BgMascotUiState.Disabled) {
@@ -184,6 +186,7 @@ class BgMascotManager private constructor(private val context: Context) {
             return
         }
         if (!nativeAvailable) {
+            cancelPrepare()
             destroySession()
             if (_uiState.value !is BgMascotUiState.Unavailable) {
                 _uiState.value = BgMascotUiState.Unavailable
@@ -191,10 +194,14 @@ class BgMascotManager private constructor(private val context: Context) {
             return
         }
         if (!isVisible) {
-            // Keep the prepared session for a quick reopen, but do not keep an
-            // analysis of a track the player has already left.
+            // Closing/hiding the player must stop a pending analysis. Keep a
+            // finished session for a quick reopen, but never keep an analysis
+            // running for an invisible stage.
+            cancelPrepare()
             if (sessionHandle != 0L && state.item?.key != sessionIdentity?.itemKey) {
                 destroySession()
+            }
+            if (_uiState.value is BgMascotUiState.Preparing) {
                 _uiState.value = BgMascotUiState.Idle
             }
             return
@@ -202,6 +209,7 @@ class BgMascotManager private constructor(private val context: Context) {
 
         val item = state.item
         if (item == null) {
+            cancelPrepare()
             destroySession()
             if (_uiState.value !is BgMascotUiState.Idle) {
                 _uiState.value = BgMascotUiState.Idle
@@ -211,6 +219,7 @@ class BgMascotManager private constructor(private val context: Context) {
 
         val ineligible = BgMediaEligibility.reasonFor(item)
         if (ineligible != null) {
+            cancelPrepare()
             destroySession()
             val current = _uiState.value
             if (current !is BgMascotUiState.Ineligible || current.reason != ineligible) {
@@ -220,6 +229,7 @@ class BgMascotManager private constructor(private val context: Context) {
         }
 
         val identity = identityFor(item) ?: run {
+            cancelPrepare()
             destroySession()
             if (_uiState.value !is BgMascotUiState.Idle) {
                 _uiState.value = BgMascotUiState.Idle
@@ -269,9 +279,9 @@ class BgMascotManager private constructor(private val context: Context) {
         // Keep the UI honest while the new track is being analysed: a stale dance
         // to the previous track is worse than a short idle state.
         destroySession()
+        val generation = ++prepareGeneration
         preparingIdentity = identity
         failedIdentity = null
-        val requestSeq = identity
         _uiState.value = BgMascotUiState.Preparing(item.key)
 
         val token = BgBeatNative.nativeCreateCancelToken()
@@ -292,37 +302,43 @@ class BgMascotManager private constructor(private val context: Context) {
                     out = leaseRef
                 )
                 if (lease == null) {
-                    if (preparingIdentity == requestSeq) {
-                        failedIdentity = requestSeq
+                    if (requestIsCurrent(generation, identity)) {
+                        failedIdentity = identity
                         _uiState.value = BgMascotUiState.Error("Нет данных анализа для маскота")
                     }
                     return@launch
                 }
-                if (preparingIdentity != requestSeq) {
+                if (!requestIsCurrent(generation, identity)) {
                     return@launch
                 }
 
-                // A shared snapshot may legitimately be cancelled or failed
-                // because BG Beat was cancelled during a track switch. Do not
-                // latch CANCELLED as a permanent mascot failure.
+                // Full beat/waveform JSON can be large; parse it away from the UI
+                // thread even though the mascot only needs the status.
                 val analysis = try {
-                    BgBeatAnalysis.fromJson(lease.json)
+                    withContext(Dispatchers.Default) {
+                        BgBeatAnalysis.fromJson(lease.json)
+                    }
                 } catch (t: Throwable) {
-                    failedIdentity = requestSeq
-                    _uiState.value = BgMascotUiState.Error("Некорректный ответ анализа: ${t.localizedMessage}")
+                    if (requestIsCurrent(generation, identity)) {
+                        failedIdentity = identity
+                        _uiState.value = BgMascotUiState.Error("Некорректный ответ анализа: ${t.localizedMessage}")
+                    }
+                    return@launch
+                }
+                if (!requestIsCurrent(generation, identity)) {
                     return@launch
                 }
                 if (analysis.status == BgBeatStatus.CANCELLED) {
                     // Do not latch a cancellation as a permanent failure. If the
                     // player is running, the next 250 ms tick retries; while paused
                     // the cover simply stays visible instead of a stuck Preparing.
-                    if (preparingIdentity == requestSeq) {
+                    if (prepareGeneration == generation) {
                         _uiState.value = BgMascotUiState.Idle
                     }
                     return@launch
                 }
                 if (analysis.status != BgBeatStatus.OK) {
-                    failedIdentity = requestSeq
+                    failedIdentity = identity
                     _uiState.value = BgMascotUiState.Error(
                         analysis.message.ifBlank { "Анализ трека не удался" }
                     )
@@ -336,12 +352,12 @@ class BgMascotManager private constructor(private val context: Context) {
                         intensity = settings.intensity.value
                     ).also { handleRef.set(it) }
                 }
-                if (preparingIdentity != requestSeq || !settings.enabled.value) {
+                if (!requestIsCurrent(generation, identity)) {
                     if (handle != 0L) BgMascotNative.nativeDestroySession(handle)
                     return@launch
                 }
                 if (handle == 0L) {
-                    failedIdentity = requestSeq
+                    failedIdentity = identity
                     _uiState.value = BgMascotUiState.Error("Не удалось создать сессию BG Motion")
                     return@launch
                 }
@@ -356,8 +372,14 @@ class BgMascotManager private constructor(private val context: Context) {
                 if (pendingLeaseRef === leaseRef) pendingLeaseRef = null
                 BgMascotNative.nativeSetPlaybackOffset(handle, settings.audioOffsetMs.value / 1000.0)
                 BgMascotNative.nativeSetIntensity(handle, settings.intensity.value)
+                // Do not let a hidden/backgrounded stage publish a session that
+                // became stale while the quota walk was running.
                 withContext(Dispatchers.IO) {
                     BgBeatSettingsStore.enforceCacheQuota(context)
+                }
+                if (!requestIsCurrent(generation, identity)) {
+                    destroySession()
+                    return@launch
                 }
                 _uiState.value = BgMascotUiState.Ready(
                     itemKey = item.key,
@@ -367,9 +389,9 @@ class BgMascotManager private constructor(private val context: Context) {
             } catch (ce: CancellationException) {
                 throw ce
             } catch (t: Throwable) {
-                if (preparingIdentity == requestSeq) {
+                if (requestIsCurrent(generation, identity)) {
                     Log.e(TAG, "Mascot preparation failed", t)
-                    failedIdentity = requestSeq
+                    failedIdentity = identity
                     _uiState.value = BgMascotUiState.Error("Ошибка подготовки маскота: ${t.localizedMessage}")
                 }
             } finally {
@@ -386,14 +408,32 @@ class BgMascotManager private constructor(private val context: Context) {
                 if (pendingHandle != 0L && pendingHandle != sessionHandle) {
                     BgMascotNative.nativeDestroySession(pendingHandle)
                 }
-                if (preparingIdentity == requestSeq) preparingIdentity = null
+                if (prepareGeneration == generation) preparingIdentity = null
                 BgBeatNative.nativeDestroyCancelToken(token)
                 if (prepareToken == token) prepareToken = 0L
             }
         }
     }
 
+    /**
+     * A pending preparation may publish a session only while its generation is
+     * current, the stage is visible, the experiment is on and the player still
+     * shows the same item/account. This closes the A -> B -> A race and the
+     * "analysis finished after the player was closed" path.
+     */
+    private fun requestIsCurrent(generation: Long, identity: BgBeatAnalysisIdentity): Boolean {
+        if (prepareGeneration != generation || preparingIdentity != identity) return false
+        if (!visible.value || !settings.enabled.value) return false
+        val current = PlaybackEngine.state.value.item ?: return false
+        if (current.key != identity.itemKey) return false
+        val account = current.accountId.ifBlank { PlaybackEngine.currentAccountId ?: "legacy" }
+        return account == identity.accountId
+    }
+
     private fun cancelPrepare() {
+        // Invalidate every in-flight request before touching its job: an old
+        // non-cancellable native acquire may still resume and must not publish.
+        prepareGeneration++
         if (prepareToken != 0L) {
             BgBeatNative.nativeCancel(prepareToken)
         }

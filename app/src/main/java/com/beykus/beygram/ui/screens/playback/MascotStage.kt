@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
@@ -90,13 +91,23 @@ internal fun MascotOverlay(
     var fps by remember { mutableIntStateOf(0) }
     var frameMs by remember { mutableStateOf(0.0f) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    var resumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, _ ->
+            resumed = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
-    DisposableEffect(item.key, enabled) {
-        manager.setVisible(true)
+    DisposableEffect(item.key, enabled, resumed) {
+        manager.setVisible(resumed)
         onDispose { manager.setVisible(false) }
     }
 
-    val ready = uiState as? BgMascotUiState.Ready
+    val ready = (uiState as? BgMascotUiState.Ready)?.takeIf { it.itemKey == item.key }
     LaunchedEffect(item.key, ready?.handle, playing, canAnimate, staticPositionKey, lifecycleOwner) {
         if (ready == null) {
             // The rig is hidden until a session is ready; clear the old pose so
