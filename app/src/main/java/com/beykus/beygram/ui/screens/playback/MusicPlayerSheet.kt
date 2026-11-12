@@ -685,6 +685,17 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, reduced: Boolean) {
             cornerRadius = 20.dp,
             border = palette.divider.copy(alpha = 0.55f)
         )
+        MascotOverlay(
+            item = player.item,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(styledShape(20.dp))
+        )
+        MascotToggleChip(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(10.dp)
+        )
     }
 }
 

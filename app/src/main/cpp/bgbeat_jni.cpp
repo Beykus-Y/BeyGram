@@ -4,9 +4,11 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <iomanip>
 #include <memory>
 #include <mutex>
@@ -15,6 +17,8 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+
+#include "bg_analysis_registry.h"
 
 #define LOG_TAG "BgBeatJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -359,6 +363,183 @@ DecodeChunkResult decodeAudioWithCancellation(
     return {.ok = true, .cancelled = false, .error = "", .audio = std::move(audioData)};
 }
 
+beygram::bg::AnalysisSnapshot analyzeFileToSnapshot(
+    JNIEnv* env,
+    const std::string& filePathValue,
+    const std::string& cacheDirValue,
+    double minBpm,
+    double maxBpm,
+    const std::shared_ptr<std::atomic<bool>>& cancelToken,
+    jobject progressCallback,
+    bool forceRefresh
+) {
+    using beygram::bg::AnalysisSnapshot;
+
+    auto errorSnapshot = [](const std::string& message, const char* status = "error") {
+        AnalysisSnapshot snapshot;
+        snapshot.ok = false;
+        snapshot.json = makeErrorJson(message, status);
+        return snapshot;
+    };
+
+    auto isCancelled = [cancelToken]() -> bool {
+        return cancelToken != nullptr && cancelToken->load(std::memory_order_relaxed);
+    };
+
+    if (isCancelled()) {
+        return errorSnapshot("Analysis cancelled", "cancelled");
+    }
+
+    jclass callbackClass = nullptr;
+    jmethodID onProgressMid = nullptr;
+    if (progressCallback != nullptr) {
+        callbackClass = env->GetObjectClass(progressCallback);
+        if (callbackClass != nullptr) {
+            onProgressMid = env->GetMethodID(callbackClass, "onProgress", "(FLjava/lang/String;)V");
+        }
+    }
+
+    float lastReportedFraction = -1.0f;
+    std::string lastReportedStage;
+    auto reportProgress = [&](float fraction, const std::string& stage) {
+        if (isCancelled()) return;
+        if (std::abs(fraction - lastReportedFraction) >= 0.02f || stage != lastReportedStage) {
+            lastReportedFraction = fraction;
+            lastReportedStage = stage;
+            if (progressCallback != nullptr && onProgressMid != nullptr) {
+                jstring jstage = env->NewStringUTF(stage.c_str());
+                env->CallVoidMethod(progressCallback, onProgressMid, static_cast<jfloat>(fraction), jstage);
+                env->DeleteLocalRef(jstage);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                }
+            }
+        }
+    };
+
+    try {
+        std::filesystem::path filePath(filePathValue);
+        std::error_code ec;
+        if (!std::filesystem::exists(filePath, ec)) {
+            return errorSnapshot("File does not exist: " + filePath.string());
+        }
+
+        reportProgress(0.0f, "Decoding audio");
+
+        // Cooperative decoding: checks cancellation every chunk and verifies EOF.
+        DecodeChunkResult decodeRes = decodeAudioWithCancellation(filePath, isCancelled, reportProgress);
+
+        if (decodeRes.cancelled || isCancelled()) {
+            return errorSnapshot("Analysis cancelled", "cancelled");
+        }
+
+        if (!decodeRes.ok) {
+            return errorSnapshot("Audio decoder failed: " + decodeRes.error);
+        }
+
+        reportProgress(0.15f, "Preparing PCM");
+
+        std::string pcmError;
+        bgmedia::PcmBuffer pcm = bgmedia::PcmBuffer::fromAudio(decodeRes.audio, &pcmError);
+        if (!pcm.valid()) {
+            return errorSnapshot("Invalid PCM audio: " + pcmError);
+        }
+
+        bgmedia::AnalysisConfig config;
+        config.minBpm = (minBpm >= 20.0 && minBpm <= 300.0) ? minBpm : 55.0;
+        config.maxBpm = (maxBpm > config.minBpm && maxBpm <= 400.0) ? maxBpm : 200.0;
+
+        bool cacheHit = false;
+        bgmedia::AnalysisResult result;
+
+        std::filesystem::path cachePath(cacheDirValue);
+        if (!forceRefresh && !cacheDirValue.empty()) {
+            std::filesystem::create_directories(cachePath, ec);
+            bgmedia::AnalysisCache cache(cachePath);
+            auto cacheLoad = cache.load(pcm, config);
+            if (cacheLoad.hit()) {
+                result = std::move(cacheLoad.result);
+                cacheHit = true;
+                LOGI("BG Beat cache hit for content hash %llx", static_cast<unsigned long long>(pcm.contentHash));
+            }
+        }
+
+        if (!cacheHit) {
+            if (isCancelled()) {
+                return errorSnapshot("Analysis cancelled", "cancelled");
+            }
+
+            bgmedia::Analyzer analyzer(config);
+            auto report = analyzer.analyze(
+                pcm,
+                [&](float fraction, const std::string& stage) {
+                    reportProgress(0.15f + 0.85f * fraction, stage);
+                },
+                isCancelled
+            );
+
+            if (report.status == bgmedia::AnalysisStatus::Cancelled || isCancelled()) {
+                return errorSnapshot("Analysis cancelled", "cancelled");
+            }
+
+            if (report.status != bgmedia::AnalysisStatus::Ok) {
+                return errorSnapshot("Analysis pipeline failed: " + report.message);
+            }
+
+            result = std::move(report.result);
+
+            if (!cacheDirValue.empty()) {
+                std::filesystem::create_directories(cachePath, ec);
+                bgmedia::AnalysisCache cache(cachePath);
+                std::string storeErr;
+                if (!cache.store(result, pcm, config, &storeErr)) {
+                    LOGW("Failed to store analysis in cache: %s", storeErr.c_str());
+                }
+            }
+        }
+
+        reportProgress(1.0f, "Completed");
+
+        auto sharedResult = std::make_shared<bgmedia::AnalysisResult>(std::move(result));
+        AnalysisSnapshot snapshot;
+        snapshot.ok = true;
+        snapshot.cacheHit = cacheHit;
+        snapshot.json = serializeResultToJson(*sharedResult, cacheHit);
+        snapshot.result = sharedResult;
+        return snapshot;
+    } catch (const std::exception& e) {
+        LOGE("Native exception in analyzeFileToSnapshot: %s", e.what());
+        return errorSnapshot(std::string("Native exception: ") + e.what());
+    } catch (...) {
+        LOGE("Unknown native exception in analyzeFileToSnapshot");
+        return errorSnapshot("Unknown native exception in BG Beat");
+    }
+}
+
+std::string analysisKey(
+    const std::string& filePath,
+    const std::string& cacheDir,
+    double minBpm,
+    double maxBpm,
+    bool forceRefresh
+) {
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(filePath, ec);
+    const auto length = ec ? std::uintmax_t{0} : size;
+    ec.clear();
+    const auto modified = std::filesystem::last_write_time(filePath, ec);
+    const auto modifiedCount = ec ? std::int64_t{0}
+                                  : static_cast<std::int64_t>(modified.time_since_epoch().count());
+
+    std::ostringstream key;
+    key << filePath << '|' << length << '|' << modifiedCount << '|' << cacheDir << '|'
+        << std::setprecision(17) << minBpm << '|' << maxBpm;
+    if (forceRefresh) {
+        key << "|force|" << std::chrono::steady_clock::now().time_since_epoch().count();
+    }
+    return key.str();
+}
+
 } // namespace
 
 #endif // HAVE_BGMEDIA
@@ -403,10 +584,115 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeDestroyCancelToken(
     CancelRegistry::instance().destroy(static_cast<int64_t>(tokenHandle));
 }
 
+JNIEXPORT jlong JNICALL
+Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAcquireAnalysis(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jstring jfilePath,
+    jstring jcacheDir,
+    jdouble minBpm,
+    jdouble maxBpm,
+    jlong cancelTokenHandle,
+    jobject jprogressCallback,
+    jboolean forceRefresh) {
+
+#if !defined(HAVE_BGMEDIA) || !HAVE_BGMEDIA
+    (void)env; (void)jfilePath; (void)jcacheDir; (void)minBpm; (void)maxBpm;
+    (void)cancelTokenHandle; (void)jprogressCallback; (void)forceRefresh;
+    return 0;
+#else
+    JniStringGuard filePathGuard(env, jfilePath);
+    JniStringGuard cacheDirGuard(env, jcacheDir);
+    if (filePathGuard.empty()) {
+        return 0;
+    }
+
+    std::shared_ptr<std::atomic<bool>> cancelToken =
+        CancelRegistry::instance().get(static_cast<int64_t>(cancelTokenHandle));
+
+    try {
+        const std::string key = analysisKey(
+            filePathGuard.c_str(),
+            cacheDirGuard.c_str(),
+            minBpm,
+            maxBpm,
+            forceRefresh == JNI_TRUE
+        );
+        return static_cast<jlong>(beygram::bg::AnalysisRegistry::instance().acquire(
+            key,
+            [&]() {
+                return analyzeFileToSnapshot(
+                    env,
+                    filePathGuard.c_str(),
+                    cacheDirGuard.c_str(),
+                    minBpm,
+                    maxBpm,
+                    cancelToken,
+                    jprogressCallback,
+                    forceRefresh == JNI_TRUE
+                );
+            }
+        ));
+    } catch (const std::exception& e) {
+        LOGE("Native exception in nativeAcquireAnalysis: %s", e.what());
+        return 0;
+    } catch (...) {
+        LOGE("Unknown native exception in nativeAcquireAnalysis");
+        return 0;
+    }
+#endif
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAnalysisJson(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jlong handle) {
+
+#if !defined(HAVE_BGMEDIA) || !HAVE_BGMEDIA
+    (void)handle;
+    std::string err = makeErrorJson("BG Media C++ core is omitted in this build (requires submodule/token)", "unsupported");
+    return env->NewStringUTF(err.c_str());
+#else
+    const auto snapshot = beygram::bg::AnalysisRegistry::instance().snapshot(static_cast<std::int64_t>(handle));
+    const std::string json = snapshot.json.empty()
+        ? makeErrorJson("Analysis result is unavailable")
+        : snapshot.json;
+    return env->NewStringUTF(json.c_str());
+#endif
+}
+
+JNIEXPORT void JNICALL
+Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeReleaseAnalysis(
+    JNIEnv* /* env */,
+    jclass /* clazz */,
+    jlong handle) {
+
+#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
+    beygram::bg::AnalysisRegistry::instance().release(static_cast<std::int64_t>(handle));
+#else
+    (void)handle;
+#endif
+}
+
+JNIEXPORT jint JNICALL
+Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeLiveAnalysisHandles(
+    JNIEnv* /* env */,
+    jclass /* clazz */) {
+
+#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
+    return static_cast<jint>(beygram::bg::AnalysisRegistry::instance().liveHandles());
+#else
+    return 0;
+#endif
+}
+
+// Kept as a compatibility wrapper for callers that only need the JSON. New code
+// should acquire a handle so BG Beat and BG Motion can share one analysis.
 JNIEXPORT jstring JNICALL
 Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAnalyzeFile(
     JNIEnv* env,
-    jclass /* clazz */,
+    jclass clazz,
     jstring jfilePath,
     jstring jcacheDir,
     jdouble minBpm,
@@ -420,155 +706,19 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAnalyzeFile(
     std::string err = makeErrorJson("BG Media C++ core is omitted in this build (requires submodule/token)", "unsupported");
     return env->NewStringUTF(err.c_str());
 #else
-
-    JniStringGuard filePathGuard(env, jfilePath);
-    JniStringGuard cacheDirGuard(env, jcacheDir);
-
-    if (filePathGuard.empty()) {
-        std::string err = makeErrorJson("File path is empty or null");
+    const jlong handle = Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAcquireAnalysis(
+        env, clazz, jfilePath, jcacheDir, minBpm, maxBpm, cancelTokenHandle, jprogressCallback, JNI_FALSE
+    );
+    if (handle == 0) {
+        std::string err = makeErrorJson("Could not acquire analysis");
         return env->NewStringUTF(err.c_str());
     }
-
-    std::shared_ptr<std::atomic<bool>> cancelToken =
-        CancelRegistry::instance().get(static_cast<int64_t>(cancelTokenHandle));
-
-    auto isCancelled = [cancelToken]() -> bool {
-        return cancelToken != nullptr && cancelToken->load(std::memory_order_relaxed);
-    };
-
-    if (isCancelled()) {
-        std::string cancelled = makeErrorJson("Analysis cancelled", "cancelled");
-        return env->NewStringUTF(cancelled.c_str());
-    }
-
-    jclass callbackClass = nullptr;
-    jmethodID onProgressMid = nullptr;
-    if (jprogressCallback != nullptr) {
-        callbackClass = env->GetObjectClass(jprogressCallback);
-        if (callbackClass != nullptr) {
-            onProgressMid = env->GetMethodID(callbackClass, "onProgress", "(FLjava/lang/String;)V");
-        }
-    }
-
-    float lastReportedFraction = -1.0f;
-    std::string lastReportedStage;
-    auto reportProgress = [&](float frac, const std::string& stage) {
-        if (isCancelled()) return;
-        if (std::abs(frac - lastReportedFraction) >= 0.02f || stage != lastReportedStage) {
-            lastReportedFraction = frac;
-            lastReportedStage = stage;
-            if (jprogressCallback != nullptr && onProgressMid != nullptr) {
-                jstring jstage = env->NewStringUTF(stage.c_str());
-                env->CallVoidMethod(jprogressCallback, onProgressMid, static_cast<jfloat>(frac), jstage);
-                env->DeleteLocalRef(jstage);
-                if (env->ExceptionCheck()) {
-                    env->ExceptionClear();
-                }
-            }
-        }
-    };
-
-    try {
-        std::filesystem::path filePath(filePathGuard.c_str());
-        std::error_code ec;
-        if (!std::filesystem::exists(filePath, ec)) {
-            std::string err = makeErrorJson("File does not exist: " + filePath.string());
-            return env->NewStringUTF(err.c_str());
-        }
-
-        reportProgress(0.0f, "Decoding audio");
-
-        // Cooperative decoding: checks cancellation every chunk and verifies EOF
-        DecodeChunkResult decodeRes = decodeAudioWithCancellation(filePath, isCancelled, reportProgress);
-
-        if (decodeRes.cancelled || isCancelled()) {
-            std::string cancelled = makeErrorJson("Analysis cancelled", "cancelled");
-            return env->NewStringUTF(cancelled.c_str());
-        }
-
-        if (!decodeRes.ok) {
-            std::string err = makeErrorJson("Audio decoder failed: " + decodeRes.error);
-            return env->NewStringUTF(err.c_str());
-        }
-
-        reportProgress(0.15f, "Preparing PCM");
-
-        std::string pcmError;
-        bgmedia::PcmBuffer pcm = bgmedia::PcmBuffer::fromAudio(decodeRes.audio, &pcmError);
-        if (!pcm.valid()) {
-            std::string err = makeErrorJson("Invalid PCM audio: " + pcmError);
-            return env->NewStringUTF(err.c_str());
-        }
-
-        bgmedia::AnalysisConfig config;
-        config.minBpm = (minBpm >= 20.0 && minBpm <= 300.0) ? minBpm : 55.0;
-        config.maxBpm = (maxBpm > config.minBpm && maxBpm <= 400.0) ? maxBpm : 200.0;
-
-        bool cacheHit = false;
-        bgmedia::AnalysisResult result;
-
-        std::filesystem::path cachePath(cacheDirGuard.c_str());
-        if (!cacheDirGuard.empty()) {
-            std::filesystem::create_directories(cachePath, ec);
-            bgmedia::AnalysisCache cache(cachePath);
-            auto cacheLoad = cache.load(pcm, config);
-            if (cacheLoad.hit()) {
-                result = std::move(cacheLoad.result);
-                cacheHit = true;
-                LOGI("BG Beat cache hit for content hash %llx", static_cast<unsigned long long>(pcm.contentHash));
-            }
-        }
-
-        if (!cacheHit) {
-            if (isCancelled()) {
-                std::string cancelled = makeErrorJson("Analysis cancelled", "cancelled");
-                return env->NewStringUTF(cancelled.c_str());
-            }
-
-            bgmedia::Analyzer analyzer(config);
-            auto report = analyzer.analyze(
-                pcm,
-                [&](float frac, const std::string& stage) {
-                    reportProgress(0.15f + 0.85f * frac, stage);
-                },
-                isCancelled
-            );
-
-            if (report.status == bgmedia::AnalysisStatus::Cancelled || isCancelled()) {
-                std::string cancelled = makeErrorJson("Analysis cancelled", "cancelled");
-                return env->NewStringUTF(cancelled.c_str());
-            }
-
-            if (report.status != bgmedia::AnalysisStatus::Ok) {
-                std::string err = makeErrorJson("Analysis pipeline failed: " + report.message);
-                return env->NewStringUTF(err.c_str());
-            }
-
-            result = std::move(report.result);
-
-            if (!cacheDirGuard.empty()) {
-                bgmedia::AnalysisCache cache(cachePath);
-                std::string storeErr;
-                if (!cache.store(result, pcm, config, &storeErr)) {
-                    LOGW("Failed to store analysis in cache: %s", storeErr.c_str());
-                }
-            }
-        }
-
-        reportProgress(1.0f, "Completed");
-
-        std::string jsonStr = serializeResultToJson(result, cacheHit);
-        return env->NewStringUTF(jsonStr.c_str());
-
-    } catch (const std::exception& e) {
-        LOGE("Native exception in nativeAnalyzeFile: %s", e.what());
-        std::string err = makeErrorJson(std::string("Native exception: ") + e.what());
-        return env->NewStringUTF(err.c_str());
-    } catch (...) {
-        LOGE("Unknown native exception in nativeAnalyzeFile");
-        std::string err = makeErrorJson("Unknown native exception in BG Beat");
-        return env->NewStringUTF(err.c_str());
-    }
+    const auto snapshot = beygram::bg::AnalysisRegistry::instance().snapshot(static_cast<std::int64_t>(handle));
+    beygram::bg::AnalysisRegistry::instance().release(static_cast<std::int64_t>(handle));
+    const std::string json = snapshot.json.empty()
+        ? makeErrorJson("Analysis result is unavailable")
+        : snapshot.json;
+    return env->NewStringUTF(json.c_str());
 #endif
 }
 
