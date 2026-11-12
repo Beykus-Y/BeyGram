@@ -122,4 +122,5 @@
     <string name="service_paid_message_free">Los mensajes ya son gratis</string>
     <string name="chat_preview_animation">🎞 GIF</string>
     <string name="chat_preview_expired_media">⌛ Medio no disponible</string>
+    <string name="deleted_account_name">Cuenta eliminada</string>
 </resources>

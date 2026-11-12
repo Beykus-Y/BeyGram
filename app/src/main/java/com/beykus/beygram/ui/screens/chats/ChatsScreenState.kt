@@ -10,6 +10,9 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 /** Позиция списка одной серверной папки: первая видимая строка и смещение внутри неё. */
 internal data class ChatListScrollPosition(val index: Int, val offset: Int)
@@ -59,6 +62,16 @@ class ChatsScreenState private constructor(
     /** Позиции папок, с которых пользователь уже уходил. */
     private val folderScrollPositions = folderPositions.toMutableMap().apply {
         put(selectedFolderId, ChatListScrollPosition(firstVisibleItemIndex, firstVisibleItemScrollOffset))
+    }
+
+    private val scrollToTopEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /** Просьбы прокрутить текущий список к началу: повторное нажатие на вкладку «Чаты» и на её заголовок. */
+    val scrollToTopRequests: SharedFlow<Unit> = scrollToTopEvents.asSharedFlow()
+
+    /** Запрашивает плавную прокрутку текущего списка наверх. Позиции других папок не трогаются. */
+    fun requestScrollToTop() {
+        scrollToTopEvents.tryEmit(Unit)
     }
 
     /** Выбирает серверную папку; 0 — основной список «Все чаты». */
