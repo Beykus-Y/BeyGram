@@ -1514,7 +1514,7 @@ private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: I
 private const val INK_ACCENT_SHARE = 0.18f
 
 @Composable
-private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit, onLongClick: () -> Unit = {}) {
     val palette = beyGramPalette()
     val main = LocalDesignSystem.current.mainScreen
     val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
