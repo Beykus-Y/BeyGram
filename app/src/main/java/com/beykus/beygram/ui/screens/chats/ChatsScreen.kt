@@ -1648,7 +1648,9 @@ private fun SendStatusIcon(chat: ChatPreview) {
 /** Плотность списка чатов: сколько места отдано каждой строке. [Default] — вид, который BeyGram всегда имел. */
 internal data class ChatListDensity(
     /** Отступ над и под содержимым строки чата. */
-    val rowVerticalPadding: Dp = 10.dp
+    val rowVerticalPadding: Dp = 10.dp,
+    /** Comfortable/Compact keep the familiar single line; Spacious opts into two lines. */
+    val previewLines: Int = 1
 )
 
 internal val LocalChatListDensity = compositionLocalOf { ChatListDensity() }
@@ -1657,7 +1659,7 @@ internal val LocalChatListDensity = compositionLocalOf { ChatListDensity() }
 internal fun chatListDensityFor(density: ListDensity): ChatListDensity = when (density) {
     ListDensity.Compact -> ChatListDensity(rowVerticalPadding = 6.dp)
     ListDensity.Comfortable -> ChatListDensity()
-    ListDensity.Spacious -> ChatListDensity(rowVerticalPadding = 14.dp)
+    ListDensity.Spacious -> ChatListDensity(rowVerticalPadding = 14.dp, previewLines = 2)
 }
 
 /**
@@ -1731,12 +1733,31 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                 Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = main.rowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (chat.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.accent, modifier = Modifier.padding(start = 4.dp).size(14.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(chat.lastMessageTime, color = if (unread) palette.accent else palette.textSecondary, fontSize = 12.sp, fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal)
+                Text(
+                    chat.lastMessageTime,
+                    color = if (unread) palette.accent else palette.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 72.dp)
+                )
             }
             Spacer(Modifier.height(3.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (chat.isMuted) Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
-                Text(preview, color = if (unread && main.unreadPreviewEmphasis && !chat.isMuted) palette.textPrimary else palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(
+                    preview,
+                    color = when {
+                        chat.lastMessageOutgoing && chat.lastMessageSendState == MessageSendState.Failed -> palette.warningText
+                        unread && main.unreadPreviewEmphasis && !chat.isMuted -> palette.textPrimary
+                        else -> palette.textSecondary
+                    },
+                    fontSize = 14.sp,
+                    maxLines = listDensity.previewLines,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
                 // The send status and the unread marker share one trailing group. The group keeps its own air from the
                 // preview text and a fixed gap from its neighbour, so a preview that ends in a symbol never runs into a count.
                 if (chat.lastMessageOutgoing || unread) {
