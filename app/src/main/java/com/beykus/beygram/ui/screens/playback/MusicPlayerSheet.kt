@@ -70,6 +70,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
@@ -1243,8 +1245,27 @@ private fun PlayerActions(
     val addToProfileDone = stringResource(R.string.player_add_to_profile_done)
     // The shared player may be bound to another account; its file ids mean nothing to the active one.
     val activeAccount = PlaybackEngine.activeAccount()
+    // A track of an endless radio gets a heart in the row. It toggles the like on the service, not the library, and
+    // the star with it goes to the menu, as the radio has no library list.
+    val radioTrack = ProviderTracks.byKey(item.key)?.takeIf { ProviderTracks.isProviderKey(item.key) && PlaybackEngine.currentQueueIsEndless() }
+    val likes by ProviderTracks.liked.collectAsStateWithLifecycle()
+    val radioLiked = radioTrack?.let { likes[it.trackId] ?: it.liked ?: false }
+    val likeLabel = stringResource(R.string.music_provider_like)
+    val likeFailed = stringResource(R.string.music_provider_like_failed)
     val actions = buildList {
-        if (track != null && library != null) {
+        if (radioTrack != null && radioLiked != null) add(PlayerActionUi(
+            icon = if (radioLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+            label = likeLabel,
+            onClick = {
+                ProviderTracks.setLikedInBackground(context, radioTrack, !radioLiked) {
+                    Toast.makeText(context.applicationContext, likeFailed, Toast.LENGTH_SHORT).show()
+                }
+            },
+            active = radioLiked,
+            stateDescription = if (radioLiked) favoriteOnState else favoriteOffState,
+            primary = true
+        ))
+        if (track != null && library != null && radioTrack == null) {
             add(PlayerActionUi(
                 icon = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                 label = favoriteLabel,
