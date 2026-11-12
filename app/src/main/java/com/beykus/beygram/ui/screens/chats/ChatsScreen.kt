@@ -145,6 +145,8 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.pluralForm
 import java.text.NumberFormat
 import kotlin.math.min
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -346,6 +348,34 @@ fun ChatsScreen(
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
     val listState = state.listState
+    LaunchedEffect(state) {
+        // Each scroll runs in its own child job: a drag that cancels the animation must not end the request collector.
+        var scrollJob: Job? = null
+        state.scrollToTopRequests.collect {
+            scrollJob?.cancel()
+            scrollJob = launch { state.listState.animateScrollToItem(0) }
+        }
+    }
+    // The folder chips scroll in their own strip. When the selected chip is not whole in view, the strip moves so its name
+    // is fully visible, and the chip before it stays in view as a hint.
+    val folderTabsState = rememberLazyListState()
+    val folderTabsForScroll = orderedTelegramFolderTabs(folderSnapshot)
+    val selectedFolderTabIndex = folderTabsForScroll.indexOfFirst { tab ->
+        when (tab) {
+            TelegramFolderTab.Main -> activeFolderId == null
+            is TelegramFolderTab.Folder -> activeFolderId == tab.id
+        }
+    }
+    LaunchedEffect(selectedFolderTabIndex, folderTabsForScroll.size) {
+        if (selectedFolderTabIndex < 0) return@LaunchedEffect
+        val info = folderTabsState.layoutInfo
+        val visible = info.visibleItemsInfo.firstOrNull { it.index == selectedFolderTabIndex }
+        val fullyVisible = visible != null &&
+            visible.offset >= info.viewportStartOffset &&
+            visible.offset + visible.size <= info.viewportEndOffset
+        // The selected chip goes to the start edge: its whole name is in view, even when the chip before it is wide.
+        if (!fullyVisible) folderTabsState.animateScrollToItem(selectedFolderTabIndex)
+    }
     val headerCollapseThresholdPx = with(density) { 96.dp.roundToPx() }
     val headerCollapsed by remember(listState, headerCollapseThresholdPx) {
         derivedStateOf {
@@ -492,6 +522,7 @@ fun ChatsScreen(
                     val serverTabs = orderedTelegramFolderTabs(folderSnapshot)
                     LazyRow(
                         modifier = modifier,
+                        state = folderTabsState,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(serverTabs, key = { tab ->
@@ -636,7 +667,7 @@ fun ChatsScreen(
                     }
                     Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = design.mainScreen.titleWeight, letterSpacing = design.mainScreen.titleTracking,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.semantics { heading() })
+                        modifier = Modifier.clickable { state.requestScrollToTop() }.semantics { heading() })
                 }
                 if (hasUnreadChats) {
                     androidx.compose.material3.IconButton(

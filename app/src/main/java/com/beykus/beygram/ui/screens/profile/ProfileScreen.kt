@@ -179,7 +179,7 @@ fun ProfileScreen(
                         )
                     }
                     Spacer(Modifier.height(16.dp))
-                    Text(info.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                    Text(info.title.ifBlank { stringResource(if (info.status is ProfilePresence.DeletedAccount) R.string.deleted_account_name else R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                         modifier = Modifier.semantics { heading() })
                     Spacer(Modifier.height(4.dp))
                     ProfileSubtitle(info, lastSeenStyle)

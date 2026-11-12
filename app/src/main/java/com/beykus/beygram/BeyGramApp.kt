@@ -925,7 +925,11 @@ private fun BeyGramAppContent(
         tabReturnRouteName = returnTo.name
         routeName = tab.route.name
     }
-    val selectTab: (MainTab) -> Unit = { tab -> openTab(tab, AppRoute.Chats) }
+    val selectTab: (MainTab) -> Unit = { tab ->
+        // A second tap on the active Chats tab brings its list back to the top instead of reopening the same screen.
+        if (tab == MainTab.Chats && routeName == MainTab.Chats.route.name) chatsScreenState.requestScrollToTop()
+        else openTab(tab, AppRoute.Chats)
+    }
     val openNotifications: (AppRoute) -> Unit = { returnTo ->
         notificationsReturnRouteName = returnTo.name
         routeName = AppRoute.Notifications.name

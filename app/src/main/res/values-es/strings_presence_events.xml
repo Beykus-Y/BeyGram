@@ -120,4 +120,5 @@
     <string name="service_paid_messages_refunded">Mensajes de pago reembolsados: %1$s Stars</string>
     <string name="service_paid_message_price">Precio de los mensajes cambiado a %1$s Stars</string>
     <string name="service_paid_message_free">Los mensajes ya son gratis</string>
+    <string name="deleted_account_name">Cuenta eliminada</string>
 </resources>
