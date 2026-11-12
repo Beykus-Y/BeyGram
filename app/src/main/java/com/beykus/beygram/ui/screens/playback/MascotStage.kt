@@ -58,7 +58,6 @@ internal fun MascotOverlay(
 ) {
     val context = LocalContext.current
     val settings = remember { BgMascotSettingsStore.getInstance(context) }
-    remember(context) { BgMascotSettingsStore.load(context) }
     val enabled by settings.enabled.collectAsStateWithLifecycle()
     val showInPlayer by settings.showInPlayer.collectAsStateWithLifecycle()
     if (!enabled || !showInPlayer) return
@@ -155,7 +154,6 @@ internal fun MascotToggleChip(
 ) {
     val context = LocalContext.current
     val settings = remember { BgMascotSettingsStore.getInstance(context) }
-    remember(context) { BgMascotSettingsStore.load(context) }
     val enabled by settings.enabled.collectAsStateWithLifecycle()
     val showInPlayer by settings.showInPlayer.collectAsStateWithLifecycle()
     val debugOverlay by settings.debugOverlay.collectAsStateWithLifecycle()

@@ -50,7 +50,6 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
     val context = LocalContext.current
     val bgBeatSettings = remember { BgBeatSettingsStore.getInstance(context) }
     val bgBeatEnabled by bgBeatSettings.enabled.collectAsStateWithLifecycle()
-    remember(context) { BgMascotSettingsStore.load(context) }
     val bgMascotSettings = remember { BgMascotSettingsStore.getInstance(context) }
     val bgMascotEnabled by bgMascotSettings.enabled.collectAsStateWithLifecycle()
     val bgMascotDebugOverlay by bgMascotSettings.debugOverlay.collectAsStateWithLifecycle()

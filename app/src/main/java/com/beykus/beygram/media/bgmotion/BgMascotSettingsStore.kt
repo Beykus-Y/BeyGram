@@ -48,11 +48,13 @@ object BgMascotSettingsStore {
     private var loaded = false
 
     /**
-     * Returns the process-wide store. Present for symmetry with the other BG settings stores; this object
-     * is already the singleton, so the context is only used by [load].
+     * Returns the process-wide store and makes sure its flows are loaded. Present for symmetry with the
+     * other BG settings stores; this object is already the singleton, so the context is only used by [load].
      */
-    @Suppress("UNUSED_PARAMETER")
-    fun getInstance(context: Context): BgMascotSettingsStore = this
+    fun getInstance(context: Context): BgMascotSettingsStore {
+        load(context)
+        return this
+    }
 
     fun load(context: Context) {
         if (loaded) return
