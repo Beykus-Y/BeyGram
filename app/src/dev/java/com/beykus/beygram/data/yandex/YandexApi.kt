@@ -172,6 +172,27 @@ internal class YandexApi(private val http: YandexHttp) {
     }
 
     /**
+     * Redacted report of one lyrics request, written when the lyrics fail: status codes, key names and the types of
+     * values, plus line counts of the file. No token, no link, no lyrics text and no track id.
+     */
+    fun lyricsProbe(token: String, trackId: String): String {
+        return try {
+            val response = http.get(YandexConfig.API_BASE + "/tracks/$trackId/lyrics?format=LRC", token)
+            val root = try { JSONObject(response.body) } catch (e: JSONException) { null }
+            val head = "lyrics.api=${response.code}; " +
+                (root?.let { shapeSummary(it) } ?: "body is not JSON (${response.body.length} chars)")
+            val link = root?.optJSONObject("result")?.optString("downloadUrl")?.takeIf { it.isNotBlank() }
+                ?: return head
+            val file = http.get(link)
+            val lines = file.body.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+            val tagged = lines.count { it.startsWith("[") && it.getOrNull(1)?.isDigit() == true }
+            "$head; lyrics.file=${file.code}, lines=${lines.size}, timeTagged=$tagged"
+        } catch (e: IOException) {
+            "lyrics.request=network"
+        }
+    }
+
+    /**
      * Full-track MP3 link from the download-info XML. Requires a subscription, which the provider checks first.
      * The link is short-lived: the provider requests it right before playback and never stores it.
      */
@@ -307,6 +328,40 @@ internal fun parseAccountStatus(root: JSONObject): YandexAccount? {
         account.optBoolean("has_plus") == true,
     ).any { it }
     return YandexAccount(uid = uid, displayName = name, hasPlus = hasPlus, plusSummary = plusSummary(result))
+}
+
+/** Keys whose short, plain string values help diagnose a refusal (error codes, status words). */
+private val SHOWN_STRING_KEYS = setOf("error", "errorCode", "code", "status", "type", "message")
+
+/**
+ * Key names of a response and the types of its values, one level into "result". Only the short string values of
+ * [SHOWN_STRING_KEYS] are shown, and only plain words; anything that could carry a token is dropped.
+ */
+internal fun shapeSummary(root: JSONObject): String {
+    val parts = mutableListOf<String>()
+    fun describe(prefix: String, obj: JSONObject) {
+        for (key in obj.keys().asSequence().sorted()) {
+            val value = obj.opt(key)
+            val shown = when (value) {
+                is Boolean, is Number -> value.toString()
+                is JSONObject -> "object"
+                is JSONArray -> "array(${value.length()})"
+                null, JSONObject.NULL -> "null"
+                is String -> stringShape(key, value)
+                else -> "other"
+            }
+            parts += "$prefix$key=$shown"
+        }
+    }
+    describe("", root)
+    root.optJSONObject("result")?.let { describe("result.", it) }
+    return parts.joinToString(", ")
+}
+
+private fun stringShape(key: String, value: String): String {
+    val plain = value.length <= 60 && Regex("[\\p{L}\\p{N} _.:-]+").matches(value)
+    val safe = plain && listOf("oauth", "bearer", "token", "sign").none { value.contains(it, ignoreCase = true) }
+    return if (key in SHOWN_STRING_KEYS && safe) "\"$value\"" else "string"
 }
 
 /**

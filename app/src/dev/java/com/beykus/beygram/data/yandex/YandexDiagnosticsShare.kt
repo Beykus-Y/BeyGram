@@ -28,7 +28,7 @@ internal suspend fun shareYandexSubscriptionDiagnostics(context: Context, summar
             writeText(
                 buildString {
                     appendLine("BeyGram ${BuildConfig.VERSION_NAME} (${BuildConfig.FLAVOR})")
-                    appendLine("Yandex Music subscription status, service response key names and scalar values only.")
+                    appendLine("Yandex Music status: subscription and lyrics requests. Status codes, key names and value types only.")
                     appendLine(summary)
                 },
                 Charsets.UTF_8,
