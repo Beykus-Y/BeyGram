@@ -617,6 +617,7 @@
     <string name="player_source_group">Group</string>
     <string name="player_source_saved">Saved Messages</string>
     <string name="player_source_local">File on device</string>
+    <string name="player_source_provider_yandex">Yandex Music</string>
     <string name="player_menu">Player actions</string>
     <string name="player_queue">Queue</string>
     <string name="player_equalizer">Equalizer</string>
@@ -634,7 +635,6 @@
     <string name="queue_title">Queue</string>
     <string name="queue_back_to_player">To player</string>
     <string name="queue_count">Tracks: %1$d</string>
-    <string name="queue_loading_count">Loading: %1$d</string>
     <string name="queue_shuffled">Shuffle is on: source order is shown</string>
     <string name="queue_playback_order_hint">Playback order · No. is the source position</string>
     <string name="queue_source_position">No. %1$d</string>
@@ -642,8 +642,10 @@
     <string name="queue_now_playing">Now playing</string>
     <string name="queue_next">Next</string>
     <string name="queue_empty">No more tracks in the queue</string>
-    <string name="queue_loading">Loading</string>
     <string name="queue_ready">Ready</string>
+    <string name="queue_downloading">Downloading</string>
+    <string name="queue_not_downloaded">Not downloaded</string>
+    <string name="queue_ready_count">Ready: %1$d</string>
     <string name="queue_failed">Error</string>
     <string name="queue_unavailable">Unavailable</string>
     <string name="queue_play_next">Play next</string>
@@ -746,7 +748,13 @@
     <string name="music_favorite_state_on">In favorites</string>
     <string name="music_favorites_title">Favorites</string>
     <string name="music_find_replacement">Find a replacement</string>
-    <string name="music_library_title">My music</string>
+    <string name="music_provider_like">Like</string>
+    <string name="music_provider_unlike">Remove from liked</string>
+    <string name="music_provider_open_album">Go to album</string>
+    <string name="music_provider_share_link">Share link</string>
+    <string name="music_provider_like_failed">Could not change your likes</string>
+    <string name="music_source_telegram">Telegram</string>
+    <string name="music_library_title">Music</string>
     <string name="music_local_only_note">The library is stored only on this device</string>
     <string name="music_move_down">Move down</string>
     <string name="music_move_up">Move up</string>

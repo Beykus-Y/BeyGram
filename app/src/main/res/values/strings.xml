@@ -2118,6 +2118,7 @@
     <string name="player_source_group">Группа</string>
     <string name="player_source_saved">Избранное</string>
     <string name="player_source_local">Файл на устройстве</string>
+    <string name="player_source_provider_yandex">Яндекс Музыка</string>
     <string name="player_menu">Действия плеера</string>
     <string name="player_queue">Очередь</string>
     <string name="player_equalizer">Эквалайзер</string>
@@ -2135,7 +2136,6 @@
     <string name="queue_title">Очередь</string>
     <string name="queue_back_to_player">К плееру</string>
     <string name="queue_count">Треков: %1$d</string>
-    <string name="queue_loading_count">Загружается: %1$d</string>
     <string name="queue_shuffled">Перемешивание включено: показан исходный порядок</string>
     <string name="queue_playback_order_hint">Порядок воспроизведения · № — позиция в исходном списке</string>
     <string name="queue_source_position">№%1$d</string>
@@ -2143,8 +2143,10 @@
     <string name="queue_now_playing">Сейчас играет</string>
     <string name="queue_next">Далее</string>
     <string name="queue_empty">В очереди пока нет треков</string>
-    <string name="queue_loading">Загрузка</string>
     <string name="queue_ready">Готов</string>
+    <string name="queue_downloading">Скачивается</string>
+    <string name="queue_not_downloaded">Не скачан</string>
+    <string name="queue_ready_count">Готово: %1$d</string>
     <string name="queue_failed">Ошибка</string>
     <string name="queue_unavailable">Недоступен</string>
     <string name="queue_play_next">Воспроизвести следующей</string>
@@ -2295,7 +2297,13 @@
     <string name="music_favorite_state_on">В любимых</string>
     <string name="music_favorites_title">Любимые</string>
     <string name="music_find_replacement">Найти замену</string>
-    <string name="music_library_title">Моя музыка</string>
+    <string name="music_provider_like">Нравится</string>
+    <string name="music_provider_unlike">Убрать из «Мне нравится»</string>
+    <string name="music_provider_open_album">Перейти к альбому</string>
+    <string name="music_provider_share_link">Поделиться ссылкой</string>
+    <string name="music_provider_like_failed">Не удалось изменить «Мне нравится»</string>
+    <string name="music_source_telegram">Telegram</string>
+    <string name="music_library_title">Музыка</string>
     <string name="music_local_only_note">Библиотека хранится только на этом устройстве</string>
     <string name="music_move_down">Переместить ниже</string>
     <string name="music_move_up">Переместить выше</string>
@@ -2393,4 +2401,7 @@
     <string name="lyrics_need_sign_in">Войдите в Яндекс Музыку, чтобы смотреть тексты</string>
     <string name="lyrics_failed">Не удалось загрузить текст. Попробуйте позже.</string>
     <string name="lyrics_copyright">Текст: %1$s</string>
+    <string name="chat_preview_animation">🎞 GIF</string>
+    <string name="chat_preview_expired_media">⌛ Медиа недоступно</string>
+    <string name="deleted_account_name">Удалённый аккаунт</string>
 </resources>

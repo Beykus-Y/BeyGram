@@ -3621,7 +3621,10 @@ class TdLibTelegramRepository private constructor(
         // A just-resolved bot or user may arrive before its display name; a blank title must not hide the chat.
         val privateName = (type as? TdApi.ChatTypePrivate)?.let { profiles.senderName(TdApi.MessageSenderUser(it.userId)) }.orEmpty()
         val chatTitle = if (saved) appContext.getString(R.string.saved_messages_title)
-        else title.ifBlank { privateName }.ifBlank { appContext.getString(R.string.chat_unknown_title) }
+        else title.ifBlank { privateName }.ifBlank {
+            val deleted = (type as? TdApi.ChatTypePrivate)?.let { profiles.isDeletedUser(it.userId) } == true
+            appContext.getString(if (deleted) R.string.deleted_account_name else R.string.chat_unknown_title)
+        }
         val mainPosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListMain }
         val archivePosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListArchive }
         val folderPositions = positions.orEmpty().mapNotNull { position ->
@@ -3705,6 +3708,9 @@ class TdLibTelegramRepository private constructor(
             is TdApi.MessageDice      -> UiText.Res(R.string.chat_preview_dice, listOf(c.emoji.orEmpty()))
             is TdApi.MessagePhoto     -> UiText.Res(R.string.chat_preview_photo)
             is TdApi.MessageVideo     -> UiText.Res(R.string.chat_preview_video)
+            is TdApi.MessageAnimation -> UiText.Res(R.string.chat_preview_animation)
+            is TdApi.MessageExpiredPhoto, is TdApi.MessageExpiredVideo,
+            is TdApi.MessageExpiredVoiceNote, is TdApi.MessageExpiredVideoNote -> UiText.Res(R.string.chat_preview_expired_media)
             is TdApi.MessageAudio     -> UiText.Res(R.string.chat_preview_audio)
             is TdApi.MessageDocument  -> UiText.Res(R.string.chat_preview_document)
             is TdApi.MessageSticker   -> UiText.Res(R.string.chat_preview_sticker, listOf(c.sticker.emoji))

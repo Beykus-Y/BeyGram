@@ -26,11 +26,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.DesignStyle
@@ -50,23 +53,13 @@ internal fun SearchField(
     query: String,
     onChange: (String) -> Unit,
     placeholder: String,
-    onSearch: (() -> Unit)? = null
+    onSearch: (() -> Unit)? = null,
+    focusRequester: FocusRequester? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val keyboard = LocalSoftwareKeyboardController.current
     val minHeight = searchFieldMinHeightDp(LocalDensity.current.fontScale, design.mainScreen.searchHeight.value).dp
-    val shape = RoundedCornerShape(design.shapes.search)
-    val fill = when (design.components.search) {
-        SearchFieldVariant.Filled -> if (design.style == DesignStyle.Material3) {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        } else {
-            palette.surface2
-        }
-        SearchFieldVariant.Outlined -> palette.surface
-        // A sunken wash of the text colour: the pane under the field has the surface colour, a surface fill would vanish.
-        SearchFieldVariant.Glass -> palette.textPrimary.copy(alpha = 0.07f)
-    }
     BasicTextField(
         value = query,
         onValueChange = onChange,
@@ -77,16 +70,8 @@ internal fun SearchField(
         }),
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.textPrimary),
         cursorBrush = SolidColor(palette.accent),
-        modifier = Modifier.fillMaxWidth().heightIn(min = minHeight).clip(shape).background(fill)
-            .then(
-                if (design.components.search == SearchFieldVariant.Outlined) {
-                    Modifier.border(1.dp, palette.divider, shape)
-                } else if (design.components.search == SearchFieldVariant.Glass) {
-                    Modifier.border(1.dp, palette.textSecondary.copy(alpha = 0.18f), shape)
-                } else {
-                    Modifier
-                }
-            )
+        modifier = Modifier.fillMaxWidth().heightIn(min = minHeight).searchFieldSurface()
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .padding(horizontal = 16.dp),
         decorationBox = { inner ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -101,6 +86,60 @@ internal fun SearchField(
                         modifier = Modifier.size(48.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button) { onChange("") }.padding(12.dp))
                 }
             }
+        }
+    )
+}
+
+/**
+ * The same pill as [SearchField] that only opens a search somewhere else when tapped, such as the field at the top of
+ * the music screen. It holds no text and never takes focus.
+ */
+@Composable
+internal fun SearchFieldButton(placeholder: String, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val minHeight = searchFieldMinHeightDp(LocalDensity.current.fontScale, design.mainScreen.searchHeight.value).dp
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = minHeight).searchFieldSurface()
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            placeholder,
+            color = palette.textSecondary,
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/** Shape, fill and border of the search pill in the current design style. */
+@Composable
+private fun Modifier.searchFieldSurface(): Modifier {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val shape = RoundedCornerShape(design.shapes.search)
+    val fill = when (design.components.search) {
+        SearchFieldVariant.Filled -> if (design.style == DesignStyle.Material3) {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        } else {
+            palette.surface2
+        }
+        SearchFieldVariant.Outlined -> palette.surface
+        // A sunken wash of the text colour: the pane under the field has the surface colour, a surface fill would vanish.
+        SearchFieldVariant.Glass -> palette.textPrimary.copy(alpha = 0.07f)
+    }
+    return this.clip(shape).background(fill).then(
+        if (design.components.search == SearchFieldVariant.Outlined) {
+            Modifier.border(1.dp, palette.divider, shape)
+        } else if (design.components.search == SearchFieldVariant.Glass) {
+            Modifier.border(1.dp, palette.textSecondary.copy(alpha = 0.18f), shape)
+        } else {
+            Modifier
         }
     )
 }

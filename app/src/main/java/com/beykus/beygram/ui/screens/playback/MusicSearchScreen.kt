@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.PlaylistTrack
 import com.beykus.beygram.data.music.toPlaylistTrack
 import com.beykus.beygram.domain.model.AutoDownloadRequest
@@ -73,6 +75,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
+import com.beykus.beygram.ui.screens.music.ProviderMusicHosts
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -108,13 +111,19 @@ internal fun MusicSearchScreen(
     downloadFile: (Int) -> Unit,
     onBack: () -> Unit,
     pickChatId: Long = 0L,
-    onPick: ((MessageExtraDraft) -> Unit)? = null
+    onPick: ((MessageExtraDraft) -> Unit)? = null,
+    focusOnOpen: Boolean = false,
+    providerFirst: Boolean = false
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val automaticDownload = LocalAutoDownloadFile.current
     var query by rememberSaveable(accountId) { mutableStateOf("") }
+    // Opened from the field of the music screen: the keyboard comes up at once, but only on the first open, not when
+    // the screen comes back from the background or a rotation.
+    val searchFocus = remember { FocusRequester() }
+    var focusRequested by rememberSaveable { mutableStateOf(false) }
     // The track a row asked to add to a playlist. Only results that are sent music with an origin qualify.
     var addTrack by remember(accountId) { mutableStateOf<PlaylistTrack?>(null) }
     var results by remember(accountId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
@@ -136,6 +145,8 @@ internal fun MusicSearchScreen(
     var publicSearchedQuery by remember(accountId) { mutableStateOf<String?>(null) }
     val publicJob = remember(accountId) { mutableStateOf<Job?>(null) }
     val publicRequestGeneration = remember(accountId) { AtomicLong() }
+    // Optional music source (DEV build only). Its results sit below the local ones and play through the shared queue.
+    val providerHost = remember { ProviderMusicHosts.yandex() }
     DisposableEffect(accountId, conversation) {
         onDispose {
             localRequestGeneration.incrementAndGet()
@@ -372,8 +383,15 @@ internal fun MusicSearchScreen(
                 SearchField(
                     query = query,
                     onChange = { query = it },
-                    placeholder = stringResource(R.string.music_search_hint)
+                    placeholder = stringResource(R.string.music_search_hint),
+                    focusRequester = searchFocus
                 )
+                // Runs inside the Scaffold content, after the field is attached; the request counts only once it worked.
+                LaunchedEffect(focusOnOpen) {
+                    if (focusOnOpen && !focusRequested) {
+                        focusRequested = runCatching { searchFocus.requestFocus() }.isSuccess
+                    }
+                }
             }
             if (query.isBlank()) Text(
                 stringResource(if (onPick != null) R.string.music_attach_intro else R.string.music_search_intro),
@@ -381,28 +399,43 @@ internal fun MusicSearchScreen(
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
-            if (query.isNotBlank() && (loading || searchedQuery == query.trim() || error != null)) {
-                Text(
-                    stringResource(R.string.music_local_title),
-                    color = palette.textPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            // Opened from the source tab of the music screen, the source's results come first and the account's own
+            // results follow under their heading; otherwise the heading stays above the list.
+            val localHeader: @Composable () -> Unit = {
+                if (query.isNotBlank() && (loading || searchedQuery == query.trim() || error != null)) {
+                    Text(
+                        stringResource(R.string.music_local_title),
+                        color = palette.textPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+                error?.let {
+                    Text(it, color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                }
+                if (loading && results.isEmpty()) Row(
+                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) { CircularProgressIndicator() }
+                if (!loading && searchedQuery == query.trim() && results.isEmpty() && error == null) Text(
+                    stringResource(R.string.music_local_empty),
+                    color = palette.textSecondary,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp)
                 )
             }
-            error?.let {
-                Text(it, color = palette.warningText, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-            }
-            if (loading && results.isEmpty()) Row(
-                Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) { CircularProgressIndicator() }
-            if (!loading && searchedQuery == query.trim() && results.isEmpty() && error == null) Text(
-                stringResource(R.string.music_local_empty),
-                color = palette.textSecondary,
-                modifier = Modifier.fillMaxWidth().padding(16.dp)
-            )
+            val providerOnTop = providerFirst && providerHost != null && onPick == null
+            if (!providerOnTop) Column { localHeader() }
             LazyColumn(Modifier.weight(1f)) {
+                if (providerOnTop) {
+                    item(key = "provider_source") {
+                        providerHost?.SearchResults(
+                            query = query,
+                            onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) }
+                        )
+                    }
+                    item(key = "local_header") { Column { localHeader() } }
+                }
                 items(results, key = { "${it.chatId}:${it.id}" }) { message ->
                     val item = rows.firstOrNull { it.origin?.messageId == message.id && it.origin?.chatId == message.chatId }
                     if (item != null) MusicRow(
@@ -417,6 +450,13 @@ internal fun MusicSearchScreen(
                         } else {
                             null
                         }
+                    )
+                }
+                // Provider results come after the local rows, so the local heading keeps its own rows.
+                if (providerHost != null && onPick == null && !providerOnTop) item(key = "provider_source") {
+                    providerHost.SearchResults(
+                        query = query,
+                        onPlay = { tracks, index -> ProviderArtwork.playTracks(context, tracks, index) }
                     )
                 }
                 // Public results have an independent state: a local miss must never imply no public matches.

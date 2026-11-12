@@ -643,6 +643,7 @@
     <string name="player_source_group">Groupe</string>
     <string name="player_source_saved">Messages enregistrés</string>
     <string name="player_source_local">Fichier sur l’appareil</string>
+    <string name="player_source_provider_yandex">Yandex Music</string>
     <string name="player_menu">Actions du lecteur</string>
     <string name="player_queue">File d’attente</string>
     <string name="player_equalizer">Égaliseur</string>
@@ -660,7 +661,6 @@
     <string name="queue_title">File d’attente</string>
     <string name="queue_back_to_player">Au lecteur</string>
     <string name="queue_count">Pistes : %1$d</string>
-    <string name="queue_loading_count">Chargement : %1$d</string>
     <string name="queue_shuffled">Lecture aléatoire activée : l’ordre d’origine est affiché</string>
     <string name="queue_playback_order_hint">Ordre de lecture · N° indique la position d’origine</string>
     <string name="queue_source_position">N° %1$d</string>
@@ -668,8 +668,10 @@
     <string name="queue_now_playing">Lecture en cours</string>
     <string name="queue_next">À suivre</string>
     <string name="queue_empty">Aucune autre piste dans la file</string>
-    <string name="queue_loading">Chargement</string>
     <string name="queue_ready">Prête</string>
+    <string name="queue_downloading">Téléchargement en cours</string>
+    <string name="queue_not_downloaded">Non téléchargée</string>
+    <string name="queue_ready_count">Prêtes : %1$d</string>
     <string name="queue_failed">Erreur</string>
     <string name="queue_unavailable">Indisponible</string>
     <string name="queue_play_next">Lire juste après</string>
@@ -772,7 +774,13 @@
     <string name="music_favorite_state_on">Dans les favoris</string>
     <string name="music_favorites_title">Favoris</string>
     <string name="music_find_replacement">Trouver un remplacement</string>
-    <string name="music_library_title">Ma musique</string>
+    <string name="music_provider_like">J’aime</string>
+    <string name="music_provider_unlike">Retirer des titres aimés</string>
+    <string name="music_provider_open_album">Aller à l’album</string>
+    <string name="music_provider_share_link">Partager le lien</string>
+    <string name="music_provider_like_failed">Impossible de modifier vos j’aime</string>
+    <string name="music_source_telegram">Telegram</string>
+    <string name="music_library_title">Musique</string>
     <string name="music_local_only_note">La bibliothèque n’est stockée que sur cet appareil</string>
     <string name="music_move_down">Descendre</string>
     <string name="music_move_up">Monter</string>

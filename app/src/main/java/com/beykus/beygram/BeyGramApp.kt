@@ -56,6 +56,11 @@ import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
 import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.deeplink.YandexMusicTarget
+import com.beykus.beygram.data.music.provider.MusicProviders
+import com.beykus.beygram.data.music.provider.ProviderArtwork
+import com.beykus.beygram.data.music.provider.ProviderResult
+import com.beykus.beygram.ui.screens.chat.openWithSystemHandler
 import com.beykus.beygram.deeplink.PendingTelegramDeepLink
 import com.beykus.beygram.deeplink.TelegramDeepLinkParser
 import com.beykus.beygram.deeplink.TelegramDeepLinkRoute
@@ -68,6 +73,7 @@ import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.AppRoute
@@ -215,6 +221,8 @@ import com.beykus.beygram.ui.screens.playback.LocalOpenEqualizer
 import com.beykus.beygram.ui.screens.playback.LocalOpenMusicSearch
 import com.beykus.beygram.ui.screens.playback.LocalOpenMyMusic
 import com.beykus.beygram.ui.screens.bgmusic.LocalOpenMusicPlaylist
+import com.beykus.beygram.ui.screens.music.ProviderMusicHosts
+import com.beykus.beygram.ui.screens.music.LocalOpenProviderAlbum
 import com.beykus.beygram.ui.screens.music.MyMusicScreen
 import com.beykus.beygram.ui.screens.music.MusicPlaylistScreen
 import com.beykus.beygram.ui.screens.music.ChatLibraryLink
@@ -436,6 +444,16 @@ private fun BeyGramAppContent(
     // Search can open from Settings or a global player on any screen; Back returns to that origin.
     var musicSearchReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
     var myMusicReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Settings.name) }
+    // The music sign-in opens from Experiments or from the source tab of the music screen; Back returns there.
+    var musicSignInReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Experiments.name) }
+    // Set when the music screen opened the search from its field: the keyboard comes up at once.
+    var musicSearchFocusOnOpen by rememberSaveable { mutableStateOf(false) }
+    // Set when that field was on the source tab: the source's results come first.
+    var musicSearchProviderFirst by rememberSaveable { mutableStateOf(false) }
+    // Collection screens of the optional music source, one per line: an album opened from a playlist stacks on it,
+    // and Back returns through them to the route the first one was opened from.
+    var musicCollectionStack by rememberSaveable { mutableStateOf("") }
+    var musicCollectionReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.MyMusic.name) }
     var musicPlaylistId by rememberSaveable { mutableStateOf("") }
     // Where Back from the playlist goes: My Music, the chat whose `.bgmusic` preview opened it, or the chat info
     // when the playlist is a chat's collection.
@@ -766,27 +784,25 @@ private fun BeyGramAppContent(
     // The music library follows the selected account. Listen history is recorded for the whole process by BeyGramApplication.
     val musicLibrary = remember(context) { MusicLibraries.get(context) }
     LaunchedEffect(selectedAccountId) { musicLibrary.setActiveAccount(selectedAccountId) }
-    // Restore only after the selected account's real repository is authorized. Paused restoration never
+    // Restore only after the selected account's real repository is authorized and online. Paused restoration never
     // prepares a stream or starts a service. Identity is validated against TDLib before creating a queue.
-    LaunchedEffect(authState, selectedAccountId, repositorySelection, connectionState) {
-        // Reconnect may make a previously unavailable TDLib message resolvable again.
+    // Each account gets one pass per launch: a reconnect does not check the saved messages again. A pass that was
+    // cut short by a lost connection is not marked done, so the next connection runs it.
+    val musicRestorePassed = remember { mutableSetOf<String>() }
+    val connected = connectionState == TelegramConnectionState.Connected
+    LaunchedEffect(authState, selectedAccountId, repositorySelection, connected) {
         if (authState != AuthState.Ready || repositorySelection == null) return@LaunchedEffect
         val owner = selectedAccountId
         PlaybackEngine.setActiveAccount(owner)
+        if (!connected || owner in musicRestorePassed) return@LaunchedEffect
         val saved = musicSessionStore.load(owner)
         // Writing is done by the playback layer for the whole process; this effect only restores after sign-in.
         if (saved != null && PlaybackEngine.state.value.item == null) {
             restoreMusicSession(context, repositorySelection, saved)
         }
+        musicRestorePassed += owner
     }
-    LaunchedEffect(Unit) {
-        PlaybackEngine.notices.collect { notice ->
-            when (notice) {
-                PlaybackNotice.TrackSkipped ->
-                    Toast.makeText(context, context.getString(R.string.playback_track_skipped), Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    // One collector: the track-skipped notice is shown once per event.
     LaunchedEffect(Unit) {
         PlaybackEngine.notices.collect { notice ->
             when (notice) {
@@ -914,7 +930,11 @@ private fun BeyGramAppContent(
         tabReturnRouteName = returnTo.name
         routeName = tab.route.name
     }
-    val selectTab: (MainTab) -> Unit = { tab -> openTab(tab, AppRoute.Chats) }
+    val selectTab: (MainTab) -> Unit = { tab ->
+        // A second tap on the active Chats tab brings its list back to the top instead of reopening the same screen.
+        if (tab == MainTab.Chats && routeName == MainTab.Chats.route.name) chatsScreenState.requestScrollToTop()
+        else openTab(tab, AppRoute.Chats)
+    }
     val openNotifications: (AppRoute) -> Unit = { returnTo ->
         notificationsReturnRouteName = returnTo.name
         routeName = AppRoute.Notifications.name
@@ -997,6 +1017,16 @@ private fun BeyGramAppContent(
         chatFocusMessageId = messageId
         chatBackRouteName = AppRoute.Chats.name
         routeName = AppRoute.Chat.name
+    }
+    // Opens a collection screen of a music source. Declared before the message link handler, which uses it for albums.
+    fun openMusicCollection(ref: String) {
+        if (routeName == AppRoute.MusicCollection.name) {
+            musicCollectionStack = (musicCollectionStack.lines().filter { it.isNotBlank() } + ref).joinToString("\n")
+        } else {
+            musicCollectionReturnRouteName = routeName
+            musicCollectionStack = ref
+            routeName = AppRoute.MusicCollection.name
+        }
     }
     // A link inside a message must be resolved by the selected account, never by a stale repository or browser.
     // The visible notice is the only failure path: a tap is never allowed to become a silent no-op.
@@ -1088,6 +1118,25 @@ private fun BeyGramAppContent(
                                 accountId = sourceAccountId,
                                 draft = target.draft
                             )
+                        }
+                        // Yandex Music links the chat can play: an album opens its screen, a track starts playing.
+                        // A failed lookup falls back to the browser, so a tap never ends without a result.
+                        is MessageEntityLink.YandexMusic -> when (val music = target.target) {
+                            is YandexMusicTarget.Album -> {
+                                val host = ProviderMusicHosts.yandex()
+                                if (host != null) openMusicCollection(host.albumRef(music.albumId))
+                                else openWithSystemHandler(context, target.url)
+                            }
+                            is YandexMusicTarget.Track -> {
+                                val result = MusicProviders.yandex(context)?.tracks(listOf(music.trackId))
+                                if (selectedAccountId != sourceAccountId) return@launch
+                                val track = when (val loaded = result) {
+                                    is ProviderResult.Success -> loaded.value.firstOrNull()
+                                    else -> null
+                                }
+                                if (track != null && track.isAvailable) ProviderArtwork.playTracks(context, listOf(track), 0)
+                                else openWithSystemHandler(context, target.url)
+                            }
                         }
                         // External URLs, email and phone are owned by the formatter's system-handler path.
                         is MessageEntityLink.ExternalUrl,
@@ -1616,11 +1665,17 @@ private fun BeyGramAppContent(
     BackHandler(enabled = route == AppRoute.Updates) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.VideoMessageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Experiments) { routeName = AppRoute.Settings.name }
-    BackHandler(enabled = route == AppRoute.MusicAccountSignIn) { routeName = AppRoute.Experiments.name }
+    BackHandler(enabled = route == AppRoute.MusicAccountSignIn) { routeName = musicSignInReturnRouteName }
     BackHandler(enabled = route == AppRoute.StorageSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Equalizer) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.MusicSearch) { routeName = musicSearchReturnRouteName }
     BackHandler(enabled = route == AppRoute.MyMusic) { routeName = myMusicReturnRouteName }
+    fun closeMusicCollection() {
+        val rest = musicCollectionStack.lines().filter { it.isNotBlank() }.dropLast(1)
+        musicCollectionStack = rest.joinToString("\n")
+        if (rest.isEmpty()) routeName = musicCollectionReturnRouteName
+    }
+    BackHandler(enabled = route == AppRoute.MusicCollection) { closeMusicCollection() }
     BackHandler(enabled = route == AppRoute.MusicPlaylist) { routeName = musicPlaylistReturnRouteName }
     BackHandler(enabled = route == AppRoute.AutoDownloadSettings) { routeName = AppRoute.Settings.name }
     BackHandler(enabled = route == AppRoute.Language || route == AppRoute.Sessions) { routeName = AppRoute.Settings.name }
@@ -1711,10 +1766,10 @@ private fun BeyGramAppContent(
                 globalSearchSession.reset(typed)
                 routeName = AppRoute.GlobalSearch.name
             },
-            onMusicSearch = {
+            onOpenMusic = {
                 // Keep the actual origin: a split-screen chat must return to that chat on Back.
-                musicSearchReturnRouteName = routeName
-                routeName = AppRoute.MusicSearch.name
+                myMusicReturnRouteName = routeName
+                routeName = AppRoute.MyMusic.name
             },
             onChatClick = { chat ->
                 selectedChatId = chat.id
@@ -2190,7 +2245,12 @@ private fun BeyGramAppContent(
         LocalAddProfileAudio provides repository::addPlaybackItemToProfile,
         LocalOpenMusicSearch provides {
             musicSearchReturnRouteName = routeName
+            musicSearchFocusOnOpen = false
+            musicSearchProviderFirst = false
             routeName = AppRoute.MusicSearch.name
+        },
+        LocalOpenProviderAlbum provides { albumId: String ->
+            ProviderMusicHosts.yandex()?.let { host -> openMusicCollection(host.albumRef(albumId)) }
         },
         LocalRailCreateChat provides { routeName = AppRoute.NewChat.name },
         LocalOpenMyMusic provides {
@@ -2687,26 +2747,55 @@ GlobalSearchScreen(
                     conversation = repository,
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
-                    onBack = { routeName = musicSearchReturnRouteName }
+                    onBack = { routeName = musicSearchReturnRouteName },
+                    focusOnOpen = musicSearchFocusOnOpen,
+                    providerFirst = musicSearchProviderFirst
                 )
                 AppRoute.MyMusic -> MyMusicScreen(
                     accountId = selectedAccountId,
                     telegram = repository,
                     onBack = { routeName = myMusicReturnRouteName },
-                    onSearch = { musicSearchReturnRouteName = AppRoute.MyMusic.name; routeName = AppRoute.MusicSearch.name },
+                    onSearch = { providerFirst ->
+                        musicSearchReturnRouteName = AppRoute.MyMusic.name
+                        musicSearchFocusOnOpen = true
+                        musicSearchProviderFirst = providerFirst
+                        routeName = AppRoute.MusicSearch.name
+                    },
                     onOpenPlaylist = { playlistId ->
                         musicPlaylistReturnRouteName = AppRoute.MyMusic.name
                         musicPlaylistId = playlistId
                         musicPlaylistAccountId = selectedAccountId
                         routeName = AppRoute.MusicPlaylist.name
-                    }
+                    },
+                    onProviderSignIn = {
+                        musicSignInReturnRouteName = AppRoute.MyMusic.name
+                        routeName = AppRoute.MusicAccountSignIn.name
+                    },
+                    onOpenCollection = ::openMusicCollection
                 )
+                AppRoute.MusicCollection -> {
+                    // Reachable only when the build has a music source; its screen draws the collection.
+                    val host = ProviderMusicHosts.yandex()
+                    val ref = musicCollectionStack.lines().lastOrNull { it.isNotBlank() }
+                    if (host != null && ref != null) key(ref) {
+                        host.CollectionScreen(
+                            ref = ref,
+                            onBack = ::closeMusicCollection,
+                            onOpenCollection = ::openMusicCollection
+                        )
+                    }
+                }
                 AppRoute.MusicPlaylist -> MusicPlaylistScreen(
                     accountId = selectedAccountId,
                     telegram = repository,
                     playlistId = musicPlaylistId,
                     onBack = { routeName = musicPlaylistReturnRouteName },
-                    onSearch = { musicSearchReturnRouteName = AppRoute.MusicPlaylist.name; routeName = AppRoute.MusicSearch.name }
+                    onSearch = {
+                        musicSearchReturnRouteName = AppRoute.MusicPlaylist.name
+                        musicSearchFocusOnOpen = false
+                        musicSearchProviderFirst = false
+                        routeName = AppRoute.MusicSearch.name
+                    }
                 )
                 AppRoute.Equalizer -> EqualizerScreen(
                     settings = equalizerSettings,
@@ -2952,12 +3041,15 @@ GlobalSearchScreen(
                 )
                 AppRoute.Experiments -> ExperimentsScreen(
                     onBack = { routeName = AppRoute.Settings.name },
-                    onMusicAccount = { routeName = AppRoute.MusicAccountSignIn.name }
+                    onMusicAccount = {
+                        musicSignInReturnRouteName = AppRoute.Experiments.name
+                        routeName = AppRoute.MusicAccountSignIn.name
+                    }
                 )
                 AppRoute.MusicAccountSignIn -> {
                     // Reachable only when the build has a music source with a sign-in screen.
                     val host = ProviderSettingsHosts.yandex()
-                    if (host != null) host.SignInScreen(onBack = { routeName = AppRoute.Experiments.name })
+                    if (host != null) host.SignInScreen(onBack = { routeName = musicSignInReturnRouteName })
                 }
                 AppRoute.NavigationSettings -> NavigationSettingsScreen(
                     visibility = tabVisibility,

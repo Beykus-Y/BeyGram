@@ -5,7 +5,7 @@
     <string name="yandex_signin_title">Yandex ID</string>
     <string name="yandex_signin_intro">Вход по коду: откроется страница Яндекса, где вы подтвердите доступ. Пароль в BeyGram не вводится.</string>
     <string name="yandex_signin_group">Перед входом</string>
-    <string name="yandex_signin_warning">Яндекс Музыка не открывает доступ к музыке для сторонних приложений. Вход работает так же, как в официальном клиенте, и Яндекс может ограничить аккаунт. Используйте только свой аккаунт с подпиской. Треки Яндекса нельзя пересылать, сохранять и экспортировать.</string>
+    <string name="yandex_signin_warning">Яндекс Музыка не открывает доступ к музыке для сторонних приложений. Вход работает так же, как в официальном клиенте, и Яндекс может ограничить аккаунт. Используйте только свой аккаунт с подпиской. Файлы треков Яндекса нельзя пересылать, сохранять и экспортировать, но можно поделиться ссылкой на трек.</string>
     <string name="yandex_signin_consent">Я понимаю риск и принимаю его</string>
     <string name="yandex_signin_start">Войти через Yandex ID</string>
     <string name="yandex_signin_retry">Попробовать снова</string>
@@ -21,4 +21,21 @@
     <string name="yandex_error_network">Нет соединения. Проверьте сеть и попробуйте снова.</string>
     <string name="yandex_error_unavailable">Сервис недоступен в вашем регионе или временно не отвечает.</string>
     <string name="yandex_error_generic">Не удалось войти. Попробуйте снова.</string>
+    <string name="yandex_search_title">Яндекс Музыка</string>
+    <string name="yandex_search_empty">Ничего не найдено в Яндекс Музыке.</string>
+    <string name="yandex_diag_title">Диагностика ответа</string>
+    <string name="yandex_diag_share">Поделиться</string>
+    <string name="yandex_diag_empty">Ответ сервиса ещё не получен. Обновите карточку аккаунта.</string>
+    <string name="yandex_library_title">Яндекс Музыка</string>
+    <string name="yandex_library_liked">Мне нравится</string>
+    <string name="yandex_library_playlists">Плейлисты</string>
+    <string name="yandex_library_empty">Пока здесь пусто.</string>
+    <string name="yandex_tab_label">Яндекс</string>
+    <string name="yandex_library_signin_title">Яндекс Музыка</string>
+    <string name="yandex_library_signin_text">Войдите в Yandex ID, и здесь появятся ваши лайки и плейлисты.</string>
+    <string name="yandex_library_signin_action">Войти</string>
+    <string name="yandex_library_albums">Альбомы</string>
+    <string name="yandex_library_no_subscription">Без подписки Яндекс Плюс полные треки не играют. Списки, лайки и обложки видны.</string>
+    <string name="yandex_library_retry">Повторить</string>
+    <string name="yandex_library_play">Слушать</string>
 </resources>

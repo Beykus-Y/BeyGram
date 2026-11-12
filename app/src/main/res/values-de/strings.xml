@@ -617,6 +617,7 @@
     <string name="player_source_group">Gruppe</string>
     <string name="player_source_saved">Gespeicherte Nachrichten</string>
     <string name="player_source_local">Datei auf dem Gerät</string>
+    <string name="player_source_provider_yandex">Yandex Music</string>
     <string name="player_menu">Player-Aktionen</string>
     <string name="player_queue">Warteschlange</string>
     <string name="player_equalizer">Equalizer</string>
@@ -634,7 +635,6 @@
     <string name="queue_title">Warteschlange</string>
     <string name="queue_back_to_player">Zum Player</string>
     <string name="queue_count">Titel: %1$d</string>
-    <string name="queue_loading_count">Wird geladen: %1$d</string>
     <string name="queue_shuffled">Zufällige Wiedergabe aktiv: Quellreihenfolge wird angezeigt</string>
     <string name="queue_playback_order_hint">Wiedergabereihenfolge · Nr. ist die Position in der Quelle</string>
     <string name="queue_source_position">Nr. %1$d</string>
@@ -642,8 +642,10 @@
     <string name="queue_now_playing">Wird abgespielt</string>
     <string name="queue_next">Als Nächstes</string>
     <string name="queue_empty">Keine weiteren Titel in der Warteschlange</string>
-    <string name="queue_loading">Wird geladen</string>
     <string name="queue_ready">Bereit</string>
+    <string name="queue_downloading">Wird heruntergeladen</string>
+    <string name="queue_not_downloaded">Nicht heruntergeladen</string>
+    <string name="queue_ready_count">Bereit: %1$d</string>
     <string name="queue_failed">Fehler</string>
     <string name="queue_unavailable">Nicht verfügbar</string>
     <string name="queue_play_next">Als Nächstes abspielen</string>
@@ -746,7 +748,13 @@
     <string name="music_favorite_state_on">In Favoriten</string>
     <string name="music_favorites_title">Favoriten</string>
     <string name="music_find_replacement">Ersatz finden</string>
-    <string name="music_library_title">Meine Musik</string>
+    <string name="music_provider_like">Gefällt mir</string>
+    <string name="music_provider_unlike">Aus „Gefällt mir“ entfernen</string>
+    <string name="music_provider_open_album">Zum Album</string>
+    <string name="music_provider_share_link">Link teilen</string>
+    <string name="music_provider_like_failed">„Gefällt mir“ konnte nicht geändert werden</string>
+    <string name="music_source_telegram">Telegram</string>
+    <string name="music_library_title">Musik</string>
     <string name="music_local_only_note">Die Bibliothek wird nur auf diesem Gerät gespeichert</string>
     <string name="music_move_down">Nach unten verschieben</string>
     <string name="music_move_up">Nach oben verschieben</string>

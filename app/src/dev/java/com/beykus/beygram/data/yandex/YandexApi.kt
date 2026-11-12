@@ -1,6 +1,8 @@
 package com.beykus.beygram.data.yandex
 
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
+import com.beykus.beygram.data.music.provider.ProviderAlbum
+import com.beykus.beygram.data.music.provider.ProviderAlbumTracks
 import com.beykus.beygram.data.music.provider.ProviderAudio
 import com.beykus.beygram.data.music.provider.ProviderLyrics
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
@@ -13,7 +15,12 @@ import java.io.IOException
 import java.net.URLEncoder
 
 /** Account data needed by the provider. */
-internal data class YandexAccount(val uid: String, val displayName: String, val hasPlus: Boolean)
+internal data class YandexAccount(
+    val uid: String,
+    val displayName: String,
+    val hasPlus: Boolean,
+    val plusSummary: String = "",
+)
 
 /**
  * Requests and response mapping for the endpoints the app uses. Every call returns a [ProviderResult]; no
@@ -22,11 +29,7 @@ internal data class YandexAccount(val uid: String, val displayName: String, val 
 internal class YandexApi(private val http: YandexHttp) {
 
     fun account(token: String): ProviderResult<YandexAccount> = call(token, "/account/status") { root ->
-        val account = root.result().optJSONObject("account") ?: return@call null
-        val uid = account.idOf("uid") ?: return@call null
-        val name = account.optString("displayName").ifBlank { account.optString("login") }
-        val hasPlus = root.result().optJSONObject("plus")?.optBoolean("has_plus") ?: false
-        YandexAccount(uid, name, hasPlus)
+        parseAccountStatus(root)
     }
 
     fun search(token: String, text: String, limit: Int): ProviderResult<List<ProviderTrack>> {
@@ -65,19 +68,70 @@ internal class YandexApi(private val http: YandexHttp) {
     fun playlists(token: String, uid: String): ProviderResult<List<ProviderPlaylist>> =
         call(token, "/users/$uid/playlists/list") { root ->
             val array = root.resultArray()
+            (0 until array.length()).mapNotNull { index -> array.optJSONObject(index)?.let { parsePlaylist(it, uid) } }
+        }
+
+    /** Playlists of other users the account liked. Each entry may wrap the playlist in a `playlist` object. */
+    fun likedPlaylists(token: String, uid: String): ProviderResult<List<ProviderPlaylist>> =
+        call(token, "/users/$uid/likes/playlists") { root ->
+            val array = root.resultArray()
             (0 until array.length()).mapNotNull { index ->
                 val item = array.optJSONObject(index) ?: return@mapNotNull null
-                val kind = item.idOf("kind") ?: return@mapNotNull null
-                val title = item.optString("title").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                ProviderPlaylist(
-                    kind = kind,
-                    title = title,
-                    trackCount = item.optInt("trackCount", 0),
-                    coverUrl = coverUrl(item.optJSONObject("cover")?.optString("uri")),
-                    isOwn = item.optJSONObject("owner")?.idOf("uid") == uid,
-                )
+                parsePlaylist(item.optJSONObject("playlist") ?: item, uid)
             }
         }
+
+    /** Liked albums. Each entry may wrap the album in an `album` object. */
+    fun likedAlbums(token: String, uid: String): ProviderResult<List<ProviderAlbum>> =
+        call(token, "/users/$uid/likes/albums", query = "rich=true") { root ->
+            val array = root.resultArray()
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                parseAlbum(item.optJSONObject("album") ?: item)
+            }
+        }
+
+    /** An album with its tracks; the service groups them by disc in `volumes`. */
+    fun album(token: String, albumId: String): ProviderResult<ProviderAlbumTracks> =
+        call(token, "/albums/$albumId/with-tracks") { root ->
+            val result = root.result()
+            val album = parseAlbum(result) ?: return@call null
+            val volumes = result.optJSONArray("volumes") ?: JSONArray()
+            val tracks = (0 until volumes.length()).flatMap { disc -> volumes.optJSONArray(disc)?.tracks().orEmpty() }
+            ProviderAlbumTracks(album, tracks.map { if (it.albumId == null) it.copy(albumId = album.id) else it })
+        }
+
+    fun parsePlaylist(item: JSONObject, uid: String): ProviderPlaylist? {
+        val kind = item.idOf("kind") ?: return null
+        val title = item.optString("title").takeIf { it.isNotBlank() } ?: return null
+        val owner = item.optJSONObject("owner")
+        val ownerUid = owner?.idOf("uid") ?: item.idOf("uid")
+        return ProviderPlaylist(
+            kind = kind,
+            title = title,
+            trackCount = item.optInt("trackCount", 0),
+            coverUrl = coverUrl(item.optJSONObject("cover")?.optString("uri")?.takeIf { it.isNotBlank() } ?: item.optString("ogImage")),
+            isOwn = ownerUid == uid,
+            ownerUid = ownerUid,
+            ownerName = owner?.optString("name")?.takeIf { it.isNotBlank() } ?: owner?.optString("login")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    fun parseAlbum(o: JSONObject): ProviderAlbum? {
+        val id = o.idOf("id") ?: return null
+        val title = o.optString("title").takeIf { it.isNotBlank() } ?: return null
+        val artists = o.optJSONArray("artists")?.let { array ->
+            (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
+        }.orEmpty()
+        return ProviderAlbum(
+            id = id,
+            title = title,
+            artists = artists,
+            year = o.optInt("year", 0).takeIf { it > 0 },
+            trackCount = o.optInt("trackCount", 0),
+            coverUrl = coverUrl(o.optString("coverUri")),
+        )
+    }
 
     fun playlistTracks(token: String, uid: String, kind: String): ProviderResult<List<ProviderTrack>> =
         call(token, "/users/$uid/playlists/$kind") { root ->
@@ -153,7 +207,8 @@ internal class YandexApi(private val http: YandexHttp) {
         val artists = o.optJSONArray("artists")?.let { array ->
             (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
         }.orEmpty()
-        val album = o.optJSONArray("albums")?.optJSONObject(0)?.optString("title")?.takeIf { it.isNotBlank() }
+        val firstAlbum = o.optJSONArray("albums")?.optJSONObject(0)
+        val album = firstAlbum?.optString("title")?.takeIf { it.isNotBlank() }
         return ProviderTrack(
             trackId = id,
             title = title,
@@ -163,6 +218,7 @@ internal class YandexApi(private val http: YandexHttp) {
             coverUrl = coverUrl(o.optString("coverUri")),
             isAvailable = o.optBoolean("available", true),
             liked = null,
+            albumId = firstAlbum?.idOf("id"),
         )
     }
 
@@ -224,4 +280,57 @@ internal class YandexApi(private val http: YandexHttp) {
         raw?.takeIf { it.isNotBlank() }?.let { "https://" + it.replace("%%", "200x200") }
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+}
+
+/**
+ * Reads the account from an /account/status body. The subscription flag is looked for under the keys the
+ * official client has been seen to use; any of them set to true counts as a subscription.
+ */
+internal fun parseAccountStatus(root: JSONObject): YandexAccount? {
+    val result = root.optJSONObject("result") ?: root
+    val account = result.optJSONObject("account") ?: return null
+    val uid = if (account.has("uid") && !account.isNull("uid")) {
+        account.opt("uid").toString().takeIf { it.isNotBlank() }
+    } else {
+        null
+    } ?: return null
+    val name = account.optString("displayName").ifBlank { account.optString("login") }
+    val plus = result.optJSONObject("plus")
+    val subscription = result.optJSONObject("subscription")
+    val hasPlus = listOf(
+        plus?.optBoolean("has_plus") == true,
+        plus?.optBoolean("hasPlus") == true,
+        subscription?.optBoolean("has_plus") == true,
+        subscription?.optBoolean("hasPlus") == true,
+        result.optBoolean("has_plus") == true,
+        account.optBoolean("has_plus") == true,
+    ).any { it }
+    return YandexAccount(uid = uid, displayName = name, hasPlus = hasPlus, plusSummary = plusSummary(result))
+}
+
+/**
+ * Key names and scalar values of the subscription-related objects, with no names, ids, tokens or other
+ * strings. Logged in DEV to compare the service's answer with the flag the app derived.
+ */
+internal fun plusSummary(result: JSONObject): String {
+    val parts = mutableListOf<String>()
+    for (section in listOf("plus", "subscription")) {
+        val obj = result.optJSONObject(section)
+        if (obj == null) {
+            parts += "$section=absent"
+            continue
+        }
+        for (key in obj.keys().asSequence().sorted()) {
+            val value = obj.opt(key)
+            val shown = when (value) {
+                is Boolean, is Number -> value.toString()
+                is JSONObject -> "object"
+                is JSONArray -> "array(${value.length()})"
+                null, JSONObject.NULL -> "null"
+                else -> "string"
+            }
+            parts += "$section.$key=$shown"
+        }
+    }
+    return parts.joinToString(", ")
 }

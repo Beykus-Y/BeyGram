@@ -2,6 +2,7 @@ package com.beykus.beygram.media.bgmix
 
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
@@ -40,6 +41,19 @@ class BgMixPlayer(private val cacheDir: File) {
     private var track: AudioTrack? = null
     private var renderThread: Thread? = null
     private var tickJob: Job? = null
+
+    /**
+     * Serialises each native render with the frame count it adds to, and with the position read used for the alignment,
+     * so the two always describe the same audio. The render thread takes it only around the render call itself.
+     */
+    private val cursorLock = Any()
+
+    // Both guarded by [cursorLock].
+    /** Frames the native render has produced since the output track started. */
+    private var renderedFrames = 0L
+
+    /** [renderedFrames] when the last seek was requested: the frames before it are the audio from before the seek. */
+    private var seekedAtFrames = 0L
 
     @Volatile
     private var running = false
@@ -159,7 +173,38 @@ class BgMixPlayer(private val cacheDir: File) {
         lock.withLock { track?.setVolume(volume.coerceIn(0f, 1f)) }
     }
 
-    fun seek(seconds: Double): Boolean = withHandle(false) { h -> BgMixNative.nativeSeek(h, seconds) }
+    fun seek(seconds: Double): Boolean = withHandle(false) { h ->
+        BgMixNative.nativeSeek(h, seconds).also { ok ->
+            if (ok) synchronized(cursorLock) { seekedAtFrames = renderedFrames }
+        }
+    }
+
+    /**
+     * Where the output is heard now, on the audio clock: the native cursor less the audio that is rendered but not yet
+     * presented by the track. Null while that cannot be told apart: the track has no fresh timestamp yet, or audio from
+     * before the last seek is still playing.
+     */
+    fun audible(): BgMixAudible? = lock.withLock {
+        val h = handle
+        val at = track
+        if (h == 0L || at == null || !running) null else measureAudible(h, at)
+    }
+
+    private fun measureAudible(h: Long, at: AudioTrack): BgMixAudible? = synchronized(cursorLock) {
+        val timestamp = AudioTimestamp()
+        if (!at.getTimestamp(timestamp)) return@synchronized null
+        val ageNs = System.nanoTime() - timestamp.nanoTime
+        if (ageNs < 0L || ageNs > TIMESTAMP_MAX_AGE_NS) return@synchronized null
+        // Frames the track has presented at this moment: its timestamp, carried forward to now.
+        val presented = timestamp.framePosition + ageNs * SAMPLE_RATE / 1e9
+        if (presented < seekedAtFrames) return@synchronized null
+        val status = BgMixStatus.parse(BgMixNative.nativeStatus(h)) ?: return@synchronized null
+        val deck = status.decks.getOrNull(status.master) ?: return@synchronized null
+        BgMixAudible(
+            cursorSeconds = deck.positionSeconds,
+            bufferedSeconds = (renderedFrames - presented).coerceAtLeast(0.0) / SAMPLE_RATE,
+        )
+    }
 
     private fun transport(action: Int) {
         withHandle(Unit) { h -> BgMixNative.nativeTransport(h, action) }
@@ -184,7 +229,9 @@ class BgMixPlayer(private val cacheDir: File) {
         val buffer = FloatArray(RENDER_FRAMES * CHANNELS)
         var idleRenders = 0
         while (running) {
-            val frames = BgMixNative.nativeRender(h, buffer, RENDER_FRAMES)
+            val frames = synchronized(cursorLock) {
+                BgMixNative.nativeRender(h, buffer, RENDER_FRAMES).also { if (it > 0) renderedFrames += it }
+            }
             if (frames <= 0) {
                 // A pause produces no frames. After a short while the loop sleeps longer, so a long pause does not
                 // wake this thread five hundred times a second; resuming is still heard within a few tens of ms.
@@ -254,5 +301,14 @@ class BgMixPlayer(private val cacheDir: File) {
         private const val IDLE_RENDERS_BEFORE_SLOW = 25
         private const val IDLE_SLEEP_MS = 20L
         private const val RENDER_JOIN_TIMEOUT_MS = 1_000L
+
+        /** An older timestamp says nothing about the present: the track may have stalled since it was taken. */
+        private const val TIMESTAMP_MAX_AGE_NS = 60_000_000L
     }
+}
+
+/** Where BG Mix is heard, in seconds: the native cursor and the audio rendered but not yet presented by the track. */
+data class BgMixAudible(val cursorSeconds: Double, val bufferedSeconds: Double) {
+    /** The position of the audio on the speaker right now. */
+    val audibleSeconds: Double get() = cursorSeconds - bufferedSeconds
 }

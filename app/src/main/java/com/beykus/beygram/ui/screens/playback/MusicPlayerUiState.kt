@@ -4,6 +4,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import com.beykus.beygram.playback.PlaybackRepeatMode
+import com.beykus.beygram.playback.LazyTrackProgress
 import com.beykus.beygram.playback.PlaybackState
 import kotlin.math.roundToInt
 
@@ -178,7 +179,10 @@ internal enum class QueueItemStatus {
     CurrentBuffering,
     CurrentEnded,
     CurrentFailed,
-    Loading,
+    /** No file yet and nothing is fetching it: the row shows no label. */
+    NotDownloaded,
+    /** The file is being fetched right now. */
+    Downloading,
     Ready,
     Unavailable
 }
@@ -207,14 +211,17 @@ internal data class MusicQueueUi(
     val playbackOrderApplied: Boolean = false
 ) {
     val size: Int get() = rows.size
-    val loadingCount: Int get() = rows.count { it.status == QueueItemStatus.Loading }
+    val readyCount: Int get() = rows.count { it.status == QueueItemStatus.Ready }
 }
 
 /**
  * Builds the queue panel from the original source order. [playbackOrder] is a list of original queue indices in the
  * exact order Media3 will play them; when supplied, "Next" follows that order instead of the source tail.
  */
-internal fun PlaybackState.musicQueueUi(playbackOrder: List<Int>? = null): MusicQueueUi? {
+internal fun PlaybackState.musicQueueUi(
+    playbackOrder: List<Int>? = null,
+    progress: LazyTrackProgress = LazyTrackProgress()
+): MusicQueueUi? {
     val current = item?.takeIf { it.isMusic } ?: return null
     if (queue.isEmpty()) {
         val single = QueueItemUi(
@@ -244,7 +251,7 @@ internal fun PlaybackState.musicQueueUi(playbackOrder: List<Int>? = null): Music
             index = queueIndex,
             item = entry,
             isCurrent = isCurrent,
-            status = if (isCurrent) currentQueueStatus() else upcomingQueueStatus(entry)
+            status = if (isCurrent) currentQueueStatus() else upcomingQueueStatus(entry, progress)
         )
     }
     val currentRow = rows[index]
@@ -300,11 +307,12 @@ private fun PlaybackState.currentQueueStatus(): QueueItemStatus = when {
     else -> QueueItemStatus.CurrentPaused
 }
 
-private fun upcomingQueueStatus(item: PlaybackItem): QueueItemStatus = when {
+private fun upcomingQueueStatus(item: PlaybackItem, progress: LazyTrackProgress): QueueItemStatus = when {
     item.systemPrivate -> QueueItemStatus.Unavailable
     item.path.isNotBlank() || item.growing != null -> QueueItemStatus.Ready
-    com.beykus.beygram.playback.LazyTrackRegistry.isLazyKey(item.key) -> QueueItemStatus.Loading
-    item.fileId != null -> QueueItemStatus.Loading
+    item.key in progress.ready -> QueueItemStatus.Ready
+    item.key in progress.fetching -> QueueItemStatus.Downloading
+    item.fileId != null || com.beykus.beygram.playback.LazyTrackRegistry.isLazyKey(item.key) -> QueueItemStatus.NotDownloaded
     else -> QueueItemStatus.Unavailable
 }
 
@@ -338,7 +346,9 @@ internal enum class PlaybackSourceKind {
     SavedMessages,
     Channel,
     Group,
-    Chat
+    Chat,
+    /** A track of a connected music service (not a file on the device and not a Telegram chat). */
+    Provider
 }
 
 /** What the "Playing from" header should call the current source. */
@@ -346,8 +356,10 @@ internal fun playbackSourceKind(
     hasOrigin: Boolean,
     isSavedMessages: Boolean,
     isChannel: Boolean,
-    isGroup: Boolean
+    isGroup: Boolean,
+    isProviderTrack: Boolean = false
 ): PlaybackSourceKind = when {
+    isProviderTrack -> PlaybackSourceKind.Provider
     !hasOrigin -> PlaybackSourceKind.Local
     isSavedMessages -> PlaybackSourceKind.SavedMessages
     isChannel -> PlaybackSourceKind.Channel

@@ -308,6 +308,7 @@ internal fun MusicPlaylistScreen(
                         track = track,
                         unavailable = isUnavailable,
                         onClick = if (isUnavailable) null else ({ playAt(index, null) }),
+                        coverPath = if (isUnavailable) null else rememberTelegramTrackCover(telegram, accountId, track.origin),
                         trailing = {
                             if (stored != null) Box {
                                 IconButton(onClick = { trackMenu = track.itemId }) {
@@ -489,45 +490,19 @@ private suspend fun setPlaylistCover(
 /** The cover, the name, the description and the size of the list. */
 @Composable
 private fun PlaylistHeader(title: String, description: String, coverPath: String?, tracks: List<PlaylistTrack>) {
-    val palette = beyGramPalette()
-    Row(
-        Modifier.fillMaxWidth().padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        MusicPlaylistCover(coverPath = coverPath, size = 112.dp, cornerRadius = 20.dp)
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                color = palette.textPrimary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (description.isNotBlank()) Text(
-                description,
-                color = palette.textSecondary,
-                fontSize = 13.sp,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-            Text(
-                summaryText(tracks.size, totalDurationSeconds(tracks)),
-                color = palette.textSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 6.dp)
-            )
-        }
-    }
+    MusicCollectionHeader(
+        title = title,
+        subtitle = description,
+        summary = musicCollectionSummary(tracks.size, totalDurationSeconds(tracks))
+    ) { modifier -> MusicPlaylistCoverFill(coverPath, modifier) }
 }
 
 /** "3 tracks · 1 h 12 min", the length left out for an empty list. */
 @Composable
-private fun summaryText(count: Int, totalSeconds: Long): String {
+internal fun musicCollectionSummary(count: Int, totalSeconds: Long): String {
     val tracks = pluralStringResource(R.plurals.music_track_count, count, count)
-    if (count == 0) return tracks
+    // Without a known total length (a collection still loading its pages) only the count is shown, never "0 min".
+    if (count == 0 || totalSeconds <= 0L) return tracks
     val parts = durationParts(totalSeconds)
     val length = when {
         parts.hours > 0 && parts.minutes > 0 ->

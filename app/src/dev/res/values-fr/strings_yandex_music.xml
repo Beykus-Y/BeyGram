@@ -5,7 +5,7 @@
     <string name="yandex_signin_title">Yandex ID</string>
     <string name="yandex_signin_intro">Connexion par code : la page Yandex s’ouvre et vous y confirmez l’accès. BeyGram ne demande jamais votre mot de passe.</string>
     <string name="yandex_signin_group">Avant de vous connecter</string>
-    <string name="yandex_signin_warning">Yandex Music n’ouvre pas sa musique aux applications tierces. La connexion fonctionne comme sur le client officiel, et Yandex peut restreindre le compte. Utilisez uniquement votre propre compte avec abonnement. Les titres Yandex ne peuvent être ni transmis, ni enregistrés, ni exportés.</string>
+    <string name="yandex_signin_warning">Yandex Music n’ouvre pas sa musique aux applications tierces. La connexion fonctionne comme sur le client officiel, et Yandex peut restreindre le compte. Utilisez uniquement votre propre compte avec abonnement. Les fichiers des titres Yandex ne peuvent être ni transmis, ni enregistrés, ni exportés, mais vous pouvez partager un lien vers le titre.</string>
     <string name="yandex_signin_consent">Je comprends le risque et je l’accepte</string>
     <string name="yandex_signin_start">Se connecter avec Yandex ID</string>
     <string name="yandex_signin_retry">Réessayer</string>
@@ -21,4 +21,21 @@
     <string name="yandex_error_network">Pas de connexion. Vérifiez le réseau et réessayez.</string>
     <string name="yandex_error_unavailable">Le service est indisponible dans votre région ou ne répond pas.</string>
     <string name="yandex_error_generic">Échec de la connexion. Réessayez.</string>
+    <string name="yandex_search_title">Yandex Music</string>
+    <string name="yandex_search_empty">Aucun résultat dans Yandex Music.</string>
+    <string name="yandex_diag_title">Diagnostic de la réponse</string>
+    <string name="yandex_diag_share">Partager</string>
+    <string name="yandex_diag_empty">Aucune réponse du service pour l\'instant. Actualisez la carte du compte.</string>
+    <string name="yandex_library_title">Yandex Music</string>
+    <string name="yandex_library_liked">J\'aime</string>
+    <string name="yandex_library_playlists">Playlists</string>
+    <string name="yandex_library_empty">Rien ici pour l\'instant.</string>
+    <string name="yandex_tab_label">Yandex</string>
+    <string name="yandex_library_signin_title">Yandex Music</string>
+    <string name="yandex_library_signin_text">Connectez-vous avec Yandex ID pour voir ici vos titres aimés et vos playlists.</string>
+    <string name="yandex_library_signin_action">Se connecter</string>
+    <string name="yandex_library_albums">Albums</string>
+    <string name="yandex_library_no_subscription">Sans abonnement Yandex Plus, les titres complets ne sont pas lus. Les listes, les j’aime et les pochettes restent visibles.</string>
+    <string name="yandex_library_retry">Réessayer</string>
+    <string name="yandex_library_play">Lire</string>
 </resources>

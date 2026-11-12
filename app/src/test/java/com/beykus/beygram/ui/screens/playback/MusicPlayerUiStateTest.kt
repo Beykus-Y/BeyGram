@@ -147,9 +147,26 @@ class MusicPlayerUiStateTest {
         assertEquals(second, ui.current!!.item)
         assertEquals(QueueItemStatus.CurrentPlaying, ui.current!!.status)
         assertEquals(listOf(third), ui.upcoming.map { it.item })
-        assertEquals(QueueItemStatus.Loading, ui.upcoming.single().status)
-        assertEquals(1, ui.loadingCount)
+        assertEquals(QueueItemStatus.NotDownloaded, ui.upcoming.single().status)
+        // The header counts every ready row of the queue, the played one before the current track included.
+        assertEquals(1, ui.readyCount)
         assertEquals(2, ui.upcoming.single().index)
+    }
+
+    @Test
+    fun queueRowsFollowTheDownloadProgress() {
+        val first = track("a", path = "/a.mp3")
+        val second = track("b", path = "/b.mp3")
+        val third = track("c", path = "", fileId = 3)
+        val state = playback(second, listOf(first, second, third), 1, playing = true)
+        assertEquals(QueueItemStatus.NotDownloaded, state.musicQueueUi()!!.upcoming.single().status)
+        assertEquals(
+            QueueItemStatus.Downloading,
+            state.musicQueueUi(progress = com.beykus.beygram.playback.LazyTrackProgress(fetching = setOf("c")))!!.upcoming.single().status
+        )
+        val ready = state.musicQueueUi(progress = com.beykus.beygram.playback.LazyTrackProgress(ready = setOf("c")))!!
+        assertEquals(QueueItemStatus.Ready, ready.upcoming.single().status)
+        assertEquals(2, ready.readyCount)
     }
 
     @Test
@@ -242,6 +259,9 @@ class MusicPlayerUiStateTest {
         assertEquals(PlaybackSourceKind.Channel, playbackSourceKind(true, false, true, false))
         assertEquals(PlaybackSourceKind.Group, playbackSourceKind(true, false, false, true))
         assertEquals(PlaybackSourceKind.Chat, playbackSourceKind(true, false, false, false))
+        // A music-service track has no Telegram origin and must never be called a file on the device.
+        assertEquals(PlaybackSourceKind.Provider, playbackSourceKind(false, false, false, false, isProviderTrack = true))
+        assertEquals(PlaybackSourceKind.Provider, playbackSourceKind(true, true, true, true, isProviderTrack = true))
     }
 
     @Test

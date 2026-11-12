@@ -145,6 +145,8 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.pluralForm
 import java.text.NumberFormat
 import kotlin.math.min
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -242,7 +244,7 @@ fun ChatsScreen(
     onArchiveHiddenChange: (Boolean) -> Unit,
     onChatClick: (ChatPreview) -> Unit,
     onGlobalSearch: (String) -> Unit = {},
-    onMusicSearch: () -> Unit = {},
+    onOpenMusic: () -> Unit = {},
     /**
      * Чат, открытый в правой панели: его строка подсвечена и помечена для TalkBack.
      * Пока панель показывает заглушку «Выберите чат», сюда приходит null.
@@ -346,6 +348,34 @@ fun ChatsScreen(
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
     val listState = state.listState
+    LaunchedEffect(state) {
+        // Each scroll runs in its own child job: a drag that cancels the animation must not end the request collector.
+        var scrollJob: Job? = null
+        state.scrollToTopRequests.collect {
+            scrollJob?.cancel()
+            scrollJob = launch { state.listState.animateScrollToItem(0) }
+        }
+    }
+    // The folder chips scroll in their own strip. When the selected chip is not whole in view, the strip moves so its name
+    // is fully visible, and the chip before it stays in view as a hint.
+    val folderTabsState = rememberLazyListState()
+    val folderTabsForScroll = orderedTelegramFolderTabs(folderSnapshot)
+    val selectedFolderTabIndex = folderTabsForScroll.indexOfFirst { tab ->
+        when (tab) {
+            TelegramFolderTab.Main -> activeFolderId == null
+            is TelegramFolderTab.Folder -> activeFolderId == tab.id
+        }
+    }
+    LaunchedEffect(selectedFolderTabIndex, folderTabsForScroll.size) {
+        if (selectedFolderTabIndex < 0) return@LaunchedEffect
+        val info = folderTabsState.layoutInfo
+        val visible = info.visibleItemsInfo.firstOrNull { it.index == selectedFolderTabIndex }
+        val fullyVisible = visible != null &&
+            visible.offset >= info.viewportStartOffset &&
+            visible.offset + visible.size <= info.viewportEndOffset
+        // The selected chip goes to the start edge: its whole name is in view, even when the chip before it is wide.
+        if (!fullyVisible) folderTabsState.animateScrollToItem(selectedFolderTabIndex)
+    }
     val headerCollapseThresholdPx = with(density) { 96.dp.roundToPx() }
     val headerCollapsed by remember(listState, headerCollapseThresholdPx) {
         derivedStateOf {
@@ -492,6 +522,7 @@ fun ChatsScreen(
                     val serverTabs = orderedTelegramFolderTabs(folderSnapshot)
                     LazyRow(
                         modifier = modifier,
+                        state = folderTabsState,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(serverTabs, key = { tab ->
@@ -586,10 +617,10 @@ fun ChatsScreen(
                             onClick = { moreOpen = false; onAccountPicker() }
                         )
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.music_search_action)) },
+                            text = { Text(stringResource(R.string.music_library_title)) },
                             // The music note is the one accent of this menu; the rest stay in ink.
                             leadingIcon = { Icon(Icons.Rounded.MusicNote, null, tint = palette.accentInk) },
-                            onClick = { moreOpen = false; focusManager.clearFocus(); onMusicSearch() }
+                            onClick = { moreOpen = false; focusManager.clearFocus(); onOpenMusic() }
                         )
                         if (folderSnapshot.initialized) DropdownMenuItem(
                             text = { Text(stringResource(R.string.folder_manage_title)) },
@@ -636,7 +667,7 @@ fun ChatsScreen(
                     }
                     Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = design.mainScreen.titleWeight, letterSpacing = design.mainScreen.titleTracking,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.semantics { heading() })
+                        modifier = Modifier.clickable { state.requestScrollToTop() }.semantics { heading() })
                 }
                 if (hasUnreadChats) {
                     androidx.compose.material3.IconButton(
@@ -673,8 +704,8 @@ fun ChatsScreen(
             ChatsConnectionLine(connectionStatus)
 
             Spacer(Modifier.height(design.mainScreen.headerGap))
-            // Music search is reachable directly from the daily chat list; it reuses the same
-            // MusicSearch route, account context and queue as Settings and the full player.
+            // The music screen is reachable directly from the daily chat list: the note always opens it, the same
+            // screen as Settings → Music. Its search field opens the music search.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
                     SearchField(
@@ -687,13 +718,13 @@ fun ChatsScreen(
                     onClick = {
                         // Leaving a focused search field should dismiss its IME before the route changes.
                         focusManager.clearFocus()
-                        onMusicSearch()
+                        onOpenMusic()
                     },
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         Icons.Rounded.MusicNote,
-                        contentDescription = stringResource(R.string.music_search_action),
+                        contentDescription = stringResource(R.string.music_library_title),
                         tint = palette.accentInk,
                         modifier = Modifier.size(24.dp)
                     )

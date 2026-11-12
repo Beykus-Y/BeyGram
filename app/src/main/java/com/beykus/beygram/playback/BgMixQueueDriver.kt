@@ -1,5 +1,6 @@
 package com.beykus.beygram.playback
 
+import com.beykus.beygram.media.bgmix.BgMixAudible
 import com.beykus.beygram.media.bgmix.BgMixPlayer
 import com.beykus.beygram.media.bgmix.BgMixStatus
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +52,18 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     val queueItems: List<PlaybackItem> get() = items
 
     fun itemAt(index: Int): PlaybackItem? = items.getOrNull(index)
+
+    /**
+     * Gives every queue item with [key] the cover [path], in the active session and in the staged one. The engine copies
+     * the queue from here on every status tick, so a cover that arrives later must reach this copy too, or the next tick
+     * wipes it from the player, the notification and the lock screen.
+     */
+    fun updateArtwork(key: String, path: String) {
+        items = items.withArtwork(key, path)
+        staged = staged?.let { next ->
+            Staged(next.player, next.items.withArtwork(key, path), next.indexByNativeId, next.appendedUntil, next.single)
+        }
+    }
 
     fun indexOfNative(id: Long): Int? = indexByNativeId[id]
 
@@ -137,10 +150,18 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     /** Seeks the staged session before it plays; false when its first track is not loaded yet. */
     fun seekStaged(seconds: Double): Boolean = staged?.player?.seek(seconds) ?: false
 
+    /** Output volume of the staged session: it starts silent and rises during the handover crossfade. */
+    fun setStagedVolume(volume: Float) {
+        staged?.player?.setOutputVolume(volume)
+    }
+
     /** Starts output of the staged session while the caller still plays; it becomes active only with [commitStaged]. */
     fun playStaged() {
         staged?.player?.play()
     }
+
+    /** Where the staged session is heard, measured against the audio clock; null while that cannot be told yet. */
+    fun stagedAudible(): BgMixAudible? = staged?.player?.audible()
 
     /**
      * Adds the queue items that have become complete files since the session started, in queue order: an item that
@@ -257,3 +278,21 @@ internal fun bgMixReadyPrefix(ready: List<PlaybackItem?>, startIndex: Int): List
  * holds only the items that are known now, so it would end at the edge of the first page.
  */
 internal fun bgMixAdmitsSource(source: PlaybackQueueSource?): Boolean = source?.loadMore == null
+
+/** The queue with the cover [path] on every item of [key]; other items are returned as they are. */
+internal fun List<PlaybackItem>.withArtwork(key: String, path: String): List<PlaybackItem> =
+    map { item -> if (item.key == key && item.artworkPath != path) item.copy(artworkPath = path) else item }
+
+/**
+ * How far BG Mix is ahead of ExoPlayer, in milliseconds: positive when the audio BG Mix plays now is further into the
+ * track than ExoPlayer's position at the same moment.
+ */
+internal fun bgMixAlignmentOffsetMs(audible: BgMixAudible, exoMs: Double): Double =
+    audible.audibleSeconds * 1_000.0 - exoMs
+
+/**
+ * Where BG Mix must be sought so that, once the audio it has already queued has played out, it sits at ExoPlayer's
+ * position: ExoPlayer plays on through that same queued time meanwhile.
+ */
+internal fun bgMixAlignmentSeekMs(audible: BgMixAudible, exoMs: Double): Double =
+    exoMs + audible.bufferedSeconds * 1_000.0

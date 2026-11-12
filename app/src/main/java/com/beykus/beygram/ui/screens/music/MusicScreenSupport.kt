@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -55,6 +56,8 @@ import com.beykus.beygram.data.music.resolvePlaylistTracks
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
+import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackOrigin
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
@@ -157,18 +160,50 @@ internal fun musicCollectionTitleRes(kind: MusicCollectionKind): Int = when (kin
     MusicCollectionKind.Lately -> R.string.music_collection_lately
 }
 
-/** A track row: a placeholder picture, title, performer and length. [unavailable] dims the row and replaces the performer. */
+/**
+ * A track row: cover (or the note placeholder), title, performer and length. [unavailable] dims the row and replaces
+ * the performer. The row of the track the player has now gets the accent title and a sound mark over its cover.
+ */
 @Composable
 internal fun MusicTrackRow(
     track: PlaylistTrack,
     unavailable: Boolean,
     onClick: (() -> Unit)?,
+    coverPath: String? = null,
     trailing: @Composable () -> Unit = {}
+) {
+    val subtitle = if (unavailable) stringResource(R.string.music_unavailable) else track.performer
+    MusicTrackRowLayout(
+        title = track.title,
+        subtitle = subtitle,
+        durationSeconds = track.durationSeconds,
+        coverPath = coverPath,
+        unavailable = unavailable,
+        current = rememberIsCurrentTrack(track.origin),
+        onClick = onClick,
+        trailing = trailing
+    )
+}
+
+/**
+ * The one track row of the music screens, for every source: cover, title, subtitle and length. [current] gives the
+ * accent title and a sound mark over the cover; [unavailable] dims the row.
+ */
+@Composable
+internal fun MusicTrackRowLayout(
+    title: String,
+    subtitle: String,
+    durationSeconds: Int,
+    coverPath: String?,
+    unavailable: Boolean,
+    current: Boolean,
+    onClick: (() -> Unit)?,
+    trailing: @Composable () -> Unit = {},
+    number: Int? = null
 ) {
     val palette = beyGramPalette()
     val untitled = stringResource(R.string.music_untitled)
-    val subtitle = if (unavailable) stringResource(R.string.music_unavailable) else track.performer
-    val duration = formatClockDuration(track.durationSeconds)
+    val duration = formatClockDuration(durationSeconds)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 64.dp)
             .alpha(if (unavailable) 0.45f else 1f)
@@ -176,15 +211,44 @@ internal fun MusicTrackRow(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier.size(44.dp).clip(styledShape(12.dp)).background(palette.accentSoft),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Rounded.MusicNote, null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
+        // An album lists its tracks by number: the cover would be the same on every row.
+        if (number != null) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            if (current) {
+                Icon(Icons.Rounded.GraphicEq, stringResource(R.string.queue_now_playing), tint = palette.accent, modifier = Modifier.size(22.dp))
+            } else {
+                Text(number.toString(), color = palette.textSecondary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            }
+        } else Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            TrackArtwork(
+                artworkPath = coverPath,
+                audioPath = null,
+                modifier = Modifier.size(44.dp),
+                background = palette.accentSoft,
+                tint = palette.accentInk,
+                symbolSize = 22.dp,
+                cornerRadius = 12.dp
+            )
+            if (current) Box(
+                Modifier.size(44.dp).clip(styledShape(12.dp)).background(Color.Black.copy(alpha = 0.42f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Rounded.GraphicEq,
+                    stringResource(R.string.queue_now_playing),
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(track.title.ifBlank { untitled }, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                title.ifBlank { untitled },
+                color = if (current) palette.accent else palette.textPrimary,
+                fontWeight = if (current) FontWeight.SemiBold else null,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             if (subtitle.isNotBlank()) Text(
                 subtitle,
                 color = palette.textSecondary,
@@ -201,6 +265,29 @@ internal fun MusicTrackRow(
         )
         trailing()
     }
+}
+
+/** Whether the player holds the Telegram message [origin] right now, playing or paused. */
+@Composable
+internal fun rememberIsCurrentTrack(origin: PlaybackOrigin?): Boolean {
+    if (origin == null) return false
+    val flow = remember(origin) {
+        PlaybackEngine.state.map { state ->
+            val playing = state.item?.origin
+            playing != null && playing.chatId == origin.chatId && playing.messageId == origin.messageId &&
+                playing.accountId == origin.accountId
+        }.distinctUntilChanged()
+    }
+    val current by flow.collectAsStateWithLifecycle(initialValue = false)
+    return current
+}
+
+/** Whether the player holds the item with [key] right now, playing or paused. Used by source tracks without a chat. */
+@Composable
+internal fun rememberIsCurrentItem(key: String): Boolean {
+    val flow = remember(key) { PlaybackEngine.state.map { it.item?.key == key }.distinctUntilChanged() }
+    val current by flow.collectAsStateWithLifecycle(initialValue = false)
+    return current
 }
 
 /** Heading of a section, with an optional action on the right. */

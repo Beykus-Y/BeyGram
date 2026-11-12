@@ -5,7 +5,7 @@
     <string name="yandex_signin_title">Yandex ID</string>
     <string name="yandex_signin_intro">Sign in with a code: the Yandex page opens and you confirm access there. BeyGram never asks for your password.</string>
     <string name="yandex_signin_group">Before you sign in</string>
-    <string name="yandex_signin_warning">Yandex Music does not open its music to third-party apps. Signing in works the same way as the official client, and Yandex may restrict the account. Use only your own account with a subscription. Yandex tracks cannot be forwarded, saved or exported.</string>
+    <string name="yandex_signin_warning">Yandex Music does not open its music to third-party apps. Signing in works the same way as the official client, and Yandex may restrict the account. Use only your own account with a subscription. Yandex track files cannot be forwarded, saved or exported, but you can share a link to a track.</string>
     <string name="yandex_signin_consent">I understand the risk and accept it</string>
     <string name="yandex_signin_start">Sign in with Yandex ID</string>
     <string name="yandex_signin_retry">Try again</string>
@@ -21,4 +21,21 @@
     <string name="yandex_error_network">No connection. Check your network and try again.</string>
     <string name="yandex_error_unavailable">The service is unavailable in your region or is not responding.</string>
     <string name="yandex_error_generic">Sign-in failed. Try again.</string>
+    <string name="yandex_search_title">Yandex Music</string>
+    <string name="yandex_search_empty">Nothing found in Yandex Music.</string>
+    <string name="yandex_diag_title">Response diagnostics</string>
+    <string name="yandex_diag_share">Share</string>
+    <string name="yandex_diag_empty">No service response yet. Refresh the account card.</string>
+    <string name="yandex_library_title">Yandex Music</string>
+    <string name="yandex_library_liked">Liked</string>
+    <string name="yandex_library_playlists">Playlists</string>
+    <string name="yandex_library_empty">Nothing here yet.</string>
+    <string name="yandex_tab_label">Yandex</string>
+    <string name="yandex_library_signin_title">Yandex Music</string>
+    <string name="yandex_library_signin_text">Sign in with Yandex ID to see your liked tracks and playlists here.</string>
+    <string name="yandex_library_signin_action">Sign in</string>
+    <string name="yandex_library_albums">Albums</string>
+    <string name="yandex_library_no_subscription">Without a Yandex Plus subscription full tracks do not play. Lists, likes and covers are still shown.</string>
+    <string name="yandex_library_retry">Retry</string>
+    <string name="yandex_library_play">Play</string>
 </resources>

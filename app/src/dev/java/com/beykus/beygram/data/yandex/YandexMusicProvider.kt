@@ -1,9 +1,12 @@
 package com.beykus.beygram.data.yandex
 
+import android.util.Log
 import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviderState
+import com.beykus.beygram.data.music.provider.ProviderAlbum
+import com.beykus.beygram.data.music.provider.ProviderAlbumTracks
 import com.beykus.beygram.data.music.provider.ProviderAudio
 import com.beykus.beygram.data.music.provider.ProviderLyrics
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
@@ -33,6 +36,8 @@ internal class YandexMusicProvider(
     private val api: YandexApi,
     private val auth: YandexAuth,
     private val now: () -> Long = { System.currentTimeMillis() },
+    /** Deletes what the app keeps about the account besides the session, such as the library snapshot. */
+    private val onSignedOut: () -> Unit = {},
 ) : MusicProvider {
 
     private val mutableState = MutableStateFlow<MusicProviderState>(MusicProviderState.SignedOut)
@@ -82,6 +87,7 @@ internal class YandexMusicProvider(
                 when (val account = api.account(tokens.accessToken)) {
                     is ProviderResult.Failure -> YandexSignInPoll.Failed(account.failure)
                     is ProviderResult.Success -> {
+                        logSubscription(account.value)
                         val session = YandexSession(
                             accessToken = tokens.accessToken,
                             refreshToken = tokens.refreshToken,
@@ -101,6 +107,18 @@ internal class YandexMusicProvider(
         }
     }
 
+    /** Last subscription status seen from the service, for the on-screen diagnostics row. No tokens or names. */
+    @Volatile
+    var subscriptionDiagnostics: String? = null
+        private set
+
+    /** DEV diagnostics: the flag the app derived and the key names the service sent. No tokens or names. */
+    private fun logSubscription(account: YandexAccount) {
+        val line = "hasPlus=${account.hasPlus}; ${account.plusSummary}"
+        Log.i(TAG_SUBSCRIPTION, line)
+        subscriptionDiagnostics = line
+    }
+
     /** Removes the session from this device. The token is not revoked on the service side. */
     suspend fun signOut() = withContext(Dispatchers.IO) {
         clearSession()
@@ -113,6 +131,7 @@ internal class YandexMusicProvider(
             store.clear()
             mutableState.value = MusicProviderState.SignedOut
         }
+        runCatching { onSignedOut() }
     }
 
     /** Reloads uid, name and subscription from the service, for the account card. */
@@ -120,6 +139,7 @@ internal class YandexMusicProvider(
         when (val account = api.account(session.accessToken)) {
             is ProviderResult.Failure -> account
             is ProviderResult.Success -> {
+                logSubscription(account.value)
                 val updated = session.copy(
                     uid = account.value.uid,
                     displayName = account.value.displayName,
@@ -163,8 +183,23 @@ internal class YandexMusicProvider(
     override suspend fun playlists(): ProviderResult<List<ProviderPlaylist>> =
         withSession { s -> api.playlists(s.accessToken, s.uid) }
 
-    override suspend fun playlistTracks(kind: String): ProviderResult<List<ProviderTrack>> =
-        withSession { s -> api.playlistTracks(s.accessToken, s.uid, kind) }
+    override suspend fun playlistTracks(kind: String, ownerUid: String?): ProviderResult<List<ProviderTrack>> =
+        withSession { s -> api.playlistTracks(s.accessToken, ownerUid ?: s.uid, kind) }
+
+    override suspend fun likedTrackIds(): ProviderResult<List<String>> =
+        withSession { s -> api.likedTrackIds(s.accessToken, s.uid) }
+
+    override suspend fun tracks(ids: List<String>): ProviderResult<List<ProviderTrack>> =
+        if (ids.isEmpty()) ProviderResult.Success(emptyList()) else withSession { s -> api.tracksByIds(s.accessToken, ids) }
+
+    override suspend fun likedPlaylists(): ProviderResult<List<ProviderPlaylist>> =
+        withSession { s -> api.likedPlaylists(s.accessToken, s.uid) }
+
+    override suspend fun likedAlbums(): ProviderResult<List<ProviderAlbum>> =
+        withSession { s -> api.likedAlbums(s.accessToken, s.uid) }
+
+    override suspend fun album(albumId: String): ProviderResult<ProviderAlbumTracks> =
+        withSession { s -> api.album(s.accessToken, albumId) }
 
     override suspend fun lyrics(trackId: String): ProviderResult<ProviderLyrics> =
         withSession { s -> api.lyrics(s.accessToken, trackId) }
@@ -252,3 +287,5 @@ internal class YandexMusicProvider(
         const val REFRESH_MARGIN_MS = 5 * 60_000L
     }
 }
+
+private const val TAG_SUBSCRIPTION = "BeyGramYandexPlus"

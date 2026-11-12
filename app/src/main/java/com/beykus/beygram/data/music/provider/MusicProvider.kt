@@ -13,7 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
  *   not returned in models and not stored in playback sessions. [ProviderAudio.url] is short-lived; request it
  *   right before playback and never persist it.
  * - Tracks from a provider are never forwarded, exported or added to a profile by the app. The UI decides this
- *   from [ProviderTrack.key] prefix, see [YANDEX_TRACK_KEY_PREFIX].
+ *   from [ProviderTrack.key] prefix, see [YANDEX_TRACK_KEY_PREFIX]. Only a link to the track's page on the service
+ *   may be shared, as text (see [ProviderTracks.shareLink]).
  */
 interface MusicProvider {
     /** Current sign-in state. Updated by the implementation after sign-in, sign-out and token expiry. */
@@ -23,12 +24,33 @@ interface MusicProvider {
 
     suspend fun likedTracks(): ProviderResult<List<ProviderTrack>>
 
+    /** Ids of the liked tracks, newest first. Cheap: the tracks themselves come from [tracks], a page at a time. */
+    suspend fun likedTrackIds(): ProviderResult<List<String>> = ProviderResult.Failure(MusicProviderFailure.Unavailable)
+
+    /** Tracks by id, in the order given. */
+    suspend fun tracks(ids: List<String>): ProviderResult<List<ProviderTrack>> =
+        ProviderResult.Failure(MusicProviderFailure.Unavailable)
+
+    /** Playlists of other users the account liked. */
+    suspend fun likedPlaylists(): ProviderResult<List<ProviderPlaylist>> =
+        ProviderResult.Failure(MusicProviderFailure.Unavailable)
+
+    /** Albums the account liked, newest first. */
+    suspend fun likedAlbums(): ProviderResult<List<ProviderAlbum>> = ProviderResult.Failure(MusicProviderFailure.Unavailable)
+
+    /** One album with its tracks, in disc and track order. */
+    suspend fun album(albumId: String): ProviderResult<ProviderAlbumTracks> =
+        ProviderResult.Failure(MusicProviderFailure.Unavailable)
+
     suspend fun setLiked(trackId: String, liked: Boolean): ProviderResult<Unit>
 
     suspend fun playlists(): ProviderResult<List<ProviderPlaylist>>
 
-    /** Tracks of one playlist. [ProviderPlaylist.kind] is the playlist id inside the provider. */
-    suspend fun playlistTracks(kind: String): ProviderResult<List<ProviderTrack>>
+    /**
+     * Tracks of one playlist. [ProviderPlaylist.kind] is the playlist id inside the provider; [ownerUid] is its owner,
+     * null for the account's own playlists.
+     */
+    suspend fun playlistTracks(kind: String, ownerUid: String? = null): ProviderResult<List<ProviderTrack>>
 
     suspend fun lyrics(trackId: String): ProviderResult<ProviderLyrics>
 
@@ -70,6 +92,8 @@ data class ProviderTrack(
     val isAvailable: Boolean,
     /** Known only where the provider reports likes (liked list, track info). Null when unknown. */
     val liked: Boolean? = null,
+    /** Album of the track inside the provider, for opening the album. Null when the track has none. */
+    val albumId: String? = null,
 ) {
     /** Stable player key for this track: `ym:<trackId>`. */
     val key: String get() = YANDEX_TRACK_KEY_PREFIX + trackId
@@ -85,7 +109,26 @@ data class ProviderPlaylist(
     val coverUrl: String?,
     /** True for playlists the account owns, false for playlists it only follows. */
     val isOwn: Boolean,
+    /** Provider id of the owner. Needed to load the tracks of a playlist the account only follows. */
+    val ownerUid: String? = null,
+    /** Name of the owner, shown under playlists of other users. */
+    val ownerName: String? = null,
 )
+
+data class ProviderAlbum(
+    /** Album id inside the provider. */
+    val id: String,
+    val title: String,
+    val artists: List<String>,
+    /** Release year, null when unknown. */
+    val year: Int?,
+    val trackCount: Int,
+    val coverUrl: String?,
+) {
+    val performer: String get() = artists.joinToString(", ")
+}
+
+data class ProviderAlbumTracks(val album: ProviderAlbum, val tracks: List<ProviderTrack>)
 
 data class ProviderLyrics(
     /** Time-synced lines, empty when the track has only plain text. */
