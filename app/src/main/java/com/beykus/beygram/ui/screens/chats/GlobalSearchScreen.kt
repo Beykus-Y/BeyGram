@@ -162,6 +162,8 @@ fun GlobalSearchScreen(
             } + chatItems)
                 .distinctBy { it.id }
     }
+    val displayedLocalChats = if (category == GlobalSearchCategory.People)
+        localChatItems.filter { !it.isGroup && !it.isChannel } else localChatItems
     val visibleHits = hits.takeIf {
         session.completedRequest == (query to filter) && session.completedGeneration == generation
     }.orEmpty().filterNot { chatContexts[it.chatId]?.isSecret == true }
@@ -411,17 +413,17 @@ fun GlobalSearchScreen(
             }
         } else {
             LazyColumn(Modifier.fillMaxWidth().weight(1f), state = session.listState) {
-                if (showChats) {
+                if (showChats || showPeople) {
                 item("chats-header") {
                     SearchSectionHeader(
                         title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalChat)),
-                        count = localChatItems.size,
+                        count = displayedLocalChats.size,
                         loading = session.chats.searching.value,
                         failed = session.chats.failed.value,
                         onRetry = { session.chats.retryVersion.value++ }
                     )
                 }
-                if (localChatItems.isEmpty()) {
+                if (displayedLocalChats.isEmpty()) {
                     item("chats-state") {
                         SearchSourceState(
                             loading = session.chats.searching.value,
@@ -432,7 +434,7 @@ fun GlobalSearchScreen(
                         )
                     }
                 } else {
-                    items(localChatItems, key = { "chat:${it.id}" }) { chat ->
+                    items(displayedLocalChats, key = { "chat:${it.id}" }) { chat ->
                         GlobalChatRow(chat, GlobalSearchChatScope.Local, observeFile, downloadFile) {
                             openSearchChat(chat, GlobalSearchChatScope.Local, onOpenChat, onOpenPublicChat)
                         }
