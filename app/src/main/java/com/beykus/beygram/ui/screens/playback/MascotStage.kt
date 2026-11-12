@@ -27,7 +27,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.media.bgmotion.BgMascotManager
 import com.beykus.beygram.media.bgmotion.BgMascotSettingsStore
@@ -86,6 +89,7 @@ internal fun MascotOverlay(
     val debugLines = remember { mutableStateOf(emptyList<String>()) }
     var fps by remember { mutableIntStateOf(0) }
     var frameMs by remember { mutableStateOf(0.0f) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(item.key, enabled) {
         manager.setVisible(true)
@@ -93,57 +97,67 @@ internal fun MascotOverlay(
     }
 
     val ready = uiState as? BgMascotUiState.Ready
-    LaunchedEffect(item.key, ready?.handle, playing, canAnimate, staticPositionKey) {
+    LaunchedEffect(item.key, ready?.handle, playing, canAnimate, staticPositionKey, lifecycleOwner) {
         if (ready == null) {
+            // The rig is hidden until a session is ready; clear the old pose so
+            // the next reveal cannot flash the previous track.
+            buffer.values.fill(0f)
+            buffer.publish()
             debugLines.value = emptyList()
             return@LaunchedEffect
         }
-        if (!canAnimate || !playing) {
-            // Static pose while paused or when motion is disabled. One sample is
-            // enough; there is no reason to wake the CPU/GPU every frame.
-            sampleOnce(manager, buffer, System.nanoTime())
-            debugLines.value = debugLinesFor(buffer, ready, 0, 0f)
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             fps = 0
             frameMs = 0f
-            return@LaunchedEffect
-        }
+            if (!canAnimate || !playing) {
+                // Static pose while paused or when motion is disabled. One sample is
+                // enough; there is no reason to wake the CPU/GPU every frame.
+                sampleOnce(manager, buffer, System.nanoTime())
+                debugLines.value = debugLinesFor(buffer, ready, 0, 0f)
+                return@repeatOnLifecycle
+            }
 
-        var lastFrame = 0L
-        var lastFrameMs = 0f
-        var framesInWindow = 0
-        var windowStart = 0L
-        var lastDebugUpdate = 0L
-        while (isActive) {
-            withFrameNanos { now ->
-                if (lastFrame != 0L) {
-                    lastFrameMs = (now - lastFrame) / 1_000_000.0f
-                }
-                lastFrame = now
-                sampleOnce(manager, buffer, now)
-                framesInWindow++
-                if (windowStart == 0L) windowStart = now
-                val elapsed = now - windowStart
-                if (elapsed >= 500_000_000L) {
-                    fps = ((framesInWindow * 1_000_000_000L) / elapsed).toInt()
-                    framesInWindow = 0
-                    windowStart = now
-                }
-                if (now - lastDebugUpdate >= 250_000_000L) {
-                    lastDebugUpdate = now
-                    frameMs = lastFrameMs
-                    debugLines.value = debugLinesFor(buffer, ready, fps, lastFrameMs)
+            var lastFrame = 0L
+            var lastFrameMs = 0f
+            var framesInWindow = 0
+            var windowStart = 0L
+            var lastDebugUpdate = 0L
+            while (isActive) {
+                withFrameNanos { now ->
+                    if (lastFrame != 0L) {
+                        lastFrameMs = (now - lastFrame) / 1_000_000.0f
+                    }
+                    lastFrame = now
+                    sampleOnce(manager, buffer, now)
+                    framesInWindow++
+                    if (windowStart == 0L) windowStart = now
+                    val elapsed = now - windowStart
+                    if (elapsed >= 500_000_000L) {
+                        fps = ((framesInWindow * 1_000_000_000L) / elapsed).toInt()
+                        framesInWindow = 0
+                        windowStart = now
+                    }
+                    if (now - lastDebugUpdate >= 250_000_000L) {
+                        lastDebugUpdate = now
+                        frameMs = lastFrameMs
+                        debugLines.value = debugLinesFor(buffer, ready, fps, lastFrameMs)
+                    }
                 }
             }
         }
     }
 
-    Box(modifier) {
-        MascotTestRig(
-            buffer = buffer,
-            modifier = Modifier.matchParentSize(),
-            debugLines = { debugLines.value },
-            showDebug = debugOverlay
-        )
+    // Keep the cover visible until a real session is ready. Preparing/error/unavailable
+    // states must not replace the artwork with a motionless mannequin.
+    if (ready != null) {
+        Box(modifier) {
+            MascotTestRig(
+                buffer = buffer,
+                modifier = Modifier.matchParentSize(),
+                debugLines = { debugLines.value },
+                showDebug = debugOverlay
+            )
+        }
     }
 }
 
@@ -161,6 +175,7 @@ internal fun MascotToggleChip(
 
     val palette = beyGramPalette()
     val description = stringResource(if (showInPlayer) R.string.player_mascot_hide else R.string.player_mascot_show)
+    val debugLabel = stringResource(R.string.settings_mascot_debug_title)
     Surface(
         modifier = modifier
             .size(36.dp)
@@ -168,6 +183,7 @@ internal fun MascotToggleChip(
             .semantics { contentDescription = description }
             .combinedClickable(
                 onClick = { settings.setShowInPlayer(context, !showInPlayer) },
+                onLongClickLabel = debugLabel,
                 onLongClick = { settings.setDebugOverlay(context, !debugOverlay) }
             ),
         shape = CircleShape,
@@ -212,10 +228,11 @@ private fun debugLinesFor(
     }
     lines += String.format(
         Locale.US,
-        "BPM %.1f · bar %d · beat %d",
+        "BPM %.1f · bar %d · beat %d/%d",
         v[MascotFrameLayout.BPM],
         v[MascotFrameLayout.BAR].toInt(),
-        v[MascotFrameLayout.BEAT_IN_BAR].toInt()
+        v[MascotFrameLayout.BEAT_IN_BAR].toInt(),
+        v[MascotFrameLayout.BEATS_PER_BAR].toInt().coerceIn(1, 8)
     )
     lines += String.format(
         Locale.US,

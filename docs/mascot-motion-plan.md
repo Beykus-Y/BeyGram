@@ -432,7 +432,7 @@ struct MascotMusicFrame {
 ```
 
 На JNI-границе кадр сериализуется в `MascotFrameLayout` (`MascotFrameBuffer.values`,
-36 float: 24 поля позы/движения + 12 полей музыки/интенсивности), чтобы не аллоцировать
+37 float: 24 поля позы/движения + 13 полей музыки/интенсивности), чтобы не аллоцировать
 массивы на каждом кадре. Порядок индексов фиксирован; новые поля только дописываются.
 
 Источники:
@@ -481,7 +481,7 @@ pose guarantee BG Motion остаётся в силе.
   - хранит `Choreography`/`MusicalTimeline` в сессии.
 - `nativeSample2D(handle, mediaTime, out)`:
   - `ChoreographySampler().sample(choreography, mediaTime + playbackOffsetSeconds)`;
-  - складывает позу и музыку в `out` по `MascotFrameLayout` (36 float);
+  - складывает позу и музыку в `out` по `MascotFrameLayout` (37 float);
   - `move` — ordinal, `accented` — 0/1; layout нельзя менять без версии.
 - Стиль 2.0 один; разнообразие — только `ChoreographyStyle.intensity`/`bassInfluence`.
   Это не authored-клипы и не финальная хореография.

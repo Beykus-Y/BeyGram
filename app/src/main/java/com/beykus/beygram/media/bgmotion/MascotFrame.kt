@@ -60,8 +60,9 @@ object MascotFrameLayout {
     const val SECTION_KIND = 33
     const val ANALYZED = 34
     const val INTENSITY = 35
+    const val BEATS_PER_BAR = 36
 
-    const val FLOAT_COUNT = 36
+    const val FLOAT_COUNT = 37
 }
 
 /**
@@ -163,4 +164,9 @@ fun FloatArray.sectionKind(): MascotSectionKind =
 fun FloatArray.isAnalyzed(): Boolean = this[MascotFrameLayout.ANALYZED] >= 0.5f
 fun FloatArray.analyzed(): Boolean = isAnalyzed()
 fun FloatArray.intensity(): Float = this[MascotFrameLayout.INTENSITY]
+fun FloatArray.beatsPerBar(): Int {
+    val value = this[MascotFrameLayout.BEATS_PER_BAR]
+    if (!value.isFinite()) return 4
+    return value.roundToInt().coerceIn(1, 8)
+}
 fun FloatArray.move(): MascotMove = MascotMove.fromOrdinal(this[MascotFrameLayout.MOVE_ORDINAL])

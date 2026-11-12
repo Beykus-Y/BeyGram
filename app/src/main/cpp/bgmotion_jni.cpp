@@ -29,7 +29,7 @@
 namespace {
 
 // Stable native -> Kotlin float contract. Keep in sync with MascotFrameLayout.
-constexpr int kMascotFrameFloats = 36;
+constexpr int kMascotFrameFloats = 37;
 
 struct MascotSession {
     mutable std::mutex mutex;
@@ -324,6 +324,8 @@ Java_com_beykus_beygram_media_bgmotion_BgMascotNative_nativeSample2D(
         values[33] = static_cast<float>(static_cast<int>(sectionKind));
         values[34] = analyzed ? 1.0f : 0.0f;
         values[35] = session->intensity;
+        values[36] = static_cast<float>(
+            timeline.valid() ? timeline.beatsPerBar() : session->analysis->beatsPerBar);
     }
 
     env->SetFloatArrayRegion(out, 0, kMascotFrameFloats, values.data());
@@ -379,6 +381,11 @@ Java_com_beykus_beygram_media_bgmotion_BgMascotNative_nativeStatusJson(
         return env->NewStringUTF("{\"available\":false,\"message\":\"Mascot session not found\"}");
     }
 
+    // Registry counters are read before the session lock: keep the lock order
+    // registry -> session, never session -> registry.
+    const std::size_t analysisHandles = beygram::bg::AnalysisRegistry::instance().liveHandles();
+    const std::size_t sessions = SessionRegistry::instance().liveSessions();
+
     std::lock_guard<std::mutex> lock(session->mutex);
     if (session->destroyed || !session->analysis) {
         return env->NewStringUTF("{\"available\":false,\"message\":\"Mascot session destroyed\"}");
@@ -405,6 +412,7 @@ Java_com_beykus_beygram_media_bgmotion_BgMascotNative_nativeStatusJson(
     json << "\"mediaTime\":" << time << ",";
     json << "\"beat\":" << (timeline.valid() ? timeline.beatAt(time) : 0.0) << ",";
     json << "\"beatInBar\":" << (timeline.valid() ? timeline.beatInBarAt(time) : 0) << ",";
+    json << "\"beatsPerBar\":" << (timeline.valid() ? timeline.beatsPerBar() : session->analysis->beatsPerBar) << ",";
     json << "\"bar\":" << (timeline.valid() ? timeline.barAt(time) : 0) << ",";
     json << "\"phraseLoudness\":" << (timeline.valid() ? timeline.phraseLoudnessAt(time) : -1.0f) << ",";
     json << "\"accent\":" << (timeline.valid() ? timeline.accentAt(time) : 0.0f) << ",";
@@ -414,8 +422,8 @@ Java_com_beykus_beygram_media_bgmotion_BgMascotNative_nativeStatusJson(
     json << "\"sectionKind\":" << static_cast<int>(sectionKindAt(*session->analysis, time)) << ",";
     json << "\"move\":\"" << moveName(pose.move) << "\",";
     json << "\"accented\":" << (pose.accented ? "true" : "false") << ",";
-    json << "\"analysisHandles\":" << beygram::bg::AnalysisRegistry::instance().liveHandles() << ",";
-    json << "\"sessions\":" << SessionRegistry::instance().liveSessions();
+    json << "\"analysisHandles\":" << analysisHandles << ",";
+    json << "\"sessions\":" << sessions;
     json << "}";
     return env->NewStringUTF(json.str().c_str());
 #endif

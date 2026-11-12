@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * A ref-counted snapshot of one track analysis. The native registry deduplicates
@@ -39,8 +40,13 @@ object BgAnalysisRepository {
         identity: BgBeatAnalysisIdentity,
         cancelTokenHandle: Long,
         progressListener: BgBeatProgressListener?,
-        forceRefresh: Boolean = false
-    ): BgAnalysisLease? = withContext(Dispatchers.Default + NonCancellable) {
+        forceRefresh: Boolean = false,
+        out: AtomicReference<BgAnalysisLease?>
+    ): BgAnalysisLease? = withContext(Dispatchers.IO + NonCancellable) {
+        // The holder is filled inside the non-cancellable block. If the calling
+        // coroutine is cancelled while the native call runs, the value of this
+        // function may be discarded, but the caller can still release the lease.
+        out.set(null)
         val cacheDir = BgBeatSettingsStore.getAccountCacheDir(context, identity.accountId).absolutePath
         val handle = try {
             BgBeatNative.nativeAcquireAnalysis(
@@ -66,7 +72,7 @@ object BgAnalysisRepository {
             BgBeatNative.nativeReleaseAnalysis(handle)
             null
         } else {
-            BgAnalysisLease(handle, json)
+            BgAnalysisLease(handle, json).also { out.set(it) }
         }
     }
 }

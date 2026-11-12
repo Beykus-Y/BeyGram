@@ -2,6 +2,7 @@
 
 #if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
 
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <unordered_map>
@@ -15,7 +16,8 @@ AnalysisRegistry& AnalysisRegistry::instance() {
 }
 
 std::int64_t AnalysisRegistry::acquire(const std::string& key,
-                                       const std::function<AnalysisSnapshot()>& analyzer) {
+                                       const std::function<AnalysisSnapshot()>& analyzer,
+                                       const std::function<bool()>& isCancelled) {
     if (key.empty() || !analyzer) {
         return 0;
     }
@@ -44,15 +46,34 @@ std::int64_t AnalysisRegistry::acquire(const std::string& key,
             // The JNI layer turns an empty JSON snapshot into an error result.
             snapshot = AnalysisSnapshot{};
         }
+        bool failed = false;
         {
             std::lock_guard<std::mutex> lock(entry->mutex);
             entry->snapshot = std::move(snapshot);
             entry->finished = true;
+            failed = !entry->snapshot.ok;
+        }
+
+        // A failed/cancelled snapshot must not poison the key forever. Current
+        // handles may still read it, but the next acquire starts a fresh run.
+        // Remove the key before waking waiters so a fresh acquire cannot join a
+        // snapshot that is already known to be an error.
+        if (failed) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto byKey = byKey_.find(entry->key);
+            if (byKey != byKey_.end() && byKey->second.lock() == entry) {
+                byKey_.erase(byKey);
+            }
         }
         entry->finishedCv.notify_all();
     } else {
         std::unique_lock<std::mutex> lock(entry->mutex);
-        entry->finishedCv.wait(lock, [&entry] { return entry->finished; });
+        while (!entry->finished) {
+            if (isCancelled && isCancelled()) {
+                return 0;
+            }
+            entry->finishedCv.wait_for(lock, std::chrono::milliseconds(100));
+        }
     }
 
     std::lock_guard<std::mutex> lock(mutex_);

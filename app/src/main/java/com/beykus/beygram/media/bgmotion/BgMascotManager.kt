@@ -4,8 +4,11 @@ import android.content.Context
 import android.util.Log
 import com.beykus.beygram.media.bgbeat.BgAnalysisLease
 import com.beykus.beygram.media.bgbeat.BgAnalysisRepository
+import com.beykus.beygram.media.bgbeat.BgBeatAnalysis
 import com.beykus.beygram.media.bgbeat.BgBeatAnalysisIdentity
 import com.beykus.beygram.media.bgbeat.BgBeatIneligibleReason
+import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
+import com.beykus.beygram.media.bgbeat.BgBeatStatus
 import com.beykus.beygram.media.bgbeat.BgBeatNative
 import com.beykus.beygram.media.bgbeat.BgMediaEligibility
 import com.beykus.beygram.playback.PlaybackEngine
@@ -91,7 +94,7 @@ class BgMascotManager private constructor(private val context: Context) {
     private var prepareToken: Long = 0L
     private var preparingIdentity: BgBeatAnalysisIdentity? = null
     private var failedIdentity: BgBeatAnalysisIdentity? = null
-    private var leaseToRelease: BgAnalysisLease? = null
+    private var pendingLeaseRef: AtomicReference<BgAnalysisLease?>? = null
 
     init {
         settings.load(context)
@@ -120,7 +123,6 @@ class BgMascotManager private constructor(private val context: Context) {
 
     /** Called by the player stage while it is actually composed and visible. */
     fun setVisible(value: Boolean) {
-        if (value && !visible.value) failedIdentity = null
         visible.value = value
     }
 
@@ -140,7 +142,13 @@ class BgMascotManager private constructor(private val context: Context) {
         val handle = sessionHandle
         if (handle == 0L) return 0
         return try {
-            BgMascotNative.nativeSample2D(handle, mediaTime, out)
+            val written = BgMascotNative.nativeSample2D(handle, mediaTime, out)
+            if (written != MascotFrameLayout.FLOAT_COUNT) {
+                Log.e(TAG, "Frame contract mismatch: native wrote $written, Kotlin expects ${MascotFrameLayout.FLOAT_COUNT}")
+                0
+            } else {
+                written
+            }
         } catch (t: Throwable) {
             Log.e(TAG, "Mascot sampling failed", t)
             0
@@ -273,16 +281,16 @@ class BgMascotManager private constructor(private val context: Context) {
             var keepLease = false
             val leaseRef = AtomicReference<BgAnalysisLease?>(null)
             val handleRef = AtomicLong(0L)
+            pendingLeaseRef = leaseRef
             try {
                 lease = BgAnalysisRepository.acquire(
                     context = context,
                     identity = identity,
                     cancelTokenHandle = token,
                     progressListener = null,
-                    forceRefresh = false
+                    forceRefresh = false,
+                    out = leaseRef
                 )
-                leaseRef.set(lease)
-                leaseToRelease = lease
                 if (lease == null) {
                     if (preparingIdentity == requestSeq) {
                         failedIdentity = requestSeq
@@ -291,6 +299,27 @@ class BgMascotManager private constructor(private val context: Context) {
                     return@launch
                 }
                 if (preparingIdentity != requestSeq) {
+                    return@launch
+                }
+
+                // A shared snapshot may legitimately be cancelled or failed
+                // because BG Beat was cancelled during a track switch. Do not
+                // latch CANCELLED as a permanent mascot failure.
+                val analysis = try {
+                    BgBeatAnalysis.fromJson(lease.json)
+                } catch (t: Throwable) {
+                    failedIdentity = requestSeq
+                    _uiState.value = BgMascotUiState.Error("Некорректный ответ анализа: ${t.localizedMessage}")
+                    return@launch
+                }
+                if (analysis.status == BgBeatStatus.CANCELLED) {
+                    return@launch
+                }
+                if (analysis.status != BgBeatStatus.OK) {
+                    failedIdentity = requestSeq
+                    _uiState.value = BgMascotUiState.Error(
+                        analysis.message.ifBlank { "Анализ трека не удался" }
+                    )
                     return@launch
                 }
 
@@ -318,9 +347,12 @@ class BgMascotManager private constructor(private val context: Context) {
                 // acquire the same entry without decoding the track again.
                 sessionLease = lease
                 keepLease = true
-                leaseToRelease = null
+                if (pendingLeaseRef === leaseRef) pendingLeaseRef = null
                 BgMascotNative.nativeSetPlaybackOffset(handle, settings.audioOffsetMs.value / 1000.0)
                 BgMascotNative.nativeSetIntensity(handle, settings.intensity.value)
+                withContext(Dispatchers.IO) {
+                    BgBeatSettingsStore.enforceCacheQuota(context)
+                }
                 _uiState.value = BgMascotUiState.Ready(
                     itemKey = item.key,
                     handle = handle,
@@ -341,7 +373,7 @@ class BgMascotManager private constructor(private val context: Context) {
                         if (sessionLease !== pending) pending.release()
                     }
                 }
-                if (leaseToRelease === lease) leaseToRelease = null
+                if (pendingLeaseRef === leaseRef) pendingLeaseRef = null
                 // Covers cancellation after nativeCreateSession returned but
                 // before the handle could be published to the manager.
                 val pendingHandle = handleRef.get()
@@ -361,8 +393,8 @@ class BgMascotManager private constructor(private val context: Context) {
         }
         prepareJob?.cancel()
         prepareJob = null
-        leaseToRelease?.release()
-        leaseToRelease = null
+        pendingLeaseRef?.getAndSet(null)?.release()
+        pendingLeaseRef = null
         preparingIdentity = null
     }
 

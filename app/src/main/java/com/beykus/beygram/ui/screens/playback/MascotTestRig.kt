@@ -38,6 +38,7 @@ import com.beykus.beygram.media.bgmotion.armRight
 import com.beykus.beygram.media.bgmotion.bass
 import com.beykus.beygram.media.bgmotion.beat
 import com.beykus.beygram.media.bgmotion.beatInBar
+import com.beykus.beygram.media.bgmotion.beatsPerBar
 import com.beykus.beygram.media.bgmotion.blend
 import com.beykus.beygram.media.bgmotion.bob
 import com.beykus.beygram.media.bgmotion.chestTwist
@@ -180,13 +181,14 @@ private fun DrawScope.drawStage(
         0f
     }
     val blend = if (analyzed) unit(values.blend()) else 0f
+    val meter = if (analyzed) values.beatsPerBar() else 4
     val beatInBar = if (analyzed) {
         val raw = values.beatInBar()
         if (!raw.isFinite()) {
             -1
         } else {
             val rounded = raw.roundToInt()
-            if (rounded < 0) -1 else rounded % 4
+            if (rounded < 0) -1 else rounded % meter
         }
     } else {
         -1
@@ -255,6 +257,7 @@ private fun DrawScope.drawStage(
         )
         drawBeatDots(
             beatInBar = beatInBar,
+            beatsPerBar = meter,
             analyzed = analyzed,
             silence = silence,
             accentColor = palette.accent,
@@ -765,14 +768,18 @@ private fun DrawScope.drawLimbSegment(
 
 private fun DrawScope.drawBeatDots(
     beatInBar: Int,
+    beatsPerBar: Int,
     analyzed: Boolean,
     silence: Float,
     accentColor: Color,
     secondaryColor: Color
 ) {
     val dim = 1f - silence * 0.45f
-    for (i in 0 until 4) {
-        val x = 428f + i * 48f
+    val count = beatsPerBar.coerceIn(1, 8)
+    val spacing = 48f
+    val startX = 500f - ((count - 1) * spacing) * 0.5f
+    for (i in 0 until count) {
+        val x = startX + i * spacing
         val active = analyzed && i == beatInBar
         val downbeat = i == 0
         val color = when {

@@ -37,10 +37,12 @@ public:
     static AnalysisRegistry& instance();
 
     // `analyzer` is invoked exactly once for `key` while at least one caller is
-    // interested. Returns a non-zero handle, or 0 only for an invalid request.
-    // The call is synchronous: it returns after the analysis is ready.
+    // interested. Returns a non-zero handle, or 0 for an invalid request or a
+    // waiter cancelled through `isCancelled`. The call is synchronous: it
+    // returns after the analysis is ready.
     std::int64_t acquire(const std::string& key,
-                         const std::function<AnalysisSnapshot()>& analyzer);
+                         const std::function<AnalysisSnapshot()>& analyzer,
+                         const std::function<bool()>& isCancelled = {});
 
     // Safe from any thread. Returns an empty snapshot for an unknown handle.
     [[nodiscard]] AnalysisSnapshot snapshot(std::int64_t handle) const;

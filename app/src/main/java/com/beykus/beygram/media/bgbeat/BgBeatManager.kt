@@ -108,6 +108,7 @@ class BgBeatManager(
     private var currentJob: Job? = null
     private var currentCancelToken: Long = 0L
     private var analysisLease: BgAnalysisLease? = null
+    private var pendingLeaseRef: java.util.concurrent.atomic.AtomicReference<BgAnalysisLease?>? = null
 
     @Volatile
     private var activeIdentity: BgBeatAnalysisIdentity? = null
@@ -227,6 +228,8 @@ class BgBeatManager(
         }
         currentJob?.cancel()
         currentJob = null
+        pendingLeaseRef?.getAndSet(null)?.release()
+        pendingLeaseRef = null
         analysisLease?.release()
         analysisLease = null
         activeIdentity = null
@@ -276,6 +279,7 @@ class BgBeatManager(
             currentCancelToken = cancelToken
             var runLease: BgAnalysisLease? = null
             val leaseRef = java.util.concurrent.atomic.AtomicReference<BgAnalysisLease?>(null)
+            pendingLeaseRef = leaseRef
 
             try {
                 val run = withContext(Dispatchers.Default) {
@@ -296,7 +300,8 @@ class BgBeatManager(
                                 }
                             }
                         },
-                        forceRefresh = force
+                        forceRefresh = force,
+                        out = leaseRef
                     )
                     if (lease == null) {
                         return@withContext AnalysisRun(
@@ -373,6 +378,7 @@ class BgBeatManager(
                 leaseRef.get()?.let { pending ->
                     if (analysisLease !== pending) pending.release()
                 }
+                if (pendingLeaseRef === leaseRef) pendingLeaseRef = null
                 BgBeatNative.nativeDestroyCancelToken(cancelToken)
                 if (currentCancelToken == cancelToken) {
                     currentCancelToken = 0L

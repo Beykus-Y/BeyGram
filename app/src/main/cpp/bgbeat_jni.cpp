@@ -396,6 +396,7 @@ beygram::bg::AnalysisSnapshot analyzeFileToSnapshot(
         callbackClass = env->GetObjectClass(progressCallback);
         if (callbackClass != nullptr) {
             onProgressMid = env->GetMethodID(callbackClass, "onProgress", "(FLjava/lang/String;)V");
+            env->DeleteLocalRef(callbackClass);
         }
     }
 
@@ -631,6 +632,9 @@ Java_com_beykus_beygram_media_bgbeat_BgBeatNative_nativeAcquireAnalysis(
                     jprogressCallback,
                     forceRefresh == JNI_TRUE
                 );
+            },
+            [cancelToken]() {
+                return cancelToken != nullptr && cancelToken->load(std::memory_order_relaxed);
             }
         ));
     } catch (const std::exception& e) {
