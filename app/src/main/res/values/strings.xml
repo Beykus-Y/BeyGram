@@ -2242,6 +2242,12 @@
     <string name="settings_group_experiments">Эксперименты</string>
     <string name="settings_bgbeat_title">BG Beat (анализ музыки)</string>
     <string name="settings_bgbeat_desc">Показывает ритм и волну трека</string>
+    <string name="settings_mascot_title">BG Mascot (тест 2D)</string>
+    <string name="settings_mascot_desc">Временный 2D-манекен для проверки синхронизации BG Motion</string>
+    <string name="settings_mascot_debug_title">Отладочный оверлей синхронизации</string>
+    <string name="settings_mascot_debug_desc">Показывает BPM, фразы, акценты и секции</string>
+    <string name="player_mascot_show">Показать маскота</string>
+    <string name="player_mascot_hide">Скрыть маскота</string>
     <string name="bgbeat_reason_not_music">BG Beat: только для музыки</string>
     <string name="bgbeat_reason_private_media">BG Beat: приватное медиа исключено</string>
     <string name="bgbeat_reason_still_downloading">BG Beat: анализ начнётся после загрузки файла</string>

@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.media.bgbeat.BgBeatSettingsStore
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
+import com.beykus.beygram.media.bgmotion.BgMascotSettingsStore
 import com.beykus.beygram.playback.TrackTransitionSettings
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.LocalDesignSystem
@@ -34,9 +37,10 @@ import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 
 /**
- * Experimental features in their own screen, grouped by area. Music holds BG Mix and BG Beat and the two transition
- * settings of the regular player. Those two do not depend on BG Mix: they apply to every queue the regular player plays,
- * and BG Mix has transitions of its own, so they stay available when BG Mix is off.
+ * Experimental features in their own screen, grouped by area. Music holds BG Mix, BG Beat, the BG Mascot
+ * test rig, and the two transition settings of the regular player. The transitions do not depend on BG Mix:
+ * they apply to every queue the regular player plays, and BG Mix has transitions of its own, so they stay
+ * available when BG Mix is off.
  */
 @Composable
 fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
@@ -46,6 +50,9 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
     val context = LocalContext.current
     val bgBeatSettings = remember { BgBeatSettingsStore.getInstance(context) }
     val bgBeatEnabled by bgBeatSettings.enabled.collectAsStateWithLifecycle()
+    val bgMascotSettings = remember { BgMascotSettingsStore.getInstance(context) }
+    val bgMascotEnabled by bgMascotSettings.enabled.collectAsStateWithLifecycle()
+    val bgMascotDebugOverlay by bgMascotSettings.debugOverlay.collectAsStateWithLifecycle()
     remember(context) { BgMixSettingsStore.load(context) }
     val bgMixEnabled by BgMixSettingsStore.enabled.collectAsStateWithLifecycle()
     remember(context) { TrackTransitionSettings.load(context) }
@@ -78,6 +85,24 @@ fun ExperimentsScreen(onBack: () -> Unit, onMusicAccount: () -> Unit = {}) {
                     checked = bgBeatEnabled,
                     onCheckedChange = { bgBeatSettings.setEnabled(it) }
                 )
+                SettingsRowDivider()
+                SettingsToggle(
+                    icon = Icons.Rounded.SmartToy,
+                    title = stringResource(R.string.settings_mascot_title),
+                    subtitle = stringResource(R.string.settings_mascot_desc),
+                    checked = bgMascotEnabled,
+                    onCheckedChange = { bgMascotSettings.setEnabled(context, it) }
+                )
+                if (bgMascotEnabled) {
+                    SettingsRowDivider()
+                    SettingsToggle(
+                        icon = Icons.Rounded.BugReport,
+                        title = stringResource(R.string.settings_mascot_debug_title),
+                        subtitle = stringResource(R.string.settings_mascot_debug_desc),
+                        checked = bgMascotDebugOverlay,
+                        onCheckedChange = { bgMascotSettings.setDebugOverlay(context, it) }
+                    )
+                }
             }
             SettingsGroup(stringResource(R.string.settings_experiments_group_transitions)) {
                 SettingsToggle(

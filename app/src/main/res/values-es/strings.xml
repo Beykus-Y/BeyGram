@@ -694,6 +694,12 @@
     <string name="settings_group_experiments">Experimentos</string>
     <string name="settings_bgbeat_title">BG Beat (análisis de música)</string>
     <string name="settings_bgbeat_desc">Muestra el ritmo y la forma de onda de la pista</string>
+    <string name="settings_mascot_title">BG Mascot (prueba 2D)</string>
+    <string name="settings_mascot_desc">Muñeco 2D temporal para comprobar la sincronización de BG Motion</string>
+    <string name="settings_mascot_debug_title">Capa de depuración de la sincronización</string>
+    <string name="settings_mascot_debug_desc">Muestra BPM, frases, acentos y secciones</string>
+    <string name="player_mascot_show">Mostrar mascota</string>
+    <string name="player_mascot_hide">Ocultar mascota</string>
     <string name="bgbeat_reason_not_music">BG Beat: solo para música</string>
     <string name="bgbeat_reason_private_media">BG Beat: los medios privados están excluidos</string>
     <string name="bgbeat_reason_still_downloading">BG Beat: el análisis empieza cuando termine la descarga del archivo</string>

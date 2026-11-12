@@ -781,6 +781,9 @@ private fun BeyGramAppContent(
     LaunchedEffect(selectedAccountId) {
         PlaybackEngine.setActiveAccount(selectedAccountId)
         com.beykus.beygram.media.bgbeat.BgBeatManager.getInstance(context).onAccountChanged(selectedAccountId)
+        if (com.beykus.beygram.media.bgmotion.BgMascotSettingsStore.getInstance(context).enabled.value) {
+            com.beykus.beygram.media.bgmotion.BgMascotManager.getInstance(context).onAccountChanged(selectedAccountId)
+        }
     }
     // The music library follows the selected account. Listen history is recorded for the whole process by BeyGramApplication.
     val musicLibrary = remember(context) { MusicLibraries.get(context) }

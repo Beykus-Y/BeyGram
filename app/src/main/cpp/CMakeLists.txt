@@ -55,6 +55,8 @@ endif()
 add_library(bgbeat_jni SHARED
     bgbeat_jni.cpp
     bgmix_jni.cpp
+    bgmotion_jni.cpp
+    bg_analysis_registry.cpp
 )
 
 target_compile_features(bgbeat_jni PRIVATE cxx_std_20)
