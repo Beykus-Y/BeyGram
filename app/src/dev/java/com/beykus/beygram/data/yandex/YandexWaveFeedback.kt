@@ -77,7 +77,7 @@ internal class WaveListenTracker(private val isRadioTrack: (String) -> Boolean) 
             durationMs = 0L
             ended = false
         }
-        if (key != null && key == now) {
+        if (now != null && key == now) {
             positionMs = state.positionMs
             if (state.durationMs > 0L) durationMs = state.durationMs
             if (state.ended) ended = true
