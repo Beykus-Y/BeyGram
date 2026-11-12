@@ -130,7 +130,8 @@ internal fun StyleScenePreview(
                 animate = false,
                 replayKey = 0,
                 modifier = Modifier.fillMaxSize(),
-                systemDark = systemDark
+                systemDark = systemDark,
+                glassChrome = true
             )
             StyleScene.Chats, StyleScene.Settings -> AppearanceThemeScope(config, systemDark) {
                 val indicator = remember { MainTabIndicator() }
