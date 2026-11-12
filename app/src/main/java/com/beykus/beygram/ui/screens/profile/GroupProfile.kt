@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.presence.LastSeenStyle
+import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -92,7 +93,9 @@ internal fun GroupProfileScreen(
     /** Repository-backed automatic download for the shared-media viewer. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     /** The chat's library tracks, shown as a row when there are some. Null hides the row. */
-    chatLibrary: ChatLibraryLink? = null
+    chatLibrary: ChatLibraryLink? = null,
+    /** Opens a Yandex Music link from the links tab natively; null keeps it in the browser. */
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -173,7 +176,7 @@ internal fun GroupProfileScreen(
             }
             val kind = activeTab.kind
             if (kind == null || window == null) item(key = "members") { GroupMembers(info, state.isLoading, observeFile, downloadFile, onMembers, onOpenUser) }
-            else sharedItems(kind, info.id, window, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMedia = { viewing = it }, onOpenMessage = openMessage, onRetry = { scope.launch { window.loadOlder() } }, autoDownloadFile = autoDownloadFile)
+            else sharedItems(kind, info.id, window, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMedia = { viewing = it }, onOpenMessage = openMessage, onRetry = { scope.launch { window.loadOlder() } }, autoDownloadFile = autoDownloadFile, onOpenMessageEntity = onOpenMessageEntity)
         }
     }
     SharedMediaViewer(media = windows.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
@@ -274,7 +277,8 @@ private fun LazyListScope.sharedItems(
     kind: SharedMediaKind, chatId: Long, window: SharedMediaWindow,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, confirmExport: suspend (Long) -> Boolean,
     onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit, onRetry: () -> Unit,
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     // «Ссылки» бывают и в тексте, поэтому им вложение не нужно; остальные вкладки показывают только сообщения с вложением.
     val shown = window.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null }
@@ -293,7 +297,7 @@ private fun LazyListScope.sharedItems(
             if (kind == SharedMediaKind.Music) {
                 message.media?.let { SharedMusicRow(chatId, shown, message, it, observeFile, downloadFile, onOpenMessage, autoDownloadFile) }
             } else {
-                SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage)
+                SharedMediaRowItem(kind, chatId, message, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage, onOpenMessageEntity)
             }
         }
     }
