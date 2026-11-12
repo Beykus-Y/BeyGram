@@ -5,7 +5,6 @@
     <string name="style_preview_scene_messages">Переписка</string>
     <string name="style_preview_scene_settings">Настройки</string>
     <string name="style_preview_description">Превью стиля «%1$s», экран «%2$s»</string>
-    <string name="style_preview_glass_note">В превью стекло показано без размытия фона. Настоящее размытие появляется в самом интерфейсе.</string>
     <string name="style_preview_glass_fallback_note">Сейчас стекло рисуется плотной тонировкой без размытия, так же как в превью.</string>
     <string name="style_preview_search">Поиск</string>
     <string name="style_preview_folder_all">Все</string>
@@ -24,6 +23,15 @@
     <string name="style_preview_chat4_name">Заметки</string>
     <string name="style_preview_chat4_message">Список покупок</string>
     <string name="style_preview_chat4_time">Пн</string>
+    <string name="style_preview_chat5_name">Дима</string>
+    <string name="style_preview_chat5_message">Ок, посмотрю завтра</string>
+    <string name="style_preview_chat5_time">Вт</string>
+    <string name="style_preview_chat6_name">Семья</string>
+    <string name="style_preview_chat6_message">Ужин в субботу?</string>
+    <string name="style_preview_chat6_time">Вс</string>
+    <string name="style_preview_chat7_name">Работа</string>
+    <string name="style_preview_chat7_message">Отчёт отправлен</string>
+    <string name="style_preview_chat7_time">Пт</string>
     <string name="style_preview_settings_general">Основные</string>
     <string name="style_preview_settings_notifications">Уведомления</string>
     <string name="style_preview_settings_sounds">Звуки в чатах</string>

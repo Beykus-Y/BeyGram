@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -38,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -54,12 +56,17 @@ import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.data.appearance.GlassQuality
 import com.beykus.beygram.data.appearance.NavigationPlacement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.rememberDesign
 
-/** Height of the main preview. It shows a whole phone screen top to bottom without taking the page over. */
-private val StylePreviewHeight = 300.dp
+/**
+ * The main preview is a whole phone screen. Its height is this share of the device's screen height, kept between the
+ * two bounds: small enough that the page still shows the style cards below it, large enough to read the scene.
+ */
+private const val StylePreviewShareOfScreen = 0.7f
+private val StylePreviewMinHeight = 440.dp
+private val StylePreviewMaxHeight = 640.dp
 private val StyleCardWidth = 112.dp
-private val StyleCardPhoneHeight = 168.dp
 /** The selected mark is a circle of this size in its own strip above the picture. */
 private val StyleCardMarkSize = 20.dp
 /** Two caption lines at their 17sp line height (the caption text itself is 13sp). */
@@ -80,6 +87,8 @@ internal fun AppearanceStylePage(
 ) {
     val palette = beyGramPalette()
     var scene by rememberSaveable { mutableStateOf(StyleScene.Chats) }
+    val previewHeight = (LocalConfiguration.current.screenHeightDp * StylePreviewShareOfScreen).dp
+        .coerceIn(StylePreviewMinHeight, StylePreviewMaxHeight)
     val styleLabel = stringResource(draft.designStyle.labelRes())
     val sceneLabel = stringResource(scene.labelRes)
     val previewDescription = stringResource(R.string.style_preview_description, styleLabel, sceneLabel)
@@ -100,20 +109,18 @@ internal fun AppearanceStylePage(
             }
         }
         AppearanceCard(contentPadding = PaddingValues(10.dp)) {
+            // The scene choice comes first, so the three screens are one tap away above the phone.
+            AppearanceChoiceFlow(
+                options = StyleScene.entries.map { stringResource(it.labelRes) to (it == scene) },
+                onSelect = { scene = StyleScene.entries[it] }
+            )
+            // The whole phone. Its outline is drawn around the screen itself, so it holds at any width.
             StyleScenePreview(
                 config = draft,
                 systemDark = systemDark,
                 scene = scene,
-                virtualWidth = 380.dp,
-                modifier = Modifier.fillMaxWidth().height(StylePreviewHeight)
-                    .clip(AppearanceDimens.innerShape)
-                    // The outline keeps the edge of the screen visible on AMOLED, where both are black.
-                    .border(1.dp, palette.divider, AppearanceDimens.innerShape)
+                modifier = Modifier.fillMaxWidth().height(previewHeight)
                     .clearAndSetSemantics { contentDescription = previewDescription }
-            )
-            AppearanceChoiceFlow(
-                options = StyleScene.entries.map { stringResource(it.labelRes) to (it == scene) },
-                onSelect = { scene = StyleScene.entries[it] }
             )
             GlassPreviewNote(draft)
         }
@@ -194,16 +201,15 @@ internal fun AppearanceStylePage(
 }
 
 /**
- * Says what the glass in the preview is. The preview never samples a backdrop, so it does not pretend to blur; when
- * the device or the chosen quality draws glass without blur anyway, the note says the preview is exactly that.
+ * Says what the glass in the preview is when the device draws it without blur. The preview samples the same backdrop
+ * the screens do, so on a device that blurs there is nothing to explain.
  */
 @Composable
 private fun GlassPreviewNote(draft: AppearanceConfig) {
     if (draft.designStyle != DesignStyle.LiquidGlass) return
-    val design = rememberDesign(draft)
-    val blurs = design.surfaces.glass?.samplesBackdrop == true && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    if (rememberDesign(draft).recordsGlassBackdrop) return
     Text(
-        stringResource(if (blurs) R.string.style_preview_glass_note else R.string.style_preview_glass_fallback_note),
+        stringResource(R.string.style_preview_glass_fallback_note),
         color = beyGramPalette().textSecondary,
         fontSize = 12.sp,
         lineHeight = 17.sp
@@ -224,7 +230,6 @@ private fun StyleCard(
 ) {
     val palette = beyGramPalette()
     val shape = AppearanceDimens.cardShape
-    val phoneShape = AppearanceDimens.innerShape
     Column(
         Modifier.width(StyleCardWidth)
             .clip(shape)
@@ -246,17 +251,13 @@ private fun StyleCard(
                 }
             }
         }
-        Box(Modifier.fillMaxWidth().height(StyleCardPhoneHeight)) {
-            StyleScenePreview(
-                config = config.copy(designStyle = style),
-                systemDark = systemDark,
-                scene = StyleScene.Chats,
-                modifier = Modifier.fillMaxSize()
-                    .clip(phoneShape)
-                    .border(1.dp, palette.divider, phoneShape)
-                    .clearAndSetSemantics {}
-            )
-        }
+        // The thumbnail is the whole phone as well, in the same proportions as the main preview.
+        StyleScenePreview(
+            config = config.copy(designStyle = style),
+            systemDark = systemDark,
+            scene = StyleScene.Chats,
+            modifier = Modifier.fillMaxWidth().aspectRatio(PhoneAspect).clearAndSetSemantics {}
+        )
         // Two lines of caption are always reserved, so the card keeps its height; a longer name is cut with an ellipsis.
         Text(
             stringResource(style.labelRes()),

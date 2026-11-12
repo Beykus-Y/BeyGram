@@ -49,8 +49,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -82,9 +85,12 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.TopBarVariant
 import com.beykus.beygram.ui.design.squareSendButton
+import com.beykus.beygram.ui.design.GlassEdge
+import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.rememberDesign
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
+import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import com.beykus.beygram.ui.theme.LocalMessageLineSpacing
 import com.beykus.beygram.ui.theme.LocalMessageTextSize
@@ -138,7 +144,9 @@ internal fun AppearanceChatPreview(
     modifier: Modifier = Modifier,
     systemDark: Boolean = isSystemInDarkTheme(),
     showComposer: Boolean = true,
-    onSend: (() -> Unit)? = null
+    onSend: (() -> Unit)? = null,
+    // The style preview only: the bars float over the messages as glass where the style blurs.
+    glassChrome: Boolean = false
 ) {
     AppearanceThemeScope(config, systemDark) {
         key(replayKey) {
@@ -148,7 +156,8 @@ internal fun AppearanceChatPreview(
                 animate = animate,
                 modifier = modifier,
                 showComposer = showComposer,
-                onSend = onSend
+                onSend = onSend,
+                glassChrome = glassChrome
             )
         }
     }
@@ -161,7 +170,8 @@ private fun AppearancePreviewBody(
     animate: Boolean,
     modifier: Modifier,
     showComposer: Boolean,
-    onSend: (() -> Unit)?
+    onSend: (() -> Unit)?,
+    glassChrome: Boolean
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -200,6 +210,13 @@ private fun AppearancePreviewBody(
     var finished by remember { mutableStateOf(false) }
     val fieldCleared = composerLaunch && (launch != null || finished)
     val showOutgoing = !composerLaunch || finished
+    val design = LocalDesignSystem.current
+    val density = LocalDensity.current
+    // Only the style preview lays the header and the composer over the messages as glass, and only where the style
+    // really blurs, as the chat screen does. Everywhere else they stay in the column.
+    val glassBackdrop = LocalGlassBackdrop.current?.takeIf { glassChrome && !compact && design.recordsGlassBackdrop }
+    var headerHeight by remember { mutableStateOf(0.dp) }
+    var composerHeight by remember { mutableStateOf(0.dp) }
     LaunchedEffect(composerLaunch, sourceBounds, targetBounds) {
         if (!composerLaunch || finished || launch != null) return@LaunchedEffect
         val source = sourceBounds ?: return@LaunchedEffect
@@ -228,8 +245,12 @@ private fun AppearancePreviewBody(
             .onGloballyPositioned { overlayBounds = it.boundsInWindow() }
     ) {
         Column(Modifier.fillMaxWidth().then(if (compact) Modifier else Modifier.fillMaxSize())) {
-            if (!compact) PreviewChatHeader(contact)
-            val messagesModifier = if (compact) Modifier.fillMaxWidth() else Modifier.fillMaxWidth().weight(1f)
+            if (!compact && glassBackdrop == null) PreviewChatHeader(contact)
+            val messagesModifier = when {
+                compact -> Modifier.fillMaxWidth()
+                glassBackdrop != null -> Modifier.fillMaxSize().glassBackdropSource(glassBackdrop)
+                else -> Modifier.fillMaxWidth().weight(1f)
+            }
             Box(messagesModifier) {
                 ChatWallpaperLayer(config.wallpaper, modifier = Modifier.matchParentSize())
                 if (compact) {
@@ -258,8 +279,9 @@ private fun AppearancePreviewBody(
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
                             start = metrics.sideInset,
                             end = metrics.sideInset,
-                            top = metrics.listPadding,
-                            bottom = metrics.listPadding
+                            // Under the glass header and above the glass composer when they float over the list.
+                            top = (if (glassBackdrop != null) headerHeight else 0.dp) + metrics.listPadding,
+                            bottom = (if (glassBackdrop != null) composerHeight else 0.dp) + metrics.listPadding
                         ),
                         verticalArrangement = Arrangement.Bottom
                     ) {
@@ -284,12 +306,45 @@ private fun AppearancePreviewBody(
                     }
                 }
             }
-            if (showComposer) {
+            if (showComposer && glassBackdrop == null) {
                 PreviewComposer(
                     placeholder = if (fieldCleared) "" else input,
                     fieldPositioned = { sourceBounds = it },
                     onSend = onSend
                 )
+            }
+        }
+        if (glassBackdrop != null) {
+            GlassPanel(
+                design = design,
+                tint = palette.surface,
+                rim = palette.textSecondary,
+                backdropBase = palette.screen,
+                shape = RectangleShape,
+                edge = GlassEdge.BottomHairline,
+                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .onSizeChanged { headerHeight = with(density) { it.height.toDp() } }
+            ) {
+                PreviewChatHeader(contact, framed = true)
+            }
+            if (showComposer) {
+                GlassPanel(
+                    design = design,
+                    tint = palette.surface,
+                    rim = palette.textSecondary,
+                    backdropBase = palette.screen,
+                    shape = RectangleShape,
+                    edge = GlassEdge.TopHairline,
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .onSizeChanged { composerHeight = with(density) { it.height.toDp() } }
+                ) {
+                    PreviewComposer(
+                        placeholder = if (fieldCleared) "" else input,
+                        fieldPositioned = { sourceBounds = it },
+                        onSend = onSend,
+                        framed = true
+                    )
+                }
             }
         }
         if (composerLaunch && overlayBounds != null) {
@@ -373,12 +428,13 @@ private fun PreviewMessagesContent(
 }
 
 @Composable
-private fun PreviewChatHeader(contact: String) {
+private fun PreviewChatHeader(contact: String, framed: Boolean = false) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     Row(
         Modifier.fillMaxWidth().then(
-            when (design.components.topBar) {
+            // A framed header sits in a glass panel that already draws its surface.
+            if (framed) Modifier else when (design.components.topBar) {
                 TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
                 TopBarVariant.Glass -> Modifier.background(design.surfaces.panelFill(palette.surface, PanelFloor.Player))
                 TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
@@ -515,14 +571,16 @@ private fun PreviewBubbleMeta(time: String, outgoing: Boolean) {
 private fun PreviewComposer(
     placeholder: String,
     fieldPositioned: (Rect) -> Unit,
-    onSend: (() -> Unit)?
+    onSend: (() -> Unit)?,
+    framed: Boolean = false
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val replayDescription = stringResource(R.string.theme_animations_replay)
     Row(
         Modifier.fillMaxWidth().then(
-            when (design.components.composer) {
+            // A framed composer sits in a glass panel that already draws its surface.
+            if (framed) Modifier else when (design.components.composer) {
                 ComposerVariant.Outlined -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
                 ComposerVariant.Glass -> Modifier.background(design.surfaces.panelFill(palette.surface, PanelFloor.Player))
                 ComposerVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
