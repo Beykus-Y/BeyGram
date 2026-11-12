@@ -419,7 +419,9 @@ internal fun openInBrowser(context: Context, target: String) {
         return
     }
     val browsers = Intent(Intent.ACTION_VIEW, Uri.parse("http://")).addCategory(Intent.CATEGORY_BROWSABLE)
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(safe)).addCategory(Intent.CATEGORY_BROWSABLE).setSelector(browsers)
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(safe)).addCategory(Intent.CATEGORY_BROWSABLE)
+    // setSelector returns nothing in the platform API, so it is set on its own line rather than chained.
+    intent.setSelector(browsers)
     // A non-Activity context (a dialog's window, an application context) needs its own task for ACTION_VIEW.
     if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
