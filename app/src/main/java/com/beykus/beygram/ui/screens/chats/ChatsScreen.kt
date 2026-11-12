@@ -597,7 +597,8 @@ fun ChatsScreen(
                                     title = stringResource(R.string.chat_folders_all),
                                     selected = activeFolderId == null,
                                     unreadCount = null,
-                                    onClick = { state.selectFolder(0) }
+                                    onClick = { state.selectFolder(0) },
+                                    onLongClick = { managingFolders = true }
                                 )
                                 is TelegramFolderTab.Folder -> {
                                     val folder = folderSnapshot.folders.firstOrNull { it.id == tab.id }
@@ -605,7 +606,8 @@ fun ChatsScreen(
                                         title = folder.title,
                                         selected = activeFolderId == folder.id,
                                         unreadCount = folder.unreadChats,
-                                        onClick = { state.selectFolder(folder.id) }
+                                        onClick = { state.selectFolder(folder.id) },
+                                        onLongClick = { managingFolders = true }
                                     )
                                 }
                             }
@@ -1037,6 +1039,73 @@ fun ChatsScreen(
     }
 }
 
+/** The two independent assignments live in the chat overflow, never in a permanent header button. */
+@Composable
+private fun ChatSwipeSettingsDialog(
+    preferences: ChatSwipePreferences,
+    onChange: (ChatSwipePreferences) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var leftOpen by remember { mutableStateOf(false) }
+    var rightOpen by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.chats_swipe_settings)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.chats_swipe_left))
+                Box {
+                    TextButton(onClick = { leftOpen = true }) {
+                        Text(chatSwipeKindLabel(preferences.left))
+                    }
+                    DropdownMenu(expanded = leftOpen, onDismissRequest = { leftOpen = false }) {
+                        ChatSwipeActionKind.entries.forEach { kind ->
+                            DropdownMenuItem(
+                                text = { Text(chatSwipeKindLabel(kind)) },
+                                onClick = {
+                                    leftOpen = false
+                                    onChange(preferences.copy(left = kind))
+                                }
+                            )
+                        }
+                    }
+                }
+                Text(stringResource(R.string.chats_swipe_right))
+                Box {
+                    TextButton(onClick = { rightOpen = true }) {
+                        Text(chatSwipeKindLabel(preferences.right))
+                    }
+                    DropdownMenu(expanded = rightOpen, onDismissRequest = { rightOpen = false }) {
+                        ChatSwipeActionKind.entries.forEach { kind ->
+                            DropdownMenuItem(
+                                text = { Text(chatSwipeKindLabel(kind)) },
+                                onClick = {
+                                    rightOpen = false
+                                    onChange(preferences.copy(right = kind))
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
+        }
+    )
+}
+
+@Composable
+private fun chatSwipeKindLabel(kind: ChatSwipeActionKind): String = stringResource(
+    when (kind) {
+        ChatSwipeActionKind.Archive -> R.string.chats_action_archive
+        ChatSwipeActionKind.ReadUnread -> R.string.chats_swipe_read_unread
+        ChatSwipeActionKind.Pin -> R.string.chats_swipe_pin_toggle
+        ChatSwipeActionKind.Mute -> R.string.chats_swipe_mute_toggle
+        ChatSwipeActionKind.More -> R.string.chats_swipe_more
+    }
+)
+
 /**
  * Строка состояния сессии Telegram под заголовком списка. Говорит только то, что сообщил TDLib:
  * ожидание сети, подключение или получение обновлений. Экран не крутит спиннер и ничего не опрашивает.
@@ -1297,14 +1366,20 @@ private fun Modifier.chatListEdgeFade(topPadding: Dp, fadeBottom: Boolean, topPr
 
 /** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
 @Composable
-internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+internal fun ServerFolderChip(
+    title: String,
+    selected: Boolean,
+    unreadCount: Int?,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
+) {
     when (LocalDesignSystem.current.mainScreen.chipSelection) {
         ChipSelectionTone.Filter -> {
-            Material3FolderChip(title, selected, unreadCount, onClick)
+            Material3FolderChip(title, selected, unreadCount, onClick, onLongClick)
             return
         }
         ChipSelectionTone.Ink -> {
-            InkFolderChip(title, selected, unreadCount, onClick)
+            InkFolderChip(title, selected, unreadCount, onClick, onLongClick)
             return
         }
         else -> Unit
@@ -1341,7 +1416,8 @@ internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int
         Row(
             Modifier.heightIn(min = 48.dp).clip(chipShape)
                 .background(containerColor)
-                .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+                .combinedClickable(role = Role.Tab, onClick = onClick, onLongClick = onLongClick)
+                .semantics { this.selected = selected }
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1383,7 +1459,7 @@ internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int
  * on. It sits in a 48dp touch target, so the row of folders looks lighter without a smaller tap area.
  */
 @Composable
-private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit, onLongClick: () -> Unit) {
     val palette = beyGramPalette()
     val main = LocalDesignSystem.current.mainScreen
     val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
@@ -1393,7 +1469,8 @@ private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: I
     val chipShape = RoundedCornerShape(main.chipRadius)
     Box(
         Modifier.heightIn(min = 48.dp)
-            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+            .combinedClickable(role = Role.Tab, onClick = onClick, onLongClick = onLongClick)
+            .semantics { this.selected = selected },
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -1435,7 +1512,7 @@ private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: I
 private const val INK_ACCENT_SHARE = 0.18f
 
 @Composable
-private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit, onLongClick: () -> Unit) {
     val palette = beyGramPalette()
     val main = LocalDesignSystem.current.mainScreen
     val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
@@ -1446,7 +1523,8 @@ private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, o
     val chipShape = RoundedCornerShape(main.chipRadius)
     Box(
         Modifier.heightIn(min = 48.dp).clip(chipShape)
-            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+            .combinedClickable(role = Role.Tab, onClick = onClick, onLongClick = onLongClick)
+            .semantics { this.selected = selected },
         contentAlignment = Alignment.Center
     ) {
         Row(
