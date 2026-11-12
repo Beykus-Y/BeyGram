@@ -764,6 +764,8 @@
     <string name="music_playlist_description">Beschreibung</string>
     <string name="music_playlist_empty">Diese Playlist hat noch keine Titel</string>
     <string name="music_playlist_label">Playlist</string>
+    <string name="music_link_track">Titel</string>
+    <string name="music_link_album">Album</string>
     <string name="music_playlist_menu">Playlist-Menü</string>
     <string name="music_playlist_name">Name</string>
     <string name="music_playlist_not_found">Playlist nicht gefunden</string>
