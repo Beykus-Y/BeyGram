@@ -2395,4 +2395,6 @@
     <string name="settings_experiments_group_music">Музыка</string>
     <string name="settings_experiments_group_transitions">Паузы и переходы</string>
     <string name="settings_experiments_transitions_note">Пропуск тишины и плавные переходы относятся к обычному плееру и не зависят от BG Mix. Пока музыка играет через BG Mix, у него свои плавные переходы, и эти две настройки на неё не действуют.</string>
+    <string name="chat_preview_animation">🎞 GIF</string>
+    <string name="chat_preview_expired_media">⌛ Медиа недоступно</string>
 </resources>

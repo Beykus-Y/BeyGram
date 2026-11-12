@@ -120,4 +120,6 @@
     <string name="service_paid_messages_refunded">Messages payants remboursés : %1$s Stars</string>
     <string name="service_paid_message_price">Prix des messages modifié : %1$s Stars</string>
     <string name="service_paid_message_free">Les messages sont désormais gratuits</string>
+    <string name="chat_preview_animation">🎞 GIF</string>
+    <string name="chat_preview_expired_media">⌛ Média indisponible</string>
 </resources>
