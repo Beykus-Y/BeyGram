@@ -1,9 +1,11 @@
 package com.beykus.beygram.ui.screens.chats
 
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
@@ -80,7 +82,8 @@ class GlobalSearchSession(
     internal val category = mutableStateOf(GlobalSearchCategory.All)
     internal val filtersExpanded = mutableStateOf(false)
     /** Owned by the session so opening a hit and returning keeps the result scroll position. */
-    internal val listState = LazyListState(firstVisibleIndex, firstVisibleOffset)
+    internal var listState by mutableStateOf(LazyListState(firstVisibleIndex, firstVisibleOffset))
+        private set
 
     /** Changes on every explicit reset (new query, account switch), invalidating late answers. */
     val generation = mutableLongStateOf(0L)
@@ -151,6 +154,8 @@ class GlobalSearchSession(
         filter.value = GlobalSearchFilter()
         category.value = GlobalSearchCategory.All
         filtersExpanded.value = false
+        // A new account or explicit search session must not inherit another account's scroll position.
+        listState = LazyListState()
         hits.value = emptyList()
         chatContexts.value = emptyMap()
         nextOffset.value = ""
