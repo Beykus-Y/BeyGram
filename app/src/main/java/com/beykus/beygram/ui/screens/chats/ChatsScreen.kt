@@ -76,6 +76,9 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -91,6 +94,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -136,7 +140,7 @@ import com.beykus.beygram.domain.search.networkSearchAction
 import com.beykus.beygram.domain.search.parseGlobalSearchQuery
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.ChatAvatar
-import com.beykus.beygram.ui.components.SearchField
+import com.beykus.beygram.ui.components.SearchFieldButton
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.MediaFileState
@@ -236,6 +240,7 @@ fun ChatsScreen(
     onMarkAllRead: (List<ChatPreview>) -> Unit = {},
     onMarkUnread: suspend (ChatPreview) -> Result<Unit>,
     onArchive: suspend (ChatPreview) -> Boolean,
+    onUnarchive: suspend (ChatPreview) -> Boolean = { false },
     onPinChat: suspend (Long, Boolean) -> Result<Unit>,
     onMuteChat: suspend (Long, Boolean) -> Result<Unit>,
     onDeleteChat: suspend (Long) -> Result<Unit>,
@@ -262,6 +267,10 @@ fun ChatsScreen(
     state: ChatsScreenState = rememberChatsScreenState()
 ) {
     val query = state.query
+    // After upgrading from the local text field, never leave the list filtered by a stale saved query.
+    LaunchedEffect(accountId, state) {
+        if (state.query.isNotBlank()) state.query = ""
+    }
     // Server folders replace the old local All / People / Groups / Unread chips.
     // Applying local filtering again beneath server folders gave users two competing tab bars.
     val selectedFilter = ChatFilter.All
@@ -306,14 +315,66 @@ fun ChatsScreen(
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
     var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
     var confirmReadAll by remember { mutableStateOf(false) }
-    val readAction = ChatSwipeAction(
-        label = stringResource(R.string.chats_action_read), icon = Icons.Rounded.DoneAll, container = palette.surface2, content = palette.accentInk,
-        enabled = true, perform = onMarkRead
-    )
-    val archiveAction = ChatSwipeAction(
-        label = stringResource(R.string.chats_action_archive), icon = Icons.Rounded.Archive, container = palette.accent, content = palette.onAccent,
-        enabled = true, perform = onArchive
-    )
+    val swipeStore = remember(context) { ChatSwipeSettingsStore(context) }
+    var swipePreferences by remember(accountId) { mutableStateOf(swipeStore.load(accountId)) }
+    var showSwipeSettings by remember(accountId) { mutableStateOf(false) }
+    val snackbarState = remember(accountId) { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
+    val changeSwipePreferences: (ChatSwipePreferences) -> Unit = { updated ->
+        swipePreferences = updated
+        swipeStore.save(accountId, updated)
+        openSwipeChatId = null
+    }
+    val readLabel = stringResource(R.string.chats_action_read)
+    val unreadActionLabel = stringResource(R.string.chats_action_unread)
+    val archiveLabel = stringResource(R.string.chats_action_archive)
+    val pinLabel = stringResource(R.string.chats_swipe_pin)
+    val unpinLabel = stringResource(R.string.chats_swipe_unpin)
+    val muteLabel = stringResource(R.string.chats_swipe_mute)
+    val unmuteLabel = stringResource(R.string.chats_swipe_unmute)
+    val moreLabel = stringResource(R.string.chats_swipe_more)
+    val archiveSnackbarLabel = stringResource(R.string.chats_archive_moved)
+    val undoSnackbarLabel = stringResource(R.string.chats_archive_undo)
+    val actionFor: (ChatPreview, ChatSwipeActionKind) -> ChatSwipeAction = { chat, kind ->
+        when (kind) {
+            ChatSwipeActionKind.Archive -> ChatSwipeAction(
+                archiveLabel, Icons.Rounded.Archive, palette.accent, palette.onAccent, true, kind, onArchive
+            )
+            ChatSwipeActionKind.ReadUnread -> ChatSwipeAction(
+                if (showsUnreadIndicator(chat)) readLabel else unreadActionLabel,
+                Icons.Rounded.DoneAll, palette.surface2, palette.accentInk, true, kind,
+                { target -> if (showsUnreadIndicator(target)) onMarkRead(target) else onMarkUnread(target).isSuccess }
+            )
+            ChatSwipeActionKind.Pin -> ChatSwipeAction(
+                if (chat.isPinned) unpinLabel else pinLabel,
+                Icons.Rounded.Bookmark, palette.surface2, palette.accentInk, true, kind,
+                { target ->
+                    (if (activeFolderId != null) onPinFolderChat(activeFolderId, target.id, !target.isPinned)
+                    else onPinChat(target.id, !target.isPinned)).isSuccess
+                }
+            )
+            ChatSwipeActionKind.Mute -> ChatSwipeAction(
+                if (chat.isMuted) unmuteLabel else muteLabel,
+                Icons.Rounded.NotificationsOff, palette.surface2, palette.accentInk, true, kind,
+                { target -> onMuteChat(target.id, !target.isMuted).isSuccess }
+            )
+            ChatSwipeActionKind.More -> ChatSwipeAction(
+                moreLabel, Icons.Rounded.MoreVert, palette.surface2, palette.accentInk, true, kind,
+                { target -> selectedActions = target; true }
+            )
+        }
+    }
+    val onSwipePerformed: (ChatPreview, ChatSwipeActionKind) -> Unit = { chat, kind ->
+        if (kind == ChatSwipeActionKind.Archive) {
+            snackbarScope.launch {
+                val result = snackbarState.showSnackbar(
+                    message = archiveSnackbarLabel,
+                    actionLabel = undoSnackbarLabel
+                )
+                if (result == SnackbarResult.ActionPerformed) onUnarchive(chat)
+            }
+        }
+    }
     val filteredChats = remember(query, displayedChats, selectedFilter) {
         // @username and t.me links match local titles by the bare username too.
         val localQuery = parseGlobalSearchQuery(query).publicText
