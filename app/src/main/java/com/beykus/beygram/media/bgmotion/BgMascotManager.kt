@@ -313,6 +313,12 @@ class BgMascotManager private constructor(private val context: Context) {
                     return@launch
                 }
                 if (analysis.status == BgBeatStatus.CANCELLED) {
+                    // Do not latch a cancellation as a permanent failure. If the
+                    // player is running, the next 250 ms tick retries; while paused
+                    // the cover simply stays visible instead of a stuck Preparing.
+                    if (preparingIdentity == requestSeq) {
+                        _uiState.value = BgMascotUiState.Idle
+                    }
                     return@launch
                 }
                 if (analysis.status != BgBeatStatus.OK) {
