@@ -3708,6 +3708,9 @@ class TdLibTelegramRepository private constructor(
             is TdApi.MessageDice      -> UiText.Res(R.string.chat_preview_dice, listOf(c.emoji.orEmpty()))
             is TdApi.MessagePhoto     -> UiText.Res(R.string.chat_preview_photo)
             is TdApi.MessageVideo     -> UiText.Res(R.string.chat_preview_video)
+            is TdApi.MessageAnimation -> UiText.Res(R.string.chat_preview_animation)
+            is TdApi.MessageExpiredPhoto, is TdApi.MessageExpiredVideo,
+            is TdApi.MessageExpiredVoiceNote, is TdApi.MessageExpiredVideoNote -> UiText.Res(R.string.chat_preview_expired_media)
             is TdApi.MessageAudio     -> UiText.Res(R.string.chat_preview_audio)
             is TdApi.MessageDocument  -> UiText.Res(R.string.chat_preview_document)
             is TdApi.MessageSticker   -> UiText.Res(R.string.chat_preview_sticker, listOf(c.sticker.emoji))
