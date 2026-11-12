@@ -21,6 +21,10 @@ internal object YandexConfig {
     /** Minimum gap between two requests from this app to the service. */
     const val MIN_REQUEST_GAP_MS = 250L
 
+    /** How long a lyrics result is reused: a found text for 10 minutes, a failure for one minute. */
+    const val LYRICS_OK_TTL_MS = 10 * 60_000L
+    const val LYRICS_FAILED_TTL_MS = 60_000L
+
     /** Pause when the service answers 429 without a Retry-After header. */
     const val DEFAULT_RETRY_AFTER_MS = 5_000L
 
