@@ -1006,7 +1006,8 @@ fun ChatsScreen(
       SnackbarHost(
           hostState = snackbarState,
           modifier = Modifier.align(Alignment.BottomCenter)
-              .padding(bottom = fabPlacement.bottomPadding + 8.dp)
+              .padding(bottom = fabPlacement.bottomPadding +
+                  if (createChatPlacement == CreateChatPlacement.Fab) design.fab.size + 16.dp else 8.dp)
       )
     }
     if (showSwipeSettings) ChatSwipeSettingsDialog(
