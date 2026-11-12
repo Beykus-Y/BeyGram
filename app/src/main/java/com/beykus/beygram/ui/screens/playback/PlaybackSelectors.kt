@@ -4,8 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.playback.LazyTrackRegistry
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackState
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -27,8 +29,14 @@ internal fun rememberMusicPlayerUi(): MusicPlayerUi? {
 
 @Composable
 internal fun rememberMusicQueueUi(): MusicQueueUi? {
-    val flow = remember { PlaybackEngine.state.map { it.musicQueueUi() }.distinctUntilChanged() }
-    val base = flow.collectAsStateWithLifecycle(initialValue = PlaybackEngine.state.value.musicQueueUi()).value
+    val flow = remember {
+        combine(PlaybackEngine.state, LazyTrackRegistry.progress) { state, progress ->
+            state.musicQueueUi(progress = progress)
+        }.distinctUntilChanged()
+    }
+    val base = flow.collectAsStateWithLifecycle(
+        initialValue = PlaybackEngine.state.value.musicQueueUi(progress = LazyTrackRegistry.progress.value)
+    ).value
     val context = LocalContext.current
     // The actual shuffle sequence lives in Media3. It only needs to be read when the queue snapshot changes,
     // never on the 250 ms progress stream; MusicQueueUi has no position fields.

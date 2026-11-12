@@ -501,7 +501,8 @@ private fun PlaylistHeader(title: String, description: String, coverPath: String
 @Composable
 internal fun musicCollectionSummary(count: Int, totalSeconds: Long): String {
     val tracks = pluralStringResource(R.plurals.music_track_count, count, count)
-    if (count == 0) return tracks
+    // Without a known total length (a collection still loading its pages) only the count is shown, never "0 min".
+    if (count == 0 || totalSeconds <= 0L) return tracks
     val parts = durationParts(totalSeconds)
     val length = when {
         parts.hours > 0 && parts.minutes > 0 ->

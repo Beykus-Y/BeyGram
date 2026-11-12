@@ -661,7 +661,6 @@
     <string name="queue_title">File d’attente</string>
     <string name="queue_back_to_player">Au lecteur</string>
     <string name="queue_count">Pistes : %1$d</string>
-    <string name="queue_loading_count">Chargement : %1$d</string>
     <string name="queue_shuffled">Lecture aléatoire activée : l’ordre d’origine est affiché</string>
     <string name="queue_playback_order_hint">Ordre de lecture · N° indique la position d’origine</string>
     <string name="queue_source_position">N° %1$d</string>
@@ -669,8 +668,10 @@
     <string name="queue_now_playing">Lecture en cours</string>
     <string name="queue_next">À suivre</string>
     <string name="queue_empty">Aucune autre piste dans la file</string>
-    <string name="queue_loading">Chargement</string>
     <string name="queue_ready">Prête</string>
+    <string name="queue_downloading">Téléchargement en cours</string>
+    <string name="queue_not_downloaded">Non téléchargée</string>
+    <string name="queue_ready_count">Prêtes : %1$d</string>
     <string name="queue_failed">Erreur</string>
     <string name="queue_unavailable">Indisponible</string>
     <string name="queue_play_next">Lire juste après</string>

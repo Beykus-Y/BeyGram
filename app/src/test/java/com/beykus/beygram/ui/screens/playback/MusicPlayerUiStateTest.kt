@@ -147,9 +147,25 @@ class MusicPlayerUiStateTest {
         assertEquals(second, ui.current!!.item)
         assertEquals(QueueItemStatus.CurrentPlaying, ui.current!!.status)
         assertEquals(listOf(third), ui.upcoming.map { it.item })
-        assertEquals(QueueItemStatus.Loading, ui.upcoming.single().status)
-        assertEquals(1, ui.loadingCount)
+        assertEquals(QueueItemStatus.NotDownloaded, ui.upcoming.single().status)
+        assertEquals(0, ui.readyCount)
         assertEquals(2, ui.upcoming.single().index)
+    }
+
+    @Test
+    fun queueRowsFollowTheDownloadProgress() {
+        val first = track("a", path = "/a.mp3")
+        val second = track("b", path = "/b.mp3")
+        val third = track("c", path = "", fileId = 3)
+        val state = playback(second, listOf(first, second, third), 1, playing = true)
+        assertEquals(QueueItemStatus.NotDownloaded, state.musicQueueUi().upcoming.single().status)
+        assertEquals(
+            QueueItemStatus.Downloading,
+            state.musicQueueUi(progress = com.beykus.beygram.playback.LazyTrackProgress(fetching = setOf("c"))).upcoming.single().status
+        )
+        val ready = state.musicQueueUi(progress = com.beykus.beygram.playback.LazyTrackProgress(ready = setOf("c")))!!
+        assertEquals(QueueItemStatus.Ready, ready.upcoming.single().status)
+        assertEquals(1, ready.readyCount)
     }
 
     @Test
