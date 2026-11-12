@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +51,7 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chats.ChatSwipeAction
+import com.beykus.beygram.ui.screens.chats.ChatSwipeActionKind
 import com.beykus.beygram.ui.screens.chats.showsUnreadIndicator
 import com.beykus.beygram.ui.screens.chats.SwipeChatRow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,14 +71,15 @@ fun ArchiveScreen(
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
+    val actionScope = rememberCoroutineScope()
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
     val readAction = ChatSwipeAction(
         label = stringResource(R.string.archive_action_read), icon = Icons.Rounded.DoneAll, container = palette.surface2, content = palette.accentInk,
-        enabled = true, perform = onMarkRead
+        enabled = true, kind = ChatSwipeActionKind.ReadUnread, perform = onMarkRead
     )
     val unarchiveAction = ChatSwipeAction(
         label = stringResource(R.string.archive_action_unarchive), icon = Icons.Rounded.Unarchive, container = palette.accent, content = palette.onAccent,
-        enabled = true, perform = onUnarchive
+        enabled = true, kind = ChatSwipeActionKind.Archive, perform = onUnarchive
     )
     BackHandler(onBack = onBack)
     Column(
@@ -112,8 +115,9 @@ fun ArchiveScreen(
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { onChatClick(chat) },
-                        read = readAction.copy(enabled = showsUnreadIndicator(chat)),
-                        primary = unarchiveAction
+                        left = unarchiveAction,
+                        right = readAction.copy(enabled = showsUnreadIndicator(chat)),
+                        actionScope = actionScope
                     )
                 }
             }
