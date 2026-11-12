@@ -13,6 +13,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -40,6 +41,7 @@ import com.beykus.beygram.deeplink.yandexMusicEntityLink
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MessageLinkPreview
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -99,14 +101,33 @@ internal fun MessageMusicLinkCard(
     val preview = message.linkPreview
     val musicLink = remember(message.text, message.entities, preview) { musicLinkOf(message) }
     val signedIn = rememberYandexSignedIn()
+    // Secret chats and signed-out accounts never reach the service: the link keeps its usual card.
+    if (!enabled || !signedIn || musicLink == null) {
+        preview?.let { MessageLinkPreviewCard(it, observeFile, onDownloadFile, autoDownloadFile = autoDownloadFile, onOpenEntity = onOpenEntity) }
+        return
+    }
+    // Keyed by the link, so an edited message that links elsewhere starts again with that link's own data.
+    key(musicLink.url) {
+        MusicLinkBody(musicLink, preview, observeFile, onDownloadFile, autoDownloadFile, onOpenEntity)
+    }
+}
+
+/**
+ * Loads the data of one link and draws its card. It is composed only when cards are on and the account is signed in,
+ * so no lookup starts in a secret chat, and leaving that state cancels a lookup that is still running.
+ */
+@Composable
+private fun MusicLinkBody(
+    link: MessageEntityLink.YandexMusic,
+    preview: MessageLinkPreview?,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    onDownloadFile: (Int) -> Unit,
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)?,
+    onOpenEntity: ((MessageEntityLink) -> Unit)?
+) {
     val context = LocalContext.current
-    val data by produceState<MusicLinkData?>(
-        initialValue = musicLink?.url?.let { MusicLinkCache.get(it) },
-        musicLink?.url,
-        signedIn
-    ) {
-        val link = musicLink ?: return@produceState
-        if (!signedIn || value != null) return@produceState
+    val data by produceState<MusicLinkData?>(initialValue = MusicLinkCache.get(link.url), link) {
+        if (value != null) return@produceState
         val provider = MusicProviders.yandex(context)
         if (provider == null) {
             value = MusicLinkData.Failed
@@ -125,12 +146,8 @@ internal fun MessageMusicLinkCard(
         if (loaded != MusicLinkData.Failed) MusicLinkCache.put(link.url, loaded)
         value = loaded
     }
-    if (!enabled || !signedIn || musicLink == null) {
-        preview?.let { MessageLinkPreviewCard(it, observeFile, onDownloadFile, autoDownloadFile = autoDownloadFile, onOpenEntity = onOpenEntity) }
-        return
-    }
-    // Opens the link's own screen in the chat's handler: the album screen, or the track's album when it plays nothing.
-    val onOpen: (() -> Unit)? = onOpenEntity?.let { open -> { open(musicLink) } }
+    // Opens the link's own screen in the chat's handler: the album screen, or the browser for a track without one.
+    val onOpen: (() -> Unit)? = onOpenEntity?.let { open -> { open(link) } }
     when (val shown = data) {
         null -> if (preview != null) {
             MessageLinkPreviewCard(preview, observeFile, onDownloadFile, autoDownloadFile = autoDownloadFile, onOpenEntity = onOpenEntity)
