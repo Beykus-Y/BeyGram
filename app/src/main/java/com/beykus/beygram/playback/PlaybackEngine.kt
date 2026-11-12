@@ -30,6 +30,7 @@ import com.beykus.beygram.data.media.AutoDownloadNetwork
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.media.AutoDownloadRuntime
 import com.beykus.beygram.data.media.Mp4StreamingProbe
+import com.beykus.beygram.data.media.estimatedStreamBytes
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
@@ -1841,7 +1842,7 @@ object PlaybackEngine {
                 if (context != null) {
                     for (index in first until minOf(first + BG_MIX_DOWNLOAD_AHEAD, driver.queueItems.size)) {
                         // Speculative traffic goes through the automatic-download policy, like the regular prefetch.
-                        prefetchItem(context, source, driver.queueItems[index])
+                        prefetchItem(context, source, driver.queueItems[index], playbackNext = index == first)
                     }
                 }
                 delay(BG_MIX_FEED_INTERVAL_MS)
@@ -3227,31 +3228,39 @@ object PlaybackEngine {
         } else {
             state.queue.indices.toList()
         }
-        prefetchCandidates(state, playbackOrder).forEach { item -> prefetchItem(context, source, item) }
+        prefetchCandidates(state, playbackOrder).forEachIndexed { index, item ->
+            prefetchItem(context, source, item, playbackNext = index == 0)
+        }
     }
 
-    /** Fetches [item] ahead under the automatic-download policy, so Data Saver, roaming and size limits apply. */
-    private fun prefetchItem(context: Context, source: PlaybackQueueSource?, item: PlaybackItem) {
+    /**
+     * Fetches [item] ahead under the automatic-download policy, so Data Saver, roaming and size limits apply.
+     * [playbackNext] marks the row that plays after the current one: a streamed row is part of playback, so only a
+     * missing network stops it.
+     */
+    private fun prefetchItem(context: Context, source: PlaybackQueueSource?, item: PlaybackItem, playbackNext: Boolean = false) {
         run {
             val lazySource = LazyTrackRegistry.sourceFor(item.key)
             if (lazySource != null && item.path.isBlank()) {
-                // A row without a file (bot result or provider track) is fetched ahead like a file, under the same policy.
-                if (item.key in prefetchedKeys) return@run
-                val request = AutoDownloadRequest(
-                    fileId = 0,
-                    kind = item.kind,
-                    sizeBytes = item.sizeBytes,
-                    isSecret = false,
-                    isSecretChat = false,
-                    hasSpoiler = false
-                )
+                // A row without a file (bot result or provider track) is fetched ahead like a file. Nothing is remembered per
+                // key: the source keeps one fetch per key and retries a failed one after its cooldown.
                 val allowed = runCatching {
-                    AutoDownloadRuntime.decision(context, request, item.accountId) == AutoDownloadDecision.Allowed
+                    if (playbackNext) {
+                        AutoDownloadRuntime.streamingPrefetchAllowed(context)
+                    } else {
+                        val request = AutoDownloadRequest(
+                            fileId = 0,
+                            kind = item.kind,
+                            // A provider row has no size before its file exists: estimate it from the duration.
+                            sizeBytes = item.sizeBytes.takeIf { it > 0L } ?: estimatedStreamBytes(item.durationSeconds),
+                            isSecret = false,
+                            isSecretChat = false,
+                            hasSpoiler = false
+                        )
+                        AutoDownloadRuntime.decision(context, request, prefetchAccountFor(item)) == AutoDownloadDecision.Allowed
+                    }
                 }.getOrDefault(false)
-                if (allowed) {
-                    prefetchedKeys.add(item.key)
-                    lazySource.request(item.key)
-                }
+                if (allowed) lazySource.request(item.key)
                 return@run
             }
             val fileId = item.fileId ?: return@run
@@ -3285,19 +3294,19 @@ object PlaybackEngine {
      * per current account so Data Saver toggles and route changes clear the settled keys and evaluate again.
      */
     private fun refreshPrefetchPolicyObserver() {
-        val source = queueSource
-        if (source == null || _state.value.queue.isEmpty()) {
+        val accountId = prefetchPolicyAccountId()
+        if (accountId == null || _state.value.queue.isEmpty()) {
             prefetchPolicyJob?.cancel()
             prefetchPolicyJob = null
             prefetchPolicyAccount = null
             return
         }
         val context = appContext ?: return
-        if (prefetchPolicyJob?.isActive == true && prefetchPolicyAccount == source.accountId) return
+        if (prefetchPolicyJob?.isActive == true && prefetchPolicyAccount == accountId) return
         prefetchPolicyJob?.cancel()
-        prefetchPolicyAccount = source.accountId
+        prefetchPolicyAccount = accountId
         AutoDownloadNetworkStatus.ensureStarted(context.applicationContext)
-        val settings = AutoDownloadSettingsStore.getInstance(context.applicationContext, source.accountId).settings
+        val settings = AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
         prefetchPolicyJob = scope.launch {
             combine(AutoDownloadNetworkStatus.network, settings) { _, _ -> Unit }.collect {
                 prefetchedKeys.clear()
@@ -3305,4 +3314,15 @@ object PlaybackEngine {
             }
         }
     }
+
+    /** The account whose auto-download settings decide the queue: the Telegram source's, or the signed-in one for provider rows. */
+    private fun prefetchPolicyAccountId(): String? {
+        queueSource?.let { return it.accountId }
+        if (_state.value.queue.none { LazyTrackRegistry.isLazyKey(it.key) }) return null
+        return activeAccountId ?: LEGACY_PLAYBACK_ACCOUNT_ID
+    }
+
+    /** A provider row belongs to no account, so its download decision follows the signed-in account, not the legacy one. */
+    private fun prefetchAccountFor(item: PlaybackItem): String =
+        if (item.accountId == LEGACY_PLAYBACK_ACCOUNT_ID) activeAccountId ?: item.accountId else item.accountId
 }
