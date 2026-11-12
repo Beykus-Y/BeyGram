@@ -2136,7 +2136,7 @@ private fun BeyGramAppContent(
             musicPlaylistReturnRouteName = AppRoute.ChatInfo.name
             routeName = AppRoute.MusicPlaylist.name
         }
-        ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
+        ProfileScreen(info, false, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onManage = { routeName = AppRoute.ChatManagement.name },
@@ -2216,7 +2216,7 @@ private fun BeyGramAppContent(
         val infoFlow = remember(repository, memberChatId) { repository.observeChatInfo(memberChatId) }
         val info by infoFlow.collectAsStateWithLifecycle()
         LaunchedEffect(repository, memberChatId) { repository.refreshChatInfo(memberChatId) }
-        ProfileScreen(info, false, repository::observeFile, repository::downloadFile,
+        ProfileScreen(info, false, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
             onBack = { routeName = memberReturnRouteName }, onRefresh = { repository.refreshChatInfo(memberChatId) },
             onEdit = {}, setPhoto = repository::setMyProfilePhoto,
             loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
@@ -2690,7 +2690,7 @@ GlobalSearchScreen(
                 AppRoute.MemberProfile -> memberProfileRoute()
                 AppRoute.MyProfile -> {
                     LaunchedEffect(repository) { repository.refreshMyProfile() }
-                    ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile,
+                    ProfileScreen(myProfile, true, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
                         onBack = { routeName = AppRoute.Chats.name }, onRefresh = repository::refreshMyProfile,
                         onEdit = { routeName = AppRoute.EditProfile.name }, setPhoto = repository::setMyProfilePhoto,
                         loadProfilePhotos = repository::loadProfilePhotos, deleteMyProfilePhoto = repository::deleteMyProfilePhoto,
