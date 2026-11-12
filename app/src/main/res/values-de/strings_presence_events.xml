@@ -120,4 +120,5 @@
     <string name="service_paid_messages_refunded">Bezahlte Nachrichten erstattet: %1$s Stars</string>
     <string name="service_paid_message_price">Nachrichtenpreis geändert auf %1$s Stars</string>
     <string name="service_paid_message_free">Nachrichten sind jetzt kostenlos</string>
+    <string name="deleted_account_name">Gelöschtes Konto</string>
 </resources>
