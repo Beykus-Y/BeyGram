@@ -752,6 +752,7 @@
     <string name="music_provider_unlike">Quitar de Me gusta</string>
     <string name="music_provider_open_album">Ir al álbum</string>
     <string name="music_provider_share_link">Compartir enlace</string>
+    <string name="music_open_in_browser">Abrir en el navegador</string>
     <string name="music_provider_like_failed">No se pudo cambiar Me gusta</string>
     <string name="music_source_telegram">Telegram</string>
     <string name="music_library_title">Música</string>

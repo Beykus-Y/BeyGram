@@ -752,6 +752,7 @@
     <string name="music_provider_unlike">Remove from liked</string>
     <string name="music_provider_open_album">Go to album</string>
     <string name="music_provider_share_link">Share link</string>
+    <string name="music_open_in_browser">Open in browser</string>
     <string name="music_provider_like_failed">Could not change your likes</string>
     <string name="music_source_telegram">Telegram</string>
     <string name="music_library_title">Music</string>

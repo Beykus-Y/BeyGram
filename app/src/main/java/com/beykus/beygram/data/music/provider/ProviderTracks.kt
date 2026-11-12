@@ -60,7 +60,19 @@ object ProviderTracks {
     /** Opens the system share sheet with the track name and its link; Telegram chats are among the targets. */
     fun shareLink(context: Context, track: ProviderTrack, chooserTitle: String) {
         val name = listOf(track.performer, track.title).filter { it.isNotBlank() }.joinToString(" — ")
-        val text = if (name.isBlank()) webLink(track) else "$name\n${webLink(track)}"
+        shareText(context, if (name.isBlank()) webLink(track) else "$name\n${webLink(track)}", chooserTitle)
+    }
+
+    /** Address of an album's page on the service. It opens in the service's app or site. */
+    fun albumWebLink(albumId: String): String = "$YANDEX_MUSIC_WEB/album/$albumId"
+
+    /** Opens the system share sheet with the album name and its link. */
+    fun shareAlbumLink(context: Context, title: String, albumId: String, chooserTitle: String) {
+        val link = albumWebLink(albumId)
+        shareText(context, if (title.isBlank()) link else "$title\n$link", chooserTitle)
+    }
+
+    private fun shareText(context: Context, text: String, chooserTitle: String) {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)

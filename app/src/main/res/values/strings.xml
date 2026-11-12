@@ -2301,6 +2301,7 @@
     <string name="music_provider_unlike">Убрать из «Мне нравится»</string>
     <string name="music_provider_open_album">Перейти к альбому</string>
     <string name="music_provider_share_link">Поделиться ссылкой</string>
+    <string name="music_open_in_browser">Открыть в браузере</string>
     <string name="music_provider_like_failed">Не удалось изменить «Мне нравится»</string>
     <string name="music_source_telegram">Telegram</string>
     <string name="music_library_title">Музыка</string>
