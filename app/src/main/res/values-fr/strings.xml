@@ -784,6 +784,7 @@
     <string name="music_provider_unlike">Retirer des titres aimés</string>
     <string name="music_provider_open_album">Aller à l’album</string>
     <string name="music_provider_share_link">Partager le lien</string>
+    <string name="music_open_in_browser">Ouvrir dans le navigateur</string>
     <string name="music_provider_like_failed">Impossible de modifier vos j’aime</string>
     <string name="music_source_telegram">Telegram</string>
     <string name="music_library_title">Musique</string>

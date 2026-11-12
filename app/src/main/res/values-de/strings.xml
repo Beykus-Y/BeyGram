@@ -758,6 +758,7 @@
     <string name="music_provider_unlike">Aus „Gefällt mir“ entfernen</string>
     <string name="music_provider_open_album">Zum Album</string>
     <string name="music_provider_share_link">Link teilen</string>
+    <string name="music_open_in_browser">Im Browser öffnen</string>
     <string name="music_provider_like_failed">„Gefällt mir“ konnte nicht geändert werden</string>
     <string name="music_source_telegram">Telegram</string>
     <string name="music_library_title">Musik</string>

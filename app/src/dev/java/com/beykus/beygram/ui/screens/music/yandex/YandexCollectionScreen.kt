@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +52,7 @@ import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.screens.chat.openInBrowser
 import com.beykus.beygram.ui.screens.music.MusicCollectionHeader
 import com.beykus.beygram.ui.screens.music.MusicEmptyText
 import com.beykus.beygram.ui.screens.music.MusicLoadingRow
@@ -233,6 +235,9 @@ internal fun YandexCollectionScreen(
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
                     }
                 },
+                actions = {
+                    if (ref is YandexCollectionRef.Album) YandexAlbumMenu(albumId = ref.id, title = head.title)
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.surface)
             )
         }
@@ -347,6 +352,36 @@ private fun TrackRowWithMenu(
             }
         }
     )
+}
+
+/** The overflow menu of an album screen: share the album's link, or open its page in a browser. */
+@Composable
+private fun YandexAlbumMenu(albumId: String, title: String) {
+    val palette = beyGramPalette()
+    val context = LocalContext.current
+    val shareLabel = stringResource(R.string.music_provider_share_link)
+    var menu by remember(albumId) { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { menu = true }) {
+            Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textPrimary)
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(
+                text = { Text(shareLabel) },
+                onClick = {
+                    menu = false
+                    ProviderTracks.shareAlbumLink(context, title, albumId, shareLabel)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.music_open_in_browser)) },
+                onClick = {
+                    menu = false
+                    openInBrowser(context, ProviderTracks.albumWebLink(albumId))
+                }
+            )
+        }
+    }
 }
 
 /** Starts [list] at [index], or shuffled when [shuffle] is set. */

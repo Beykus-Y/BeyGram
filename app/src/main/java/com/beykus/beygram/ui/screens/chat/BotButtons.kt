@@ -17,6 +17,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
+import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.deeplink.yandexMusicEntityLink
+import com.beykus.beygram.deeplink.yandexMusicNativeReady
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.text.userMessage
@@ -26,7 +29,8 @@ import kotlinx.coroutines.launch
 internal fun InlineBotButtons(
     message: ChatMessage,
     conversation: ConversationRepository,
-    onOpenWebApp: ((url: String, botUserId: Long, messageId: Long, source: BotWebAppSource, buttonText: String) -> Unit)? = null
+    onOpenWebApp: ((url: String, botUserId: Long, messageId: Long, source: BotWebAppSource, buttonText: String) -> Unit)? = null,
+    onOpenEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     if (message.inlineKeyboard.isEmpty()) return
     val context = LocalContext.current
@@ -36,6 +40,12 @@ internal fun InlineBotButtons(
     var alert by remember(message.id) { mutableStateOf<String?>(null) }
     fun open(value: String) {
         val url = safeMessageUrl(value)
+        // A Yandex Music address opens in the app when it can (signed-in account in the DEV build); all else as before.
+        val yandexLink = url?.let { yandexMusicEntityLink(it) }
+        if (yandexLink != null && onOpenEntity != null && yandexMusicNativeReady(context)) {
+            onOpenEntity(yandexLink)
+            return
+        }
         if (url == null || runCatching { uri.openUri(url) }.isFailure) Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
     }
     fun unsupported() = Toast.makeText(context, R.string.chat_bot_unsupported, Toast.LENGTH_LONG).show()

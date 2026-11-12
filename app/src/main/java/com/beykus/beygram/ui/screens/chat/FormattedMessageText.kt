@@ -409,6 +409,31 @@ internal fun openWithSystemHandler(context: Context, target: String) {
 }
 
 /**
+ * Opens [target] in a browser app, even where an installed app claims its address (a music app, for one): the chooser
+ * offers only browsers. Without one, the address goes to [openWithSystemHandler].
+ */
+internal fun openInBrowser(context: Context, target: String) {
+    val safe = safeMessageUrl(target)
+    if (safe == null) {
+        Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
+        return
+    }
+    val browsers = Intent(Intent.ACTION_VIEW, Uri.parse("http://")).addCategory(Intent.CATEGORY_BROWSABLE)
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(safe)).addCategory(Intent.CATEGORY_BROWSABLE)
+    // setSelector returns nothing in the platform API, so it is set on its own line rather than chained.
+    intent.setSelector(browsers)
+    // A non-Activity context (a dialog's window, an application context) needs its own task for ACTION_VIEW.
+    if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        openWithSystemHandler(context, safe)
+    } catch (_: Exception) {
+        Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
+    }
+}
+
+/**
  * One animated custom emoji in the text flow. The placeholder keeps the original emoji as its alternate text, so a
  * missing TGS/WebP file, WebM sticker or disabled animation still shows the ordinary emoji instead of a gap.
  */
