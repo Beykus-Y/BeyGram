@@ -1,5 +1,6 @@
 package com.beykus.beygram.data.yandex
 
+import java.util.concurrent.ConcurrentHashMap
 import android.util.Log
 import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderAccount
@@ -12,13 +13,10 @@ import com.beykus.beygram.data.music.provider.ProviderLyrics
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Result of one sign-in poll. The UI repeats polls at the interval until [Signed] or [Failed]. */
@@ -83,6 +81,7 @@ internal class YandexMusicProvider(
             YandexPollOutcome.SlowDown -> YandexSignInPoll.SlowDown
             is YandexPollOutcome.Failed -> {
                 clearPendingSignIn()
+        lyricsCache.clear()
                 YandexSignInPoll.Failed(outcome.failure)
             }
             is YandexPollOutcome.Tokens -> {
@@ -228,22 +227,27 @@ internal class YandexMusicProvider(
     override suspend fun album(albumId: String): ProviderResult<ProviderAlbumTracks> =
         withSession { s -> api.album(s.accessToken, albumId) }
 
+    /** Lyrics per track. A result is reused for a while, so reopening the panel does not ask the service again. */
+    private val lyricsCache = ConcurrentHashMap<String, Pair<Long, ProviderResult<ProviderLyrics>>>()
+
     override suspend fun lyrics(trackId: String): ProviderResult<ProviderLyrics> {
-        val result = withSession { s -> api.lyrics(s.accessToken, trackId) }
-        if (result is ProviderResult.Failure) {
-            // The probe runs apart from the caller: the failure is returned at once, even if the probe waits on a
-            // timeout or a Retry-After. Only a redacted line is kept.
-            val reason = result.failure
-            probeScope.launch {
-                val probe = withSession { s -> ProviderResult.Success(api.lyricsProbe(s.accessToken, trackId)) }
-                val report = (probe as? ProviderResult.Success)?.value ?: "probe unavailable"
-                lyricsDiagnostics = "lyricsFailure=$reason; $report"
-            }
+        val now = System.currentTimeMillis()
+        lyricsCache[trackId]?.let { (at, cached) ->
+            val ttl = if (cached is ProviderResult.Success) YandexConfig.LYRICS_OK_TTL_MS else YandexConfig.LYRICS_FAILED_TTL_MS
+            if (now - at < ttl) return cached
         }
+        val outcome = withSession { s -> ProviderResult.Success(api.lyricsWithReport(s.accessToken, trackId)) }
+        val result = when (outcome) {
+            is ProviderResult.Success -> {
+                val (result, report) = outcome.value
+                if (result is ProviderResult.Failure) lyricsDiagnostics = "lyricsFailure=${result.failure}; $report"
+                result
+            }
+            is ProviderResult.Failure -> ProviderResult.Failure(outcome.failure)
+        }
+        lyricsCache[trackId] = now to result
         return result
     }
-
-    private val probeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override suspend fun audio(trackId: String): ProviderResult<ProviderAudio> = withSession { s ->
         if (!s.hasSubscription) ProviderResult.Failure(MusicProviderFailure.SubscriptionRequired)
