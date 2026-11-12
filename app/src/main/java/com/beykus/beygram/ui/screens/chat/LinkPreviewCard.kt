@@ -23,6 +23,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
+import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.deeplink.yandexMusicEntityLink
+import com.beykus.beygram.deeplink.yandexMusicNativeReady
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
@@ -48,21 +51,29 @@ internal fun MessageLinkPreviewCard(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    onOpenEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     // Navigate to TDLib's original URL; displayUrl is a shortened human-readable form that may not be navigable.
     val target = safeLinkPreviewUrl(preview.url.ifBlank { preview.displayUrl })
+    // A Yandex Music card is opened by the chat's own handler when the app can play it; see openMessageEntity.
+    val music = remember(target) { target?.let(::yandexMusicEntityLink) }
     val shape = styledShape(8.dp)
     Row(
         modifier.fillMaxWidth().padding(top = 6.dp)
             .clip(shape)
             .background(palette.accent.copy(alpha = 0.08f))
             .then(if (target == null) Modifier else Modifier.clickable {
-                runCatching { uriHandler.openUri(target) }.onFailure {
-                    Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
+                val inApp = music?.takeIf { onOpenEntity != null && yandexMusicNativeReady(context) }
+                if (inApp != null) {
+                    onOpenEntity?.invoke(inApp)
+                } else {
+                    runCatching { uriHandler.openUri(target) }.onFailure {
+                        Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()
+                    }
                 }
             })
             .padding(6.dp),

@@ -46,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.messageEntityLink
+import com.beykus.beygram.deeplink.yandexMusicNativeReady
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -286,6 +287,7 @@ private fun MessageEntityLink.accessibilityLabel(): String = when (this) {
     is MessageEntityLink.TelegramMessage -> url
     is MessageEntityLink.TelegramInvite -> url
     is MessageEntityLink.ExternalUrl -> url
+    is MessageEntityLink.YandexMusic -> url
     is MessageEntityLink.Email -> address
     is MessageEntityLink.Phone -> number
     is MessageEntityLink.TelegramPhone -> phone
@@ -354,6 +356,11 @@ private fun Modifier.messageEntityTapHandler(
 private fun openMessageEntity(context: Context, link: MessageEntityLink, handler: ((MessageEntityLink) -> Unit)?) {
     when (link) {
         is MessageEntityLink.ExternalUrl -> openWithSystemHandler(context, link.url)
+        is MessageEntityLink.YandexMusic -> {
+            // Opens inside the app only when the chat can handle it and a Yandex account is signed in; otherwise the browser.
+            if (handler != null && yandexMusicNativeReady(context)) handler(link)
+            else openWithSystemHandler(context, link.url)
+        }
         is MessageEntityLink.Email -> openWithSystemHandler(context, "mailto:${link.address}")
         is MessageEntityLink.Phone -> openWithSystemHandler(context, "tel:${link.number.filter { it.isDigit() || it == '+' }}")
         is MessageEntityLink.PublicChat -> {
@@ -383,7 +390,7 @@ private fun openMessageEntity(context: Context, link: MessageEntityLink, handler
     }
 }
 
-private fun openWithSystemHandler(context: Context, target: String) {
+internal fun openWithSystemHandler(context: Context, target: String) {
     val safe = safeMessageUrl(target)
     if (safe == null) {
         Toast.makeText(context, R.string.chat_link_failed, Toast.LENGTH_SHORT).show()

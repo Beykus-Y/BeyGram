@@ -56,6 +56,11 @@ import com.beykus.beygram.data.tdlib.TdAccountRegistry
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
 import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.deeplink.YandexMusicTarget
+import com.beykus.beygram.data.music.provider.MusicProviders
+import com.beykus.beygram.data.music.provider.ProviderArtwork
+import com.beykus.beygram.data.music.provider.ProviderResult
+import com.beykus.beygram.ui.screens.chat.openWithSystemHandler
 import com.beykus.beygram.deeplink.PendingTelegramDeepLink
 import com.beykus.beygram.deeplink.TelegramDeepLinkParser
 import com.beykus.beygram.deeplink.TelegramDeepLinkRoute
@@ -1013,6 +1018,16 @@ private fun BeyGramAppContent(
         chatBackRouteName = AppRoute.Chats.name
         routeName = AppRoute.Chat.name
     }
+    // Opens a collection screen of a music source. Declared before the message link handler, which uses it for albums.
+    fun openMusicCollection(ref: String) {
+        if (routeName == AppRoute.MusicCollection.name) {
+            musicCollectionStack = (musicCollectionStack.lines().filter { it.isNotBlank() } + ref).joinToString("\n")
+        } else {
+            musicCollectionReturnRouteName = routeName
+            musicCollectionStack = ref
+            routeName = AppRoute.MusicCollection.name
+        }
+    }
     // A link inside a message must be resolved by the selected account, never by a stale repository or browser.
     // The visible notice is the only failure path: a tap is never allowed to become a silent no-op.
     val openMessageEntity: (MessageEntityLink) -> Unit = { target ->
@@ -1103,6 +1118,25 @@ private fun BeyGramAppContent(
                                 accountId = sourceAccountId,
                                 draft = target.draft
                             )
+                        }
+                        // Yandex Music links the chat can play: an album opens its screen, a track starts playing.
+                        // A failed lookup falls back to the browser, so a tap never ends without a result.
+                        is MessageEntityLink.YandexMusic -> when (val music = target.target) {
+                            is YandexMusicTarget.Album -> {
+                                val host = ProviderMusicHosts.yandex()
+                                if (host != null) openMusicCollection(host.albumRef(music.albumId))
+                                else openWithSystemHandler(context, target.url)
+                            }
+                            is YandexMusicTarget.Track -> {
+                                val result = MusicProviders.yandex(context)?.tracks(listOf(music.trackId))
+                                if (selectedAccountId != sourceAccountId) return@launch
+                                val track = when (val loaded = result) {
+                                    is ProviderResult.Success -> loaded.value.firstOrNull()
+                                    else -> null
+                                }
+                                if (track != null && track.isAvailable) ProviderArtwork.playTracks(context, listOf(track), 0)
+                                else openWithSystemHandler(context, target.url)
+                            }
                         }
                         // External URLs, email and phone are owned by the formatter's system-handler path.
                         is MessageEntityLink.ExternalUrl,
@@ -1640,15 +1674,6 @@ private fun BeyGramAppContent(
         val rest = musicCollectionStack.lines().filter { it.isNotBlank() }.dropLast(1)
         musicCollectionStack = rest.joinToString("\n")
         if (rest.isEmpty()) routeName = musicCollectionReturnRouteName
-    }
-    fun openMusicCollection(ref: String) {
-        if (routeName == AppRoute.MusicCollection.name) {
-            musicCollectionStack = (musicCollectionStack.lines().filter { it.isNotBlank() } + ref).joinToString("\n")
-        } else {
-            musicCollectionReturnRouteName = routeName
-            musicCollectionStack = ref
-            routeName = AppRoute.MusicCollection.name
-        }
     }
     BackHandler(enabled = route == AppRoute.MusicCollection) { closeMusicCollection() }
     BackHandler(enabled = route == AppRoute.MusicPlaylist) { routeName = musicPlaylistReturnRouteName }

@@ -3010,7 +3010,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 )
                             }
                             if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
-                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile) }
+                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity) }
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,
