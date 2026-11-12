@@ -31,13 +31,15 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w360dp-h780dp-xhdpi", application = Application::class)
 class StylePreviewScreenshotTest(
     private val style: DesignStyle,
-    private val scene: StyleScene
+    // The scene's name, not the internal enum: a public constructor cannot expose an internal type.
+    private val sceneName: String
 ) {
     @get:Rule
     val compose = createComposeRule()
 
     @Test
     fun light() {
+        val scene = StyleScene.valueOf(sceneName)
         compose.setContent {
             Box(Modifier.size(360.dp, 780.dp)) {
                 StyleScenePreview(
@@ -56,7 +58,7 @@ class StylePreviewScreenshotTest(
         @JvmStatic
         @ParameterizedRobolectricTestRunner.Parameters(name = "{0}_{1}")
         fun cases(): List<Array<Any>> = DesignStyle.entries.flatMap { style ->
-            StyleScene.entries.map { arrayOf<Any>(style, it) }
+            StyleScene.entries.map { arrayOf<Any>(style, it.name) }
         }
     }
 }
