@@ -616,6 +616,9 @@ object PlaybackEngine {
      * Plays source [tracks] from [startIndex]. [loadMore] makes the queue endless (a radio such as «Моя волна»): the
      * engine asks it for the next tracks when few are left, as it does for Telegram history pages.
      */
+    /** Whether the playing queue is endless (a radio such as «Моя волна»); its loader keeps it going. */
+    fun currentQueueIsEndless(): Boolean = queueSource?.loadMore != null
+
     fun playYandexTracks(
         context: Context,
         tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>,
