@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.music
 import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -23,6 +24,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.provider.ProviderCovers
 import com.beykus.beygram.data.music.provider.ProviderTrack
+import com.beykus.beygram.data.music.provider.ProviderWaves
 
 /** The cached file of a source cover, or null while it downloads or when there is none. */
 @Composable
@@ -104,6 +106,15 @@ internal fun ProviderTrackMenuItems(
             ProviderTracks.setLikedInBackground(context, track, !liked) {
                 Toast.makeText(context.applicationContext, failed, Toast.LENGTH_SHORT).show()
             }
+        }
+    )
+    val startWave = ProviderWaves.fromTrack
+    if (startWave != null && track.isAvailable) DropdownMenuItem(
+        text = { Text(stringResource(R.string.music_provider_wave_track)) },
+        leadingIcon = { Icon(Icons.Rounded.Radio, null, tint = palette.textSecondary) },
+        onClick = {
+            onDismiss()
+            startWave(context, track)
         }
     )
     val albumId = track.albumId

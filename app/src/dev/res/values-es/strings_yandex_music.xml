@@ -40,6 +40,7 @@
     <string name="yandex_library_play">Reproducir</string>
     <string name="yandex_wave_title">Mi Ola</string>
     <string name="yandex_wave_source_personal">Según tus gustos</string>
+    <string name="yandex_wave_source_track">Según «%1$s»</string>
     <string name="yandex_wave_subtitle">Un flujo infinito de canciones elegidas para ti</string>
     <string name="yandex_wave_starting">Eligiendo canciones…</string>
     <string name="yandex_wave_failed">No se pudo iniciar la ola. Toca para intentarlo de nuevo.</string>
