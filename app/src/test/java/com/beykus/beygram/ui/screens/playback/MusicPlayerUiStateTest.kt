@@ -159,10 +159,10 @@ class MusicPlayerUiStateTest {
         val second = track("b", path = "/b.mp3")
         val third = track("c", path = "", fileId = 3)
         val state = playback(second, listOf(first, second, third), 1, playing = true)
-        assertEquals(QueueItemStatus.NotDownloaded, state.musicQueueUi().upcoming.single().status)
+        assertEquals(QueueItemStatus.NotDownloaded, state.musicQueueUi()!!.upcoming.single().status)
         assertEquals(
             QueueItemStatus.Downloading,
-            state.musicQueueUi(progress = com.beykus.beygram.playback.LazyTrackProgress(fetching = setOf("c"))).upcoming.single().status
+            state.musicQueueUi(progress = com.beykus.beygram.playback.LazyTrackProgress(fetching = setOf("c")))!!.upcoming.single().status
         )
         val ready = state.musicQueueUi(progress = com.beykus.beygram.playback.LazyTrackProgress(ready = setOf("c")))!!
         assertEquals(QueueItemStatus.Ready, ready.upcoming.single().status)
