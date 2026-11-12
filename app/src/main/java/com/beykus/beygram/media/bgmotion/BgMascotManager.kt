@@ -170,12 +170,16 @@ class BgMascotManager private constructor(private val context: Context) {
         if (!enabled) {
             destroySession()
             failedIdentity = null
-            _uiState.value = BgMascotUiState.Disabled
+            if (_uiState.value !is BgMascotUiState.Disabled) {
+                _uiState.value = BgMascotUiState.Disabled
+            }
             return
         }
         if (!nativeAvailable) {
             destroySession()
-            _uiState.value = BgMascotUiState.Unavailable
+            if (_uiState.value !is BgMascotUiState.Unavailable) {
+                _uiState.value = BgMascotUiState.Unavailable
+            }
             return
         }
         if (!isVisible) {
@@ -191,20 +195,27 @@ class BgMascotManager private constructor(private val context: Context) {
         val item = state.item
         if (item == null) {
             destroySession()
-            _uiState.value = BgMascotUiState.Idle
+            if (_uiState.value !is BgMascotUiState.Idle) {
+                _uiState.value = BgMascotUiState.Idle
+            }
             return
         }
 
         val ineligible = BgMediaEligibility.reasonFor(item)
         if (ineligible != null) {
             destroySession()
-            _uiState.value = BgMascotUiState.Ineligible(ineligible)
+            val current = _uiState.value
+            if (current !is BgMascotUiState.Ineligible || current.reason != ineligible) {
+                _uiState.value = BgMascotUiState.Ineligible(ineligible)
+            }
             return
         }
 
         val identity = identityFor(item) ?: run {
             destroySession()
-            _uiState.value = BgMascotUiState.Idle
+            if (_uiState.value !is BgMascotUiState.Idle) {
+                _uiState.value = BgMascotUiState.Idle
+            }
             return
         }
 
@@ -219,9 +230,15 @@ class BgMascotManager private constructor(private val context: Context) {
             return
         }
 
+        if (failedIdentity != null && failedIdentity?.itemKey != item.key) {
+            failedIdentity = null
+        }
         if (preparingIdentity == identity) return
         if (failedIdentity == identity) {
-            _uiState.value = BgMascotUiState.Error("Анализ трека не удался")
+            val current = _uiState.value
+            if (current !is BgMascotUiState.Error) {
+                _uiState.value = BgMascotUiState.Error("Анализ трека не удался")
+            }
             return
         }
         startPrepare(item, identity)
