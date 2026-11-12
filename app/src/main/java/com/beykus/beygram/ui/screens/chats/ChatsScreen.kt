@@ -145,6 +145,7 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.pluralForm
 import java.text.NumberFormat
 import kotlin.math.min
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -347,7 +348,12 @@ fun ChatsScreen(
     val density = LocalDensity.current
     val listState = state.listState
     LaunchedEffect(state) {
-        state.scrollToTopRequests.collect { state.listState.animateScrollToItem(0) }
+        // Each scroll runs in its own child job: a drag that cancels the animation must not end the request collector.
+        var scrollJob: Job? = null
+        state.scrollToTopRequests.collect {
+            scrollJob?.cancel()
+            scrollJob = launch { state.listState.animateScrollToItem(0) }
+        }
     }
     // The folder chips scroll in their own strip. When the selected chip is not whole in view, the strip moves so its name
     // is fully visible, and the chip before it stays in view as a hint.
@@ -366,7 +372,8 @@ fun ChatsScreen(
         val fullyVisible = visible != null &&
             visible.offset >= info.viewportStartOffset &&
             visible.offset + visible.size <= info.viewportEndOffset
-        if (!fullyVisible) folderTabsState.animateScrollToItem((selectedFolderTabIndex - 1).coerceAtLeast(0))
+        // The selected chip goes to the start edge: its whole name is in view, even when the chip before it is wide.
+        if (!fullyVisible) folderTabsState.animateScrollToItem(selectedFolderTabIndex)
     }
     val headerCollapseThresholdPx = with(density) { 96.dp.roundToPx() }
     val headerCollapsed by remember(listState, headerCollapseThresholdPx) {
