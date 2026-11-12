@@ -14,6 +14,17 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
 
+/** One batch of radio tracks and the session it belongs to. */
+internal data class YandexWaveBatch(
+    val sessionId: String,
+    val batchId: String?,
+    val tracks: List<ProviderTrack>,
+    /** The service no longer knows the session; a new one has to be started. */
+    val unknownSession: Boolean,
+    /** The session ended on the service side; a new one has to be started. */
+    val terminated: Boolean,
+)
+
 /** Account data needed by the provider. */
 internal data class YandexAccount(
     val uid: String,
@@ -100,6 +111,47 @@ internal class YandexApi(private val http: YandexHttp) {
             val tracks = (0 until volumes.length()).flatMap { disc -> volumes.optJSONArray(disc)?.tracks().orEmpty() }
             ProviderAlbumTracks(album, tracks.map { if (it.albumId == null) it.copy(albumId = album.id) else it })
         }
+
+    /**
+     * Starts a radio session («Моя волна» for [YandexWave.MY_WAVE_SEED]). [queue] lists tracks already heard, as
+     * `id:albumId`, so a replacement session does not repeat them.
+     */
+    fun waveStart(token: String, seeds: List<String>, queue: List<String>): ProviderResult<YandexWaveBatch> {
+        val body = JSONObject()
+            .put("seeds", JSONArray(seeds))
+            .put("includeTracksInResponse", true)
+        if (queue.isNotEmpty()) body.put("queue", JSONArray(queue.takeLast(YandexWave.QUEUE_HINT)))
+        return call(token, "/rotor/session/new", json = body) { root -> parseWaveBatch(root, sessionId = null) }
+    }
+
+    /** The next batch of a radio session. [queue] lists the tracks the session already gave, as `id:albumId`. */
+    fun waveNext(token: String, sessionId: String, queue: List<String>): ProviderResult<YandexWaveBatch> {
+        val body = JSONObject().put("queue", JSONArray(queue.takeLast(YandexWave.QUEUE_HINT)))
+        return call(token, "/rotor/session/${encode(sessionId)}/tracks", json = body) { root ->
+            parseWaveBatch(root, sessionId)
+        }
+    }
+
+    /** Reads a session or next-batch answer. Null when the shape is not the expected one. */
+    fun parseWaveBatch(root: JSONObject, sessionId: String?): YandexWaveBatch? {
+        val result = root.result()
+        val id = result.optString("radioSessionId").takeIf { it.isNotBlank() } ?: sessionId ?: return null
+        val sequence = result.optJSONArray("sequence") ?: JSONArray()
+        val tracks = (0 until sequence.length()).mapNotNull { index ->
+            val entry = sequence.optJSONObject(index) ?: return@mapNotNull null
+            val track = entry.optJSONObject("track") ?: return@mapNotNull null
+            parseTrack(track)?.let { parsed ->
+                if (entry.has("liked") && !entry.isNull("liked")) parsed.copy(liked = entry.optBoolean("liked")) else parsed
+            }
+        }
+        return YandexWaveBatch(
+            sessionId = id,
+            batchId = result.optString("batchId").takeIf { it.isNotBlank() },
+            tracks = tracks,
+            unknownSession = result.optBoolean("unknownSession", false),
+            terminated = result.optBoolean("terminated", false),
+        )
+    }
 
     fun parsePlaylist(item: JSONObject, uid: String): ProviderPlaylist? {
         val kind = item.idOf("kind") ?: return null
@@ -260,11 +312,16 @@ internal class YandexApi(private val http: YandexHttp) {
         path: String,
         query: String? = null,
         form: Map<String, String>? = null,
+        json: JSONObject? = null,
         map: (JSONObject) -> T?,
     ): ProviderResult<T> {
         val url = YandexConfig.API_BASE + path + (query?.let { "?$it" } ?: "")
         return try {
-            val response = if (form != null) http.post(url, form, token) else http.get(url, token)
+            val response = when {
+                json != null -> http.postJson(url, json.toString(), token)
+                form != null -> http.post(url, form, token)
+                else -> http.get(url, token)
+            }
             if (response.code !in 200..299) return ProviderResult.Failure(YandexAuth.failureForCode(response.code))
             val value = map(JSONObject(response.body))
                 ?: return ProviderResult.Failure(MusicProviderFailure.ServiceChanged)

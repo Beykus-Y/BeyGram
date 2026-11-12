@@ -38,4 +38,9 @@
     <string name="yandex_library_no_subscription">Ohne Yandex-Plus-Abo werden keine vollständigen Titel abgespielt. Listen, Likes und Cover bleiben sichtbar.</string>
     <string name="yandex_library_retry">Erneut versuchen</string>
     <string name="yandex_library_play">Abspielen</string>
+    <string name="yandex_wave_title">Meine Welle</string>
+    <string name="yandex_wave_subtitle">Ein endloser Strom von Titeln nach deinem Geschmack</string>
+    <string name="yandex_wave_starting">Titel werden ausgewählt…</string>
+    <string name="yandex_wave_failed">Die Welle konnte nicht gestartet werden. Tippe, um es erneut zu versuchen.</string>
+    <string name="yandex_wave_play">Meine Welle abspielen</string>
 </resources>

@@ -25,12 +25,20 @@ internal class YandexHttp(
 
     /** Throws [IOException] when the network is unreachable. */
     fun get(url: String, token: String? = null): YandexResponse =
-        send("GET", url, token, emptyMap())
+        send("GET", url, token, null)
 
-    fun post(url: String, form: Map<String, String>, token: String? = null): YandexResponse =
-        send("POST", url, token, form)
+    fun post(url: String, form: Map<String, String>, token: String? = null): YandexResponse {
+        val payload = form.entries.joinToString("&") { "${encode(it.key)}=${encode(it.value)}" }
+        return send("POST", url, token, Body(payload.toByteArray(Charsets.UTF_8), "application/x-www-form-urlencoded"))
+    }
 
-    private fun send(method: String, url: String, token: String?, form: Map<String, String>): YandexResponse {
+    /** POST with a JSON body, as the radio (rotor) endpoints expect. */
+    fun postJson(url: String, json: String, token: String? = null): YandexResponse =
+        send("POST", url, token, Body(json.toByteArray(Charsets.UTF_8), "application/json; charset=utf-8"))
+
+    private class Body(val bytes: ByteArray, val contentType: String)
+
+    private fun send(method: String, url: String, token: String?, body: Body?): YandexResponse {
         synchronized(lock) {
             val wait = maxOf(nextAllowedAt, blockedUntil) - now()
             if (wait > 0) pause(wait)
@@ -45,14 +53,11 @@ internal class YandexHttp(
             connection.setRequestProperty("X-Yandex-Music-Client", YandexConfig.CLIENT_HEADER)
             connection.setRequestProperty("Accept", "application/json")
             if (token != null) connection.setRequestProperty("Authorization", "OAuth $token")
-            if (method == "POST") {
-                val payload = form.entries.joinToString("&") {
-                    "${encode(it.key)}=${encode(it.value)}"
-                }.toByteArray(Charsets.UTF_8)
+            if (body != null) {
                 connection.doOutput = true
-                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                connection.setFixedLengthStreamingMode(payload.size)
-                connection.outputStream.use { it.write(payload) }
+                connection.setRequestProperty("Content-Type", body.contentType)
+                connection.setFixedLengthStreamingMode(body.bytes.size)
+                connection.outputStream.use { it.write(body.bytes) }
             }
             val code = connection.responseCode
             val stream = if (code in 200..399) connection.inputStream else connection.errorStream
