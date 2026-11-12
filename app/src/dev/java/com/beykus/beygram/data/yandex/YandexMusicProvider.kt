@@ -12,10 +12,13 @@ import com.beykus.beygram.data.music.provider.ProviderLyrics
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Result of one sign-in poll. The UI repeats polls at the interval until [Signed] or [Failed]. */
@@ -209,14 +212,19 @@ internal class YandexMusicProvider(
     override suspend fun lyrics(trackId: String): ProviderResult<ProviderLyrics> {
         val result = withSession { s -> api.lyrics(s.accessToken, trackId) }
         if (result is ProviderResult.Failure) {
-            // Only a failed lyrics request is probed again, so the screen can say why it failed. Nothing is stored
-            // beyond this redacted line.
-            val probe = withSession { s -> ProviderResult.Success(api.lyricsProbe(s.accessToken, trackId)) }
-            val report = (probe as? ProviderResult.Success)?.value ?: "probe unavailable"
-            lyricsDiagnostics = "lyricsFailure=${result.failure}; $report"
+            // The probe runs apart from the caller: the failure is returned at once, even if the probe waits on a
+            // timeout or a Retry-After. Only a redacted line is kept.
+            val reason = result.failure
+            probeScope.launch {
+                val probe = withSession { s -> ProviderResult.Success(api.lyricsProbe(s.accessToken, trackId)) }
+                val report = (probe as? ProviderResult.Success)?.value ?: "probe unavailable"
+                lyricsDiagnostics = "lyricsFailure=$reason; $report"
+            }
         }
         return result
     }
+
+    private val probeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override suspend fun audio(trackId: String): ProviderResult<ProviderAudio> = withSession { s ->
         if (!s.hasSubscription) ProviderResult.Failure(MusicProviderFailure.SubscriptionRequired)
