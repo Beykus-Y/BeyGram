@@ -1819,6 +1819,7 @@ fun ChatScreen(
                             else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
                                 highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { openActionsOnLongPress(message.id) }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                 onPlayed = { conversation.openMessageContent(chat.id, message.id) },
+                                musicLinkCards = !chat.isSecret,
                                 onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, ::requestBotWebApp) },
                                 onBubblePositioned = bubblePosition,
                                 onMediaBounds = { rect -> mediaOrigins[message.id] = rect },
@@ -2811,6 +2812,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onSenderClick: (() -> Unit)? = null,
     /** Callers pass the chat/grouping decision; the sender name itself stays available for replies, search and profiles. */
     showSenderHeader: Boolean = true,
+    /** Music link cards (Yandex Music) are drawn only where the caller turns them on: the chat list, not secret chats. */
+    musicLinkCards: Boolean = false,
     onBubblePositioned: ((Rect) -> Unit)? = null,
     /** Reports the window bounds of a bubble that carries media, so the viewer can open from it. */
     onMediaBounds: ((Rect) -> Unit)? = null,
@@ -3010,7 +3013,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 )
                             }
                             if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
-                            message.linkPreview?.let { preview -> MessageLinkPreviewCard(preview, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity) }
+                            MessageMusicLinkCard(message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards)
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,

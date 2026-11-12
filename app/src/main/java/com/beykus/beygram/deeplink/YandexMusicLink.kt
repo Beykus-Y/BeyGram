@@ -63,3 +63,7 @@ fun yandexMusicEntityLink(url: String): MessageEntityLink.YandexMusic? =
  */
 fun yandexMusicNativeReady(context: Context): Boolean =
     MusicProviders.yandex(context)?.state?.value is MusicProviderState.SignedIn
+
+/** Whether the signed-in Yandex account has a subscription that allows full tracks. False when signed out. */
+fun yandexHasSubscription(context: Context): Boolean =
+    (MusicProviders.yandex(context)?.state?.value as? MusicProviderState.SignedIn)?.account?.hasSubscription == true

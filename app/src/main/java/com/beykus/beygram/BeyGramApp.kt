@@ -57,6 +57,7 @@ import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
 import com.beykus.beygram.data.unavailable.UnavailableTelegramRepository
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.YandexMusicTarget
+import com.beykus.beygram.deeplink.yandexHasSubscription
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.provider.ProviderResult
@@ -1134,8 +1135,17 @@ private fun BeyGramAppContent(
                                     is ProviderResult.Success -> loaded.value.firstOrNull()
                                     else -> null
                                 }
-                                if (track != null && track.isAvailable) ProviderArtwork.playTracks(context, listOf(track), 0)
-                                else openWithSystemHandler(context, target.url)
+                                // Only a loaded, available track can play. Without a subscription its album screen shows the notice instead.
+                                val playable = track?.takeIf { it.isAvailable }
+                                val albumId = track?.albumId ?: music.albumId
+                                val host = ProviderMusicHosts.yandex()
+                                when {
+                                    playable != null && yandexHasSubscription(context) ->
+                                        ProviderArtwork.playTracks(context, listOf(playable), 0)
+                                    playable != null && albumId != null && host != null ->
+                                        openMusicCollection(host.albumRef(albumId))
+                                    else -> openWithSystemHandler(context, target.url)
+                                }
                             }
                         }
                         // External URLs, email and phone are owned by the formatter's system-handler path.
