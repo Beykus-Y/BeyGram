@@ -112,6 +112,11 @@ internal class YandexMusicProvider(
     var subscriptionDiagnostics: String? = null
         private set
 
+    /** Last failed lyrics request, redacted, for the diagnostics row. No tokens, links, lyrics or track ids. */
+    @Volatile
+    var lyricsDiagnostics: String? = null
+        private set
+
     /** DEV diagnostics: the flag the app derived and the key names the service sent. No tokens or names. */
     private fun logSubscription(account: YandexAccount) {
         val line = "hasPlus=${account.hasPlus}; ${account.plusSummary}"
@@ -201,8 +206,17 @@ internal class YandexMusicProvider(
     override suspend fun album(albumId: String): ProviderResult<ProviderAlbumTracks> =
         withSession { s -> api.album(s.accessToken, albumId) }
 
-    override suspend fun lyrics(trackId: String): ProviderResult<ProviderLyrics> =
-        withSession { s -> api.lyrics(s.accessToken, trackId) }
+    override suspend fun lyrics(trackId: String): ProviderResult<ProviderLyrics> {
+        val result = withSession { s -> api.lyrics(s.accessToken, trackId) }
+        if (result is ProviderResult.Failure) {
+            // Only a failed lyrics request is probed again, so the screen can say why it failed. Nothing is stored
+            // beyond this redacted line.
+            val probe = withSession { s -> ProviderResult.Success(api.lyricsProbe(s.accessToken, trackId)) }
+            val report = (probe as? ProviderResult.Success)?.value ?: "probe unavailable"
+            lyricsDiagnostics = "lyricsFailure=${result.failure}; $report"
+        }
+        return result
+    }
 
     override suspend fun audio(trackId: String): ProviderResult<ProviderAudio> = withSession { s ->
         if (!s.hasSubscription) ProviderResult.Failure(MusicProviderFailure.SubscriptionRequired)
