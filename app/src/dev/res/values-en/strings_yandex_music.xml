@@ -39,6 +39,7 @@
     <string name="yandex_library_retry">Retry</string>
     <string name="yandex_library_play">Play</string>
     <string name="yandex_wave_title">My Wave</string>
+    <string name="yandex_wave_source_personal">Based on your taste</string>
     <string name="yandex_wave_subtitle">An endless stream of tracks picked for you</string>
     <string name="yandex_wave_starting">Picking tracks…</string>
     <string name="yandex_wave_failed">Could not start the wave. Tap to try again.</string>

@@ -39,6 +39,7 @@
     <string name="yandex_library_retry">Erneut versuchen</string>
     <string name="yandex_library_play">Abspielen</string>
     <string name="yandex_wave_title">Meine Welle</string>
+    <string name="yandex_wave_source_personal">Nach deinem Geschmack</string>
     <string name="yandex_wave_subtitle">Ein endloser Strom von Titeln nach deinem Geschmack</string>
     <string name="yandex_wave_starting">Titel werden ausgewählt…</string>
     <string name="yandex_wave_failed">Die Welle konnte nicht gestartet werden. Tippe, um es erneut zu versuchen.</string>

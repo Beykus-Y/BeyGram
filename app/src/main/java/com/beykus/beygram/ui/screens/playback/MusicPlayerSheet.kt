@@ -62,6 +62,7 @@ import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
@@ -359,15 +360,21 @@ private fun PlayerHeader(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                sourceLabel,
-                color = palette.textSecondary,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 1.1.sp,
-                maxLines = 1,
-                textAlign = TextAlign.Center
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (source.isRadio) {
+                    Icon(Icons.Rounded.Waves, null, tint = palette.accent, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(
+                    sourceLabel,
+                    color = if (source.isRadio) palette.accent else palette.textSecondary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 1.1.sp,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center
+                )
+            }
             Text(
                 source.text,
                 color = palette.textPrimary,

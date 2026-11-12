@@ -273,7 +273,10 @@ class YandexMusicHost : ProviderMusicHost {
                     mine != selectionGeneration -> Unit
                     first.value.none { it.isAvailable } -> waveFailure = MusicProviderFailure.NotFound
                     else -> {
-                        val radio = PlaybackRadio(PlaybackRadio.Kind.MyWave)
+                        val radio = PlaybackRadio(
+                            title = app.getString(R.string.yandex_wave_title),
+                            subtitle = app.getString(R.string.yandex_wave_source_personal)
+                        )
                         ProviderArtwork.playTracks(app, first.value, 0, { session.more() }, radio)
                         // After the queue started, so the tracker sees the radio as the player's queue.
                         YandexWaveFeedback.start(yandex, session, radio)

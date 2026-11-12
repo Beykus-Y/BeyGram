@@ -49,12 +49,11 @@ class PlaybackQueueSource(
 }
 
 /**
- * An endless queue that a music source fills by itself, such as Yandex «Моя волна». [seedTitle] names what the radio
- * was started from (a track, an artist), null for the personal wave.
+ * An endless queue that a music source fills by itself, such as Yandex «Моя волна». The player does not name radios
+ * itself: [title] («Моя волна») and [subtitle] (what it was built from, such as «По вашему вкусу») come ready from
+ * the source and replace «Воспроизводится из» in the player header.
  */
-class PlaybackRadio(val kind: Kind, val seedTitle: String? = null) {
-    enum class Kind { MyWave }
-}
+class PlaybackRadio(val title: String, val subtitle: String)
 
 internal data class ResolvedPlaybackSource(val path: String, val growing: GrowingPlaybackSource?)
 

@@ -37,7 +37,9 @@ internal data class PlaybackSourceLabel(
     val kind: PlaybackSourceKind,
     val canOpen: Boolean,
     /** Small line above [text] in the player header; null keeps «Воспроизводится из». */
-    val caption: String? = null
+    val caption: String? = null,
+    /** The queue is a radio: the header marks the caption with the accent colour and a wave icon. */
+    val isRadio: Boolean = false
 )
 
 /**
@@ -94,12 +96,8 @@ internal fun rememberPlaybackSourceLabel(
         PlaybackSourceKind.Chat -> title.ifBlank { generic }
     }
     if (radio != null && kind == PlaybackSourceKind.Provider) {
-        // A radio names itself; the service moves to the small line above it.
-        val name = when (radio.kind) {
-            PlaybackRadio.Kind.MyWave -> stringResource(R.string.player_source_my_wave)
-        }
-        val radioText = listOfNotNull(name, radio.seedTitle?.takeIf { it.isNotBlank() }).joinToString(" · ")
-        return PlaybackSourceLabel(text = radioText, kind = kind, canOpen = false, caption = generic)
+        // A radio names itself: its title takes the small top line, what it was built from goes below.
+        return PlaybackSourceLabel(text = radio.subtitle, kind = kind, canOpen = false, caption = radio.title, isRadio = true)
     }
     return PlaybackSourceLabel(text = text, kind = kind, canOpen = origin != null)
 }

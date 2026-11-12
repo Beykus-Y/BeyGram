@@ -618,7 +618,6 @@
     <string name="player_source_saved">Gespeicherte Nachrichten</string>
     <string name="player_source_local">Datei auf dem Gerät</string>
     <string name="player_source_provider_yandex">Yandex Music</string>
-    <string name="player_source_my_wave">Meine Welle</string>
     <string name="player_menu">Player-Aktionen</string>
     <string name="player_queue">Warteschlange</string>
     <string name="player_equalizer">Equalizer</string>
