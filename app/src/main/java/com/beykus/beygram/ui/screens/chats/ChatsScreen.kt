@@ -615,45 +615,9 @@ fun ChatsScreen(
     // The split-pane header: no title (the section is named by the navigation), one 48 dp line with the account avatar,
     // the search field and "more", and a row of folder chips under it. In a short window the chips go away while the list
     // scrolls down and return on the first move up, so the rows get the height.
-    val compactChatsHeader: @Composable (Modifier) -> Unit = { modifier ->
+    // The same overflow is used on phone and split pane. Secondary actions remain one tap away.
+    val headerOverflow: @Composable () -> Unit = {
         var moreOpen by remember { mutableStateOf(false) }
-        val connectionLabel = if (connectionStatus == ChatsConnectionStatus.None) null
-        else stringResource(connectionStatus.labelResource())
-        Column(modifier = modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 4.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                // The avatar opens the profile; a long press opens the account switcher (the people button is gone).
-                Box(
-                    Modifier.size(48.dp).clip(CircleShape)
-                        .combinedClickable(
-                            role = Role.Button,
-                            onLongClickLabel = stringResource(R.string.account_switcher_title),
-                            onLongClick = onAccountPicker,
-                            onClick = onMyProfile
-                        )
-                        .semantics { contentDescription = context.getString(R.string.chats_my_profile_description) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 32.dp, myProfile?.photo, observeFile, downloadFile,
-                        Modifier.clearAndSetSemantics {})
-                }
-                Box(Modifier.weight(1f)) {
-                    // The connection state replaces the hint of the field instead of taking a line of its own.
-                    SearchField(
-                        query = query,
-                        onChange = { state.query = it },
-                        placeholder = connectionLabel ?: stringResource(R.string.chats_search_placeholder)
-                    )
-                }
-                if (createChatPlacement == CreateChatPlacement.Header) {
-                    androidx.compose.material3.IconButton(onClick = onNewChat, modifier = Modifier.size(48.dp)) {
-                        Icon(
-                            Icons.Rounded.Edit,
-                            contentDescription = stringResource(R.string.new_chat_title),
-                            tint = if (design.usesGlassPanels) palette.accentInk else palette.accent,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
                 Box {
                     androidx.compose.material3.IconButton(onClick = { moreOpen = true }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary)
@@ -688,22 +652,56 @@ fun ChatsScreen(
                             leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = palette.textSecondary) },
                             onClick = { moreOpen = false; managingFolders = true }
                         )
-                        if (createChatPlacement != CreateChatPlacement.Fab) DropdownMenuItem(
-                            text = { Text(stringResource(R.string.new_chat_title)) },
-                            leadingIcon = { Icon(Icons.Rounded.Edit, null, tint = palette.textSecondary) },
-                            onClick = { moreOpen = false; onNewChat() }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.chats_swipe_settings)) },
+                            leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = palette.textSecondary) },
+                            onClick = { moreOpen = false; showSwipeSettings = true }
                         )
                     }
                 }
+
+    }
+
+    val compactChatsHeader: @Composable (Modifier) -> Unit = { modifier ->
+        val connectionLabel = if (connectionStatus == ChatsConnectionStatus.None) null
+        else stringResource(connectionStatus.labelResource())
+        Column(modifier = modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 4.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // The avatar opens the profile; a long press opens the account switcher (the people button is gone).
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape)
+                        .combinedClickable(
+                            role = Role.Button,
+                            onLongClickLabel = stringResource(R.string.account_switcher_title),
+                            onLongClick = onAccountPicker,
+                            onClick = onMyProfile
+                        )
+                        .semantics { contentDescription = context.getString(R.string.chats_my_profile_description) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 32.dp, myProfile?.photo, observeFile, downloadFile,
+                        Modifier.clearAndSetSemantics {})
+                }
+                Box(Modifier.weight(1f)) {
+                    // The connection state replaces the hint of the field instead of taking a line of its own.
+                    SearchFieldButton(
+                        placeholder = stringResource(R.string.chats_search_placeholder),
+                        onClick = { focusManager.clearFocus(); onGlobalSearch("") }
+                    )
+                }
+                if (createChatPlacement == CreateChatPlacement.Header) {
+                    androidx.compose.material3.IconButton(onClick = onNewChat, modifier = Modifier.size(48.dp)) {
+                        Icon(
+                            Icons.Rounded.Edit,
+                            contentDescription = stringResource(R.string.new_chat_title),
+                            tint = if (design.usesGlassPanels) palette.accentInk else palette.accent,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+                headerOverflow()
             }
-            networkSearchAction(query)?.let { search ->
-                Spacer(Modifier.height(4.dp))
-                TelegramSearchAction(
-                    search = search,
-                    offline = connectionState == TelegramConnectionState.WaitingForNetwork,
-                    onClick = { onGlobalSearch(query) }
-                )
-            }
+            ChatsConnectionLine(connectionStatus)
             if (folderSnapshot.initialized) {
                 AnimatedVisibility(visible = !foldersHiddenByScroll) {
                     folderTabsRow(Modifier.fillMaxWidth().padding(top = 2.dp, start = 4.dp, end = 4.dp))
@@ -730,89 +728,44 @@ fun ChatsScreen(
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.clickable { state.requestScrollToTop() }.semantics { heading() })
                 }
-                if (hasUnreadChats) {
-                    androidx.compose.material3.IconButton(
-                        onClick = { confirmReadAll = true },
-                        modifier = Modifier.semantics { contentDescription = context.getString(R.string.chats_read_all) }
-                    ) {
-                        Icon(Icons.Rounded.DoneAll, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
+                if (createChatPlacement == CreateChatPlacement.Header) {
+                    androidx.compose.material3.IconButton(onClick = onNewChat, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.Edit, stringResource(R.string.new_chat_title),
+                            tint = if (design.usesGlassPanels) palette.accentInk else palette.accent,
+                            modifier = Modifier.size(22.dp))
                     }
                 }
-                savedMessagesChat?.let { saved ->
-                    androidx.compose.material3.IconButton(onClick = { openChat(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
-                        Icon(Icons.Rounded.Bookmark, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
-                    }
-                }
-                androidx.compose.material3.IconButton(onClick = onAccountPicker) {
-                    Icon(Icons.Rounded.People,
-                        contentDescription = stringResource(R.string.account_switcher_title),
-                        tint = palette.textSecondary, modifier = Modifier.size(24.dp))
-                }
-                Spacer(Modifier.width(4.dp))
                 // The avatar stays 40 dp visually, while the tap area covers Android's 48 dp minimum.
                 Box(
                     Modifier.size(48.dp).clip(CircleShape)
-                        .clickable(role = Role.Button, onClick = onMyProfile)
+                        .combinedClickable(
+                            role = Role.Button,
+                            onLongClickLabel = stringResource(R.string.account_switcher_title),
+                            onLongClick = onAccountPicker,
+                            onClick = onMyProfile
+                        )
                         .semantics { contentDescription = context.getString(R.string.chats_my_profile_description) },
                     contentAlignment = Alignment.Center
                 ) {
                     TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 40.dp, myProfile?.photo, observeFile, downloadFile,
                         Modifier.clearAndSetSemantics {})
                 }
+                headerOverflow()
             }
             // Заголовок «Сообщения» остаётся названием раздела; реальное состояние TDLib
             // показывается строкой во всю ширину шапки и исчезает сразу после восстановления связи.
             ChatsConnectionLine(connectionStatus)
 
             Spacer(Modifier.height(design.mainScreen.headerGap))
-            // The music screen is reachable directly from the daily chat list: the note always opens it, the same
-            // screen as Settings → Music. Its search field opens the music search.
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) {
-                    SearchField(
-                        query = query,
-                        onChange = { state.query = it },
-                        placeholder = stringResource(R.string.chats_search_placeholder)
-                    )
-                }
-                androidx.compose.material3.IconButton(
-                    onClick = {
-                        // Leaving a focused search field should dismiss its IME before the route changes.
-                        focusManager.clearFocus()
-                        onOpenMusic()
-                    },
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.MusicNote,
-                        contentDescription = stringResource(R.string.music_library_title),
-                        tint = palette.accentInk,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-            // The network action stays directly under the field, above folders and local rows,
-            // so it is discoverable before a long cached chat list scrolls it out of view.
-            networkSearchAction(query)?.let { search ->
-                Spacer(Modifier.height(8.dp))
-                TelegramSearchAction(
-                    search = search,
-                    offline = connectionState == TelegramConnectionState.WaitingForNetwork,
-                    onClick = { onGlobalSearch(query) }
-                )
-            }
+            SearchFieldButton(
+                placeholder = stringResource(R.string.chats_search_placeholder),
+                onClick = { focusManager.clearFocus(); onGlobalSearch("") }
+            )
             Spacer(Modifier.height(design.mainScreen.folderGap))
             // Only one source of folder navigation: server-backed Telegram lists.
             // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
             if (folderSnapshot.initialized) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    folderTabsRow(Modifier.weight(1f))
-                    androidx.compose.material3.IconButton(onClick = { managingFolders = true }) {
-                        Icon(Icons.Rounded.Tune,
-                            contentDescription = stringResource(R.string.folder_manage_title),
-                            tint = palette.textSecondary)
-                    }
-                }
+                folderTabsRow(Modifier.fillMaxWidth())
             }
         }
     }
@@ -872,8 +825,9 @@ fun ChatsScreen(
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { openChat(chat) },
                         onLongClick = { selectedActions = chat },
-                        read = readAction.copy(enabled = showsUnreadIndicator(chat)),
-                        primary = archiveAction,
+                        left = actionFor(chat, swipePreferences.left),
+                        right = actionFor(chat, swipePreferences.right),
+                        onPerformed = onSwipePerformed,
                         highlighted = chat.id == highlightedChatId
                     )
                 }
@@ -932,8 +886,9 @@ fun ChatsScreen(
                             onOpenChange = { openSwipeChatId = it },
                             onClick = { openChat(chat) },
                             onLongClick = { selectedActions = chat },
-                            read = readAction.copy(enabled = showsUnreadIndicator(chat)),
-                            primary = archiveAction,
+                            left = actionFor(chat, swipePreferences.left),
+                            right = actionFor(chat, swipePreferences.right),
+                            onPerformed = onSwipePerformed,
                             highlighted = chat.id == highlightedChatId
                         )
                         // Material 2 separates rows with a real divider; the other styles rely on spacing.
@@ -1044,7 +999,17 @@ fun ChatsScreen(
       ) {
           Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.new_chat_title), modifier = Modifier.size(24.dp))
       }
+      SnackbarHost(
+          hostState = snackbarState,
+          modifier = Modifier.align(Alignment.BottomCenter)
+              .padding(bottom = fabPlacement.bottomPadding + 8.dp)
+      )
     }
+    if (showSwipeSettings) ChatSwipeSettingsDialog(
+        preferences = swipePreferences,
+        onChange = changeSwipePreferences,
+        onDismiss = { showSwipeSettings = false }
+    )
     if (confirmReadAll) AlertDialog(
         onDismissRequest = { confirmReadAll = false },
         title = { Text(stringResource(R.string.chats_read_all_title)) },
