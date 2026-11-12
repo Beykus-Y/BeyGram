@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -158,7 +157,7 @@ fun GlobalSearchScreen(
     }
     val visibleHits = hits.takeIf {
         session.completedRequest == (query to filter) && session.completedGeneration == generation
-    }.orEmpty()
+    }.orEmpty().filterNot { chatContexts[it.chatId]?.isSecret == true }
     BackHandler(onBack = onBack)
 
     // Message filters and offset paging are unchanged; only the request guard was extended to the
@@ -405,6 +404,7 @@ fun GlobalSearchScreen(
             }
         } else {
             LazyColumn(Modifier.fillMaxWidth().weight(1f), state = session.listState) {
+                if (showChats) {
                 item("chats-header") {
                     SearchSectionHeader(
                         title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalChat)),
@@ -441,6 +441,8 @@ fun GlobalSearchScreen(
                     }
                 }
 
+                }
+                if (showPeople) {
                 item("contacts-header") {
                     SearchSectionHeader(
                         title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalContact)),
@@ -475,6 +477,8 @@ fun GlobalSearchScreen(
                     }
                 }
 
+                }
+                if (showChats) {
                 item("public-header") {
                     SearchSectionHeader(
                         title = stringResource(sectionTitleRes(GlobalSearchResultSource.PublicResult)),
@@ -502,6 +506,8 @@ fun GlobalSearchScreen(
                     }
                 }
 
+                }
+                if (showMessages) {
                 item("messages-header") {
                     SearchSectionHeader(
                         title = stringResource(sectionTitleRes(GlobalSearchResultSource.GlobalMessage)),
@@ -525,6 +531,7 @@ fun GlobalSearchScreen(
                     items(visibleHits, key = { "message:${it.chatId}:${it.id}" }) { message ->
                         GlobalMessageRow(
                             message = message,
+                            query = query,
                             chat = chatContexts[message.chatId],
                             dateFormat = dateFormat,
                             observeFile = observeFile,
@@ -580,6 +587,7 @@ fun GlobalSearchScreen(
                             }
                         }
                     }
+                }
                 }
             }
         }
@@ -837,6 +845,7 @@ private fun GlobalContactRow(
 @Composable
 private fun GlobalMessageRow(
     message: ChatMessage,
+    query: String,
     chat: ChatPreview?,
     dateFormat: DateFormat,
     observeFile: (Int) -> StateFlow<MediaFileState>,
@@ -882,7 +891,21 @@ private fun GlobalMessageRow(
             if (message.senderName.isNotBlank()) {
                 Text(message.senderName, color = palette.accentInk, fontSize = 12.sp, maxLines = 1)
             }
-            Text(preview, color = palette.textPrimary, fontSize = 14.sp, maxLines = 2)
+            message.media?.let { media ->
+                Text(
+                    stringResource(mediaKindLabel(media.kind)),
+                    color = palette.accentInk,
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+            }
+            Text(
+                highlightedSearchPreview(preview, query, palette.accentInk),
+                color = palette.textPrimary,
+                fontSize = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
             Text(timestamp, color = palette.textSecondary, fontSize = 12.sp)
         }
     }
@@ -900,6 +923,44 @@ private fun <T> SearchChips(options: List<Pair<T, String>>, selected: T?, all: S
             FilterChip(title = label, selected = selected == option, count = null, onClick = { onSelect(option) })
         }
     }
+}
+
+/** Highlight actual text matches without touching TDLib's message bodies or exposing hidden content. */
+internal fun highlightedSearchPreview(preview: String, query: String, accent: Color): AnnotatedString {
+    val needle = query.trim()
+    if (needle.isEmpty()) return AnnotatedString(preview)
+    return buildAnnotatedString {
+        var cursor = 0
+        while (cursor < preview.length) {
+            val found = preview.indexOf(needle, cursor, ignoreCase = true)
+            if (found < 0) break
+            append(preview.substring(cursor, found))
+            withStyle(SpanStyle(color = accent, fontWeight = FontWeight.Bold)) {
+                append(preview.substring(found, found + needle.length))
+            }
+            cursor = found + needle.length
+        }
+        append(preview.substring(cursor))
+    }
+}
+
+private fun searchCategoryLabel(category: GlobalSearchCategory): Int = when (category) {
+    GlobalSearchCategory.All -> R.string.global_search_category_all
+    GlobalSearchCategory.Chats -> R.string.global_search_section_chats
+    GlobalSearchCategory.Messages -> R.string.global_search_section_messages
+    GlobalSearchCategory.Media -> R.string.global_search_category_media
+    GlobalSearchCategory.People -> R.string.global_search_category_people
+}
+
+private fun mediaKindLabel(kind: MediaKind): Int = when (kind) {
+    MediaKind.Photo -> R.string.global_search_result_photo
+    MediaKind.Video -> R.string.global_search_result_video
+    MediaKind.Animation -> R.string.global_search_result_animation
+    MediaKind.Sticker -> R.string.global_search_result_sticker
+    MediaKind.Audio -> R.string.global_search_result_audio
+    MediaKind.Document -> R.string.global_search_result_document
+    MediaKind.Voice -> R.string.global_search_result_voice
+    MediaKind.VideoNote -> R.string.global_search_result_video_note
 }
 
 private fun sectionTitleRes(source: GlobalSearchResultSource): Int = when (source.section) {
