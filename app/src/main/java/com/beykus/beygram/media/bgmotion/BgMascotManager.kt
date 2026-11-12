@@ -301,7 +301,7 @@ class BgMascotManager private constructor(private val context: Context) {
                         intensity = settings.intensity.value
                     ).also { handleRef.set(it) }
                 }
-                if (preparingIdentity != requestSeq) {
+                if (preparingIdentity != requestSeq || !settings.enabled.value) {
                     if (handle != 0L) BgMascotNative.nativeDestroySession(handle)
                     return@launch
                 }
