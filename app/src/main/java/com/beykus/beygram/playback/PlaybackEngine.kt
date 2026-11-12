@@ -2057,8 +2057,8 @@ object PlaybackEngine {
      * Lines the silent BG Mix output up with ExoPlayer before any of it is heard. It measures where BG Mix is heard on the
      * audio clock and seeks it while it is silent. The new audio starts once the audio already queued has played out, and
      * by then ExoPlayer has moved on by that same amount, so the target is ExoPlayer's position plus the queued audio. The
-     * check repeats until the difference is within [BG_ALIGN_TOLERANCE_MS]. False when no measurement came, and the
-     * starting guess stays.
+     * check repeats until the difference is within [BG_ALIGN_TOLERANCE_MS]. False when no measurement came, or when the
+     * difference is still out of tolerance once the corrections are spent; the handover goes on either way.
      */
     private suspend fun alignStagedSilently(target: ExoPlayer, driver: BgMixQueueDriver): Boolean {
         val offsetsMs = mutableListOf<Long>()
@@ -2071,15 +2071,18 @@ object PlaybackEngine {
             )
             return aligned
         }
-        repeat(BG_ALIGN_ATTEMPTS) {
+        // At most BG_ALIGN_ATTEMPTS corrections; each one is checked by the measurement that follows it.
+        for (correction in 0..BG_ALIGN_ATTEMPTS) {
             val audible = awaitStagedAudible(driver) ?: return finish(false)
             val exoMs = target.currentPosition.toDouble()
             val offsetMs = bgMixAlignmentOffsetMs(audible, exoMs)
             offsetsMs += offsetMs.toLong()
             if (kotlin.math.abs(offsetMs) <= BG_ALIGN_TOLERANCE_MS) return finish(true)
+            // After the last allowed correction this measurement is only the check, so nothing more is corrected.
+            if (correction == BG_ALIGN_ATTEMPTS) break
             if (!driver.seekStaged(bgMixAlignmentSeekMs(audible, exoMs) / 1_000.0)) return finish(false)
         }
-        return finish(true)
+        return finish(false)
     }
 
     /** The staged output's audible position, waited for briefly: the track presents its first frames a moment after a seek. */

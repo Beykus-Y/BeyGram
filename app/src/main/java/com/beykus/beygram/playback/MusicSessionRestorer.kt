@@ -4,16 +4,16 @@ import android.content.Context
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.repository.TelegramRepository
-import kotlin.math.abs
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlin.math.abs
 
 /**
  * Rehydrates each persisted origin from the *current* TDLib account, never from stale file paths or file IDs.
- * A missing/deleted/protected message is dropped. The original selection must still exist or nothing is restored.
+ * A missing/deleted/protected message is dropped, and the nearest one that remains takes its place.
  */
 suspend fun restoreMusicSession(
     context: Context,
@@ -23,14 +23,12 @@ suspend fun restoreMusicSession(
     if (PlaybackEngine.state.value.item != null) return false
     val verified = resolveMusicOrigins(repository, saved.accountId, saved.origins)
     // The saved track may have been deleted or protected since. The nearest one that is still there starts from its
-    // beginning; when none is left, the saved session is dropped so later starts do not repeat the same lookups.
+    // beginning. When none is left, nothing is restored and the record stays: a lookup that fails right after connecting
+    // must not erase the session, and the record expires on its own.
     val nearest = verified.indices
         .filter { verified[it] != null }
         .minByOrNull { abs(it - saved.currentIndex) }
-    if (nearest == null) {
-        MusicSessionStore(context).clear(saved.accountId)
-        return false
-    }
+        ?: return false
     val selected = verified[nearest] ?: return false
     val queue = verified.filterNotNull()
     val index = queue.indexOfFirst { it.key == selected.key }
