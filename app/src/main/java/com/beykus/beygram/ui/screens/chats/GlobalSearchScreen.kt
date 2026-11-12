@@ -148,11 +148,18 @@ fun GlobalSearchScreen(
     val publicChatItems = session.publicChats.items.value
         .takeIf { session.publicChats.completedQuery == query && session.publicChats.completedGeneration == generation }
         .orEmpty()
+    val shownPublicChats = when (category) {
+        GlobalSearchCategory.People -> publicChatItems.filter { !it.isGroup && !it.isChannel }
+        GlobalSearchCategory.Chats -> publicChatItems.filter { it.isGroup || it.isChannel }
+        else -> publicChatItems
+    }
     // Immediate cached results while TDLib search sources are still debouncing or offline.
     // Server results are merged by chat ID, so the same chat is never shown twice.
     val localChatItems = remember(query, parsedQuery, recentChats, chatItems) {
         if (query.isBlank()) emptyList() else
-            (recentChats.filter { it.title.contains(parsedQuery.publicText, ignoreCase = true) } + chatItems)
+            (recentChats.filter {
+                parsedQuery.publicText.isNotBlank() && it.title.contains(parsedQuery.publicText, ignoreCase = true)
+            } + chatItems)
                 .distinctBy { it.id }
     }
     val visibleHits = hits.takeIf {
@@ -478,17 +485,17 @@ fun GlobalSearchScreen(
                 }
 
                 }
-                if (showChats) {
+                if (showChats || showPeople) {
                 item("public-header") {
                     SearchSectionHeader(
                         title = stringResource(sectionTitleRes(GlobalSearchResultSource.PublicResult)),
-                        count = publicChatItems.size,
+                        count = shownPublicChats.size,
                         loading = session.publicChats.searching.value,
                         failed = session.publicChats.failed.value,
                         onRetry = { session.publicChats.retryVersion.value++ }
                     )
                 }
-                if (publicChatItems.isEmpty()) {
+                if (shownPublicChats.isEmpty()) {
                     item("public-state") {
                         SearchSourceState(
                             loading = session.publicChats.searching.value,
@@ -499,7 +506,7 @@ fun GlobalSearchScreen(
                         )
                     }
                 } else {
-                    items(publicChatItems, key = { "public:${it.id}" }) { chat ->
+                    items(shownPublicChats, key = { "public:${it.id}" }) { chat ->
                         GlobalChatRow(chat, GlobalSearchChatScope.Public, observeFile, downloadFile) {
                             openSearchChat(chat, GlobalSearchChatScope.Public, onOpenChat, onOpenPublicChat)
                         }
