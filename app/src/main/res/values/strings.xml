@@ -2136,7 +2136,6 @@
     <string name="queue_title">Очередь</string>
     <string name="queue_back_to_player">К плееру</string>
     <string name="queue_count">Треков: %1$d</string>
-    <string name="queue_loading_count">Загружается: %1$d</string>
     <string name="queue_shuffled">Перемешивание включено: показан исходный порядок</string>
     <string name="queue_playback_order_hint">Порядок воспроизведения · № — позиция в исходном списке</string>
     <string name="queue_source_position">№%1$d</string>
@@ -2144,8 +2143,10 @@
     <string name="queue_now_playing">Сейчас играет</string>
     <string name="queue_next">Далее</string>
     <string name="queue_empty">В очереди пока нет треков</string>
-    <string name="queue_loading">Загрузка</string>
     <string name="queue_ready">Готов</string>
+    <string name="queue_downloading">Скачивается</string>
+    <string name="queue_not_downloaded">Не скачан</string>
+    <string name="queue_ready_count">Готово: %1$d</string>
     <string name="queue_failed">Ошибка</string>
     <string name="queue_unavailable">Недоступен</string>
     <string name="queue_play_next">Воспроизвести следующей</string>

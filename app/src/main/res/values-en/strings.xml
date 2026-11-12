@@ -635,7 +635,6 @@
     <string name="queue_title">Queue</string>
     <string name="queue_back_to_player">To player</string>
     <string name="queue_count">Tracks: %1$d</string>
-    <string name="queue_loading_count">Loading: %1$d</string>
     <string name="queue_shuffled">Shuffle is on: source order is shown</string>
     <string name="queue_playback_order_hint">Playback order · No. is the source position</string>
     <string name="queue_source_position">No. %1$d</string>
@@ -643,8 +642,10 @@
     <string name="queue_now_playing">Now playing</string>
     <string name="queue_next">Next</string>
     <string name="queue_empty">No more tracks in the queue</string>
-    <string name="queue_loading">Loading</string>
     <string name="queue_ready">Ready</string>
+    <string name="queue_downloading">Downloading</string>
+    <string name="queue_not_downloaded">Not downloaded</string>
+    <string name="queue_ready_count">Ready: %1$d</string>
     <string name="queue_failed">Error</string>
     <string name="queue_unavailable">Unavailable</string>
     <string name="queue_play_next">Play next</string>

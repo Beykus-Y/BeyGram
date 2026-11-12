@@ -137,6 +137,11 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     /** Seeks the staged session before it plays; false when its first track is not loaded yet. */
     fun seekStaged(seconds: Double): Boolean = staged?.player?.seek(seconds) ?: false
 
+    /** Output volume of the staged session: it starts silent and rises during the handover crossfade. */
+    fun setStagedVolume(volume: Float) {
+        staged?.player?.setOutputVolume(volume)
+    }
+
     /** Starts output of the staged session while the caller still plays; it becomes active only with [commitStaged]. */
     fun playStaged() {
         staged?.player?.play()

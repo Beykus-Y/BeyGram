@@ -201,7 +201,7 @@ internal fun YandexCollectionScreen(
     // The latest tap wins: a queue still loading for an earlier tap is dropped.
     var playJob by remember(ref) { mutableStateOf<Job?>(null) }
 
-    /** Plays from [index]; the liked list loads the rest of its first tracks so the queue goes on past the page. */
+    /** Plays from [index]; the liked list loads all of its tracks first, so the queue holds the whole collection. */
     fun play(index: Int, shuffle: Boolean) {
         playJob?.cancel()
         playJob = null
@@ -209,7 +209,8 @@ internal fun YandexCollectionScreen(
         if (ref == YandexCollectionRef.Liked && provider != null && ids != null && ids.size > tracks.size) {
             val startId = tracks.getOrNull(index)?.trackId
             playJob = scope.launch {
-                val all = withContext(Dispatchers.IO) { provider.tracks(ids.take(LIKED_PLAY_LIMIT)) }
+                // Every liked id, not a prefix: the queue, the shuffle and the BG Mix session cover the whole list.
+                val all = withContext(Dispatchers.IO) { provider.tracks(ids) }
                 val list = (all as? ProviderResult.Success)?.value ?: tracks
                 val start = list.indexOfFirst { it.trackId == startId }
                 // A row past the first tracks plays from the pages loaded so far.
@@ -359,5 +360,3 @@ private fun startList(context: android.content.Context, list: List<ProviderTrack
     }
 }
 
-/** Liked tracks put into one queue, as on the tab. */
-private const val LIKED_PLAY_LIMIT = 200

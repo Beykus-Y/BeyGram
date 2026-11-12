@@ -161,6 +161,8 @@ import com.beykus.beygram.playback.SLEEP_TIMER_MAX_MINUTES
 import com.beykus.beygram.playback.SLEEP_TIMER_MINUTES
 import com.beykus.beygram.playback.SleepTimerState
 import com.beykus.beygram.playback.sleepTimerRemainingMinutes
+import com.beykus.beygram.data.music.provider.ProviderTracks
+import com.beykus.beygram.ui.screens.music.rememberProviderCover
 import com.beykus.beygram.playback.speedLabel
 import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -1368,12 +1370,14 @@ private fun QueuePanel(
         dragOffset = 0f
         dropTarget = -1
     }
-    Column(Modifier.fillMaxSize()) {
+    // An opaque panel: the screen under the sheet must not show through the list.
+    Column(Modifier.fillMaxSize().background(palette.surface.copy(alpha = 1f))) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(onClick = onBack, modifier = Modifier.focusRequester(backFocus)) {
+            // Both side slots share the weight, so the title sits in the middle of the sheet.
+            TextButton(onClick = onBack, modifier = Modifier.focusRequester(backFocus).weight(1f)) {
                 Icon(
                     Icons.AutoMirrored.Rounded.ArrowBack,
                     contentDescription = null,
@@ -1387,7 +1391,7 @@ private fun QueuePanel(
                     maxLines = 1
                 )
             }
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     stringResource(R.string.queue_title),
                     color = palette.textPrimary,
@@ -1395,16 +1399,16 @@ private fun QueuePanel(
                     fontWeight = FontWeight.SemiBold
                 )
                 val countLabel = stringResource(R.string.queue_count, current.size)
-                val loadingLabel = if (current.loadingCount > 0) {
-                    stringResource(R.string.queue_loading_count, current.loadingCount)
+                val readyLabel = if (current.readyCount > 0) {
+                    stringResource(R.string.queue_ready_count, current.readyCount)
                 } else ""
                 Text(
-                    listOf(countLabel, loadingLabel).filter { it.isNotBlank() }.joinToString(" · "),
+                    listOf(countLabel, readyLabel).filter { it.isNotBlank() }.joinToString(" · "),
                     color = palette.textSecondary,
                     fontSize = 11.sp
                 )
             }
-            Box {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                 IconButton(onClick = { queueMenuOpen = true }) {
                     Icon(Icons.Rounded.MoreVert, stringResource(R.string.queue_actions), tint = palette.textSecondary)
                 }
@@ -1426,9 +1430,6 @@ private fun QueuePanel(
                         }
                     )
                 }
-            }
-            IconButton(onClick = onDismiss) {
-                Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.player_collapse), tint = palette.textSecondary)
             }
         }
         Row(
@@ -1521,8 +1522,11 @@ private fun QueuePanel(
                     enableDismissFromStartToEnd = false,
                     enableDismissFromEndToStart = dragFrom < 0,
                     backgroundContent = {
-                        Box(Modifier.fillMaxSize().padding(horizontal = 20.dp), contentAlignment = Alignment.CenterEnd) {
-                            Icon(Icons.Rounded.Delete, stringResource(R.string.queue_remove), tint = palette.danger)
+                        // Drawn only while the row is swiped: at rest the transparent row would show it under the menu button.
+                        if (swipeState.targetValue != SwipeToDismissBoxValue.Settled || swipeState.currentValue != SwipeToDismissBoxValue.Settled) {
+                            Box(Modifier.fillMaxSize().padding(horizontal = 20.dp), contentAlignment = Alignment.CenterEnd) {
+                                Icon(Icons.Rounded.Delete, stringResource(R.string.queue_remove), tint = palette.danger)
+                            }
                         }
                     }
                 ) {
@@ -1888,7 +1892,7 @@ private fun QueueUpcomingRow(
                         maxLines = 1
                     )
                 }
-                if (row.status == QueueItemStatus.Loading || row.status == QueueItemStatus.Unavailable) {
+                if (row.status == QueueItemStatus.Downloading || row.status == QueueItemStatus.Unavailable) {
                     Text(
                         " · " + queueStatusText(row.status),
                         color = if (row.status == QueueItemStatus.Unavailable) palette.danger else palette.textSecondary,
@@ -1940,8 +1944,10 @@ private fun QueueUpcomingRow(
 
 @Composable
 private fun QueueArtwork(item: PlaybackItem, size: Dp, palette: com.beykus.beygram.ui.components.BeyGramPalette) {
+    // A provider row has no artwork of its own: its cover comes from the provider's list and is cached on its own.
+    val providerCover = rememberProviderCover(ProviderTracks.byKey(item.key)?.coverUrl)
     TrackArtwork(
-        artworkPath = item.artworkPath,
+        artworkPath = item.artworkPath?.takeIf { it.isNotBlank() } ?: providerCover,
         audioPath = item.path.takeIf { it.isNotBlank() },
         modifier = Modifier.size(size),
         background = palette.surface2,
@@ -1960,7 +1966,8 @@ private fun queueStatusText(status: QueueItemStatus): String = stringResource(
         QueueItemStatus.CurrentBuffering -> R.string.player_buffering
         QueueItemStatus.CurrentEnded -> R.string.music_card_ended
         QueueItemStatus.CurrentFailed -> R.string.queue_failed
-        QueueItemStatus.Loading -> R.string.queue_loading
+        QueueItemStatus.NotDownloaded -> R.string.queue_not_downloaded
+        QueueItemStatus.Downloading -> R.string.queue_downloading
         QueueItemStatus.Ready -> R.string.queue_ready
         QueueItemStatus.Unavailable -> R.string.queue_unavailable
     }

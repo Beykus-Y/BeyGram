@@ -6,6 +6,9 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -33,12 +36,28 @@ internal interface LazyTrackSource {
 }
 
 /** Routes a queue key to the provider that owns its prefix. A key with no owner plays as an ordinary queue row. */
+/** Which lazy rows are being fetched right now, and which fetched copies are already held. */
+internal data class LazyTrackProgress(val fetching: Set<String> = emptySet(), val ready: Set<String> = emptySet())
+
 internal object LazyTrackRegistry {
     private val sources: List<LazyTrackSource> = listOf(BotTrackResolver, YandexTrackResolver)
+    private val _progress = MutableStateFlow(LazyTrackProgress())
+
+    /** Changes whenever a fetch starts or ends, or a queue is reset, so the queue shows downloads as they happen. */
+    val progress: StateFlow<LazyTrackProgress> = _progress.asStateFlow()
 
     fun sourceFor(key: String): LazyTrackSource? = sources.firstOrNull { it.owns(key) }
 
     fun isLazyKey(key: String): Boolean = sourceFor(key) != null
+
+    /** Recomputes [progress] from every resolver; a resolver calls it after each change of its entries. */
+    internal fun publishProgress() {
+        val resolvers = sources.filterIsInstance<LazyTrackResolver<*>>()
+        _progress.value = LazyTrackProgress(
+            fetching = resolvers.flatMapTo(HashSet()) { it.fetchingKeys() },
+            ready = resolvers.flatMapTo(HashSet()) { it.readyKeys() }
+        )
+    }
 }
 
 /**
@@ -89,6 +108,12 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String) :
 
     override fun failed(key: String): Boolean = entries[key]?.failed == true
 
+    /** Keys whose fetch is running now; a finished or failed fetch is not in this set. */
+    fun fetchingKeys(): Set<String> = entries.filterValues { it.track == null && !it.failed }.keys.toSet()
+
+    /** Keys whose fetched copy is held, whether or not the player has taken it yet. */
+    fun readyKeys(): Set<String> = entries.filterValues { it.track != null }.keys.toSet()
+
     override fun request(key: String) {
         val fetcher = fetch ?: return
         if (!owns(key)) return
@@ -106,23 +131,28 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String) :
         } else if (!entries.replace(key, known, entry)) {
             return
         }
+        LazyTrackRegistry.publishProgress()
         scope.launch {
-            val result = runCatching { fetcher(key) }.getOrElse { Result.failure(it) }
-            val track = result.getOrNull()
-            // A reset or a newer fetch replaced this entry while it ran: the late copy has no owner, so it goes.
-            if (entries[key] !== entry) {
-                track?.let { copy -> discardCopy(pathOf(copy)) }
-                return@launch
-            }
-            when {
-                track != null -> entry.track = track
-                result.isFailure -> {
-                    // A failed request (timeout, no network) is not a verdict on the track: a later ask may try again.
-                    cooldownUntil[key] = SystemClock.elapsedRealtime() + RETRY_COOLDOWN_MS
-                    entries.remove(key, entry)
+            try {
+                val result = runCatching { fetcher(key) }.getOrElse { Result.failure(it) }
+                val track = result.getOrNull()
+                // A reset or a newer fetch replaced this entry while it ran: the late copy has no owner, so it goes.
+                if (entries[key] !== entry) {
+                    track?.let { copy -> discardCopy(pathOf(copy)) }
+                    return@launch
                 }
-                // The provider answered that there is no audio to deliver: asking again would not change that.
-                else -> entry.failed = true
+                when {
+                    track != null -> entry.track = track
+                    result.isFailure -> {
+                        // A failed request (timeout, no network) is not a verdict on the track: a later ask may try again.
+                        cooldownUntil[key] = SystemClock.elapsedRealtime() + RETRY_COOLDOWN_MS
+                        entries.remove(key, entry)
+                    }
+                    // The provider answered that there is no audio to deliver: asking again would not change that.
+                    else -> entry.failed = true
+                }
+            } finally {
+                LazyTrackRegistry.publishProgress()
             }
         }
     }
@@ -145,6 +175,7 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String) :
         }
         entries.clear()
         cooldownUntil.clear()
+        LazyTrackRegistry.publishProgress()
     }
 
     private companion object {

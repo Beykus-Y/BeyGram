@@ -235,13 +235,13 @@ class YandexMusicHost : ProviderMusicHost {
         onPlay(tracks, index)
     }
 
-    /** Plays the liked list (its first [LIKED_PLAY_LIMIT] tracks) from [startTrackId], or from the top. */
+    /** Plays the whole liked list from [startTrackId], or from the top. */
     private fun playLiked(
         provider: MusicProvider,
         ids: List<String>,
         onPlay: (List<ProviderTrack>, Int) -> Unit,
         startTrackId: String? = null
-    ) = playLoaded({ provider.tracks(ids.take(LIKED_PLAY_LIMIT)) }, onPlay, startTrackId)
+    ) = playLoaded({ provider.tracks(ids) }, onPlay, startTrackId)
 
     private fun playPlaylist(provider: MusicProvider, playlist: ProviderPlaylist, onPlay: (List<ProviderTrack>, Int) -> Unit) =
         playLoaded({ provider.playlistTracks(playlist.kind, playlist.ownerUid.takeIf { !playlist.isOwn }) }, onPlay)
@@ -630,8 +630,6 @@ class YandexMusicHost : ProviderMusicHost {
         const val LIBRARY_PREVIEW_ROWS = 5
         /** How long a stored library is shown without asking the service again. */
         const val LIBRARY_MAX_AGE_MS = 10 * 60_000L
-        /** Liked tracks put into one queue. A longer list would take many requests before the first track starts. */
-        const val LIKED_PLAY_LIMIT = 200
         /** Stands in for the provider state when the provider is absent, so the collection stays unconditional. */
         val SignedOutState = MutableStateFlow<MusicProviderState>(MusicProviderState.SignedOut)
     }
