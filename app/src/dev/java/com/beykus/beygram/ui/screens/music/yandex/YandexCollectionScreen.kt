@@ -91,7 +91,9 @@ internal fun YandexCollectionScreen(
     provider: MusicProvider?,
     snapshot: YandexLibrarySnapshot?,
     onBack: () -> Unit,
-    onOpenCollection: (String) -> Unit
+    onOpenCollection: (String) -> Unit,
+    /** The playlist of a link this screen was opened by; used while the library has not loaded the playlist. */
+    linkedPlaylist: ProviderPlaylist? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -103,8 +105,7 @@ internal fun YandexCollectionScreen(
         mutableStateOf(
             when (ref) {
                 YandexCollectionRef.Liked -> CollectionHead(likedTitle, "", null, snapshot?.likedIds?.size)
-                is YandexCollectionRef.Playlist -> snapshot?.playlists
-                    ?.firstOrNull { it.isRefOf(ref) }
+                is YandexCollectionRef.Playlist -> (snapshot?.playlists?.firstOrNull { it.isRefOf(ref) } ?: linkedPlaylist)
                     ?.let { CollectionHead(it.title, if (it.isOwn) "" else it.ownerName.orEmpty(), it.coverUrl, it.trackCount) }
                     ?: CollectionHead(playlistTitle, "", null, null)
                 is YandexCollectionRef.Album -> snapshot?.albums?.firstOrNull { it.id == ref.id }
@@ -115,9 +116,9 @@ internal fun YandexCollectionScreen(
             }
         )
     }
-    // A playlist's uuid comes from the library snapshot, so the menu appears as soon as the snapshot is loaded.
+    // A playlist's uuid comes from the library snapshot or from the link it was opened by, so the menu never waits for the library.
     val playlistUuid = (ref as? YandexCollectionRef.Playlist)?.let { playlistRef ->
-        snapshot?.playlists?.firstOrNull { it.isRefOf(playlistRef) }?.uuid
+        (snapshot?.playlists?.firstOrNull { it.isRefOf(playlistRef) } ?: linkedPlaylist)?.uuid
     }
     var tracks by remember(ref) { mutableStateOf<List<ProviderTrack>>(emptyList()) }
     var loading by remember(ref) { mutableStateOf(true) }

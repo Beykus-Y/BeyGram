@@ -271,13 +271,25 @@ class YandexMusicHost : ProviderMusicHost {
 
     override fun albumRef(albumId: String): String = YandexCollectionRef.album(albumId)
 
-    override fun playlistRef(playlist: ProviderPlaylist): String = YandexCollectionRef.playlist(playlist)
+    /**
+     * Playlists opened from a link, by their screen reference. The screen's header and menu use them when the library
+     * tab has not loaded the playlist yet. A few links are opened per session, so the map is cleared past 64 entries.
+     */
+    private val linkedPlaylists = java.util.concurrent.ConcurrentHashMap<String, ProviderPlaylist>()
+
+    override fun playlistRef(playlist: ProviderPlaylist): String {
+        val ref = YandexCollectionRef.playlist(playlist)
+        if (linkedPlaylists.size >= 64) linkedPlaylists.clear()
+        linkedPlaylists[ref] = playlist
+        return ref
+    }
 
     @Composable
     override fun CollectionScreen(ref: String, onBack: () -> Unit, onOpenCollection: (String) -> Unit) {
         val context = LocalContext.current
         val provider = remember(context) { MusicProviders.yandex(context) }
         val parsed = remember(ref) { YandexCollectionRef.parse(ref) }
+        val linkedPlaylist = remember(ref) { linkedPlaylists[ref] }
         if (parsed == null) {
             LaunchedEffect(ref) { onBack() }
             return
@@ -287,7 +299,8 @@ class YandexMusicHost : ProviderMusicHost {
             provider = provider,
             snapshot = library,
             onBack = onBack,
-            onOpenCollection = onOpenCollection
+            onOpenCollection = onOpenCollection,
+            linkedPlaylist = linkedPlaylist
         )
     }
 
