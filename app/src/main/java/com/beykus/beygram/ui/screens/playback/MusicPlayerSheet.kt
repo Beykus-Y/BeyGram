@@ -155,7 +155,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
-import com.beykus.beygram.data.music.provider.YANDEX_TRACK_KEY_PREFIX
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackRepeatMode
 import com.beykus.beygram.playback.SLEEP_TIMER_MAX_MINUTES
@@ -657,7 +656,7 @@ private fun PlayerDetails(
     )
     Spacer(Modifier.height(10.dp))
     // Lyrics only for tracks of the Yandex Music provider (DEV build); other tracks get no extra row.
-    if (player.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX)) {
+    if (YANDEX_LYRICS_ENABLED && player.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX)) {
         YandexLyricsSection(key = player.item.key, positionState = positionState)
         Spacer(Modifier.height(10.dp))
     }

@@ -54,6 +54,12 @@ internal enum class LyricsUnavailableReason { NoText, NotSignedIn, Failed }
  * Lyrics section of the full player for a Yandex Music track. It is shown only when the DEV build has the provider
  * and the current item has a `ym:` key; everywhere else the player is unchanged.
  */
+/**
+ * Switch for the lyrics button of Yandex tracks. Off: the service refuses the unsigned lyrics request (400), and the
+ * signing decision is still open. The code stays in place. Turn on only after that decision.
+ */
+internal const val YANDEX_LYRICS_ENABLED = false
+
 @Composable
 internal fun YandexLyricsSection(
     key: String,
