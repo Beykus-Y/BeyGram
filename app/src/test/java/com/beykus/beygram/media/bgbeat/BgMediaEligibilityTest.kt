@@ -42,6 +42,10 @@ class BgMediaEligibilityTest {
             BgBeatIneligibleReason.PrivateMedia,
             BgMediaEligibility.reasonFor(audio(file.absolutePath).copy(isSecretChat = true))
         )
+        assertEquals(
+            BgBeatIneligibleReason.PrivateMedia,
+            BgMediaEligibility.reasonFor(audio(file.absolutePath).copy(viewOnce = true))
+        )
     }
 
     @Test

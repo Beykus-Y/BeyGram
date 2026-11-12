@@ -52,6 +52,24 @@ class MascotClockTest {
     }
 
     @Test
+    fun pauseThenSeekMovesTheStaticPosition() {
+        val clock = MascotClock()
+        clock.onPlaybackState("track", 5_000L, 60_000L, playing = false, speed = 1f, nowNanos = start)
+        clock.onPlaybackState("track", 9_000L, 60_000L, playing = false, speed = 1f, nowNanos = start + 1_000_000_000L)
+
+        assertEquals(9.0, clock.timeSeconds(start + 5_000_000_000L), 0.001)
+    }
+
+    @Test
+    fun itemChangeWhilePausedDoesNotKeepTheOldTrackPosition() {
+        val clock = MascotClock()
+        clock.onPlaybackState("track-a", 20_000L, 60_000L, playing = false, speed = 1f, nowNanos = start)
+        clock.onPlaybackState("track-b", 2_000L, 60_000L, playing = false, speed = 1f, nowNanos = start + 1_000_000_000L)
+
+        assertEquals(2.0, clock.timeSeconds(start + 5_000_000_000L), 0.001)
+    }
+
+    @Test
     fun playbackSpeedIsApplied() {
         val clock = MascotClock()
         clock.onPlaybackState("track", 0L, 60_000L, playing = true, speed = 1.25f, nowNanos = start)
