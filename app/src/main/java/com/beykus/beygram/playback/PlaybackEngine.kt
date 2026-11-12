@@ -871,7 +871,7 @@ object PlaybackEngine {
         queueSource = source
         queuePageGeneration++
         resetErrorPolicy()
-        dropClosedPlayer()
+        finishClosedPlayer()
         queuePageJob?.cancel()
         queuePageJob = null
         _queuePageLoading.value = false
@@ -929,7 +929,7 @@ object PlaybackEngine {
         transitionToken++
         queuePageGeneration++
         resetErrorPolicy()
-        dropClosedPlayer()
+        finishClosedPlayer()
         queuePageJob?.cancel()
         queuePageJob = null
         _queuePageLoading.value = false
@@ -1497,9 +1497,7 @@ object PlaybackEngine {
     /** Explicit user stop: closes the session, clears the queue and removes the notification. */
     fun stop() {
         _state.value.item?.accountId?.let { owner -> persistence?.forget(owner) }
-        closedPlayer = null
-        undoJob?.cancel()
-        _undoClose.value = false
+        finishClosedPlayer()
         releaseQueueAndHalt()
     }
 
@@ -1522,6 +1520,15 @@ object PlaybackEngine {
         closedPlayer = null
         undoJob?.cancel()
         _undoClose.value = false
+    }
+
+    /**
+     * New playback or an explicit stop ends the undo for good: the closed music session is forgotten now, so it cannot
+     * come back at the next start. Undo itself clears [closedPlayer] first and keeps the session.
+     */
+    private fun finishClosedPlayer() {
+        closedPlayer?.state?.item?.accountId?.let { owner -> persistence?.forget(owner) }
+        dropClosedPlayer()
     }
 
     private class ClosedPlayer(val state: PlaybackState, val source: PlaybackQueueSource?)
@@ -1554,7 +1561,7 @@ object PlaybackEngine {
         _undoClose.value = true
         undoJob?.cancel()
         // Closing for good drops the saved session too, so the closed track does not come back at the next start.
-        val owner = activeAccountId ?: item.accountId
+        val owner = item.accountId
         undoJob = scope.launch {
             delay(UNDO_CLOSE_MS)
             _undoClose.value = false

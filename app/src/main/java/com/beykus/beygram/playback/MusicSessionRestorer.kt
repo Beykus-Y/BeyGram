@@ -9,11 +9,10 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlin.math.abs
 
 /**
  * Rehydrates each persisted origin from the *current* TDLib account, never from stale file paths or file IDs.
- * A missing/deleted/protected message is dropped, and the nearest one that remains takes its place.
+ * A missing/deleted/protected message is dropped. The saved track itself must still resolve, or nothing is restored.
  */
 suspend fun restoreMusicSession(
     context: Context,
@@ -22,18 +21,13 @@ suspend fun restoreMusicSession(
 ): Boolean {
     if (PlaybackEngine.state.value.item != null) return false
     val verified = resolveMusicOrigins(repository, saved.accountId, saved.origins)
-    // The saved track may have been deleted or protected since. The nearest one that is still there starts from its
-    // beginning. When none is left, nothing is restored and the record stays: a lookup that fails right after connecting
-    // must not erase the session, and the record expires on its own.
-    val nearest = verified.indices
-        .filter { verified[it] != null }
-        .minByOrNull { abs(it - saved.currentIndex) }
-        ?: return false
-    val selected = verified[nearest] ?: return false
+    // The saved track must still resolve. A lookup that fails right after connecting looks the same as a deleted message,
+    // so no other track takes its place: nothing is restored and the record stays until it expires.
+    val selected = verified.getOrNull(saved.currentIndex) ?: return false
     val queue = verified.filterNotNull()
     val index = queue.indexOfFirst { it.key == selected.key }
     if (index < 0) return false
-    val positionMs = if (nearest == saved.currentIndex) saved.positionMs else 0L
+    val positionMs = saved.positionMs
     PlaybackEngine.restoreQueue(
         context,
         queue,
