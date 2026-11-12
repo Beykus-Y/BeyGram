@@ -51,16 +51,14 @@ import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.MusicProviderState
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderAlbum
-import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.data.yandex.YandexMusicProvider
 import com.beykus.beygram.data.yandex.YandexWave
+import com.beykus.beygram.data.yandex.YandexWaveLauncher
 import com.beykus.beygram.data.yandex.YandexWaveFeedback
-import com.beykus.beygram.data.yandex.YandexWaveSession
-import com.beykus.beygram.playback.PlaybackRadio
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.material.icons.rounded.MoreVert
@@ -258,32 +256,18 @@ class YandexMusicHost : ProviderMusicHost {
         val mine = ++selectionGeneration
         waveStarting = true
         waveFailure = null
-        val app = context.applicationContext
-        scope.launch {
-            val session = YandexWaveSession(
-                seeds = listOf(YandexWave.MY_WAVE_SEED),
-                start = { seeds, queue -> yandex.waveStart(seeds, queue) },
-                next = { id, queue -> yandex.waveNext(id, queue) },
-            )
-            val first = session.first()
-            waveStarting = false
-            when (first) {
-                is ProviderResult.Failure -> waveFailure = first.failure
-                is ProviderResult.Success -> when {
-                    mine != selectionGeneration -> Unit
-                    first.value.none { it.isAvailable } -> waveFailure = MusicProviderFailure.NotFound
-                    else -> {
-                        val radio = PlaybackRadio(
-                            title = app.getString(R.string.yandex_wave_title),
-                            subtitle = app.getString(R.string.yandex_wave_source_personal)
-                        )
-                        ProviderArtwork.playTracks(app, first.value, 0, { session.more() }, radio)
-                        // After the queue started, so the tracker sees the radio as the player's queue.
-                        YandexWaveFeedback.start(yandex, session, radio)
-                    }
-                }
-            }
-        }
+        YandexWaveLauncher.start(
+            context = context,
+            provider = yandex,
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            subtitle = context.getString(R.string.yandex_wave_source_personal),
+            startTrack = null,
+            isCurrent = { mine == selectionGeneration },
+            onDone = { failure ->
+                waveStarting = false
+                waveFailure = failure
+            },
+        )
     }
 
     /** A direct selection: it supersedes any collection still loading. */
