@@ -844,4 +844,10 @@
     <string name="settings_experiments_group_music">Música</string>
     <string name="settings_experiments_group_transitions">Pausas y transiciones</string>
     <string name="settings_experiments_transitions_note">Omitir silencio y fundido pertenecen al reproductor normal y no dependen de BG Mix. Mientras la música suena con BG Mix, usa sus propias transiciones suaves y estos dos ajustes no se aplican.</string>
+    <string name="lyrics_show">Mostrar letra</string>
+    <string name="lyrics_hide">Ocultar letra</string>
+    <string name="lyrics_none_for_track">No hay letra para esta pista</string>
+    <string name="lyrics_need_sign_in">Inicia sesión en Yandex Music para ver la letra</string>
+    <string name="lyrics_failed">No se pudo cargar la letra. Inténtalo más tarde.</string>
+    <string name="lyrics_copyright">Letra: %1$s</string>
 </resources>
