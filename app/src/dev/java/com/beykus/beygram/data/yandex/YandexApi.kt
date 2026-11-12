@@ -132,6 +132,17 @@ internal class YandexApi(private val http: YandexHttp) {
         }
     }
 
+    /**
+     * One listening event of a radio session, so the wave learns from it. [trackId] is `id:albumId`; [playedSeconds]
+     * is required for finished and skipped tracks. Answers are ignored beyond success or failure.
+     */
+    fun waveFeedback(token: String, sessionId: String, event: YandexWaveEvent, batchId: String?): ProviderResult<Unit> {
+        val body = JSONObject().put("event", event.toJson())
+        if (batchId != null) body.put("batchId", batchId)
+        if (event.type == YandexWaveEvent.RADIO_STARTED) body.put("from", YandexWave.FROM)
+        return call(token, "/rotor/session/${encode(sessionId)}/feedback", json = body) { Unit }
+    }
+
     /** Reads a session or next-batch answer. Null when the shape is not the expected one. */
     fun parseWaveBatch(root: JSONObject, sessionId: String?): YandexWaveBatch? {
         val result = root.result()

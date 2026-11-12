@@ -265,6 +265,9 @@ internal class YandexMusicProvider(
     suspend fun waveNext(sessionId: String, queue: List<String>): ProviderResult<YandexWaveBatch> =
         withSession { s -> api.waveNext(s.accessToken, sessionId, queue) }
 
+    suspend fun waveFeedback(sessionId: String, event: YandexWaveEvent, batchId: String?): ProviderResult<Unit> =
+        withSession { s -> api.waveFeedback(s.accessToken, sessionId, event, batchId) }
+
         // Session handling --------------------------------------------------------------------------------------------
 
     /**

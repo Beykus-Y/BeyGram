@@ -3,6 +3,7 @@ package com.beykus.beygram.data.music.provider
 import android.content.Context
 import java.io.File
 import com.beykus.beygram.playback.PlaybackEngine
+import com.beykus.beygram.playback.PlaybackRadio
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,11 +36,12 @@ object ProviderArtwork {
         tracks: List<ProviderTrack>,
         startIndex: Int,
         loadMore: (suspend () -> List<ProviderTrack>)?,
+        radio: PlaybackRadio? = null,
     ) {
         remember(tracks)
         watch(context)
         val remembering = loadMore?.let { load -> suspend { load().also { remember(it) } } }
-        PlaybackEngine.playYandexTracks(context, tracks, startIndex, remembering)
+        PlaybackEngine.playYandexTracks(context, tracks, startIndex, remembering, radio)
     }
 
     private fun remember(tracks: List<ProviderTrack>) = ProviderTracks.remember(tracks)

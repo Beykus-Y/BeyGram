@@ -62,6 +62,7 @@ import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
@@ -243,7 +244,9 @@ internal fun MusicPlayerSheet(
     var panel by rememberSaveable { mutableStateOf(PlayerPanel.Player) }
     val source = rememberPlaybackSourceLabel(
         origin = current.item.origin,
-        isProviderTrack = current.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX)
+        isProviderTrack = current.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX),
+        // Not a state: read again on each recomposition, which every queue change causes.
+        radio = PlaybackEngine.activeRadio
     )
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val cover = rememberCoverTokens(
@@ -339,7 +342,7 @@ private fun PlayerHeader(
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
     val closeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
-    val sourceLabel = stringResource(R.string.player_source_from)
+    val sourceLabel = source.caption ?: stringResource(R.string.player_source_from)
     val openSourceLabel = stringResource(R.string.media_show_in_chat)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
@@ -359,15 +362,21 @@ private fun PlayerHeader(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                sourceLabel,
-                color = palette.textSecondary,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 1.1.sp,
-                maxLines = 1,
-                textAlign = TextAlign.Center
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (source.isRadio) {
+                    Icon(Icons.Rounded.Waves, null, tint = palette.accent, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(
+                    sourceLabel,
+                    color = if (source.isRadio) palette.accent else palette.textSecondary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 1.1.sp,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center
+                )
+            }
             Text(
                 source.text,
                 color = palette.textPrimary,
