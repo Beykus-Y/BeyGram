@@ -47,6 +47,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionSpec
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -120,6 +121,7 @@ internal fun SwipeChatRow(
     left: ChatSwipeAction,
     right: ChatSwipeAction,
     onPerformed: (ChatPreview, ChatSwipeActionKind) -> Unit = { _, _ -> },
+    actionScope: CoroutineScope,
     /** The chat open in the other pane of the two-pane layout. */
     highlighted: Boolean = false
 ) {
@@ -192,7 +194,7 @@ internal fun SwipeChatRow(
                 val gesture = settle.gesture
                 animateOffset(direction * rowWidth, removalSpec)
                 if (latestOpenChatId == chat.id) onOpenChange(null)
-                scope.launch {
+                actionScope.launch {
                     val success = runCatching { action.perform(chat) }.getOrDefault(false)
                     if (success) onPerformed(chat, action.kind)
                     // An archived chat may remain inside a server folder: restore only after the action.
@@ -218,13 +220,13 @@ internal fun SwipeChatRow(
         Row(modifier = Modifier.matchParentSize(), horizontalArrangement = Arrangement.SpaceBetween) {
             RevealButton(action = right) {
                 close()
-                scope.launch {
+                actionScope.launch {
                     if (runCatching { right.perform(chat) }.getOrDefault(false)) onPerformed(chat, right.kind)
                 }
             }
             RevealButton(action = left) {
                 close()
-                scope.launch {
+                actionScope.launch {
                     if (runCatching { left.perform(chat) }.getOrDefault(false)) onPerformed(chat, left.kind)
                 }
             }
