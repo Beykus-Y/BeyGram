@@ -402,6 +402,8 @@ object PlaybackEngine {
      * so another account's file with the same numeric id is never updated.
      */
     fun updateArtwork(key: String, path: String) {
+        // The BG Mix queue is copied from its native session on every status tick: the cover must be in that copy too.
+        bgMix?.updateArtwork(key, path)
         val snapshot = _state.value
         val item = snapshot.item
         val queue = snapshot.queue
@@ -417,7 +419,8 @@ object PlaybackEngine {
         val index = (0 until target.mediaItemCount).firstOrNull {
             target.getMediaItemAt(it).mediaId == current.systemMediaId
         } ?: return
-        val replacement = mediaItemFor(current)
+        // During BG Mix ExoPlayer holds the placeholder; its metadata is what the notification and the lock screen show.
+        val replacement = if (bgMixActive()) placeholderItem(current) else mediaItemFor(current)
         // Only the metadata changed. Media3 updates an item with the same address in place, so the playhead is not
         // touched: an explicit seek here would flush the decoder buffers and cause a glitch in a fresh track.
         val existingUri = target.getMediaItemAt(index).localConfiguration?.uri
@@ -461,7 +464,11 @@ object PlaybackEngine {
             }
         exo = created
         appContext = context.applicationContext
-        persistence = MusicSessionPersistence(context.applicationContext, _state).also { it.start(scope) }
+        persistence = MusicSessionPersistence(
+            context.applicationContext,
+            _state,
+            activeAccount = { activeAccountId },
+        ).also { it.start(scope) }
         TrackTransitionSettings.load(context)
         _audioSessionId.value = null
         return object : ForwardingPlayer(created) {
@@ -1481,9 +1488,7 @@ object PlaybackEngine {
 
     /** Explicit user stop: closes the session, clears the queue and removes the notification. */
     fun stop() {
-        _state.value.item?.accountId?.let { owner ->
-            appContext?.let { context -> MusicSessionStore(context).clear(owner) }
-        }
+        _state.value.item?.accountId?.let { owner -> persistence?.forget(owner) }
         closedPlayer = null
         undoJob?.cancel()
         _undoClose.value = false
@@ -1540,10 +1545,13 @@ object PlaybackEngine {
         closedPlayer = ClosedPlayer(frozen, closedSource)
         _undoClose.value = true
         undoJob?.cancel()
+        // Closing for good drops the saved session too, so the closed track does not come back at the next start.
+        val owner = activeAccountId ?: item.accountId
         undoJob = scope.launch {
             delay(UNDO_CLOSE_MS)
             _undoClose.value = false
             closedPlayer = null
+            persistence?.forget(owner)
         }
     }
 
@@ -1577,7 +1585,11 @@ object PlaybackEngine {
     private fun placeholderItem(item: PlaybackItem): MediaItem = MediaItem.Builder()
         .setMediaId(item.key)
         .setUri(Uri.fromFile(File(item.path)))
-        .setMediaMetadata(MediaMetadata.Builder().setTitle(item.title).setArtist(item.performer).build())
+        .setMediaMetadata(
+            MediaMetadata.Builder().setTitle(item.title).setArtist(item.performer).apply {
+                item.systemMetadata().artworkPath?.let { artworkUri(it) }?.let { setArtworkUri(it) }
+            }.build()
+        )
         .build()
 
     /** Tells the media session which of its player values changed. ExoPlayer events are ignored during BG Mix. */

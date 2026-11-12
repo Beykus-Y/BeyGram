@@ -52,6 +52,18 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
 
     fun itemAt(index: Int): PlaybackItem? = items.getOrNull(index)
 
+    /**
+     * Gives every queue item with [key] the cover [path], in the active session and in the staged one. The engine copies
+     * the queue from here on every status tick, so a cover that arrives later must reach this copy too, or the next tick
+     * wipes it from the player, the notification and the lock screen.
+     */
+    fun updateArtwork(key: String, path: String) {
+        items = items.withArtwork(key, path)
+        staged = staged?.let { next ->
+            Staged(next.player, next.items.withArtwork(key, path), next.indexByNativeId, next.appendedUntil, next.single)
+        }
+    }
+
     fun indexOfNative(id: Long): Int? = indexByNativeId[id]
 
     /** The first queue index that still waits for its file, or null when the whole rest of the queue is in the session. */
@@ -262,3 +274,7 @@ internal fun bgMixReadyPrefix(ready: List<PlaybackItem?>, startIndex: Int): List
  * holds only the items that are known now, so it would end at the edge of the first page.
  */
 internal fun bgMixAdmitsSource(source: PlaybackQueueSource?): Boolean = source?.loadMore == null
+
+/** The queue with the cover [path] on every item of [key]; other items are returned as they are. */
+internal fun List<PlaybackItem>.withArtwork(key: String, path: String): List<PlaybackItem> =
+    map { item -> if (item.key == key && item.artworkPath != path) item.copy(artworkPath = path) else item }

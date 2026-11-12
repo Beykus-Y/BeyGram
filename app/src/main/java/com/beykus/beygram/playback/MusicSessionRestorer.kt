@@ -4,6 +4,7 @@ import android.content.Context
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.repository.TelegramRepository
+import kotlin.math.abs
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -21,10 +22,20 @@ suspend fun restoreMusicSession(
 ): Boolean {
     if (PlaybackEngine.state.value.item != null) return false
     val verified = resolveMusicOrigins(repository, saved.accountId, saved.origins)
-    val selected = verified.getOrNull(saved.currentIndex) ?: return false
+    // The saved track may have been deleted or protected since. The nearest one that is still there starts from its
+    // beginning; when none is left, the saved session is dropped so later starts do not repeat the same lookups.
+    val nearest = verified.indices
+        .filter { verified[it] != null }
+        .minByOrNull { abs(it - saved.currentIndex) }
+    if (nearest == null) {
+        MusicSessionStore(context).clear(saved.accountId)
+        return false
+    }
+    val selected = verified[nearest] ?: return false
     val queue = verified.filterNotNull()
     val index = queue.indexOfFirst { it.key == selected.key }
     if (index < 0) return false
+    val positionMs = if (nearest == saved.currentIndex) saved.positionMs else 0L
     PlaybackEngine.restoreQueue(
         context,
         queue,
@@ -32,7 +43,7 @@ suspend fun restoreMusicSession(
         PlaybackQueueSource(
             saved.accountId, repository::observeFile, repository::downloadFile, repository::autoDownloadFile
         ),
-        saved.positionMs,
+        positionMs,
         saved.shuffle,
         saved.repeat
     )

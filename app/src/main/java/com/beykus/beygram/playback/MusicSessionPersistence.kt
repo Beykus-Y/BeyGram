@@ -15,7 +15,9 @@ import kotlinx.coroutines.launch
 internal class MusicSessionPersistence(
     context: Context,
     private val state: StateFlow<PlaybackState>,
-    private val clock: () -> Long = SystemClock::elapsedRealtime
+    private val clock: () -> Long = SystemClock::elapsedRealtime,
+    /** The account whose session the next start restores; music of any other kind clears its saved session. */
+    private val activeAccount: () -> String? = { null },
 ) {
     private val store = MusicSessionStore(context.applicationContext)
     private var job: Job? = null
@@ -33,16 +35,31 @@ internal class MusicSessionPersistence(
         write(state.value, force = true)
     }
 
+    /** Removes the saved session of [owner] and forgets what was written, so the next change is written again. */
+    fun forget(owner: String) {
+        lastSignature = null
+        lastSaved = null
+        store.clear(owner)
+    }
+
     private fun write(snapshot: PlaybackState, force: Boolean) {
         val item = snapshot.item
-        if (item == null || !item.isMusic || item.systemPrivate) return
+        // Voice messages and video notes are not music: the music session stays as it was for them.
+        if (item == null || !item.isMusic) return
         val signature = persistSignature(snapshot)
         val now = clock()
         val changed = signature != lastSignature
         val periodic = snapshot.playing && now - lastWrittenAt >= PLAYING_WRITE_INTERVAL_MS
         if (!force && !changed && !periodic) return
         lastSignature = signature
-        val session = saveableMusicSession(snapshot, item.accountId) ?: return
+        val session = saveableMusicSession(snapshot, item.accountId)
+        if (session == null) {
+            // Music that cannot be restored (a Yandex track, a search result, profile music, a mixed queue or secret media)
+            // must not leave an older Telegram session behind: the next start would play a track from long ago.
+            if (changed || force) activeAccount()?.let { owner -> store.clear(owner) }
+            lastSaved = null
+            return
+        }
         if (session == lastSaved && !periodic) return
         store.save(session)
         lastSaved = session

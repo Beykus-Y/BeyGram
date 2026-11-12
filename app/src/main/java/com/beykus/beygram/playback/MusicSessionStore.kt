@@ -43,12 +43,21 @@ internal fun saveableMusicSession(state: PlaybackState, accountId: String): Save
     )
 }
 
-class MusicSessionStore(context: Context) {
+/**
+ * A saved session is restored only while it is this fresh. Each save refreshes its time, so a track that stays paused
+ * is dropped a week after it was last written, and a record whose time is in the future is not trusted.
+ */
+internal const val MUSIC_SESSION_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
+
+internal fun musicSessionFresh(savedAtMs: Long, nowMs: Long): Boolean = nowMs - savedAtMs in 0L..MUSIC_SESSION_MAX_AGE_MS
+
+class MusicSessionStore(context: Context, private val clock: () -> Long = System::currentTimeMillis) {
     private val prefs = context.applicationContext.getSharedPreferences("music_resume_v1", Context.MODE_PRIVATE)
 
     fun save(value: SavedMusicSession) {
         val json = JSONObject().apply {
             put("version", SESSION_VERSION)
+            put("saved_at", clock())
             put("index", value.currentIndex)
             put("position", value.positionMs)
             put("shuffle", value.shuffle)
@@ -66,6 +75,7 @@ class MusicSessionStore(context: Context) {
         val raw = prefs.getString(accountId, null) ?: return null
         val json = JSONObject(raw)
         require(json.getInt("version") == SESSION_VERSION)
+        require(musicSessionFresh(json.getLong("saved_at"), clock()))
         val array = json.getJSONArray("origins")
         require(array.length() in 1..MAX_RESTORED_MUSIC_ITEMS)
         val origins = (0 until array.length()).map { index ->
