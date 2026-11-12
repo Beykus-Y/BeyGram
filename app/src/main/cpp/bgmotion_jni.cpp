@@ -29,7 +29,7 @@
 namespace {
 
 // Stable native -> Kotlin float contract. Keep in sync with MascotFrameLayout.
-constexpr int kMascotFrameFloats = 37;
+constexpr int kMascotFrameFloats = 40;
 
 struct MascotSession {
     mutable std::mutex mutex;
@@ -326,6 +326,11 @@ Java_com_beykus_beygram_media_bgmotion_BgMascotNative_nativeSample2D(
         values[35] = session->intensity;
         values[36] = static_cast<float>(
             timeline.valid() ? timeline.beatsPerBar() : session->analysis->beatsPerBar);
+        // Presentation-only pulses. Kotlin overwrites them after sampling; native
+        // keeps the array size stable so the contract length never changes.
+        values[37] = 0.0f;
+        values[38] = 0.0f;
+        values[39] = 0.0f;
     }
 
     env->SetFloatArrayRegion(out, 0, kMascotFrameFloats, values.data());

@@ -37,8 +37,6 @@ import com.beykus.beygram.media.bgmotion.armLeft
 import com.beykus.beygram.media.bgmotion.armRight
 import com.beykus.beygram.media.bgmotion.bass
 import com.beykus.beygram.media.bgmotion.beat
-import com.beykus.beygram.media.bgmotion.beatInBar
-import com.beykus.beygram.media.bgmotion.beatsPerBar
 import com.beykus.beygram.media.bgmotion.blend
 import com.beykus.beygram.media.bgmotion.bob
 import com.beykus.beygram.media.bgmotion.chestTwist
@@ -64,13 +62,18 @@ import com.beykus.beygram.media.bgmotion.phraseLoudness
 import com.beykus.beygram.media.bgmotion.rotation
 import com.beykus.beygram.media.bgmotion.sectionEnergy
 import com.beykus.beygram.media.bgmotion.sectionKind
+import com.beykus.beygram.media.bgmotion.seekDirection
+import com.beykus.beygram.media.bgmotion.seekPulse
 import com.beykus.beygram.media.bgmotion.silenceWeight
+import com.beykus.beygram.media.bgmotion.transitionPulse
 import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.beyGramPalette
+import kotlin.math.PI
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 private const val RIG_SIZE = 1000f
 private const val GROUND_Y = 900f
@@ -103,7 +106,9 @@ private fun ringStroke(width: Float): Stroke {
  *
  * This is deliberately a debug robot, not character art: rounded head, two eyes, joint circles and
  * two-segment limbs. Pose comes from [buffer], while phrase loudness, accents, bass, section energy,
- * silence and the beat grid are drawn as stage lighting and a four-dot beat indicator.
+ * silence and the beat grid are drawn as stage lighting. A short idle loop keeps the rig alive while
+ * the track is analysed or paused, and seek/track-change pulses are rendered as motion streaks and a
+ * stage ring.
  *
  * [buffer.version] is read inside the Canvas draw block, so publishing a native frame invalidates
  * only this drawing, not the surrounding player UI. With no native session (all zeros) the rig
@@ -174,25 +179,16 @@ private fun DrawScope.drawStage(
         -1f
     }
     val accented = analyzed && values.accented() >= 0.5f
-    val phase = if (analyzed) {
-        val raw = values.phase()
-        if (raw.isFinite()) (raw - floor(raw)).coerceIn(0f, 1f) else 0f
+    val phase = if (values.phase().isFinite()) {
+        (values.phase() - floor(values.phase())).coerceIn(0f, 1f)
     } else {
         0f
     }
+    val idlePhase = if (analyzed) 0f else phase
+    val seek = values.seekPulse()
+    val seekDir = values.seekDirection()
+    val transition = values.transitionPulse()
     val blend = if (analyzed) unit(values.blend()) else 0f
-    val meter = if (analyzed) values.beatsPerBar() else 4
-    val beatInBar = if (analyzed) {
-        val raw = values.beatInBar()
-        if (!raw.isFinite()) {
-            -1
-        } else {
-            val rounded = raw.roundToInt()
-            if (rounded < 0) -1 else rounded % meter
-        }
-    } else {
-        -1
-    }
     val beatPhase = if (analyzed) {
         val raw = values.beat()
         if (raw.isFinite()) (raw - floor(raw)).coerceIn(0f, 1f) else 0f
@@ -210,8 +206,15 @@ private fun DrawScope.drawStage(
         0f
     }
     val tintBucket = (strength * 10f).roundToInt().coerceIn(0, 5)
-    val centerColor = lerp(palette.screen, tint, tintBucket * 0.040f)
-    val edgeColor = palette.screen.copy(alpha = 0.94f)
+    // While the track is still being analysed, keep the cover visible behind a
+    // light scrim instead of replacing it with an opaque stage.
+    val scrimAlpha = if (analyzed) 0.94f else 0.58f
+    val centerColor = lerp(
+        palette.screen.copy(alpha = scrimAlpha),
+        tint.copy(alpha = scrimAlpha),
+        tintBucket * 0.040f
+    )
+    val edgeColor = palette.screen.copy(alpha = scrimAlpha)
     drawRect(brush = brushes.backdrop(canvasSize, centerColor, edgeColor))
 
     val scale = side / RIG_SIZE
@@ -241,6 +244,8 @@ private fun DrawScope.drawStage(
             accentColor = palette.accent,
             secondaryColor = palette.textSecondary
         )
+        drawSeekStreaks(seek, seekDir, palette.accent)
+        drawTransitionRing(transition, palette.accent)
         drawMascotBody(
             values = values,
             analyzed = analyzed,
@@ -252,16 +257,12 @@ private fun DrawScope.drawStage(
             accentLevel = accentLevel,
             accented = accented,
             phase = phase,
+            idlePhase = idlePhase,
+            seek = seek,
+            seekDir = seekDir,
+            transition = transition,
             blend = blend,
             palette = palette
-        )
-        drawBeatDots(
-            beatInBar = beatInBar,
-            beatsPerBar = meter,
-            analyzed = analyzed,
-            silence = silence,
-            accentColor = palette.accent,
-            secondaryColor = palette.textSecondary
         )
     }
 }
@@ -341,6 +342,44 @@ private fun DrawScope.drawGroundPulse(
     }
 }
 
+private fun DrawScope.drawSeekStreaks(
+    seek: Float,
+    direction: Float,
+    accentColor: Color
+) {
+    if (seek <= 0.01f) return
+    val dir = if (direction < 0f) -1f else 1f
+    val alpha = seek * 0.34f
+    for (i in 0..2) {
+        val y = 470f + i * 82f
+        val tailX = 500f - dir * (175f + i * 28f)
+        val length = 150f + i * 42f
+        drawLine(
+            color = accentColor.copy(alpha = alpha * (1f - i * 0.22f)),
+            start = Offset(tailX, y),
+            end = Offset(tailX - dir * length, y),
+            strokeWidth = 6f - i,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+private fun DrawScope.drawTransitionRing(
+    transition: Float,
+    accentColor: Color
+) {
+    if (transition <= 0.01f) return
+    val expansion = 1f - transition
+    val radiusX = 250f + expansion * 150f
+    val radiusY = 55f + expansion * 20f
+    drawOval(
+        color = accentColor.copy(alpha = transition * 0.18f),
+        topLeft = Offset(500f - radiusX, 680f - radiusY),
+        size = Size(radiusX * 2f, radiusY * 2f),
+        style = ringStroke(3f)
+    )
+}
+
 private fun DrawScope.drawMascotBody(
     values: FloatArray,
     analyzed: Boolean,
@@ -352,14 +391,26 @@ private fun DrawScope.drawMascotBody(
     accentLevel: Float,
     accented: Boolean,
     phase: Float,
+    idlePhase: Float,
+    seek: Float,
+    seekDir: Float,
+    transition: Float,
     blend: Float,
     palette: BeyGramPalette
 ) {
     val poseAmp = 0.88f + energy * 0.32f
+    val idle = if (analyzed) 0f else sin(idlePhase * (2f * PI.toFloat()))
     // Native bob is positive up, negative down; canvas y grows downwards.
-    val bob = -poseValue(analyzed, values.bob()) * 34f * poseAmp
+    val bob = if (analyzed) {
+        -poseValue(analyzed, values.bob()) * 34f * poseAmp
+    } else {
+        idle * 7f
+    }
     val hipShift = poseValue(analyzed, values.hipShift()) * 34f * poseAmp
-    val wholeRotation = poseValue(analyzed, values.rotation()) * 7f
+    val idleSway = if (analyzed) 0f else idle * 2.2f
+    val seekKick = seek * seekDir * 13f
+    val seekTilt = seek * seekDir * 5.5f
+    val wholeRotation = poseValue(analyzed, values.rotation()) * 7f + idleSway + seekTilt
     val impact = poseValue(analyzed, values.impact()) * 0.085f
 
     val base = lerp(palette.textSecondary, palette.textPrimary, 0.48f)
@@ -367,9 +418,11 @@ private fun DrawScope.drawMascotBody(
     val phraseLight = max(phrase, 0f) * 0.10f
     val accentedLight = if (accented) 0.06f else 0f
     val performanceLight = (performance - 1f) * 0.10f
+    val idleBreath = if (analyzed) 0f else (idle + 1f) * 0.025f
     val body = brighten(
         desaturated,
-        0.80f + energy * 0.30f + phraseLight + accentedLight + performanceLight
+        0.80f + energy * 0.30f + phraseLight + accentedLight + performanceLight +
+            idleBreath + transition * 0.06f
     ).copy(alpha = 1f - silence * 0.34f)
     val edge = lerp(body, palette.textSecondary, 0.82f).copy(alpha = body.alpha)
     val joint = lerp(body, palette.accentSoft, 0.30f).copy(alpha = body.alpha)
@@ -378,8 +431,13 @@ private fun DrawScope.drawMascotBody(
 
     val leanDeg = poseValue(analyzed, values.lean()) * 10f * poseAmp +
         poseValue(analyzed, values.chestTwist()) * 5f * poseAmp
-    val headNod = -poseValue(analyzed, values.headNod()) * 14f * poseAmp
-    val headTilt = poseValue(analyzed, values.headTilt()) * 16f * poseAmp
+    val headNod = if (analyzed) {
+        -poseValue(analyzed, values.headNod()) * 14f * poseAmp
+    } else {
+        idle * 2.8f
+    }
+    val headTilt = poseValue(analyzed, values.headTilt()) * 16f * poseAmp +
+        if (analyzed) 0f else idle * 1.8f
     val headTurn = poseValue(analyzed, values.headTurn()) * 26f * poseAmp
 
     val leftHip = 3f + poseValue(analyzed, values.legLeft()) * 24f * poseAmp
@@ -391,14 +449,19 @@ private fun DrawScope.drawMascotBody(
     val rightFoot = poseValue(analyzed, values.footRight()) * 22f
 
     // Native arms are negative-outward on the left and positive-outward on the right.
-    val leftShoulder = 7f - poseValue(analyzed, values.armLeft()) * 65f * poseAmp
-    val rightShoulder = -7f - poseValue(analyzed, values.armRight()) * 65f * poseAmp
+    val idleArm = if (analyzed) 0f else idle * 2.5f
+    val leftShoulder = 7f - poseValue(analyzed, values.armLeft()) * 65f * poseAmp - idleArm
+    val rightShoulder = -7f - poseValue(analyzed, values.armRight()) * 65f * poseAmp + idleArm
     val leftElbow = 5f + poseValue(analyzed, values.elbowLeft()) * 58f * poseAmp
     val rightElbow = -5f - poseValue(analyzed, values.elbowRight()) * 58f * poseAmp
 
     withTransform({
-        translate(hipShift, bob)
-        scale(1f + impact, 1f - impact, pivot = Offset(500f, GROUND_Y))
+        translate(hipShift + seekKick, bob)
+        scale(
+            1f + impact + transition * 0.045f,
+            1f - impact + transition * 0.045f,
+            pivot = Offset(500f, GROUND_Y)
+        )
         rotate(wholeRotation, pivot = Offset(500f, GROUND_Y))
     }) {
         drawLeg(
@@ -652,7 +715,8 @@ private fun DrawScope.drawHead(
     }
 
     val eyeY = 275f
-    val eyeRadius = 11f + energy * 1.5f
+    val blink = if (!analyzed && phase > 0.965f) 0.22f else 1f
+    val eyeRadius = (11f + energy * 1.5f) * blink
     val eyeColor = lerp(accentColor, Color.White, 0.30f)
     val eyeGlow = accentColor.copy(alpha = 0.22f * dim)
 
@@ -764,42 +828,6 @@ private fun DrawScope.drawLimbSegment(
     )
     drawCircle(edge, radius = width * 0.62f + 4f)
     drawCircle(joint, radius = width * 0.62f)
-}
-
-private fun DrawScope.drawBeatDots(
-    beatInBar: Int,
-    beatsPerBar: Int,
-    analyzed: Boolean,
-    silence: Float,
-    accentColor: Color,
-    secondaryColor: Color
-) {
-    val dim = 1f - silence * 0.45f
-    val count = beatsPerBar.coerceIn(1, 8)
-    val spacing = 48f
-    val startX = 500f - ((count - 1) * spacing) * 0.5f
-    for (i in 0 until count) {
-        val x = startX + i * spacing
-        val active = analyzed && i == beatInBar
-        val downbeat = i == 0
-        val color = when {
-            active -> accentColor.copy(alpha = 0.95f * dim)
-            downbeat -> secondaryColor.copy(alpha = 0.40f * dim)
-            else -> secondaryColor.copy(alpha = 0.22f * dim)
-        }
-        if (active) {
-            drawCircle(
-                color = accentColor.copy(alpha = 0.16f * dim),
-                radius = 21f,
-                center = Offset(x, 950f)
-            )
-        }
-        drawCircle(
-            color = color,
-            radius = if (active) 12f else if (downbeat) 9f else 7f,
-            center = Offset(x, 950f)
-        )
-    }
 }
 
 private fun sectionTint(kind: MascotSectionKind, palette: BeyGramPalette): Color = when (kind) {

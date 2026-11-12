@@ -61,8 +61,11 @@ object MascotFrameLayout {
     const val ANALYZED = 34
     const val INTENSITY = 35
     const val BEATS_PER_BAR = 36
+    const val SEEK_PULSE = 37
+    const val SEEK_DIRECTION = 38
+    const val TRANSITION_PULSE = 39
 
-    const val FLOAT_COUNT = 37
+    const val FLOAT_COUNT = 40
 }
 
 /**
@@ -168,5 +171,17 @@ fun FloatArray.beatsPerBar(): Int {
     val value = this[MascotFrameLayout.BEATS_PER_BAR]
     if (!value.isFinite()) return 4
     return value.roundToInt().coerceIn(1, 8)
+}
+fun FloatArray.seekPulse(): Float {
+    val value = this[MascotFrameLayout.SEEK_PULSE]
+    return if (value.isFinite()) value.coerceIn(0f, 1f) else 0f
+}
+fun FloatArray.seekDirection(): Float {
+    val value = this[MascotFrameLayout.SEEK_DIRECTION]
+    return if (value.isFinite() && value < 0f) -1f else 1f
+}
+fun FloatArray.transitionPulse(): Float {
+    val value = this[MascotFrameLayout.TRANSITION_PULSE]
+    return if (value.isFinite()) value.coerceIn(0f, 1f) else 0f
 }
 fun FloatArray.move(): MascotMove = MascotMove.fromOrdinal(this[MascotFrameLayout.MOVE_ORDINAL])
