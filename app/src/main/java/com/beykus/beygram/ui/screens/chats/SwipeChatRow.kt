@@ -34,6 +34,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import kotlin.math.abs
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -55,6 +58,7 @@ internal data class ChatSwipeAction(
     val container: Color,
     val content: Color,
     val enabled: Boolean,
+    val kind: ChatSwipeActionKind,
     val perform: suspend (ChatPreview) -> Boolean
 )
 
@@ -84,8 +88,8 @@ private const val FLING_PX_PER_SECOND = 800f
 private const val DISMISS_FRACTION = 0.6f
 private val revealButtonWidth = 84.dp
 
-/** Две кнопки по [revealButtonWidth]. */
-private val revealWidth = 168.dp
+/** A single action on each side: the left and right edge stay independent. */
+private val revealWidth = revealButtonWidth
 
 /**
  * Куда встаёт строка после отпускания пальца. Быстрый взмах влево открывает кнопки, быстрый взмах вправо
@@ -100,8 +104,8 @@ internal fun swipeTarget(offset: Float, revealPx: Float, dismissPx: Float, veloc
 }
 
 /**
- * Строка чата со свайпом влево: под ней лежат кнопки [read] и [primary], полный свайп выполняет [primary].
- * Открыта может быть только одна строка: её id приходит в [openChatId], а [onOpenChange] сообщает об открытии и закрытии.
+ * Each swipe direction has one configured action; a full swipe executes only that side.
+ * Exactly one chat can stay revealed. Vertical list scrolling keeps priority over horizontal dragging.
  */
 @Composable
 internal fun SwipeChatRow(
@@ -113,18 +117,21 @@ internal fun SwipeChatRow(
     onOpenChange: (Long?) -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
-    read: ChatSwipeAction,
-    primary: ChatSwipeAction,
+    left: ChatSwipeAction,
+    right: ChatSwipeAction,
+    onPerformed: (ChatPreview, ChatSwipeActionKind) -> Unit = { _, _ -> },
     /** The chat open in the other pane of the two-pane layout. */
     highlighted: Boolean = false
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     val revealPx = with(LocalDensity.current) { revealWidth.toPx() }
     // The drag writes the offset directly, so a touch move starts no coroutine. Animations only finish a gesture.
     var swipeOffset by remember { mutableFloatStateOf(0f) }
     var rowWidth by remember { mutableStateOf(0f) }
     var dismissalInProgress by remember { mutableStateOf(false) }
+    var crossedCommitThreshold by remember { mutableStateOf(false) }
     val latestOpenChatId by rememberUpdatedState(openChatId)
     val settle = remember { Settle() }
     // A release that snaps back or reveals is touch feedback; a dismissal removes the row from the list.
@@ -156,6 +163,10 @@ internal fun SwipeChatRow(
         }
     }
 
+    LaunchedEffect(left.kind, right.kind) {
+        if (swipeOffset != 0f) startSettle { animateOffset(0f) }
+    }
+
     fun close() = startSettle {
         animateOffset(0f)
         if (latestOpenChatId == chat.id) onOpenChange(null)
@@ -167,20 +178,24 @@ internal fun SwipeChatRow(
                 animateOffset(0f)
                 if (latestOpenChatId == chat.id) onOpenChange(null)
             }
-            SwipeTarget.Revealed -> animateOffset(-revealPx)
+            SwipeTarget.Revealed -> animateOffset(if (swipeOffset < 0f) -revealPx else revealPx)
             SwipeTarget.Dismissed -> {
-                // Mark the row before clearing the shared swipe ID. That state change must not
-                // race with a LaunchedEffect that would immediately animate this row back.
+                val direction = if (swipeOffset < 0f) -1f else 1f
+                val action = if (direction < 0f) left else right
+                if (!action.enabled) {
+                    animateOffset(0f)
+                    if (latestOpenChatId == chat.id) onOpenChange(null)
+                    return
+                }
+                // Keep the row dismissed through the asynchronous Telegram operation.
                 dismissalInProgress = true
                 val gesture = settle.gesture
-                animateOffset(-rowWidth, removalSpec)
+                animateOffset(direction * rowWidth, removalSpec)
                 if (latestOpenChatId == chat.id) onOpenChange(null)
-                // Outside the settle job, so a new gesture does not cancel the action in flight.
                 scope.launch {
-                    // A folder may include archived chats, so even a successful archive can
-                    // leave this row in the same list. If it survives the TDLib update, restore
-                    // it after the operation (not while the request is still in flight).
-                    runCatching { primary.perform(chat) }
+                    val success = runCatching { action.perform(chat) }.getOrDefault(false)
+                    if (success) onPerformed(chat, action.kind)
+                    // An archived chat may remain inside a server folder: restore only after the action.
                     if (settle.gesture == gesture) {
                         dismissalInProgress = false
                         startSettle { animateOffset(0f) }
@@ -191,17 +206,27 @@ internal fun SwipeChatRow(
     }
 
     val dragState = rememberDraggableState { delta ->
-        swipeOffset = (swipeOffset + delta).coerceIn(-rowWidth, 0f)
+        swipeOffset = (swipeOffset + delta).coerceIn(-rowWidth, rowWidth)
+        val overThreshold = rowWidth > 0f && abs(swipeOffset) >= rowWidth * DISMISS_FRACTION
+        if (overThreshold && !crossedCommitThreshold) {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+        crossedCommitThreshold = overThreshold
     }
 
     Box(modifier = modifier.fillMaxWidth().onSizeChanged { rowWidth = it.width.toFloat() }) {
-        Row(modifier = Modifier.matchParentSize(), horizontalArrangement = Arrangement.End) {
-            RevealButton(action = read) {
+        Row(modifier = Modifier.matchParentSize(), horizontalArrangement = Arrangement.SpaceBetween) {
+            RevealButton(action = right) {
                 close()
-                scope.launch { read.perform(chat) }
+                scope.launch {
+                    if (runCatching { right.perform(chat) }.getOrDefault(false)) onPerformed(chat, right.kind)
+                }
             }
-            RevealButton(action = primary) {
-                startSettle { settleTo(SwipeTarget.Dismissed) }
+            RevealButton(action = left) {
+                close()
+                scope.launch {
+                    if (runCatching { left.perform(chat) }.getOrDefault(false)) onPerformed(chat, left.kind)
+                }
             }
         }
         Box(
@@ -214,11 +239,13 @@ internal fun SwipeChatRow(
                     orientation = Orientation.Horizontal,
                     onDragStarted = {
                         cancelSettle()
+                        crossedCommitThreshold = false
                         dismissalInProgress = false
                         onOpenChange(chat.id)
                     },
                     onDragStopped = { velocity ->
-                        val target = swipeTarget(swipeOffset, revealPx, rowWidth * DISMISS_FRACTION, velocity)
+                        crossedCommitThreshold = false
+                        val target = bidirectionalSwipeTarget(swipeOffset, revealPx, rowWidth * DISMISS_FRACTION, velocity)
                         startSettle { settleTo(target) }
                     }
                 )
@@ -230,6 +257,17 @@ internal fun SwipeChatRow(
         }
     }
 }
+
+/**
+ * Reuse the tested left-swipe threshold in either direction. Flinging back toward the centre
+ * closes a revealed action; the opposite edge can never commit the previous direction's action.
+ */
+internal fun bidirectionalSwipeTarget(offset: Float, revealPx: Float, dismissPx: Float, velocity: Float): SwipeTarget =
+    when {
+        offset < 0f -> swipeTarget(offset, revealPx, dismissPx, velocity)
+        offset > 0f -> swipeTarget(-offset, revealPx, dismissPx, -velocity)
+        else -> SwipeTarget.Closed
+    }
 
 @Composable
 private fun RevealButton(action: ChatSwipeAction, onClick: () -> Unit) {
