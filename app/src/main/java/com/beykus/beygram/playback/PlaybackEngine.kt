@@ -612,13 +612,13 @@ object PlaybackEngine {
      * Tracks the provider reports as unavailable are left out; [startIndex] counts the tracks as given. The queue starts at
      * the chosen track: the rows above it were never played, so the queue must not show them as played.
      */
+    /** Whether the playing queue is endless (a radio such as «Моя волна»); its loader keeps it going. */
+    fun currentQueueIsEndless(): Boolean = queueSource?.loadMore != null
+
     /**
      * Plays source [tracks] from [startIndex]. [loadMore] makes the queue endless (a radio such as «Моя волна»): the
      * engine asks it for the next tracks when few are left, as it does for Telegram history pages.
      */
-    /** Whether the playing queue is endless (a radio such as «Моя волна»); its loader keeps it going. */
-    fun currentQueueIsEndless(): Boolean = queueSource?.loadMore != null
-
     fun playYandexTracks(
         context: Context,
         tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>,
