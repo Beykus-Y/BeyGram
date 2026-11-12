@@ -3621,7 +3621,10 @@ class TdLibTelegramRepository private constructor(
         // A just-resolved bot or user may arrive before its display name; a blank title must not hide the chat.
         val privateName = (type as? TdApi.ChatTypePrivate)?.let { profiles.senderName(TdApi.MessageSenderUser(it.userId)) }.orEmpty()
         val chatTitle = if (saved) appContext.getString(R.string.saved_messages_title)
-        else title.ifBlank { privateName }.ifBlank { appContext.getString(R.string.chat_unknown_title) }
+        else title.ifBlank { privateName }.ifBlank {
+            val deleted = (type as? TdApi.ChatTypePrivate)?.let { profiles.isDeletedUser(it.userId) } == true
+            appContext.getString(if (deleted) R.string.deleted_account_name else R.string.chat_unknown_title)
+        }
         val mainPosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListMain }
         val archivePosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListArchive }
         val folderPositions = positions.orEmpty().mapNotNull { position ->

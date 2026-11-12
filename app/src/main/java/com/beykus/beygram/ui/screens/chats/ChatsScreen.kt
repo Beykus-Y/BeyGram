@@ -346,6 +346,28 @@ fun ChatsScreen(
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
     val listState = state.listState
+    LaunchedEffect(state) {
+        state.scrollToTopRequests.collect { state.listState.animateScrollToItem(0) }
+    }
+    // The folder chips scroll in their own strip. When the selected chip is not whole in view, the strip moves so its name
+    // is fully visible, and the chip before it stays in view as a hint.
+    val folderTabsState = rememberLazyListState()
+    val folderTabsForScroll = orderedTelegramFolderTabs(folderSnapshot)
+    val selectedFolderTabIndex = folderTabsForScroll.indexOfFirst { tab ->
+        when (tab) {
+            TelegramFolderTab.Main -> activeFolderId == null
+            is TelegramFolderTab.Folder -> activeFolderId == tab.id
+        }
+    }
+    LaunchedEffect(selectedFolderTabIndex, folderTabsForScroll.size) {
+        if (selectedFolderTabIndex < 0) return@LaunchedEffect
+        val info = folderTabsState.layoutInfo
+        val visible = info.visibleItemsInfo.firstOrNull { it.index == selectedFolderTabIndex }
+        val fullyVisible = visible != null &&
+            visible.offset >= info.viewportStartOffset &&
+            visible.offset + visible.size <= info.viewportEndOffset
+        if (!fullyVisible) folderTabsState.animateScrollToItem((selectedFolderTabIndex - 1).coerceAtLeast(0))
+    }
     val headerCollapseThresholdPx = with(density) { 96.dp.roundToPx() }
     val headerCollapsed by remember(listState, headerCollapseThresholdPx) {
         derivedStateOf {
@@ -492,6 +514,7 @@ fun ChatsScreen(
                     val serverTabs = orderedTelegramFolderTabs(folderSnapshot)
                     LazyRow(
                         modifier = modifier,
+                        state = folderTabsState,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(serverTabs, key = { tab ->
@@ -636,7 +659,7 @@ fun ChatsScreen(
                     }
                     Text(stringResource(R.string.chats_title), color = palette.textPrimary, fontSize = titleSize, lineHeight = titleLineHeight, fontWeight = design.mainScreen.titleWeight, letterSpacing = design.mainScreen.titleTracking,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.semantics { heading() })
+                        modifier = Modifier.clickable { state.requestScrollToTop() }.semantics { heading() })
                 }
                 if (hasUnreadChats) {
                     androidx.compose.material3.IconButton(
