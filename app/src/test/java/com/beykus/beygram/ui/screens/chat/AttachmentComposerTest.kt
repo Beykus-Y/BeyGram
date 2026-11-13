@@ -129,4 +129,15 @@ class AttachmentComposerTest {
         assertTrue(audioCompact != null && audioBalanced != null)
         assertTrue(audioCompact!! < audioBalanced!!)
     }
+
+    @Test
+    fun menuShowsGalleryFirstAndDiceLastWithPolls() {
+        val actions = attachmentActions(allowsPolls = true)
+        assertEquals(
+            listOf(AttachmentAction.Camera, AttachmentAction.PhotoVideo, AttachmentAction.File, AttachmentAction.Music),
+            actions.take(4)
+        )
+        assertEquals(AttachmentAction.Dice, actions.last())
+        assertEquals(9, actions.size)
+    }
 }
