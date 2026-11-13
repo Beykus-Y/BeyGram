@@ -58,7 +58,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
+import androidx.compose.foundation.horizontalScroll
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
@@ -1365,6 +1367,9 @@ private fun PreparedAttachmentsPanel(
             Icon(Icons.Rounded.Close, stringResource(R.string.composer_attachments_clear_action), tint = palette.textSecondary)
         }
     }
+    // Один общий выбор качества для всех видео и аудио в наборе. Каждый файл всё равно хранит своё состояние.
+    val qualityItems = displayPending.filter { it.qualityKind() != null }
+    if (enabled && qualityItems.size >= 2) QualityForAllRow(state, qualityItems)
     if (isCompactAttachmentSet(displayPending, if (closing) null else state.extra)) {
         // Mixed batches now share the fixed-height rail. Polls, contacts and other
         // MessageExtraDraft actions keep their dedicated semantic cards.
@@ -1413,6 +1418,31 @@ private fun PreparedAttachmentsPanel(
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.composer_view_once), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(stringResource(R.string.composer_view_once_hint), color = palette.textSecondary, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+/** Общий режим набора, если все файлы выбрали один и тот же; при смешанных значениях или пустом списке — null. */
+internal fun commonQualityMode(modes: List<MediaQualityMode?>): MediaQualityMode? = modes.distinct().singleOrNull()
+
+@Composable
+private fun QualityForAllRow(state: AttachmentState, items: List<OutgoingMedia>) {
+    val palette = beyGramPalette()
+    // Отмечено, только если у всех файлов набора одинаковый режим; иначе ни один чип не выбран.
+    val common = commonQualityMode(items.map { state.preparations[it.path]?.mode })
+    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
+        Text(stringResource(R.string.composer_quality_all_title), color = palette.textSecondary, fontSize = 12.sp)
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MediaQualityMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = common == mode,
+                    onClick = { items.forEach { state.selectQuality(it, mode) } },
+                    label = { Text(stringResource(mode.labelRes()), fontSize = 13.sp) }
+                )
             }
         }
     }
