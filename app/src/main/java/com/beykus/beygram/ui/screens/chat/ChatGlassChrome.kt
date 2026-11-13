@@ -56,8 +56,9 @@ internal fun ChatChromeHost(
     }
     if (edge == GlassEdge.TopHairline) {
         // The Liquid Glass composer has no full-width glass slab: a soft scrim fades the list out under the row, and the
-        // field and round buttons carry their own surfaces. Touches are still kept from the list underneath.
-        CompositionLocalProvider(LocalChatChromeOnGlass provides true, LocalGlassBackdrop provides backdrop) {
+        // field and round buttons carry their own surfaces. Bars drawn in this stack (read-only notice, search, selection,
+        // delayed send) have no pane behind them any more, so they paint their own opaque fill again.
+        CompositionLocalProvider(LocalChatChromeOnGlass provides false, LocalGlassBackdrop provides backdrop) {
             Column(
                 Modifier.fillMaxWidth().zIndex(1f).onSizeChanged { onHeight(it.height) }
                     .background(Brush.verticalGradient(listOf(Color.Transparent, palette.screen.copy(alpha = 0.72f))))
