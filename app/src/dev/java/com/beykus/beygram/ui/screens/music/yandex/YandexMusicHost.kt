@@ -426,9 +426,19 @@ class YandexMusicHost : ProviderMusicHost {
                 initial = waveSettings,
                 onListen = { chosen ->
                     waveSettingsOpen = false
-                    waveSettings = chosen
-                    YandexWaveSettingsStore.save(context, uid, chosen)
-                    if (onPlay != null) startWave(context, provider)
+                    if (waveActive) {
+                        // The playing track keeps playing; the upcoming ones change. On failure nothing is saved.
+                        YandexWaveLauncher.changeSeeds(context, chosen.seeds(YandexWave.MY_WAVE_SEED)) { changed ->
+                            if (changed) {
+                                waveSettings = chosen
+                                YandexWaveSettingsStore.save(context, uid, chosen)
+                            }
+                        }
+                    } else {
+                        waveSettings = chosen
+                        YandexWaveSettingsStore.save(context, uid, chosen)
+                        if (onPlay != null) startWave(context, provider)
+                    }
                 },
                 onDismiss = { waveSettingsOpen = false },
             )

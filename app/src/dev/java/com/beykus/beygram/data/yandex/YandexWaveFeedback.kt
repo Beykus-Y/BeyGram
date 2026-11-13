@@ -121,18 +121,22 @@ internal object YandexWaveFeedback {
      * reports its last track as skipped or finished, and ends by itself.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun start(provider: YandexMusicProvider, session: YandexWaveSession, radio: PlaybackRadio) {
+    fun start(provider: YandexMusicProvider, session: YandexWaveSession, radio: PlaybackRadio) =
+        start(provider, { session }, radio)
+
+    /** Like the function above, for a radio whose session can change: the session is asked on each event. */
+    fun start(provider: YandexMusicProvider, sessionOf: () -> YandexWaveSession, radio: PlaybackRadio) {
         val outbox = Channel<YandexWaveEvent>(Channel.UNLIMITED)
         scope.launch(Dispatchers.IO) {
             for (event in outbox) {
-                val sessionId = session.currentSessionId ?: continue
-                val batch = event.trackId?.let { id -> session.batchOfTrack(id) }
+                val sessionId = sessionOf().currentSessionId ?: continue
+                val batch = event.trackId?.let { id -> sessionOf().batchOfTrack(id) }
                 val result = provider.waveFeedback(sessionId, event, batch)
                 if (result is ProviderResult.Failure) Log.i(TAG, "feedback ${event.type} failed: ${result.failure}")
             }
         }
         outbox.trySend(YandexWaveEvent(YandexWaveEvent.RADIO_STARTED, System.currentTimeMillis()))
-        val tracker = WaveListenTracker { key -> session.trackOf(key) != null }
+        val tracker = WaveListenTracker { key -> sessionOf().trackOf(key) != null }
         scope.launch {
             try {
                 var likes = ProviderTracks.liked.value
@@ -152,7 +156,7 @@ internal object YandexWaveFeedback {
                     .transformWhile { emit(it); !tracker.closed }
                     .collect { (snapshot, liked) ->
                         for (event in tracker.onState(snapshot)) {
-                            val (trackId, _) = session.trackOf(event.key) ?: continue
+                            val (trackId, _) = sessionOf().trackOf(event.key) ?: continue
                             val now = System.currentTimeMillis()
                             outbox.trySend(
                                 when (event) {
@@ -169,7 +173,7 @@ internal object YandexWaveFeedback {
                                 // A like the app only learned now (a new batch) is not a change made by the user.
                                 val before = likes[id] ?: continue
                                 if (before == value) continue
-                                val trackId = session.trackIdOf(id) ?: continue
+                                val trackId = sessionOf().trackIdOf(id) ?: continue
                                 val type = if (value) YandexWaveEvent.LIKE else YandexWaveEvent.UNLIKE
                                 outbox.trySend(YandexWaveEvent(type, System.currentTimeMillis(), trackId))
                             }

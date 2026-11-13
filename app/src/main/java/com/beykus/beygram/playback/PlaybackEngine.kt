@@ -616,6 +616,28 @@ object PlaybackEngine {
     fun currentQueueIsEndless(): Boolean = queueSource?.loadMore != null
 
     /**
+     * Replaces the tracks after the playing one with [tracks], and makes [loadMore] the loader of this queue. The playing
+     * track keeps playing from its position. Used when a radio's settings change; does nothing without a playing item.
+     */
+    fun replaceYandexUpcoming(
+        context: Context,
+        tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>,
+        loadMore: suspend () -> List<com.beykus.beygram.data.music.provider.ProviderTrack>,
+    ) {
+        val playable = tracks.filter { it.isAvailable }
+        if (playable.isEmpty() || _state.value.item == null) return
+        clearUpcoming()
+        // clearUpcoming drops the loader; this queue gets the new one, so the radio keeps going.
+        queueSource = PlaybackQueueSource(
+            accountId = LEGACY_PLAYBACK_ACCOUNT_ID,
+            observeFile = { fileId -> MutableStateFlow(MediaFileState(id = fileId)) },
+            download = {},
+            loadMore = { loadMore().filter { it.isAvailable }.map(::providerPlaybackItem) },
+        )
+        playable.forEach { track -> enqueue(context, providerPlaybackItem(track), source = null, atEnd = true) }
+    }
+
+    /**
      * Plays source [tracks] from [startIndex]. [loadMore] makes the queue endless (a radio such as «Моя волна»): the
      * engine asks it for the next tracks when few are left, as it does for Telegram history pages.
      */
