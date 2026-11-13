@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgwave_service_label">BeyGram service message</string>
+    <string name="bgwave_card_invite_title">Wave together</string>
+    <string name="bgwave_card_invite_subtitle">Invitation to listen to the wave</string>
+    <string name="bgwave_safe_unsupported_version">This wave version is not supported. Update BeyGram.</string>
+    <string name="bgwave_safe_expired">The invitation has expired.</string>
+    <string name="bgwave_safe_not_yet_valid">The invitation is not valid yet. Check the device time.</string>
+    <string name="bgwave_safe_invalid">The invitation could not be read.</string>
+    <string name="bgwave_safe_unavailable">Wave is not available on this device.</string>
+</resources>

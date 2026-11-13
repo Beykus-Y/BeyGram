@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgwave_service_label">BeyGram-Dienstnachricht</string>
+    <string name="bgwave_card_invite_title">Welle gemeinsam hören</string>
+    <string name="bgwave_card_invite_subtitle">Einladung, die Welle zu hören</string>
+    <string name="bgwave_safe_unsupported_version">Diese Wellen-Version wird nicht unterstützt. Aktualisiere BeyGram.</string>
+    <string name="bgwave_safe_expired">Die Einladung ist abgelaufen.</string>
+    <string name="bgwave_safe_not_yet_valid">Die Einladung ist noch nicht gültig. Prüfe die Uhrzeit des Geräts.</string>
+    <string name="bgwave_safe_invalid">Die Einladung konnte nicht gelesen werden.</string>
+    <string name="bgwave_safe_unavailable">Welle ist auf diesem Gerät nicht verfügbar.</string>
+</resources>
