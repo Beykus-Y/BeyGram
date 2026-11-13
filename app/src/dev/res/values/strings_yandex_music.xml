@@ -53,4 +53,7 @@
     <string name="yandex_wave_play">Слушать «Мою волну»</string>
     <string name="yandex_wave_now_playing">Сейчас играет волна</string>
     <string name="yandex_wave_paused">На паузе · нажмите, чтобы продолжить</string>
+    <string name="yandex_wave_diversity_default">По вашему вкусу</string>
+    <string name="yandex_wave_diversity_discover">Новое</string>
+    <string name="yandex_wave_diversity_popular">Популярное</string>
 </resources>

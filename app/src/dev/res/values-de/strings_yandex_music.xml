@@ -53,4 +53,7 @@
     <string name="yandex_wave_play">Meine Welle abspielen</string>
     <string name="yandex_wave_now_playing">Welle läuft gerade</string>
     <string name="yandex_wave_paused">Pausiert · tippen zum Fortsetzen</string>
+    <string name="yandex_wave_diversity_default">Nach Geschmack</string>
+    <string name="yandex_wave_diversity_discover">Neues</string>
+    <string name="yandex_wave_diversity_popular">Beliebt</string>
 </resources>
