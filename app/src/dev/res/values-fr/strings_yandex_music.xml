@@ -51,4 +51,6 @@
     <string name="yandex_wave_failed">Impossible de lancer la vague. Touchez pour réessayer.</string>
     <string name="yandex_wave_resume">Reprendre : %1$s · %2$s</string>
     <string name="yandex_wave_play">Écouter Ma Vague</string>
+    <string name="yandex_wave_now_playing">La vague joue maintenant</string>
+    <string name="yandex_wave_paused">En pause · touchez pour reprendre</string>
 </resources>

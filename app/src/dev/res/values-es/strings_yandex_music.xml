@@ -51,4 +51,6 @@
     <string name="yandex_wave_failed">No se pudo iniciar la ola. Toca para intentarlo de nuevo.</string>
     <string name="yandex_wave_resume">Continuar: %1$s · %2$s</string>
     <string name="yandex_wave_play">Escuchar Mi Ola</string>
+    <string name="yandex_wave_now_playing">La ola está sonando</string>
+    <string name="yandex_wave_paused">En pausa · toca para continuar</string>
 </resources>
