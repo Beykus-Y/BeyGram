@@ -38,7 +38,8 @@ internal fun mediaViewerTransform(
     pageWidth: Float,
     pageHeight: Float,
     travel: Float,
-    target: Rect? = null
+    target: Rect? = null,
+    viewport: Rect? = null
 ): MediaViewerTransform {
     // Intensity above 100% may push travel past 1; clamping keeps the scale positive and the page on the thumbnail.
     val t = travel.coerceIn(0f, 1f)
@@ -46,7 +47,8 @@ internal fun mediaViewerTransform(
         return MediaViewerTransform(scale = 1f - 0.04f * t, offsetX = 0f, offsetY = 0f)
     }
     val dest = target?.takeIf { it.width > 0f && it.height > 0f } ?: Rect(0f, 0f, pageWidth, pageHeight)
-    if (origin == null || !isOriginVisibleInWindow(origin, pageWidth, pageHeight)) {
+    val visibleViewport = viewport ?: Rect(0f, 0f, pageWidth, pageHeight)
+    if (origin == null || origin.width <= 0f || origin.height <= 0f || !origin.overlaps(visibleViewport)) {
         return MediaViewerTransform(scale = 1f - 0.04f * t, offsetX = 0f, offsetY = 0f)
     }
     val originScale = (origin.width / dest.width).coerceIn(MEDIA_VIEWER_MIN_ORIGIN_SCALE, 1f)

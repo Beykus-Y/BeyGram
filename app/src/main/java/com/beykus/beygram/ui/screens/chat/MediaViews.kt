@@ -910,7 +910,7 @@ internal fun MediaViewer(
     fullFileOnlyWhenActive: Boolean = false,
     /** Repository-backed automatic download; when absent the same local policy gates [downloadFile]. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
-    /** Window bounds of the tapped thumbnail. When set, the page grows out of it and returns there on close. */
+    /** Screen bounds of the tapped thumbnail. When set, the page grows out of it and returns there on close. */
     originBounds: Rect? = null
 ) {
     // The source can shrink asynchronously while LazyLayout still holds indices from the previous frame.
@@ -1116,8 +1116,9 @@ internal fun MediaViewer(
         // На видео/аудио нижние действия стоят под страницей, чтобы не перекрывать полосу перемотки плеера.
         val pageSize = LocalWindowInfo.current.containerSize
         var mediaBounds by remember { mutableStateOf<Rect?>(null) }
+        var viewportBounds by remember { mutableStateOf<Rect?>(null) }
         // Read in the draw phase, so backdrop, media, and chrome animate per frame without recomposing.
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().onGloballyPositioned { viewportBounds = it.mediaScreenBounds() }) {
             // Separate backdrop so interactive vertical swipe fades the background without distorting the opening transform.
             Box(
                 Modifier
@@ -1130,7 +1131,7 @@ internal fun MediaViewer(
                     Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .onGloballyPositioned { coords -> mediaBounds = coords.boundsInWindow() }
+                        .onGloballyPositioned { coords -> mediaBounds = coords.mediaScreenBounds() }
                 ) {
                     HorizontalPager(
                         state = pagerState,
@@ -1142,7 +1143,8 @@ internal fun MediaViewer(
                                     pageWidth = pageSize.width.toFloat(),
                                     pageHeight = pageSize.height.toFloat(),
                                     travel = (1f - viewerProgress) * viewerSpec.intensity,
-                                    target = mediaBounds
+                                    target = mediaBounds,
+                                    viewport = viewportBounds
                                 )
                                 alpha = viewerProgress
                                 scaleX = transform.scale

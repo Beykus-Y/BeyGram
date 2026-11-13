@@ -120,4 +120,18 @@ class MediaViewerTransformTest {
         assertEquals(1f, mediaViewerDismissBackdropAlpha(0f), 0.0001f)
         assertEquals(0.15f, mediaViewerDismissBackdropAlpha(1f), 0.0001f)
     }
+    @Test fun activityAndDialogScreenOffsetsCancelForInsetAndMultiwindowTargets() {
+        for (offset in listOf(androidx.compose.ui.geometry.Offset(0f, 24f),
+            androidx.compose.ui.geometry.Offset(1100f, 48f))) {
+            val source = Rect(100f, 200f, 300f, 400f).translate(offset)
+            val target = Rect(0f, 80f, 1000f, 1500f).translate(offset)
+            val viewport = Rect(0f, 0f, 1000f, 1800f).translate(offset)
+            val shifted = mediaViewerTransform(source, 1000f, 1800f, 1f, target, viewport)
+            val local = mediaViewerTransform(source.translate(-offset), 1000f, 1800f, 1f,
+                target.translate(-offset))
+            assertEquals(local, shifted)
+            assertEquals(0f, mediaViewerTransform(source, 1000f, 1800f, 0f, target, viewport).offsetY, 0f)
+        }
+    }
+
 }

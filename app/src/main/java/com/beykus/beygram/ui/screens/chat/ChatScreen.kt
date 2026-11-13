@@ -3071,7 +3071,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                         .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
-                        .then(if (onMediaBounds != null && message.media != null) Modifier.onGloballyPositioned { onMediaBounds(it.boundsInWindow()) } else Modifier)
+                        .then(if (onMediaBounds != null && message.media != null) Modifier.onGloballyPositioned { it.mediaScreenBounds()?.let(onMediaBounds) } else Modifier)
                         .semantics {
                             if (selectionMode) {
                                 this.selected = selected
