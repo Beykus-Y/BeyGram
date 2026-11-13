@@ -54,7 +54,6 @@ import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviderState
 import com.beykus.beygram.data.music.provider.MusicProviderAccount
-import com.beykus.beygram.data.music.provider.MusicProviderState
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderAlbum
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
