@@ -323,6 +323,9 @@ internal fun MessageContextPopover(
         minPopoverHeightPx = minPopoverHeightPx
     )
 
+    val maxCardHeightPx = computePopoverMaxHeightPx(viewportBounds, marginPx)
+    val maxCardHeightDp = if (maxCardHeightPx > 0) with(density) { maxCardHeightPx.toDp() } else 360.dp
+
     val freeReactions = remember(reactionOptions) { reactionOptions.filter { !it.isPaid }.take(6) }
     val showReactionStrip = onQuickReaction != null && (freeReactions.isNotEmpty() || onReactions != null)
 
@@ -427,7 +430,7 @@ internal fun MessageContextPopover(
                             Column(
                                 Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 320.dp)
+                                    .weight(1f, fill = false)
                                     .verticalScroll(rememberScrollState())
                                     .padding(vertical = 4.dp)
                             ) {
@@ -532,7 +535,7 @@ internal fun MessageContextPopover(
             }
 
             val cardScale = if (motionSpec.isInstant) 1f else 0.94f + 0.06f * progress
-            val cardModifier = if (placement.useBottomSheetFallback) {
+            val cardModifier = (if (placement.useBottomSheetFallback) {
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -545,7 +548,8 @@ internal fun MessageContextPopover(
                 Modifier
                     .offset { IntOffset((placement.x - rootLeft).roundToInt(), (placement.y - rootTop).roundToInt()) }
                     .widthIn(min = 236.dp, max = 296.dp)
-            }.onSizeChanged { menuSize = it }
+            }).heightIn(max = maxCardHeightDp)
+                .onSizeChanged { menuSize = it }
                 .graphicsLayer {
                     alpha = progress
                     scaleX = cardScale

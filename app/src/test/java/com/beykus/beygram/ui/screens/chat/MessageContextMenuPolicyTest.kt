@@ -120,4 +120,29 @@ class MessageContextMenuPolicyTest {
         assertEquals(listOf(MessageContextActionId.Reply), planned.primary)
         assertEquals(listOf(MessageContextActionId.Select, MessageContextActionId.Report), planned.secondary)
     }
+
+    @Test
+    fun offscreenOrStaleAnchorFallsBackToBottomSheet() {
+        val viewport = Rect(0f, 100f, 1080f, 1800f)
+        val aboveViewport = Rect(40f, -200f, 600f, 80f)
+        val belowViewport = Rect(40f, 1820f, 600f, 2000f)
+        assertTrue(
+            computeMessagePopoverPlacement(aboveViewport, viewport, 500, 600, 16, 24, isOutgoing = false).useBottomSheetFallback
+        )
+        assertTrue(
+            computeMessagePopoverPlacement(belowViewport, viewport, 500, 600, 16, 24, isOutgoing = false).useBottomSheetFallback
+        )
+    }
+
+    @Test
+    fun landscapeWithImeConstrainsPopoverMaxHeightInsideViewport() {
+        // Simulated landscape + IME viewport: only 420px usable height.
+        val viewport = Rect(0f, 80f, 2200f, 500f)
+        val maxHeight = computePopoverMaxHeightPx(viewport, marginPx = 24)
+        assertEquals(372, maxHeight)
+        // Even with a tight viewport, the fallback is chosen instead of overflowing above viewport.top.
+        val anchor = Rect(100f, 120f, 700f, 360f)
+        val placement = computeMessagePopoverPlacement(anchor, viewport, 500, maxHeight, 16, 24, isOutgoing = false, minPopoverHeightPx = 300)
+        assertTrue(placement.useBottomSheetFallback)
+    }
 }

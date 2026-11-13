@@ -851,7 +851,7 @@ fun ChatScreen(
         // Remember the same anchor used by SelectionActionBar's single-message More action.
         // Entering Select from the action menu must not lose the original message context.
         selectionAnchorId = messageId
-        actionAnchorBounds = bubbleBounds[messageId]
+        actionAnchorBounds = bubbleBounds[messageId]?.takeIf { !it.isEmpty }
         actionsId = messageId
         reactionPickerOpen = false
     }
@@ -1786,6 +1786,11 @@ fun ChatScreen(
                             limiter = effectLimiter
                         ) {
                             Column(Modifier.fillMaxWidth()) {
+                                DisposableEffect(listItem.key) {
+                                    onDispose {
+                                        listItem.messages.forEach { bubbleBounds.remove(it.id) }
+                                    }
+                                }
                                 val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
                                     ?: listItem.messages.firstOrNull()
                                 val albumComments = commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }
@@ -1846,6 +1851,9 @@ fun ChatScreen(
                             limiter = effectLimiter
                         ) {
                         Column(Modifier.fillMaxWidth()) {
+                            DisposableEffect(message.id) {
+                                onDispose { bubbleBounds.remove(message.id) }
+                            }
                             val translationLanguage = translationLanguages[message.id]
                             val translationState = translationLanguage?.let { translationStates[message.id to it] }
                             val media = message.media

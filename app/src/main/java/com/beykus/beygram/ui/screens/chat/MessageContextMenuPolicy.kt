@@ -67,9 +67,15 @@ internal data class PopoverPlacement(
 )
 
 /**
+ * Maximum card height that fits inside [viewportBounds] with [marginPx] top and bottom clearance.
+ */
+internal fun computePopoverMaxHeightPx(viewportBounds: Rect, marginPx: Int): Int =
+    (viewportBounds.height - marginPx * 2f).toInt().coerceAtLeast(0)
+
+/**
  * Computes window coordinates for the message context popover within [viewportBounds] (already inset for
  * status bar, navigation bar, IME, top chrome, and split-pane bounds). Falls back to a compact bottom sheet
- * when neither above nor below the anchor has enough vertical room.
+ * when the anchor is offscreen/invalid or neither above nor below the anchor has enough vertical room.
  */
 internal fun computeMessagePopoverPlacement(
     anchorBounds: Rect?,
@@ -81,7 +87,15 @@ internal fun computeMessagePopoverPlacement(
     isOutgoing: Boolean,
     minPopoverHeightPx: Int = menuHeightPx
 ): PopoverPlacement {
-    if (anchorBounds == null || viewportBounds.width <= 0f || viewportBounds.height <= 0f) {
+    if (
+        anchorBounds == null ||
+        viewportBounds.width <= 0f ||
+        viewportBounds.height <= 0f ||
+        anchorBounds.width <= 0f ||
+        anchorBounds.height <= 0f ||
+        anchorBounds.bottom <= viewportBounds.top ||
+        anchorBounds.top >= viewportBounds.bottom
+    ) {
         return PopoverPlacement(0, 0, placedAbove = false, useBottomSheetFallback = true)
     }
     val anchorTop = anchorBounds.top.coerceIn(viewportBounds.top, viewportBounds.bottom)

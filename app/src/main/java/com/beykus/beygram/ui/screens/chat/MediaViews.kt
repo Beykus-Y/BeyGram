@@ -2,7 +2,7 @@ package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
 import android.content.res.Configuration
-import android.view.accessibility.AccessibilityManager
+import com.beykus.beygram.ui.accessibility.rememberTouchExplorationEnabled
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
 import android.content.Intent
@@ -962,10 +962,7 @@ internal fun MediaViewer(
     var controlsVisible by remember { mutableStateOf(true) }
     // Панель возвращается при каждом переходе: иначе после скрытия на фото нельзя вернуть действия на видео или файле.
     LaunchedEffect(pagerState.settledPage) { controlsVisible = true }
-    val touchExploration = remember(context) {
-        val manager = context.getSystemService(AccessibilityManager::class.java)
-        manager?.isEnabled == true && manager.isTouchExplorationEnabled
-    }
+    val touchExploration = rememberTouchExplorationEnabled()
     val configuration = LocalConfiguration.current
     val hasNonTouchNavigation = configuration.keyboard != Configuration.KEYBOARD_NOKEYS ||
         configuration.navigation == Configuration.NAVIGATION_DPAD ||

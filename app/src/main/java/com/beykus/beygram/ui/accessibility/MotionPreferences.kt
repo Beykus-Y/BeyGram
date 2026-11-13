@@ -81,9 +81,41 @@ private fun readSystemReducedMotion(context: Context): Boolean {
     val scale = runCatching {
         Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
     }.getOrDefault(1f)
-    val touchExploration = runCatching {
+    return isMotionReduced(scale, readTouchExplorationEnabled(context))
+}
+
+private fun readTouchExplorationEnabled(context: Context): Boolean = runCatching {
+    val manager = context.getSystemService(AccessibilityManager::class.java)
+    manager?.isEnabled == true && manager.isTouchExplorationEnabled
+}.getOrDefault(false)
+
+/**
+ * Observes accessibility touch exploration (TalkBack) live so open overlays such as MediaViewer
+ * update navigation buttons and auto-hide immediately when TalkBack is toggled.
+ */
+@Composable
+internal fun rememberTouchExplorationEnabled(): Boolean {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var enabled by remember(context) { mutableStateOf(readTouchExplorationEnabled(context)) }
+
+    LaunchedEffect(context, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            enabled = readTouchExplorationEnabled(context)
+        }
+    }
+
+    DisposableEffect(context) {
+        val refresh = { enabled = readTouchExplorationEnabled(context) }
         val manager = context.getSystemService(AccessibilityManager::class.java)
-        manager?.isEnabled == true && manager.isTouchExplorationEnabled
-    }.getOrDefault(false)
-    return isMotionReduced(scale, touchExploration)
+        val touchListener = AccessibilityManager.TouchExplorationStateChangeListener { refresh() }
+        val accessibilityListener = AccessibilityManager.AccessibilityStateChangeListener { refresh() }
+        manager?.addTouchExplorationStateChangeListener(touchListener)
+        manager?.addAccessibilityStateChangeListener(accessibilityListener)
+        onDispose {
+            manager?.removeTouchExplorationStateChangeListener(touchListener)
+            manager?.removeAccessibilityStateChangeListener(accessibilityListener)
+        }
+    }
+    return enabled
 }
