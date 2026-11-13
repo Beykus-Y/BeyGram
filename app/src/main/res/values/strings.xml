@@ -390,6 +390,7 @@
     <string name="composer_type_file">Файл</string>
     <string name="composer_type_gif">GIF</string>
     <string name="composer_type_photo_video">Фото и видео</string>
+    <string name="composer_type_gallery">Галерея</string>
     <string name="composer_type_poll">Опрос</string>
     <string name="composer_type_location">Геопозиция</string>
     <string name="composer_type_live_location">Живая геопозиция</string>

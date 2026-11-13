@@ -13,6 +13,7 @@
     <string name="composer_too_many_attachments">Elige hasta 10 adjuntos a la vez</string>
     <string name="composer_type_file">Archivo</string>
     <string name="composer_type_photo_video">Fotos y videos</string>
+    <string name="composer_type_gallery">Galería</string>
     <string name="connection_state_connected">conectado</string>
     <string name="connection_state_connecting">conectando</string>
     <string name="connection_state_unknown">desconocido</string>
