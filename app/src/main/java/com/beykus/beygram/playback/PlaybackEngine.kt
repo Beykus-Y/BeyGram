@@ -665,8 +665,14 @@ object PlaybackEngine {
             radio = radio,
         )
         val queue = queueForPlayback(listOf(providerPlaybackItem(track)), 0)
+        // Shown paused without preparing the player: a prepared player would request the file at once. Play starts it for real.
+        val appContext = context.applicationContext
+        restoredRadioStart = { startQueue(appContext, queue, source, startPositionMs = positionMs, startFraction = 0f, autoPlay = true) }
         startQueue(context, queue, source, startPositionMs = positionMs, startFraction = 0f, autoPlay = false)
     }
+
+    /** The first Play of a restored «Моя волна»: starts the stored queue for real (file request, prepare, play). */
+    private var restoredRadioStart: (() -> Unit)? = null
 
     private fun providerPlaybackItem(track: com.beykus.beygram.data.music.provider.ProviderTrack): PlaybackItem =
         PlaybackItem(
@@ -902,6 +908,7 @@ object PlaybackEngine {
         offerBgMix: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
+        restoredRadioStart = null
         // The queue always starts on ExoPlayer, which plays a local file at once and streams one that is still downloading.
         // With BG Mix on, the handover below moves the queue into BG Mix once the track is ready for it (see
         // scheduleBgMixHandover): starting BG Mix directly kept the track silent while its whole file was decoded.
@@ -1404,6 +1411,11 @@ object PlaybackEngine {
     fun resume(key: String, onStarted: () -> Unit) {
         if (_state.value.item?.key != key) return
         startedCallback = key to onStarted
+        restoredRadioStart?.let { start ->
+            restoredRadioStart = null
+            start()
+            return
+        }
         if (deferredSeek?.key == key) {
             deferredSeek = deferredSeek?.copy(resume = true)
             _state.update { it.copy(intentPlaying = true) }
@@ -1420,6 +1432,11 @@ object PlaybackEngine {
 
     /** Пауза или продолжение. Конец файла и ошибку обрабатывает обёртка плеера, поэтому системные кнопки ведут себя так же. */
     fun togglePlayPause() {
+        restoredRadioStart?.let { start ->
+            restoredRadioStart = null
+            start()
+            return
+        }
         if (bgMixActive()) {
             toggleBgMix()
             return
@@ -1557,6 +1574,7 @@ object PlaybackEngine {
     }
 
     private fun releaseQueueAndHalt() {
+        restoredRadioStart = null
         cancelSleepTimer()
         _queuePageLoading.value = false
         interruptedMusic = null
