@@ -5,7 +5,9 @@ import android.content.ClipboardManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.MarkChatUnread
 import androidx.compose.material.icons.rounded.NotificationsActive
@@ -23,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.isInArchive
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ActionBubble
 import com.beykus.beygram.ui.components.ChatAvatar
@@ -51,7 +54,9 @@ internal fun ChatActionsSheet(
     onClose: () -> Unit,
     setPinned: suspend (Boolean) -> Result<Unit>,
     setMuted: suspend (Boolean) -> Result<Unit>,
+    setRead: suspend () -> Result<Unit>,
     setUnread: suspend () -> Result<Unit>,
+    archive: suspend () -> Result<Unit>,
     delete: suspend () -> Result<Unit>
 ) {
     val palette = beyGramPalette()
@@ -69,7 +74,7 @@ internal fun ChatActionsSheet(
             finally { busy = false }
         }
     }
-    val canMarkUnread = !chat.isMarkedAsUnread && chat.unreadCount == 0
+    val hasUnread = chat.unreadCount > 0 || chat.isMarkedAsUnread
     ModalBottomSheet(onDismissRequest = onClose, containerColor = sheetSurfaceColor()) {
         Row(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp),
@@ -115,14 +120,22 @@ internal fun ChatActionsSheet(
                 active = chat.isMuted,
                 entranceIndex = 1
             )
-            if (canMarkUnread) {
+            ActionBubble(
+                icon = if (hasUnread) Icons.Rounded.DoneAll else Icons.Rounded.MarkChatUnread,
+                label = stringResource(if (hasUnread) R.string.chats_action_read else R.string.chats_action_unread),
+                onClick = { perform(if (hasUnread) setRead else setUnread) },
+                modifier = Modifier.weight(1f),
+                enabled = !busy,
+                entranceIndex = 2
+            )
+            if (!chat.isInArchive()) {
                 ActionBubble(
-                    icon = Icons.Rounded.MarkChatUnread,
-                    label = stringResource(R.string.chat_mark_unread),
-                    onClick = { perform(setUnread) },
+                    icon = Icons.Rounded.Archive,
+                    label = stringResource(R.string.chats_action_archive),
+                    onClick = { perform(archive) },
                     modifier = Modifier.weight(1f),
                     enabled = !busy,
-                    entranceIndex = 2
+                    entranceIndex = 3
                 )
             }
         }
