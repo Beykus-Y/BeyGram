@@ -582,7 +582,8 @@ private fun PreviewComposer(
             // A framed composer sits in a glass panel that already draws its surface.
             if (framed) Modifier else when (design.components.composer) {
                 ComposerVariant.Outlined -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
-                ComposerVariant.Glass -> Modifier.background(design.surfaces.panelFill(palette.surface, PanelFloor.Player))
+                // Liquid Glass has no slab under the composer: the field and the round button carry the glass.
+                ComposerVariant.Glass -> Modifier
                 ComposerVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
                 ComposerVariant.Rounded -> Modifier.background(palette.surface)
             }
@@ -591,7 +592,7 @@ private fun PreviewComposer(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(
-            Modifier.weight(1f).defaultMinSize(minHeight = 40.dp)
+            Modifier.weight(1f).defaultMinSize(minHeight = 48.dp)
                 .clip(RoundedCornerShape(design.shapes.composer)).background(palette.surface2)
                 .padding(horizontal = 14.dp, vertical = 10.dp)
                 .onGloballyPositioned { fieldPositioned(it.boundsInWindow()) }
@@ -606,7 +607,7 @@ private fun PreviewComposer(
             )
         }
         Box(
-            Modifier.size(40.dp).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(palette.accent)
+            Modifier.size(48.dp).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(palette.accent)
                 .then(
                     if (onSend != null) Modifier.clickable(role = Role.Button, onClick = onSend)
                         .semantics { contentDescription = replayDescription }
