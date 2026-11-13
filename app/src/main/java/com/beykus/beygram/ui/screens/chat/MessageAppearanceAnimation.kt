@@ -19,6 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationDirection
@@ -214,6 +216,25 @@ private fun MessageAnimationEasing.toComposeEasing() = when (this) {
 }
 
 /**
+ * Anchors scale and rotation transforms to the side of the row where the bubble is aligned,
+ * respecting RTL layout direction so short messages transform around their own edge instead
+ * of the center of the full-width row.
+ */
+internal fun messageAnimationTransformOrigin(
+    outgoing: Boolean,
+    layoutDirection: LayoutDirection
+): TransformOrigin {
+    val isRightSide = when (layoutDirection) {
+        LayoutDirection.Ltr -> outgoing
+        LayoutDirection.Rtl -> !outgoing
+    }
+    return TransformOrigin(
+        pivotFractionX = if (isRightSide) 1f else 0f,
+        pivotFractionY = 1f
+    )
+}
+
+/**
  * Plays the entrance for one already-present list row. [animate] is a one-shot claim from [MessageArrivalTracker]:
  * recomposition, delivery updates and the temporary-to-server key change never turn it back on. Compose's animation
  * clock carries Android's animator duration scale, and [systemMotionEnabled] skips the first-frame offset when the
@@ -235,6 +256,10 @@ internal fun MessageAnimationFrame(
     val progress = remember { Animatable(if (play) 0f else 1f) }
     var animating by remember { mutableStateOf(play) }
     val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val origin = remember(outgoing, layoutDirection) {
+        messageAnimationTransformOrigin(outgoing, layoutDirection)
+    }
     LaunchedEffect(Unit) {
         if (!play) return@LaunchedEffect
         progress.animateTo(1f, plan!!.spec())
@@ -253,7 +278,7 @@ internal fun MessageAnimationFrame(
             rotationY = plan.rotationYDegrees * (1f - clamped)
             rotationZ = plan.rotationZDegrees * (1f - clamped)
             cameraDistance = 12f * density.density
-            transformOrigin = TransformOrigin.Center
+            transformOrigin = origin
         }
     } else Modifier
     Box(modifier.fillMaxWidth().then(animated)) { content() }
