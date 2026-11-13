@@ -38,4 +38,11 @@
     <string name="yandex_library_no_subscription">Without a Yandex Plus subscription full tracks do not play. Lists, likes and covers are still shown.</string>
     <string name="yandex_library_retry">Retry</string>
     <string name="yandex_library_play">Play</string>
+    <string name="yandex_wave_title">My Wave</string>
+    <string name="yandex_wave_source_personal">Based on your taste</string>
+    <string name="yandex_wave_source_track">Based on “%1$s”</string>
+    <string name="yandex_wave_subtitle">An endless stream of tracks picked for you</string>
+    <string name="yandex_wave_starting">Picking tracks…</string>
+    <string name="yandex_wave_failed">Could not start the wave. Tap to try again.</string>
+    <string name="yandex_wave_play">Play My Wave</string>
 </resources>

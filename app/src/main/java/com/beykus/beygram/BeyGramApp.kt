@@ -1780,6 +1780,7 @@ private fun BeyGramAppContent(
             },
             onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
             onArchive = archiveChat,
+            onUnarchive = unarchiveChat,
             onPinChat = repository::setChatPinned,
             onMuteChat = repository::setChatMuted,
             onDeleteChat = repository::deleteChatForSelf,
@@ -2321,6 +2322,7 @@ NewChatScreen(
                 )
     }
     val globalSearchRoute: @Composable () -> Unit = {
+    val recentSearchChats by repository.chats.collectAsStateWithLifecycle()
 GlobalSearchScreen(
                     initialQuery = globalSearchQuery,
                     conversation = repository,
@@ -2404,6 +2406,7 @@ GlobalSearchScreen(
                     },
                     onBack = { routeName = AppRoute.Chats.name },
                     connectionState = connectionState,
+                    recentChats = recentSearchChats,
                     session = globalSearchSession
                 )
     }

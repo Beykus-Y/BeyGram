@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -53,8 +55,20 @@ import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
+import com.beykus.beygram.data.yandex.YandexMusicProvider
+import com.beykus.beygram.data.yandex.YandexWave
+import com.beykus.beygram.data.yandex.YandexWaveLauncher
+import com.beykus.beygram.data.yandex.YandexWaveFeedback
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.IconButton
+import com.beykus.beygram.ui.screens.music.LocalOpenProviderAlbum
+import com.beykus.beygram.ui.screens.music.MusicSearchMessage
+import com.beykus.beygram.ui.screens.music.MusicSearchSection
+import com.beykus.beygram.ui.screens.music.MusicSearchSkeletonRows
+import com.beykus.beygram.ui.screens.music.ProviderTrackMenuItems
 import com.beykus.beygram.ui.screens.music.MusicCardColumn
 import com.beykus.beygram.ui.screens.music.MusicCoverCard
 import com.beykus.beygram.ui.screens.music.MusicEmptyText
@@ -229,6 +243,33 @@ class YandexMusicHost : ProviderMusicHost {
         }
     }
 
+    private var waveStarting by mutableStateOf(false)
+    private var waveFailure by mutableStateOf<MusicProviderFailure?>(null)
+
+    /**
+     * Starts «Моя волна»: opens a radio session and plays its first batch; the player asks the session for more tracks
+     * as the queue runs low, so it never ends. A selection made while the session opens wins over the wave.
+     */
+    private fun startWave(context: Context, provider: MusicProvider) {
+        val yandex = provider as? YandexMusicProvider ?: return
+        if (waveStarting) return
+        val mine = ++selectionGeneration
+        waveStarting = true
+        waveFailure = null
+        YandexWaveLauncher.start(
+            context = context,
+            provider = yandex,
+            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            subtitle = context.getString(R.string.yandex_wave_source_personal),
+            startTrack = null,
+            isCurrent = { mine == selectionGeneration },
+            onDone = { failure ->
+                waveStarting = false
+                waveFailure = failure
+            },
+        )
+    }
+
     /** A direct selection: it supersedes any collection still loading. */
     private fun startPlayback(tracks: List<ProviderTrack>, index: Int, onPlay: (List<ProviderTrack>, Int) -> Unit) {
         selectionGeneration++
@@ -343,6 +384,14 @@ class YandexMusicHost : ProviderMusicHost {
         if (!account.hasSubscription) item(key = "yandex-no-subscription") {
             NoticeCard(stringResource(R.string.yandex_library_no_subscription))
         }
+        if (account.hasSubscription) item(key = "yandex-wave") {
+            val context = LocalContext.current
+            WaveTile(
+                starting = waveStarting,
+                failure = waveFailure,
+                onStart = if (onPlay != null) ({ startWave(context, provider) }) else null
+            )
+        }
         val failure = libraryFailure
         if (failure != null && !libraryLoading) item(key = "yandex-failure") {
             FailureCard(
@@ -456,6 +505,83 @@ class YandexMusicHost : ProviderMusicHost {
         }
     }
 
+    /** The «Моя волна» card at the top of the tab: one tap starts an endless stream of recommendations. */
+    @Composable
+    private fun WaveTile(starting: Boolean, failure: MusicProviderFailure?, onStart: (() -> Unit)?) {
+        val palette = beyGramPalette()
+        val subtitle = when {
+            starting -> stringResource(R.string.yandex_wave_starting)
+            failure != null -> stringResource(waveFailureText(failure))
+            else -> stringResource(R.string.yandex_wave_subtitle)
+        }
+        Row(
+            Modifier.fillMaxWidth()
+                .padding(horizontal = MusicScreenGutter)
+                .heightIn(min = 92.dp)
+                .musicCard()
+                .background(Brush.linearGradient(listOf(palette.accentSoft.copy(alpha = 0.55f), palette.accent.copy(alpha = 0.22f))))
+                .then(
+                    if (onStart != null && !starting) {
+                        Modifier.clickable(
+                            role = Role.Button,
+                            onClickLabel = stringResource(R.string.yandex_wave_play),
+                            onClick = onStart
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(56.dp).clip(CircleShape).background(palette.accent),
+                contentAlignment = Alignment.Center
+            ) {
+                if (starting) {
+                    CircularProgressIndicator(Modifier.size(24.dp), color = palette.onAccent, strokeWidth = 2.5.dp)
+                } else {
+                    Icon(Icons.Rounded.Waves, null, tint = palette.onAccent, modifier = Modifier.size(28.dp))
+                }
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.yandex_wave_title),
+                    color = palette.textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    subtitle,
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (onStart != null) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.Rounded.PlayArrow,
+                    null,
+                    tint = palette.accentInk,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+    }
+
+    private fun waveFailureText(failure: MusicProviderFailure): Int = when (failure) {
+        MusicProviderFailure.Network -> R.string.yandex_error_network
+        MusicProviderFailure.Unavailable, MusicProviderFailure.RateLimited -> R.string.yandex_error_unavailable
+        MusicProviderFailure.SubscriptionRequired -> R.string.yandex_library_no_subscription
+        else -> R.string.yandex_wave_failed
+    }
+
     /** The wide «Мне нравится» tile: the count and a play button that starts the whole list. */
     @Composable
     private fun LikedTile(count: Int, onOpen: () -> Unit, onPlay: (() -> Unit)?) {
@@ -550,15 +676,20 @@ class YandexMusicHost : ProviderMusicHost {
     }
 
     @Composable
-    override fun SearchResults(query: String, onPlay: ((List<ProviderTrack>, Int) -> Unit)?) {
+    override fun SearchResults(
+        query: String,
+        onPlay: ((List<ProviderTrack>, Int) -> Unit)?,
+        limit: Int?,
+        onMore: (() -> Unit)?
+    ) {
         val context = LocalContext.current
         // Every hook runs on every composition; the early exits come after them, so the slots never change shape.
         val provider = remember(context) { MusicProviders.yandex(context) }
         val state by (provider?.state ?: SignedOutState).collectAsStateWithLifecycle()
         val uid = (state as? MusicProviderState.SignedIn)?.account?.uid
         val signedIn = uid != null
-        val palette = beyGramPalette()
         val text = query.trim()
+        val openAlbum = LocalOpenProviderAlbum.current
 
         LaunchedEffect(text, uid) {
             if (provider == null || uid == null) clearSearch() else ensureSearch(provider, text, uid)
@@ -566,42 +697,53 @@ class YandexMusicHost : ProviderMusicHost {
 
         if (provider == null || !signedIn || text.isEmpty() || searchText != text || searchUid != uid) return
         val found = searchTracks
-        Column(Modifier.fillMaxWidth()) {
-            Text(
-                stringResource(R.string.yandex_search_title),
-                color = palette.textPrimary,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-            )
-            if (searchLoading) Column(
-                Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) { CircularProgressIndicator() }
-            searchFailure?.let {
-                Text(
-                    stringResource(failureText(it)),
-                    color = palette.textSecondary,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-            if (found != null && found.isEmpty()) Text(
-                stringResource(R.string.yandex_search_empty),
-                color = palette.textSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-            found?.forEachIndexed { index, track ->
-                ProviderTrackRow(
+        val shown = if (limit != null) found?.take(limit) else found
+        MusicSearchSection(
+            title = stringResource(R.string.yandex_search_title),
+            onMore = if (limit != null && found != null && found.size > limit) onMore else null,
+            carded = limit != null
+        ) {
+            if (searchLoading) MusicSearchSkeletonRows()
+            searchFailure?.let { MusicSearchMessage(stringResource(failureText(it))) }
+            if (found != null && found.isEmpty()) MusicSearchMessage(stringResource(R.string.yandex_search_empty))
+            shown?.forEachIndexed { index, track ->
+                SearchTrackRow(
                     track = track,
                     onClick = if (onPlay != null && track.isAvailable) {
-                        { startPlayback(found, index, onPlay) }
+                        { startPlayback(found.orEmpty(), index, onPlay) }
                     } else {
                         null
-                    }
+                    },
+                    onOpenAlbum = openAlbum
                 )
             }
         }
+    }
+
+    /** A search result with the track menu: play next, like, its album and its link. */
+    @Composable
+    private fun SearchTrackRow(track: ProviderTrack, onClick: (() -> Unit)?, onOpenAlbum: ((String) -> Unit)?) {
+        val palette = beyGramPalette()
+        var menu by remember(track.trackId) { mutableStateOf(false) }
+        ProviderTrackRow(
+            track = track,
+            onClick = onClick,
+            trailing = {
+                Box {
+                    IconButton(onClick = { menu = true }) {
+                        Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        ProviderTrackMenuItems(
+                            track = track,
+                            onDismiss = { menu = false },
+                            showPlayNext = true,
+                            onOpenAlbum = onOpenAlbum
+                        )
+                    }
+                }
+            }
+        )
     }
 
     /** The whole tab before sign-in: what the tab holds and a button to the sign-in screen. */

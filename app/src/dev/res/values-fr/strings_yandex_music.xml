@@ -38,4 +38,11 @@
     <string name="yandex_library_no_subscription">Sans abonnement Yandex Plus, les titres complets ne sont pas lus. Les listes, les j’aime et les pochettes restent visibles.</string>
     <string name="yandex_library_retry">Réessayer</string>
     <string name="yandex_library_play">Lire</string>
+    <string name="yandex_wave_title">Ma Vague</string>
+    <string name="yandex_wave_source_personal">Selon vos goûts</string>
+    <string name="yandex_wave_source_track">Selon « %1$s »</string>
+    <string name="yandex_wave_subtitle">Un flux infini de titres choisis pour vous</string>
+    <string name="yandex_wave_starting">Sélection des titres…</string>
+    <string name="yandex_wave_failed">Impossible de lancer la vague. Touchez pour réessayer.</string>
+    <string name="yandex_wave_play">Écouter Ma Vague</string>
 </resources>

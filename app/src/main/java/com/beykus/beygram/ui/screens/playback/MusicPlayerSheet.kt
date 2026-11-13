@@ -62,6 +62,7 @@ import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
@@ -70,6 +71,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
@@ -241,7 +244,9 @@ internal fun MusicPlayerSheet(
     var panel by rememberSaveable { mutableStateOf(PlayerPanel.Player) }
     val source = rememberPlaybackSourceLabel(
         origin = current.item.origin,
-        isProviderTrack = current.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX)
+        isProviderTrack = current.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX),
+        // Not a state: read again on each recomposition, which every queue change causes.
+        radio = PlaybackEngine.activeRadio
     )
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val cover = rememberCoverTokens(
@@ -337,7 +342,7 @@ private fun PlayerHeader(
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
     val closeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
-    val sourceLabel = stringResource(R.string.player_source_from)
+    val sourceLabel = source.caption ?: stringResource(R.string.player_source_from)
     val openSourceLabel = stringResource(R.string.media_show_in_chat)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
@@ -357,15 +362,21 @@ private fun PlayerHeader(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                sourceLabel,
-                color = palette.textSecondary,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 1.1.sp,
-                maxLines = 1,
-                textAlign = TextAlign.Center
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (source.isRadio) {
+                    Icon(Icons.Rounded.Waves, null, tint = palette.accent, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(
+                    sourceLabel,
+                    color = if (source.isRadio) palette.accent else palette.textSecondary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 1.1.sp,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center
+                )
+            }
             Text(
                 source.text,
                 color = palette.textPrimary,
@@ -1243,8 +1254,27 @@ private fun PlayerActions(
     val addToProfileDone = stringResource(R.string.player_add_to_profile_done)
     // The shared player may be bound to another account; its file ids mean nothing to the active one.
     val activeAccount = PlaybackEngine.activeAccount()
+    // A track of an endless radio gets a heart in the row. It toggles the like on the service, not the library, and
+    // the star with it goes to the menu, as the radio has no library list.
+    val radioTrack = ProviderTracks.byKey(item.key)?.takeIf { ProviderTracks.isProviderKey(item.key) && PlaybackEngine.currentQueueIsEndless() }
+    val likes by ProviderTracks.liked.collectAsStateWithLifecycle()
+    val radioLiked = radioTrack?.let { likes[it.trackId] ?: it.liked ?: false }
+    val likeLabel = stringResource(R.string.music_provider_like)
+    val likeFailed = stringResource(R.string.music_provider_like_failed)
     val actions = buildList {
-        if (track != null && library != null) {
+        if (radioTrack != null && radioLiked != null) add(PlayerActionUi(
+            icon = if (radioLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+            label = likeLabel,
+            onClick = {
+                ProviderTracks.setLikedInBackground(context, radioTrack, !radioLiked) {
+                    Toast.makeText(context.applicationContext, likeFailed, Toast.LENGTH_SHORT).show()
+                }
+            },
+            active = radioLiked,
+            stateDescription = if (radioLiked) favoriteOnState else favoriteOffState,
+            primary = true
+        ))
+        if (track != null && library != null && radioTrack == null) {
             add(PlayerActionUi(
                 icon = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                 label = favoriteLabel,

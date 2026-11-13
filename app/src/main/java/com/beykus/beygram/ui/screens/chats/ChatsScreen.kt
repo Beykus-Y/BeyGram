@@ -76,6 +76,9 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -91,6 +94,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -136,7 +140,7 @@ import com.beykus.beygram.domain.search.networkSearchAction
 import com.beykus.beygram.domain.search.parseGlobalSearchQuery
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.ChatAvatar
-import com.beykus.beygram.ui.components.SearchField
+import com.beykus.beygram.ui.components.SearchFieldButton
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.MediaFileState
@@ -236,6 +240,7 @@ fun ChatsScreen(
     onMarkAllRead: (List<ChatPreview>) -> Unit = {},
     onMarkUnread: suspend (ChatPreview) -> Result<Unit>,
     onArchive: suspend (ChatPreview) -> Boolean,
+    onUnarchive: suspend (ChatPreview) -> Boolean = { false },
     onPinChat: suspend (Long, Boolean) -> Result<Unit>,
     onMuteChat: suspend (Long, Boolean) -> Result<Unit>,
     onDeleteChat: suspend (Long) -> Result<Unit>,
@@ -262,6 +267,10 @@ fun ChatsScreen(
     state: ChatsScreenState = rememberChatsScreenState()
 ) {
     val query = state.query
+    // After upgrading from the local text field, never leave the list filtered by a stale saved query.
+    LaunchedEffect(accountId, state) {
+        if (state.query.isNotBlank()) state.query = ""
+    }
     // Server folders replace the old local All / People / Groups / Unread chips.
     // Applying local filtering again beneath server folders gave users two competing tab bars.
     val selectedFilter = ChatFilter.All
@@ -306,14 +315,66 @@ fun ChatsScreen(
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
     var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
     var confirmReadAll by remember { mutableStateOf(false) }
-    val readAction = ChatSwipeAction(
-        label = stringResource(R.string.chats_action_read), icon = Icons.Rounded.DoneAll, container = palette.surface2, content = palette.accentInk,
-        enabled = true, perform = onMarkRead
-    )
-    val archiveAction = ChatSwipeAction(
-        label = stringResource(R.string.chats_action_archive), icon = Icons.Rounded.Archive, container = palette.accent, content = palette.onAccent,
-        enabled = true, perform = onArchive
-    )
+    val swipeStore = remember(context) { ChatSwipeSettingsStore(context) }
+    var swipePreferences by remember(accountId) { mutableStateOf(swipeStore.load(accountId)) }
+    var showSwipeSettings by remember(accountId) { mutableStateOf(false) }
+    val snackbarState = remember(accountId) { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
+    val changeSwipePreferences: (ChatSwipePreferences) -> Unit = { updated ->
+        swipePreferences = updated
+        swipeStore.save(accountId, updated)
+        openSwipeChatId = null
+    }
+    val readLabel = stringResource(R.string.chats_action_read)
+    val unreadActionLabel = stringResource(R.string.chats_action_unread)
+    val archiveLabel = stringResource(R.string.chats_action_archive)
+    val pinLabel = stringResource(R.string.chats_swipe_pin)
+    val unpinLabel = stringResource(R.string.chats_swipe_unpin)
+    val muteLabel = stringResource(R.string.chats_swipe_mute)
+    val unmuteLabel = stringResource(R.string.chats_swipe_unmute)
+    val moreLabel = stringResource(R.string.chats_swipe_more)
+    val archiveSnackbarLabel = stringResource(R.string.chats_archive_moved)
+    val undoSnackbarLabel = stringResource(R.string.chats_archive_undo)
+    val actionFor: (ChatPreview, ChatSwipeActionKind) -> ChatSwipeAction = { chat, kind ->
+        when (kind) {
+            ChatSwipeActionKind.Archive -> ChatSwipeAction(
+                archiveLabel, Icons.Rounded.Archive, palette.accent, palette.onAccent, true, kind, onArchive
+            )
+            ChatSwipeActionKind.ReadUnread -> ChatSwipeAction(
+                if (showsUnreadIndicator(chat)) readLabel else unreadActionLabel,
+                Icons.Rounded.DoneAll, palette.surface2, palette.accentInk, true, kind,
+                { target -> if (showsUnreadIndicator(target)) onMarkRead(target) else onMarkUnread(target).isSuccess }
+            )
+            ChatSwipeActionKind.Pin -> ChatSwipeAction(
+                if (chat.isPinned) unpinLabel else pinLabel,
+                Icons.Rounded.Bookmark, palette.surface2, palette.accentInk, true, kind,
+                { target ->
+                    (if (activeFolderId != null) onPinFolderChat(activeFolderId, target.id, !target.isPinned)
+                    else onPinChat(target.id, !target.isPinned)).isSuccess
+                }
+            )
+            ChatSwipeActionKind.Mute -> ChatSwipeAction(
+                if (chat.isMuted) unmuteLabel else muteLabel,
+                Icons.Rounded.NotificationsOff, palette.surface2, palette.accentInk, true, kind,
+                { target -> onMuteChat(target.id, !target.isMuted).isSuccess }
+            )
+            ChatSwipeActionKind.More -> ChatSwipeAction(
+                moreLabel, Icons.Rounded.MoreVert, palette.surface2, palette.accentInk, true, kind,
+                { target -> selectedActions = target; true }
+            )
+        }
+    }
+    val onSwipePerformed: (ChatPreview, ChatSwipeActionKind) -> Unit = { chat, kind ->
+        if (kind == ChatSwipeActionKind.Archive) {
+            snackbarScope.launch {
+                val result = snackbarState.showSnackbar(
+                    message = archiveSnackbarLabel,
+                    actionLabel = undoSnackbarLabel
+                )
+                if (result == SnackbarResult.ActionPerformed) onUnarchive(chat)
+            }
+        }
+    }
     val filteredChats = remember(query, displayedChats, selectedFilter) {
         // @username and t.me links match local titles by the bare username too.
         val localQuery = parseGlobalSearchQuery(query).publicText
@@ -536,7 +597,8 @@ fun ChatsScreen(
                                     title = stringResource(R.string.chat_folders_all),
                                     selected = activeFolderId == null,
                                     unreadCount = null,
-                                    onClick = { state.selectFolder(0) }
+                                    onClick = { state.selectFolder(0) },
+                                    onLongClick = { managingFolders = true }
                                 )
                                 is TelegramFolderTab.Folder -> {
                                     val folder = folderSnapshot.folders.firstOrNull { it.id == tab.id }
@@ -544,7 +606,8 @@ fun ChatsScreen(
                                         title = folder.title,
                                         selected = activeFolderId == folder.id,
                                         unreadCount = folder.unreadChats,
-                                        onClick = { state.selectFolder(folder.id) }
+                                        onClick = { state.selectFolder(folder.id) },
+                                        onLongClick = { managingFolders = true }
                                     )
                                 }
                             }
@@ -554,45 +617,9 @@ fun ChatsScreen(
     // The split-pane header: no title (the section is named by the navigation), one 48 dp line with the account avatar,
     // the search field and "more", and a row of folder chips under it. In a short window the chips go away while the list
     // scrolls down and return on the first move up, so the rows get the height.
-    val compactChatsHeader: @Composable (Modifier) -> Unit = { modifier ->
+    // The same overflow is used on phone and split pane. Secondary actions remain one tap away.
+    val headerOverflow: @Composable () -> Unit = {
         var moreOpen by remember { mutableStateOf(false) }
-        val connectionLabel = if (connectionStatus == ChatsConnectionStatus.None) null
-        else stringResource(connectionStatus.labelResource())
-        Column(modifier = modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 4.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                // The avatar opens the profile; a long press opens the account switcher (the people button is gone).
-                Box(
-                    Modifier.size(48.dp).clip(CircleShape)
-                        .combinedClickable(
-                            role = Role.Button,
-                            onLongClickLabel = stringResource(R.string.account_switcher_title),
-                            onLongClick = onAccountPicker,
-                            onClick = onMyProfile
-                        )
-                        .semantics { contentDescription = context.getString(R.string.chats_my_profile_description) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 32.dp, myProfile?.photo, observeFile, downloadFile,
-                        Modifier.clearAndSetSemantics {})
-                }
-                Box(Modifier.weight(1f)) {
-                    // The connection state replaces the hint of the field instead of taking a line of its own.
-                    SearchField(
-                        query = query,
-                        onChange = { state.query = it },
-                        placeholder = connectionLabel ?: stringResource(R.string.chats_search_placeholder)
-                    )
-                }
-                if (createChatPlacement == CreateChatPlacement.Header) {
-                    androidx.compose.material3.IconButton(onClick = onNewChat, modifier = Modifier.size(48.dp)) {
-                        Icon(
-                            Icons.Rounded.Edit,
-                            contentDescription = stringResource(R.string.new_chat_title),
-                            tint = if (design.usesGlassPanels) palette.accentInk else palette.accent,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
                 Box {
                     androidx.compose.material3.IconButton(onClick = { moreOpen = true }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary)
@@ -627,22 +654,56 @@ fun ChatsScreen(
                             leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = palette.textSecondary) },
                             onClick = { moreOpen = false; managingFolders = true }
                         )
-                        if (createChatPlacement != CreateChatPlacement.Fab) DropdownMenuItem(
-                            text = { Text(stringResource(R.string.new_chat_title)) },
-                            leadingIcon = { Icon(Icons.Rounded.Edit, null, tint = palette.textSecondary) },
-                            onClick = { moreOpen = false; onNewChat() }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.chats_swipe_settings)) },
+                            leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = palette.textSecondary) },
+                            onClick = { moreOpen = false; showSwipeSettings = true }
                         )
                     }
                 }
+
+    }
+
+    val compactChatsHeader: @Composable (Modifier) -> Unit = { modifier ->
+        val connectionLabel = if (connectionStatus == ChatsConnectionStatus.None) null
+        else stringResource(connectionStatus.labelResource())
+        Column(modifier = modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 4.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // The avatar opens the profile; a long press opens the account switcher (the people button is gone).
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape)
+                        .combinedClickable(
+                            role = Role.Button,
+                            onLongClickLabel = stringResource(R.string.account_switcher_title),
+                            onLongClick = onAccountPicker,
+                            onClick = onMyProfile
+                        )
+                        .semantics { contentDescription = context.getString(R.string.chats_my_profile_description) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 32.dp, myProfile?.photo, observeFile, downloadFile,
+                        Modifier.clearAndSetSemantics {})
+                }
+                Box(Modifier.weight(1f)) {
+                    // The connection state replaces the hint of the field instead of taking a line of its own.
+                    SearchFieldButton(
+                        placeholder = stringResource(R.string.chats_search_placeholder),
+                        onClick = { focusManager.clearFocus(); onGlobalSearch("") }
+                    )
+                }
+                if (createChatPlacement == CreateChatPlacement.Header) {
+                    androidx.compose.material3.IconButton(onClick = onNewChat, modifier = Modifier.size(48.dp)) {
+                        Icon(
+                            Icons.Rounded.Edit,
+                            contentDescription = stringResource(R.string.new_chat_title),
+                            tint = if (design.usesGlassPanels) palette.accentInk else palette.accent,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+                headerOverflow()
             }
-            networkSearchAction(query)?.let { search ->
-                Spacer(Modifier.height(4.dp))
-                TelegramSearchAction(
-                    search = search,
-                    offline = connectionState == TelegramConnectionState.WaitingForNetwork,
-                    onClick = { onGlobalSearch(query) }
-                )
-            }
+            ChatsConnectionLine(connectionStatus)
             if (folderSnapshot.initialized) {
                 AnimatedVisibility(visible = !foldersHiddenByScroll) {
                     folderTabsRow(Modifier.fillMaxWidth().padding(top = 2.dp, start = 4.dp, end = 4.dp))
@@ -669,89 +730,44 @@ fun ChatsScreen(
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.clickable { state.requestScrollToTop() }.semantics { heading() })
                 }
-                if (hasUnreadChats) {
-                    androidx.compose.material3.IconButton(
-                        onClick = { confirmReadAll = true },
-                        modifier = Modifier.semantics { contentDescription = context.getString(R.string.chats_read_all) }
-                    ) {
-                        Icon(Icons.Rounded.DoneAll, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
+                if (createChatPlacement == CreateChatPlacement.Header) {
+                    androidx.compose.material3.IconButton(onClick = onNewChat, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.Edit, stringResource(R.string.new_chat_title),
+                            tint = if (design.usesGlassPanels) palette.accentInk else palette.accent,
+                            modifier = Modifier.size(22.dp))
                     }
                 }
-                savedMessagesChat?.let { saved ->
-                    androidx.compose.material3.IconButton(onClick = { openChat(saved) }, modifier = Modifier.semantics { contentDescription = context.getString(R.string.saved_messages_open_description) }) {
-                        Icon(Icons.Rounded.Bookmark, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(24.dp))
-                    }
-                }
-                androidx.compose.material3.IconButton(onClick = onAccountPicker) {
-                    Icon(Icons.Rounded.People,
-                        contentDescription = stringResource(R.string.account_switcher_title),
-                        tint = palette.textSecondary, modifier = Modifier.size(24.dp))
-                }
-                Spacer(Modifier.width(4.dp))
                 // The avatar stays 40 dp visually, while the tap area covers Android's 48 dp minimum.
                 Box(
                     Modifier.size(48.dp).clip(CircleShape)
-                        .clickable(role = Role.Button, onClick = onMyProfile)
+                        .combinedClickable(
+                            role = Role.Button,
+                            onLongClickLabel = stringResource(R.string.account_switcher_title),
+                            onLongClick = onAccountPicker,
+                            onClick = onMyProfile
+                        )
                         .semantics { contentDescription = context.getString(R.string.chats_my_profile_description) },
                     contentAlignment = Alignment.Center
                 ) {
                     TelegramAvatar(myProfile?.initials ?: stringResource(R.string.chats_avatar_fallback), palette.accent, 40.dp, myProfile?.photo, observeFile, downloadFile,
                         Modifier.clearAndSetSemantics {})
                 }
+                headerOverflow()
             }
             // Заголовок «Сообщения» остаётся названием раздела; реальное состояние TDLib
             // показывается строкой во всю ширину шапки и исчезает сразу после восстановления связи.
             ChatsConnectionLine(connectionStatus)
 
             Spacer(Modifier.height(design.mainScreen.headerGap))
-            // The music screen is reachable directly from the daily chat list: the note always opens it, the same
-            // screen as Settings → Music. Its search field opens the music search.
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) {
-                    SearchField(
-                        query = query,
-                        onChange = { state.query = it },
-                        placeholder = stringResource(R.string.chats_search_placeholder)
-                    )
-                }
-                androidx.compose.material3.IconButton(
-                    onClick = {
-                        // Leaving a focused search field should dismiss its IME before the route changes.
-                        focusManager.clearFocus()
-                        onOpenMusic()
-                    },
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.MusicNote,
-                        contentDescription = stringResource(R.string.music_library_title),
-                        tint = palette.accentInk,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-            // The network action stays directly under the field, above folders and local rows,
-            // so it is discoverable before a long cached chat list scrolls it out of view.
-            networkSearchAction(query)?.let { search ->
-                Spacer(Modifier.height(8.dp))
-                TelegramSearchAction(
-                    search = search,
-                    offline = connectionState == TelegramConnectionState.WaitingForNetwork,
-                    onClick = { onGlobalSearch(query) }
-                )
-            }
+            SearchFieldButton(
+                placeholder = stringResource(R.string.chats_search_placeholder),
+                onClick = { focusManager.clearFocus(); onGlobalSearch("") }
+            )
             Spacer(Modifier.height(design.mainScreen.folderGap))
             // Only one source of folder navigation: server-backed Telegram lists.
             // Main ('Все чаты') is a real tab even when the account has no custom folders yet.
             if (folderSnapshot.initialized) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    folderTabsRow(Modifier.weight(1f))
-                    androidx.compose.material3.IconButton(onClick = { managingFolders = true }) {
-                        Icon(Icons.Rounded.Tune,
-                            contentDescription = stringResource(R.string.folder_manage_title),
-                            tint = palette.textSecondary)
-                    }
-                }
+                folderTabsRow(Modifier.fillMaxWidth())
             }
         }
     }
@@ -811,8 +827,10 @@ fun ChatsScreen(
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { openChat(chat) },
                         onLongClick = { selectedActions = chat },
-                        read = readAction.copy(enabled = showsUnreadIndicator(chat)),
-                        primary = archiveAction,
+                        left = actionFor(chat, swipePreferences.left),
+                        right = actionFor(chat, swipePreferences.right),
+                        onPerformed = onSwipePerformed,
+                        actionScope = snackbarScope,
                         highlighted = chat.id == highlightedChatId
                     )
                 }
@@ -871,8 +889,10 @@ fun ChatsScreen(
                             onOpenChange = { openSwipeChatId = it },
                             onClick = { openChat(chat) },
                             onLongClick = { selectedActions = chat },
-                            read = readAction.copy(enabled = showsUnreadIndicator(chat)),
-                            primary = archiveAction,
+                            left = actionFor(chat, swipePreferences.left),
+                            right = actionFor(chat, swipePreferences.right),
+                            onPerformed = onSwipePerformed,
+                            actionScope = snackbarScope,
                             highlighted = chat.id == highlightedChatId
                         )
                         // Material 2 separates rows with a real divider; the other styles rely on spacing.
@@ -983,7 +1003,18 @@ fun ChatsScreen(
       ) {
           Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.new_chat_title), modifier = Modifier.size(24.dp))
       }
+      SnackbarHost(
+          hostState = snackbarState,
+          modifier = Modifier.align(Alignment.BottomCenter)
+              .padding(bottom = fabPlacement.bottomPadding +
+                  if (createChatPlacement == CreateChatPlacement.Fab) design.fab.size + 16.dp else 8.dp)
+      )
     }
+    if (showSwipeSettings) ChatSwipeSettingsDialog(
+        preferences = swipePreferences,
+        onChange = changeSwipePreferences,
+        onDismiss = { showSwipeSettings = false }
+    )
     if (confirmReadAll) AlertDialog(
         onDismissRequest = { confirmReadAll = false },
         title = { Text(stringResource(R.string.chats_read_all_title)) },
@@ -1010,6 +1041,73 @@ fun ChatsScreen(
         )
     }
 }
+
+/** The two independent assignments live in the chat overflow, never in a permanent header button. */
+@Composable
+private fun ChatSwipeSettingsDialog(
+    preferences: ChatSwipePreferences,
+    onChange: (ChatSwipePreferences) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var leftOpen by remember { mutableStateOf(false) }
+    var rightOpen by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.chats_swipe_settings)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.chats_swipe_left))
+                Box {
+                    TextButton(onClick = { leftOpen = true }) {
+                        Text(chatSwipeKindLabel(preferences.left))
+                    }
+                    DropdownMenu(expanded = leftOpen, onDismissRequest = { leftOpen = false }) {
+                        ChatSwipeActionKind.entries.forEach { kind ->
+                            DropdownMenuItem(
+                                text = { Text(chatSwipeKindLabel(kind)) },
+                                onClick = {
+                                    leftOpen = false
+                                    onChange(preferences.copy(left = kind))
+                                }
+                            )
+                        }
+                    }
+                }
+                Text(stringResource(R.string.chats_swipe_right))
+                Box {
+                    TextButton(onClick = { rightOpen = true }) {
+                        Text(chatSwipeKindLabel(preferences.right))
+                    }
+                    DropdownMenu(expanded = rightOpen, onDismissRequest = { rightOpen = false }) {
+                        ChatSwipeActionKind.entries.forEach { kind ->
+                            DropdownMenuItem(
+                                text = { Text(chatSwipeKindLabel(kind)) },
+                                onClick = {
+                                    rightOpen = false
+                                    onChange(preferences.copy(right = kind))
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
+        }
+    )
+}
+
+@Composable
+private fun chatSwipeKindLabel(kind: ChatSwipeActionKind): String = stringResource(
+    when (kind) {
+        ChatSwipeActionKind.Archive -> R.string.chats_action_archive
+        ChatSwipeActionKind.ReadUnread -> R.string.chats_swipe_read_unread
+        ChatSwipeActionKind.Pin -> R.string.chats_swipe_pin_toggle
+        ChatSwipeActionKind.Mute -> R.string.chats_swipe_mute_toggle
+        ChatSwipeActionKind.More -> R.string.chats_swipe_more
+    }
+)
 
 /**
  * Строка состояния сессии Telegram под заголовком списка. Говорит только то, что сообщил TDLib:
@@ -1271,14 +1369,20 @@ private fun Modifier.chatListEdgeFade(topPadding: Dp, fadeBottom: Boolean, topPr
 
 /** Server tabs are horizontally scrollable; no pager gesture conflicts with SwipeChatRow. */
 @Composable
-internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+internal fun ServerFolderChip(
+    title: String,
+    selected: Boolean,
+    unreadCount: Int?,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
+) {
     when (LocalDesignSystem.current.mainScreen.chipSelection) {
         ChipSelectionTone.Filter -> {
-            Material3FolderChip(title, selected, unreadCount, onClick)
+            Material3FolderChip(title, selected, unreadCount, onClick, onLongClick)
             return
         }
         ChipSelectionTone.Ink -> {
-            InkFolderChip(title, selected, unreadCount, onClick)
+            InkFolderChip(title, selected, unreadCount, onClick, onLongClick)
             return
         }
         else -> Unit
@@ -1315,7 +1419,8 @@ internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int
         Row(
             Modifier.heightIn(min = 48.dp).clip(chipShape)
                 .background(containerColor)
-                .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+                .combinedClickable(role = Role.Tab, onClick = onClick, onLongClick = onLongClick)
+                .semantics { this.selected = selected }
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1357,7 +1462,7 @@ internal fun ServerFolderChip(title: String, selected: Boolean, unreadCount: Int
  * on. It sits in a 48dp touch target, so the row of folders looks lighter without a smaller tap area.
  */
 @Composable
-private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit, onLongClick: () -> Unit) {
     val palette = beyGramPalette()
     val main = LocalDesignSystem.current.mainScreen
     val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
@@ -1367,7 +1472,8 @@ private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: I
     val chipShape = RoundedCornerShape(main.chipRadius)
     Box(
         Modifier.heightIn(min = 48.dp)
-            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+            .combinedClickable(role = Role.Tab, onClick = onClick, onLongClick = onLongClick)
+            .semantics { this.selected = selected },
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -1409,7 +1515,7 @@ private fun Material3FolderChip(title: String, selected: Boolean, unreadCount: I
 private const val INK_ACCENT_SHARE = 0.18f
 
 @Composable
-private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit) {
+private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, onClick: () -> Unit, onLongClick: () -> Unit = {}) {
     val palette = beyGramPalette()
     val main = LocalDesignSystem.current.mainScreen
     val tabSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
@@ -1420,7 +1526,8 @@ private fun InkFolderChip(title: String, selected: Boolean, unreadCount: Int?, o
     val chipShape = RoundedCornerShape(main.chipRadius)
     Box(
         Modifier.heightIn(min = 48.dp).clip(chipShape)
-            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+            .combinedClickable(role = Role.Tab, onClick = onClick, onLongClick = onLongClick)
+            .semantics { this.selected = selected },
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -1544,7 +1651,9 @@ private fun SendStatusIcon(chat: ChatPreview) {
 /** Плотность списка чатов: сколько места отдано каждой строке. [Default] — вид, который BeyGram всегда имел. */
 internal data class ChatListDensity(
     /** Отступ над и под содержимым строки чата. */
-    val rowVerticalPadding: Dp = 10.dp
+    val rowVerticalPadding: Dp = 10.dp,
+    /** Comfortable/Compact keep the familiar single line; Spacious opts into two lines. */
+    val previewLines: Int = 1
 )
 
 internal val LocalChatListDensity = compositionLocalOf { ChatListDensity() }
@@ -1553,7 +1662,7 @@ internal val LocalChatListDensity = compositionLocalOf { ChatListDensity() }
 internal fun chatListDensityFor(density: ListDensity): ChatListDensity = when (density) {
     ListDensity.Compact -> ChatListDensity(rowVerticalPadding = 6.dp)
     ListDensity.Comfortable -> ChatListDensity()
-    ListDensity.Spacious -> ChatListDensity(rowVerticalPadding = 14.dp)
+    ListDensity.Spacious -> ChatListDensity(rowVerticalPadding = 14.dp, previewLines = 2)
 }
 
 /**
@@ -1627,12 +1736,31 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                 Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = main.rowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (chat.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.accent, modifier = Modifier.padding(start = 4.dp).size(14.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(chat.lastMessageTime, color = if (unread) palette.accent else palette.textSecondary, fontSize = 12.sp, fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal)
+                Text(
+                    chat.lastMessageTime,
+                    color = if (unread) palette.accent else palette.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 72.dp)
+                )
             }
             Spacer(Modifier.height(3.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (chat.isMuted) Icon(Icons.Rounded.NotificationsOff, null, tint = palette.textSecondary, modifier = Modifier.padding(end = 6.dp).size(16.dp))
-                Text(preview, color = if (unread && main.unreadPreviewEmphasis && !chat.isMuted) palette.textPrimary else palette.textSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(
+                    preview,
+                    color = when {
+                        chat.lastMessageOutgoing && chat.lastMessageSendState == MessageSendState.Failed -> palette.warningText
+                        unread && main.unreadPreviewEmphasis && !chat.isMuted -> palette.textPrimary
+                        else -> palette.textSecondary
+                    },
+                    fontSize = 14.sp,
+                    maxLines = listDensity.previewLines,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
                 // The send status and the unread marker share one trailing group. The group keeps its own air from the
                 // preview text and a fixed gap from its neighbour, so a preview that ends in a symbol never runs into a count.
                 if (chat.lastMessageOutgoing || unread) {

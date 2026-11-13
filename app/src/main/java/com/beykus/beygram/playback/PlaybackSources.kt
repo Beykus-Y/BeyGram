@@ -33,7 +33,9 @@ class PlaybackQueueSource(
     val download: (Int) -> Unit,
     val autoDownload: ((AutoDownloadRequest) -> Unit)? = null,
     /** Pages are fetched only near the queue boundary; returns older tracks in playback order, or an empty page. */
-    val loadMore: (suspend () -> List<PlaybackItem>)? = null
+    val loadMore: (suspend () -> List<PlaybackItem>)? = null,
+    /** Set when this queue is a radio of a music source (such as «Моя волна»); the player names it in its header. */
+    val radio: PlaybackRadio? = null
 ) {
     /**
      * Sends a prefetch through automatic-download tracking. Returns false when the caller did not supply the
@@ -45,6 +47,13 @@ class PlaybackQueueSource(
         return true
     }
 }
+
+/**
+ * An endless queue that a music source fills by itself, such as Yandex «Моя волна». The player does not name radios
+ * itself: [title] («Моя волна») and [subtitle] (what it was built from, such as «По вашему вкусу») come ready from
+ * the source and replace «Воспроизводится из» in the player header.
+ */
+class PlaybackRadio(val title: String, val subtitle: String)
 
 internal data class ResolvedPlaybackSource(val path: String, val growing: GrowingPlaybackSource?)
 
