@@ -8,4 +8,24 @@
     <string name="bgwave_safe_not_yet_valid">Die Einladung ist noch nicht gültig. Prüfe die Uhrzeit des Geräts.</string>
     <string name="bgwave_safe_invalid">Die Einladung konnte nicht gelesen werden.</string>
     <string name="bgwave_safe_unavailable">Welle ist auf diesem Gerät nicht verfügbar.</string>
+    <string name="bgwave_status_sent">Einladung gesendet</string>
+    <string name="bgwave_status_offering">Einladung wird gesendet …</string>
+    <string name="bgwave_status_awaiting">Warte auf Antwort …</string>
+    <string name="bgwave_status_connecting">Verbindung wird hergestellt …</string>
+    <string name="bgwave_status_live">Welle läuft</string>
+    <string name="bgwave_status_reconnecting">Verbindung wird erneuert …</string>
+    <string name="bgwave_status_failed">Verbindung fehlgeschlagen</string>
+    <string name="bgwave_status_ended">Die Welle ist beendet</string>
+    <string name="bgwave_status_declined">Du hast die Einladung abgelehnt</string>
+    <string name="bgwave_status_cancelled">Die Einladung wurde zurückgezogen</string>
+    <string name="bgwave_action_join">Beitreten</string>
+    <string name="bgwave_action_decline">Ablehnen</string>
+    <string name="bgwave_action_stop">Stoppen</string>
+    <string name="bgwave_action_retry">Wiederholen</string>
+    <string name="bgwave_error_unavailable">Die Welle ist auf diesem Gerät nicht verfügbar.</string>
+    <string name="bgwave_error_send_failed">Die Nachricht konnte nicht gesendet werden. Prüfe die Verbindung und versuche es erneut.</string>
+    <string name="bgwave_error_no_connection">Die direkte Verbindung ist fehlgeschlagen. Versuche es erneut.</string>
+    <string name="bgwave_error_busy">Es läuft bereits eine andere Welle. Beende sie zuerst.</string>
+    <string name="bgwave_error_expired">Die Einladung ist abgelaufen.</string>
+    <string name="bgwave_error_rejected">Die Antwort passt nicht zu dieser Welle.</string>
 </resources>

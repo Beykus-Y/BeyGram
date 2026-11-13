@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import com.beykus.beygram.notifications.TriggerIncoming
 import com.beykus.beygram.notifications.TriggerAlerts
+import com.beykus.beygram.media.bgwave.BgWaveHub
 import com.beykus.beygram.notifications.TriggerWordsStore
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
@@ -35,6 +36,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TextStyleKind
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageReportReason
 import com.beykus.beygram.domain.model.MessageTranslation
@@ -498,6 +500,16 @@ class TdLibTelegramRepository private constructor(
         autoDownloadNetworkMonitor.start()
     }
     private val serviceMessages = TdServiceMessageMapper(appContext)
+    init {
+        BgWaveHub.registerSender(accountId) { chatId, link ->
+            val label = appContext.getString(R.string.bgwave_service_label)
+            sendMessage(
+                chatId, label, null,
+                listOf(MessageTextEntity(0, label.length, TextStyleKind.Url, link)),
+                0L, false, MessageSendOptions(disableLinkPreview = true),
+            )
+        }
+    }
     private val pendingServiceUserRequests = ConcurrentHashMap.newKeySet<Triple<Long, Long, Long>>()
 
     private fun hydrateServiceMember(message: TdApi.Message, userId: Long) {
@@ -2770,6 +2782,7 @@ class TdLibTelegramRepository private constructor(
                 reportBotChannel.onNewMessage(update.message)
                 handleNewMessage(update.message)
                 offerToTriggerWords(update.message)
+                offerToWave(update.message)
                 conversationEffects.uploadStarted(update.message)
                 if (update.message.isOutgoing && update.message.content is TdApi.MessageVideoNote &&
                     update.message.sendingState is TdApi.MessageSendingStatePending) {
@@ -3068,6 +3081,7 @@ class TdLibTelegramRepository private constructor(
                     TriggerAlerts.cancelAccount(appContext, accountId)
                     TriggerWordsStore.get(appContext).forgetAccount(accountId)
                 }
+                BgWaveHub.forgetAccount(accountId)
             }
             is TdApi.AuthorizationStateClosed -> {
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()
@@ -3348,6 +3362,27 @@ class TdLibTelegramRepository private constructor(
      * Trigger words look at every incoming message, including muted chats that TDLib never alerts for.
      * Runs in the update handler, so it only reads cached chat state and hands the text to the store.
      */
+    /** A BG Wave link from the peer of a private chat goes to the wave controller; every other message is left alone. */
+    private fun offerToWave(message: TdApi.Message) {
+        if (message.isOutgoing) return
+        val link = waveLinkOf(message) ?: return
+        val chat = profiles.chat(message.chatId) ?: return
+        val sender = message.senderId as? TdApi.MessageSenderUser ?: return
+        try {
+            BgWaveHub.controller.onMessage(
+                accountId = accountId,
+                chatId = message.chatId,
+                senderId = sender.userId,
+                outgoing = false,
+                privateChat = chat.type is TdApi.ChatTypePrivate,
+                uri = link,
+                nowSeconds = BgWaveHub.nowSeconds(),
+            )
+        } catch (_: Exception) {
+            // A damaged wave message must never interrupt the update stream that the chat list depends on.
+        }
+    }
+
     private fun offerToTriggerWords(message: TdApi.Message) {
         if (message.isOutgoing) return
         val text = triggerWordText(message.content) ?: return
