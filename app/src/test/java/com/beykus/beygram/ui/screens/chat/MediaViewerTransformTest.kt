@@ -2,6 +2,8 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.ui.geometry.Rect
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MediaViewerTransformTest {
@@ -51,5 +53,30 @@ class MediaViewerTransformTest {
     fun anEmptyOriginFallsBackToTheOldGrow() {
         val transform = mediaViewerTransform(Rect.Zero, pageWidth = 1000f, pageHeight = 2000f, travel = 1f)
         assertEquals(0.96f, transform.scale, 0.0001f)
+    }
+
+    @Test
+    fun dismissesOnLongDragBothUpAndDown() {
+        assertTrue(shouldDismissMediaViewer(offsetY = 400f, velocityY = 0f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f))
+        assertTrue(shouldDismissMediaViewer(offsetY = -400f, velocityY = 0f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f))
+        assertFalse(shouldDismissMediaViewer(offsetY = 200f, velocityY = 0f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f))
+        assertFalse(shouldDismissMediaViewer(offsetY = -200f, velocityY = 0f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f))
+    }
+
+    @Test
+    fun dismissesOnFastFlingInSameDirection() {
+        assertTrue(shouldDismissMediaViewer(offsetY = 80f, velocityY = 2200f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f))
+        assertTrue(shouldDismissMediaViewer(offsetY = -80f, velocityY = -2200f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f))
+        assertFalse(shouldDismissMediaViewer(offsetY = 80f, velocityY = -2200f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f))
+    }
+
+    @Test
+    fun dismissFractionScalesDownPageAndFadesBackdrop() {
+        assertEquals(0f, mediaViewerDismissFraction(0f, 2000f), 0.0001f)
+        assertEquals(1f, mediaViewerDismissFraction(-900f, 2000f), 0.0001f)
+        assertEquals(1f, mediaViewerDismissScale(0f), 0.0001f)
+        assertEquals(0.88f, mediaViewerDismissScale(1f), 0.0001f)
+        assertEquals(1f, mediaViewerDismissBackdropAlpha(0f), 0.0001f)
+        assertEquals(0.15f, mediaViewerDismissBackdropAlpha(1f), 0.0001f)
     }
 }
