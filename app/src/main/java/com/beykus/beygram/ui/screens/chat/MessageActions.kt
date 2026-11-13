@@ -285,6 +285,11 @@ internal fun MessageContextPopover(
     var moreOpen by remember(capabilities, canPin) { mutableStateOf(false) }
     var rootBounds by remember { mutableStateOf<Rect?>(null) }
     var menuSize by remember { mutableStateOf(IntSize.Zero) }
+    val freeReactions = remember(reactionOptions) { reactionOptions.filter { !it.isPaid }.take(6) }
+    // Latch the unconstrained desired height per menu content state so clamping never feeds a smaller
+    // height back into placement and causes a 600 -> 430 -> 600 measurement oscillation.
+    var desiredMenuHeightPx by remember(capabilities, moreOpen, error, freeReactions.size) { androidx.compose.runtime.mutableIntStateOf(0) }
+    if (menuSize.height > desiredMenuHeightPx) desiredMenuHeightPx = menuSize.height
     var visible by remember { mutableStateOf(motionSpec.isInstant) }
     androidx.compose.runtime.LaunchedEffect(Unit) { visible = true }
 
@@ -316,7 +321,7 @@ internal fun MessageContextPopover(
         anchorBounds = anchorBounds,
         viewportBounds = viewportBounds,
         menuWidthPx = menuSize.width.coerceAtLeast(with(density) { 248.dp.roundToPx() }),
-        menuHeightPx = menuSize.height.coerceAtLeast(with(density) { 200.dp.roundToPx() }),
+        menuHeightPx = desiredMenuHeightPx.coerceAtLeast(with(density) { 200.dp.roundToPx() }),
         gapPx = gapPx,
         marginPx = marginPx,
         isOutgoing = isOutgoing,
@@ -331,7 +336,6 @@ internal fun MessageContextPopover(
     }
     val maxCardHeightDp = if (effectiveMaxHeightPx > 0) with(density) { effectiveMaxHeightPx.toDp() } else 360.dp
 
-    val freeReactions = remember(reactionOptions) { reactionOptions.filter { !it.isPaid }.take(6) }
     val showReactionStrip = onQuickReaction != null && (freeReactions.isNotEmpty() || onReactions != null)
 
     Popup(

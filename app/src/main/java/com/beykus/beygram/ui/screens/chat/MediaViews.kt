@@ -162,8 +162,11 @@ import com.beykus.beygram.ui.screens.playback.rememberMusicCardPlayback
 import com.beykus.beygram.ui.screens.playback.rememberPlaybackFraction
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -983,7 +986,9 @@ internal fun MediaViewer(
     // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
     val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
     val exportPath = if (canExport && !shown.media.isSecret && !shown.viewOnce && !shownHidden) shownFile.localPath else null
-    var interactionTick by remember { mutableIntStateOf(0) }
+    // Use a conflated channel instead of Compose state so continuous pinch/pan gestures reset the idle
+    // timer without recomposing MediaViewer on every pointer frame.
+    val interactionChannel = remember { Channel<Unit>(Channel.CONFLATED) }
     LaunchedEffect(
         pagerState.settledPage,
         controlsVisible,
@@ -991,10 +996,9 @@ internal fun MediaViewer(
         touchExploration,
         shownHidden,
         shownFile.localPath != null,
-        isStillImage,
-        interactionTick
+        isStillImage
     ) {
-        if (MediaViewerPolicy.shouldAutoHideControls(
+        if (!MediaViewerPolicy.shouldAutoHideControls(
                 isStillImage = isStillImage,
                 controlsVisible = controlsVisible,
                 menuOpen = menuOpen,
@@ -1003,6 +1007,10 @@ internal fun MediaViewer(
                 fileReady = shownFile.localPath != null
             )
         ) {
+            return@LaunchedEffect
+        }
+        interactionChannel.trySend(Unit)
+        interactionChannel.receiveAsFlow().collectLatest {
             delay(3600L)
             controlsVisible = false
         }
@@ -1085,7 +1093,7 @@ internal fun MediaViewer(
                             onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
                             showZoomControls = showAssistiveControls && controlsVisible && page == safeSettledPage,
                             zoomControlsBottomPadding = zoomControlsBottomPadding,
-                            onUserInteraction = { interactionTick++ })
+                            onUserInteraction = { interactionChannel.trySend(Unit) })
                     }
                 }
                 Row(
@@ -1450,6 +1458,7 @@ private fun ZoomableImage(
                     onTap = { currentOnToggleControls() },
                     // Двойной тап приближает к точке касания, поэтому место под пальцем не уезжает. Второй тап возвращает масштаб 1.
                     onDoubleTap = { point ->
+                        currentOnUserInteraction()
                         val target = if (scale > 1f) 1f else 2.5f
                         offset = clampImageOffset(offsetAroundPoint(point, Offset(size.width / 2f, size.height / 2f), offset, scale, target), target, size)
                         scale = target

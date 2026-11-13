@@ -167,5 +167,18 @@ class MessageContextMenuPolicyTest {
         assertEquals(358, placement.y)
         assertEquals(430, placement.maxHeightPx)
         assertTrue(placement.y >= anchor.bottom + 8)
+
+        // Feeding the constrained height (430) back into placement must produce the exact same result (no oscillation).
+        val secondPass = computeMessagePopoverPlacement(
+            anchorBounds = anchor,
+            viewportBounds = viewport,
+            menuWidthPx = 480,
+            menuHeightPx = 430,
+            gapPx = 8,
+            marginPx = 12,
+            isOutgoing = false,
+            minPopoverHeightPx = 280
+        )
+        assertEquals(placement, secondPass)
     }
 }

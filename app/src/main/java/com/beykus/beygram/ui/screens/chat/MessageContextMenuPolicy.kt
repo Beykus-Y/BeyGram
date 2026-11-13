@@ -128,6 +128,6 @@ internal fun computeMessagePopoverPlacement(
         y = y,
         placedAbove = placeAbove,
         useBottomSheetFallback = false,
-        maxHeightPx = availableOnSide.takeIf { it < menuHeightPx }
+        maxHeightPx = availableOnSide
     )
 }
