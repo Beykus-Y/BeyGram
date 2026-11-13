@@ -33,6 +33,22 @@ object BgWaveNative {
     }
 
     private external fun nativeDecodeUri(uri: String, nowSeconds: Long): String
+
+    /** Encodes a Cancel (3) or End (4) control message, the only types without an ICE/DTLS signal. */
+    fun encodeControl(type: Int, sidHex: String, issuedAt: Long, expiresAt: Long, caps: Long, nonce: Long, asHttps: Boolean): String {
+        if (!loaded) return "err|unavailable"
+        return nativeEncodeControl(type, sidHex, issuedAt, expiresAt, caps, nonce, asHttps)
+    }
+
+    private external fun nativeEncodeControl(
+        type: Int,
+        sidHex: String,
+        issuedAt: Long,
+        expiresAt: Long,
+        caps: Long,
+        nonce: Long,
+        asHttps: Boolean,
+    ): String
 }
 
 /** Parses the flat ASCII summary produced by bgwave_jni.cpp. Never throws. */
