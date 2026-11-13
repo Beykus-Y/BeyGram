@@ -65,12 +65,36 @@ target_compile_options(bgbeat_jni PRIVATE -fexceptions -frtti -Wall -Wextra)
 
 if(HAVE_BGMEDIA)
     # BG Wave peer-to-peer adapters (libopus + libdatachannel). Off until the Android build is verified.
-option(BEYGRAM_WAVE_P2P "Build the BG Wave Opus and WebRTC adapters" OFF)
+option(BEYGRAM_WAVE_P2P "Build the BG Wave Opus and WebRTC adapters" ON)
 if(BEYGRAM_WAVE_P2P)
     # libdatachannel pulls in plog, whose cmake_minimum_required(VERSION < 3.5) the NDK CMake rejects.
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
     set(BGMEDIA_BUILD_WAVE_OPUS ON CACHE BOOL "" FORCE)
     set(BGMEDIA_BUILD_WAVE_WEBRTC ON CACHE BOOL "" FORCE)
+
+    # OpenSSL for libsrtp/libdatachannel (BG-Media BG_WAVE.md: OpenSSL on Android). Built once per ABI;
+    # BEYGRAM_OPENSSL_CACHE, when set, is a directory CI can cache between runs.
+    if(CMAKE_ANDROID_ARCH_ABI AND CMAKE_ANDROID_NDK)
+        if(DEFINED ENV{BEYGRAM_OPENSSL_CACHE} AND NOT "$ENV{BEYGRAM_OPENSSL_CACHE}" STREQUAL "")
+            set(BEYGRAM_OPENSSL_PREFIX "$ENV{BEYGRAM_OPENSSL_CACHE}/${CMAKE_ANDROID_ARCH_ABI}")
+        else()
+            set(BEYGRAM_OPENSSL_PREFIX "${CMAKE_BINARY_DIR}/openssl-${CMAKE_ANDROID_ARCH_ABI}")
+        endif()
+        execute_process(
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/../../../../scripts/build-openssl-android.sh"
+                    "${CMAKE_ANDROID_ARCH_ABI}" "${CMAKE_ANDROID_NDK}" "${BEYGRAM_OPENSSL_PREFIX}"
+            RESULT_VARIABLE beygram_openssl_rc
+            ERROR_VARIABLE beygram_openssl_err
+        )
+        if(NOT beygram_openssl_rc EQUAL 0)
+            message(FATAL_ERROR "OpenSSL for Android failed (${beygram_openssl_rc}): ${beygram_openssl_err}")
+        endif()
+        set(OPENSSL_ROOT_DIR "${BEYGRAM_OPENSSL_PREFIX}")
+        set(OPENSSL_USE_STATIC_LIBS TRUE)
+        set(OPENSSL_INCLUDE_DIR "${BEYGRAM_OPENSSL_PREFIX}/include")
+        set(OPENSSL_CRYPTO_LIBRARY "${BEYGRAM_OPENSSL_PREFIX}/lib/libcrypto.a")
+        set(OPENSSL_SSL_LIBRARY "${BEYGRAM_OPENSSL_PREFIX}/lib/libssl.a")
+    endif()
 endif()
 
 if(NOT TARGET bgmedia_core)
