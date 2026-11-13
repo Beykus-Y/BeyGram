@@ -87,6 +87,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -908,7 +910,7 @@ internal fun MediaViewer(
     fullFileOnlyWhenActive: Boolean = false,
     /** Repository-backed automatic download; when absent the same local policy gates [downloadFile]. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
-    /** Window bounds of the tapped thumbnail. When set, the page grows out of it and returns there on close. */
+    /** Screen bounds of the tapped thumbnail. When set, the page grows out of it and returns there on close. */
     originBounds: Rect? = null
 ) {
     // The source can shrink asynchronously while LazyLayout still holds indices from the previous frame.
@@ -1113,7 +1115,10 @@ internal fun MediaViewer(
         // Верхняя панель и нижние действия на фото лежат поверх страницы: тап по картинке или idle их прячет, крестик закрытия остаётся доступным.
         // На видео/аудио нижние действия стоят под страницей, чтобы не перекрывать полосу перемотки плеера.
         val pageSize = LocalWindowInfo.current.containerSize
-        Box(Modifier.fillMaxSize()) {
+        var mediaBounds by remember { mutableStateOf<Rect?>(null) }
+        var viewportBounds by remember { mutableStateOf<Rect?>(null) }
+        // Read in the draw phase, so backdrop, media, and chrome animate per frame without recomposing.
+        Box(Modifier.fillMaxSize().onGloballyPositioned { viewportBounds = it.mediaScreenBounds() }) {
             // Separate backdrop so interactive vertical swipe fades the background without distorting the opening transform.
             Box(
                 Modifier
@@ -1121,17 +1126,41 @@ internal fun MediaViewer(
                     .graphicsLayer { alpha = viewerProgress * mediaViewerDismissBackdropAlpha(dismissFractionState.floatValue) }
                     .background(Color(0xFF070B10))
             )
-            // Read in the draw phase, so the page moves per frame without recomposing the dialog content.
-            Column(Modifier.fillMaxSize().graphicsLayer {
-                val transform = mediaViewerTransform(originBounds, pageSize.width.toFloat(), pageSize.height.toFloat(), (1f - viewerProgress) * viewerSpec.intensity)
-                alpha = viewerProgress
-                scaleX = transform.scale
-                scaleY = transform.scale
-                translationX = transform.offsetX
-                translationY = transform.offsetY
-            }.windowInsetsPadding(WindowInsets.safeDrawing)) {
-                Box(Modifier.fillMaxWidth().weight(1f)) {
-                    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { index -> mediaViewerPageKey(pageIds, index) }) { page ->
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .onGloballyPositioned { coords -> mediaBounds = coords.mediaScreenBounds() }
+                ) {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val transform = mediaViewerTransform(
+                                    origin = originBounds,
+                                    pageWidth = pageSize.width.toFloat(),
+                                    pageHeight = pageSize.height.toFloat(),
+                                    travel = (1f - viewerProgress) * viewerSpec.intensity,
+                                    target = mediaBounds,
+                                    viewport = viewportBounds
+                                )
+                                alpha = viewerProgress
+                                scaleX = transform.scale
+                                scaleY = transform.scale
+                                translationX = transform.offsetX
+                                translationY = transform.offsetY
+                                val cornerPx = transform.cornerRadiusDp.dp.toPx()
+                                if (cornerPx > 0.5f) {
+                                    clip = true
+                                    shape = RoundedCornerShape(cornerPx)
+                                } else {
+                                    clip = false
+                                }
+                            },
+                        key = { index -> mediaViewerPageKey(pageIds, index) }
+                    ) { page ->
                         // Compose may request an index belonging to the preceding page count during an update.
                         // Never index the backing list until this page exists in our current snapshot.
                         currentPages.getOrNull(page)?.let { item ->
@@ -1151,116 +1180,120 @@ internal fun MediaViewer(
                             .fillMaxWidth()
                             .align(Alignment.TopCenter)
                             .onSizeChanged { topBarHeightPx = it.height }
-                            .graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
+                            .graphicsLayer { alpha = viewerProgress * (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
                             .background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent)
                             .padding(horizontal = 6.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                    IconButton(
-                        onClick = ::requestClose,
-                        modifier = if (!controlsVisible) Modifier.background(Color(0x66070B10), CircleShape) else Modifier
-                    ) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
-                    if (controlsVisible) {
-                        Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                            Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            val counter = if (currentPages.size > 1) "${safeSettledPage + 1} / ${currentPages.size}" else null
-                            val subtitleLine = listOfNotNull(counter, subtitle?.takeIf { it.isNotBlank() }).joinToString(" · ")
-                            if (subtitleLine.isNotEmpty()) {
-                                Text(subtitleLine, color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        IconButton(
+                            onClick = ::requestClose,
+                            modifier = if (!controlsVisible) Modifier.background(Color(0x66070B10), CircleShape) else Modifier
+                        ) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
+                        if (controlsVisible) {
+                            Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                                Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                val counter = if (currentPages.size > 1) "${safeSettledPage + 1} / ${currentPages.size}" else null
+                                val subtitleLine = listOfNotNull(counter, subtitle?.takeIf { it.isNotBlank() }).joinToString(" · ")
+                                if (subtitleLine.isNotEmpty()) {
+                                    Text(subtitleLine, color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                // Read-only traffic line for the selected file. Secret, view-once and hidden-spoiler
+                                // pages keep their existing presentation and never show download details.
+                                if (shownFile.isDownloading && !shown.media.isSecret && !shown.media.isSecretChat && !shown.viewOnce && !shownHidden) {
+                                    TrafficUsageBadge(
+                                        accountId = accountId,
+                                        fileId = shown.media.fileId,
+                                        downloadedBytes = shownFile.downloadedBytes,
+                                        totalBytes = shownFile.size,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
                             }
-                            // Read-only traffic line for the selected file. Secret, view-once and hidden-spoiler
-                            // pages keep their existing presentation and never show download details.
-                            if (shownFile.isDownloading && !shown.media.isSecret && !shown.media.isSecretChat && !shown.viewOnce && !shownHidden) {
-                                TrafficUsageBadge(
-                                    accountId = accountId,
-                                    fileId = shown.media.fileId,
-                                    downloadedBytes = shownFile.downloadedBytes,
-                                    totalBytes = shownFile.size,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
+                            if (hasOverflowActions) Box {
+                                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
+                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    if (actions != null && actions.canEdit) DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.common_edit)) },
+                                        leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                                        onClick = { menuOpen = false; actions.onEdit() }
+                                    )
+                                    if (exportPath != null) DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.media_open_in_other_app)) },
+                                        onClick = { menuOpen = false; openExternal(shown, exportPath) }
+                                    )
+                                    if (onShowInChat != null) DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.media_show_in_chat)) },
+                                        onClick = { menuOpen = false; onShowInChat(shown.messageId) }
+                                    )
+                                    if (actions != null && actions.canDelete) DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.common_delete), color = palette.danger) },
+                                        leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = palette.danger) },
+                                        onClick = { menuOpen = false; actions.onDelete() }
+                                    )
+                                }
                             }
-                        }
-                        if (hasOverflowActions) Box {
-                            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                if (actions != null && actions.canEdit) DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.common_edit)) },
-                                    leadingIcon = { Icon(Icons.Rounded.Edit, null) },
-                                    onClick = { menuOpen = false; actions.onEdit() }
-                                )
-                                if (exportPath != null) DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.media_open_in_other_app)) },
-                                    onClick = { menuOpen = false; openExternal(shown, exportPath) }
-                                )
-                                if (onShowInChat != null) DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.media_show_in_chat)) },
-                                    onClick = { menuOpen = false; onShowInChat(shown.messageId) }
-                                )
-                                if (actions != null && actions.canDelete) DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.common_delete), color = palette.danger) },
-                                    leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = palette.danger) },
-                                    onClick = { menuOpen = false; actions.onDelete() }
-                                )
-                            }
-                        }
-                    } else Spacer(Modifier.weight(1f))
-                }
-                // Кнопки листания показываются для TalkBack, клавиатуры/мыши и планшетов; на сенсорном телефоне фото остаётся свободным от стрелок.
-                if (showAssistiveControls && controlsVisible && currentPages.size > 1) {
-                    IconButton(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage - 1) } },
-                        enabled = safeSettledPage > 0,
-                        modifier = Modifier.align(Alignment.CenterStart).padding(8.dp).background(Color(0x80070B10), CircleShape)
-                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (safeSettledPage > 0) 1f else 0.3f)) }
-                    IconButton(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage + 1) } },
-                        enabled = safeSettledPage < currentPages.lastIndex,
-                        modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
-                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
-                }
-                if (!isStillImage && shownCaption.isNotEmpty()) {
-                    // Video/audio player controls occupy the bottom of the frame, so place non-still captions under the top bar.
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = controlsVisible,
-                        enter = chromeSpec.fadeEnter(),
-                        exit = chromeSpec.fadeExit(),
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = with(density) { topBarHeightPx.toDp() })
-                            .graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
-                    ) {
-                        captionBox()
+                        } else Spacer(Modifier.weight(1f))
                     }
-                }
-                if (isStillImage && (hasPrimaryBottomActions || shownCaption.isNotEmpty())) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = controlsVisible,
-                        enter = chromeSpec.fadeEnter(),
-                        exit = chromeSpec.fadeExit(),
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
-                    ) {
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .onSizeChanged { bottomOverlayHeightPx = it.height }
+                    // Кнопки листания показываются для TalkBack, клавиатуры/мыши и планшетов; на сенсорном телефоне фото остаётся свободным от стрелок.
+                    if (showAssistiveControls && controlsVisible && currentPages.size > 1) {
+                        IconButton(
+                            onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage - 1) } },
+                            enabled = safeSettledPage > 0,
+                            modifier = Modifier.align(Alignment.CenterStart).padding(8.dp).graphicsLayer { alpha = viewerProgress * (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }.background(Color(0x80070B10), CircleShape)
+                        ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (safeSettledPage > 0) 1f else 0.3f)) }
+                        IconButton(
+                            onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage + 1) } },
+                            enabled = safeSettledPage < currentPages.lastIndex,
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).graphicsLayer { alpha = viewerProgress * (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }.background(Color(0x80070B10), CircleShape)
+                        ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
+                    }
+                    if (!isStillImage && shownCaption.isNotEmpty()) {
+                        // Video/audio player controls occupy the bottom of the frame, so place non-still captions under the top bar.
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = controlsVisible,
+                            enter = chromeSpec.fadeEnter(),
+                            exit = chromeSpec.fadeExit(),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = with(density) { topBarHeightPx.toDp() })
+                                .graphicsLayer { alpha = viewerProgress * (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
                         ) {
-                            if (shownCaption.isNotEmpty()) captionBox()
-                            if (hasPrimaryBottomActions) bottomChromeContent()
+                            captionBox()
                         }
                     }
-                } else {
-                    bottomOverlayHeightPx = 0
+                    if (isStillImage && (hasPrimaryBottomActions || shownCaption.isNotEmpty())) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = controlsVisible,
+                            enter = chromeSpec.fadeEnter(),
+                            exit = chromeSpec.fadeExit(),
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .graphicsLayer { alpha = viewerProgress * (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
+                        ) {
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .onSizeChanged { bottomOverlayHeightPx = it.height }
+                            ) {
+                                if (shownCaption.isNotEmpty()) captionBox()
+                                if (hasPrimaryBottomActions) bottomChromeContent()
+                            }
+                        }
+                    } else {
+                        bottomOverlayHeightPx = 0
+                    }
                 }
-            }
-            if (reserveNonStillFooter) {
-                if (controlsVisible) Box(Modifier.graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }) { bottomChromeContent() }
-                else Box(Modifier.fillMaxWidth().heightIn(min = 64.dp))
-            }
-            externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
-            fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).errorAnnouncement()) }
-            extraFooter?.invoke()
+                if (reserveNonStillFooter || externalError != null || fileNotice != null || extraFooter != null) {
+                    Column(Modifier.fillMaxWidth().graphicsLayer { alpha = viewerProgress }) {
+                        if (reserveNonStillFooter) {
+                            if (controlsVisible) Box(Modifier.graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }) { bottomChromeContent() }
+                            else Box(Modifier.fillMaxWidth().heightIn(min = 64.dp))
+                        }
+                        externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
+                        fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).errorAnnouncement()) }
+                        extraFooter?.invoke()
+                    }
+                }
             }
         }
     }
