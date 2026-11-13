@@ -7,19 +7,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
+import kotlinx.coroutines.delay
 
 /**
  * Fades a panel in and lifts it by [rise] when it first appears. The offset and the fade both follow [token], so the
  * preset and the speed apply without the caller knowing them. An instant spec starts fully visible, so reduced motion
- * and the Off preset never show a frame at alpha 0.
+ * and the Off preset never show a frame at alpha 0. [delayMillis] staggers the start; it is ignored when motion is off.
  */
 @Composable
-fun Modifier.motionEntrance(token: MotionToken, rise: Dp): Modifier {
+fun Modifier.motionEntrance(token: MotionToken, rise: Dp, delayMillis: Int = 0): Modifier {
     val spec = rememberMotionSpec(token)
     val progress = remember { Animatable(if (spec.isInstant) 1f else 0f) }
     // Motion switched off mid-entrance must still finish at full opacity, not stop at the intermediate value.
     LaunchedEffect(spec) {
-        if (spec.isInstant) progress.snapTo(1f) else progress.animateTo(1f, spec.animationSpec())
+        if (spec.isInstant) {
+            progress.snapTo(1f)
+        } else {
+            if (delayMillis > 0) delay(delayMillis.toLong())
+            progress.animateTo(1f, spec.animationSpec())
+        }
     }
     return graphicsLayer {
         alpha = progress.value
