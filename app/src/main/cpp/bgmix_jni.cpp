@@ -29,6 +29,8 @@
 #define BGMIX_LOG_TAG "BgMixJNI"
 #define BGMIX_LOGW(...) __android_log_print(ANDROID_LOG_WARN, BGMIX_LOG_TAG, __VA_ARGS__)
 
+#include "wave/wave_pcm_tap.h"
+
 #if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
 #include "bgmedia/audio/MiniaudioMixLoader.hpp"
 #include "bgmedia/mix/MixEngine.hpp"
@@ -38,6 +40,8 @@
 namespace {
 
 constexpr std::uint32_t kMixSampleRate = 48000;
+// About 1.3 s at 48 kHz: enough slack for a network sender to fall behind briefly.
+constexpr std::size_t kWaveTapCapacityFrames = 65536;
 
 jbyteArray stringToBytes(JNIEnv* env, std::string_view text) {
     jbyteArray out = env->NewByteArray(static_cast<jsize>(text.size()));
@@ -108,6 +112,8 @@ struct MixHost {
     std::mutex control;
     bgmedia::mix::MixEngine engine{kMixSampleRate};
     std::unique_ptr<bgmedia::mix::MixSession> session;
+    // BG Wave host tap: disabled until a wave session starts; render never blocks on it.
+    bgwave::PcmTap waveTap{kWaveTapCapacityFrames};
 
     explicit MixHost(std::filesystem::path cacheDirectory) {
         session = std::make_unique<bgmedia::mix::MixSession>(
@@ -314,6 +320,7 @@ Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeRender(JNIEnv* env, jclass
     jfloat* data = env->GetFloatArrayElements(out, nullptr);
     if (!data) return 0;
     host->engine.render(data, static_cast<std::size_t>(wanted));
+    host->waveTap.push(data, static_cast<std::size_t>(wanted));
     env->ReleaseFloatArrayElements(out, data, 0);
     return wanted;
 #else
