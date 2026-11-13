@@ -1,6 +1,9 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
+import android.content.res.Configuration
+import android.view.accessibility.AccessibilityManager
+import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
 import android.content.Intent
 import android.graphics.Bitmap
@@ -20,8 +23,13 @@ import android.util.LruCache
 import android.webkit.MimeTypeMap
 import android.widget.ImageView
 import androidx.compose.foundation.Image
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.animateFloatAsState
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -74,6 +82,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
@@ -953,9 +962,46 @@ internal fun MediaViewer(
     var controlsVisible by remember { mutableStateOf(true) }
     // Панель возвращается при каждом переходе: иначе после скрытия на фото нельзя вернуть действия на видео или файле.
     LaunchedEffect(pagerState.settledPage) { controlsVisible = true }
+    val touchExploration = remember(context) {
+        val manager = context.getSystemService(AccessibilityManager::class.java)
+        manager?.isEnabled == true && manager.isTouchExplorationEnabled
+    }
+    val configuration = LocalConfiguration.current
+    val hasNonTouchNavigation = configuration.keyboard != Configuration.KEYBOARD_NOKEYS ||
+        configuration.navigation == Configuration.NAVIGATION_DPAD ||
+        configuration.navigation == Configuration.NAVIGATION_TRACKBALL ||
+        configuration.navigation == Configuration.NAVIGATION_WHEEL
+    val showAssistiveControls = MediaViewerPolicy.shouldShowNavigationControls(
+        touchExploration = touchExploration,
+        smallestScreenWidthDp = configuration.smallestScreenWidthDp,
+        hasNonTouchNavigation = hasNonTouchNavigation
+    )
+    val isStillImage = shown.media.mimeType.startsWith("image/") && shown.media.kind != MediaKind.Sticker
     // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
     val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
     val exportPath = if (canExport && !shown.media.isSecret && !shown.viewOnce && !shownHidden) shownFile.localPath else null
+    LaunchedEffect(
+        pagerState.settledPage,
+        controlsVisible,
+        menuOpen,
+        touchExploration,
+        shownHidden,
+        shownFile.localPath != null,
+        isStillImage
+    ) {
+        if (MediaViewerPolicy.shouldAutoHideControls(
+                isStillImage = isStillImage,
+                controlsVisible = controlsVisible,
+                menuOpen = menuOpen,
+                touchExploration = touchExploration,
+                spoilerHidden = shownHidden,
+                fileReady = shownFile.localPath != null
+            )
+        ) {
+            delay(3600L)
+            controlsVisible = false
+        }
+    }
     // Кнопки могут показывать право, пришедшее для соседнего вложения, поэтому каждое действие сверяет право заново.
     fun exportIfAllowed(messageId: Long, action: suspend () -> String?) {
         scope.launch { fileNotice = if (confirmExport(messageId)) action() else context.getString(R.string.media_export_denied) }
@@ -971,6 +1017,8 @@ internal fun MediaViewer(
     // at full intensity. The close waits for the exit before it
     // calls onClose, so the dialog leaves the tree only after it has animated out. Off and reduced motion start shown.
     val viewerSpec = rememberMotionSpec(MotionToken.MediaExpand)
+    val chromeSpec = viewerSpec
+    val palette = beyGramPalette()
     var viewerShown by remember { mutableStateOf(viewerSpec.isInstant) }
     var viewerClosing by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { viewerShown = true }
@@ -984,9 +1032,30 @@ internal fun MediaViewer(
             onClose()
         }
     }
+    val hasPrimaryBottomActions = (actions != null && actions.canForward) || exportPath != null
+    val hasOverflowActions = (actions != null && (actions.canEdit || actions.canDelete)) || exportPath != null || onShowInChat != null
+    val bottomChromeContent: @Composable () -> Unit = {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 64.dp)
+                .background(Color(0xB3070B10))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download, Color.White) {
+                exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
+            }
+            if (exportPath != null) ViewerAction(stringResource(R.string.common_share), Icons.Rounded.Share, Color.White) {
+                exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) }
+            }
+            if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, Color.White, onClick = actions.onForward)
+        }
+    }
     Dialog(onDismissRequest = ::requestClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia, settledViewOnce)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
-        // Верхняя панель лежит поверх страницы: тап по картинке её прячет, крестик закрытия виден всегда.
-        // Панель действий и сообщения стоят под страницей, потому что поверх неё лежит управление видео и аудио.
+        // Верхняя панель и нижние действия на фото лежат поверх страницы: тап по картинке или idle их прячет, крестик закрытия остаётся доступным.
+        // На видео/аудио нижние действия стоят под страницей, чтобы не перекрывать полосу перемотки плеера.
         val pageSize = LocalWindowInfo.current.containerSize
         // Read in the draw phase, so the page moves per frame without recomposing the dialog content.
         Column(Modifier.fillMaxSize().graphicsLayer {
@@ -1006,18 +1075,30 @@ internal fun MediaViewer(
                             fullFileOnlyWhenActive = fullFileOnlyWhenActive,
                             revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                             onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
-                            onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible }, controlsVisible = controlsVisible)
+                            onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
+                            showZoomControls = showAssistiveControls && controlsVisible && page == safeSettledPage)
                     }
                 }
                 Row(
-                    Modifier.fillMaxWidth().align(Alignment.TopCenter).background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent).padding(horizontal = 6.dp, vertical = 6.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent)
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = ::requestClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
+                    IconButton(
+                        onClick = ::requestClose,
+                        modifier = if (!controlsVisible) Modifier.background(Color(0x66070B10), CircleShape) else Modifier
+                    ) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
                     if (controlsVisible) {
                         Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
                             Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            val counter = if (currentPages.size > 1) "${safeSettledPage + 1} / ${currentPages.size}" else null
+                            val subtitleLine = listOfNotNull(counter, subtitle?.takeIf { it.isNotBlank() }).joinToString(" · ")
+                            if (subtitleLine.isNotEmpty()) {
+                                Text(subtitleLine, color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                             // Read-only traffic line for the selected file. Secret, view-once and hidden-spoiler
                             // pages keep their existing presentation and never show download details.
                             if (shownFile.isDownloading && !shown.media.isSecret && !shown.media.isSecretChat && !shown.viewOnce && !shownHidden) {
@@ -1030,18 +1111,33 @@ internal fun MediaViewer(
                                 )
                             }
                         }
-                        if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
-                        if (exportPath != null || onShowInChat != null) Box {
+                        if (hasOverflowActions) Box {
                             IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
                             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                if (exportPath != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_open_in_other_app)) }, onClick = { menuOpen = false; openExternal(shown, exportPath) })
-                                if (onShowInChat != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_show_in_chat)) }, onClick = { menuOpen = false; onShowInChat(shown.messageId) })
+                                if (actions != null && actions.canEdit) DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.common_edit)) },
+                                    leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                                    onClick = { menuOpen = false; actions.onEdit() }
+                                )
+                                if (exportPath != null) DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.media_open_in_other_app)) },
+                                    onClick = { menuOpen = false; openExternal(shown, exportPath) }
+                                )
+                                if (onShowInChat != null) DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.media_show_in_chat)) },
+                                    onClick = { menuOpen = false; onShowInChat(shown.messageId) }
+                                )
+                                if (actions != null && actions.canDelete) DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.common_delete), color = palette.danger) },
+                                    leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = palette.danger) },
+                                    onClick = { menuOpen = false; actions.onDelete() }
+                                )
                             }
                         }
                     } else Spacer(Modifier.weight(1f))
                 }
-                // Кнопки листания нужны тем, кто не листает пальцем, например TalkBack. Кнопка у края неактивна, если соседней страницы нет.
-                if (currentPages.size > 1) {
+                // Кнопки листания показываются для TalkBack, клавиатуры/мыши и планшетов; на сенсорном телефоне фото остаётся свободным от стрелок.
+                if (showAssistiveControls && controlsVisible && currentPages.size > 1) {
                     IconButton(
                         onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage - 1) } },
                         enabled = safeSettledPage > 0,
@@ -1053,15 +1149,19 @@ internal fun MediaViewer(
                         modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
                     ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
                 }
-            }
-            // Строка всегда занимает место, где может появиться действие: иначе страница прыгает, когда докачанный файл добавляет «Сохранить».
-            if (actions != null || canExport) Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
-                if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
-                    exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
+                if (isStillImage && hasPrimaryBottomActions) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = controlsVisible,
+                        enter = chromeSpec.fadeEnter(),
+                        exit = chromeSpec.fadeExit(),
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    ) {
+                        bottomChromeContent()
+                    }
                 }
-                if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
-                if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
+            }
+            if (!isStillImage && hasPrimaryBottomActions && controlsVisible) {
+                bottomChromeContent()
             }
             externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
             fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).errorAnnouncement()) }
@@ -1076,7 +1176,7 @@ private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     autoDownloadFile: (AutoDownloadRequest) -> Unit,
     canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
-    onDismiss: () -> Unit, onToggleControls: () -> Unit, controlsVisible: Boolean
+    onDismiss: () -> Unit, onToggleControls: () -> Unit, showZoomControls: Boolean
 ) {
     val media = item.media
     val context = LocalContext.current
@@ -1253,7 +1353,7 @@ private fun MediaViewerPage(
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
                 if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
-            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = controlsVisible && active,
+            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = showZoomControls,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) })
@@ -1282,7 +1382,7 @@ private fun PhotoPreview(file: MediaFileState, thumbnailPath: String?, onDownloa
 }
 
 @Composable
-private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color(0xFFCFC4FF), onClick: () -> Unit) {
+private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color.White, onClick: () -> Unit) {
     Column(Modifier.heightIn(min = 48.dp).clip(styledShape(12.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
         Spacer(Modifier.height(4.dp))

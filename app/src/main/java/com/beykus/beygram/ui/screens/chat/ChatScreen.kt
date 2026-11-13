@@ -806,6 +806,8 @@ fun ChatScreen(
     }
     val window = LocalWindowInfo.current
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }
+    val bubbleBounds = remember(chat.id) { HashMap<Long, Rect>() }
+    var actionAnchorBounds by remember(chat.id) { mutableStateOf<Rect?>(null) }
     val actionMessage = messages.firstOrNull { it.id == actionsId }
     // An album's reactions sit on one of its messages, so the picker and the chips act on that message.
     val reactionOwner = actionMessage?.let { target -> messageListItems.firstOrNull { item -> item.messages.any { it.id == target.id } }?.messages?.let(::reactionMessage) }
@@ -817,7 +819,7 @@ fun ChatScreen(
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
-    fun closeActions() { actionsId = null; reactionPickerOpen = false; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
+    fun closeActions() { actionsId = null; actionAnchorBounds = null; reactionPickerOpen = false; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     fun enterSelection(message: ChatMessage? = null) {
         closeActions()
         selectionMode = true
@@ -842,13 +844,14 @@ fun ChatScreen(
         selectionDeleteBusy = false
         selectionDeleteError = null
     }
-    // A long press opens message actions and its reaction picker directly.
-    // Multi-select remains a deliberate action within MessageActionsBar.
+    // A long press opens the anchored contextual popover directly.
+    // Multi-select remains a deliberate action within the menu.
     fun openActionsOnLongPress(messageId: Long) {
-        if (selectionMode) return
+        if (selectionMode || actionsId == messageId) return
         // Remember the same anchor used by SelectionActionBar's single-message More action.
         // Entering Select from the action menu must not lose the original message context.
         selectionAnchorId = messageId
+        actionAnchorBounds = bubbleBounds[messageId]
         actionsId = messageId
         reactionPickerOpen = false
     }
@@ -1074,12 +1077,14 @@ fun ChatScreen(
     LaunchedEffect(actionMessage) {
         if (actionMessage == null) { deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     }
-    LaunchedEffect(actionsId, capabilitiesAttempt) {
+    LaunchedEffect(chat.id, actionsId, capabilitiesAttempt) {
         val id = actionsId ?: return@LaunchedEffect
         capabilities = null; capabilitiesError = null
         val result = conversation.messageCapabilities(chat.id, id)
-        capabilities = result.getOrNull()
-        capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
+        if (actionsId == id) {
+            capabilities = result.getOrNull()
+            capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
+        }
     }
     fun setPinned(message: ChatMessage, pinned: Boolean) {
         pinConfirm = false
@@ -1596,56 +1601,11 @@ fun ChatScreen(
             canCopy = selectionCanCopy,
             canSave = selectionCanSave,
             onClose = ::exitSelection,
-            onMore = singleActionTarget?.let { id -> { exitSelection(); actionsId = id } },
+            onMore = singleActionTarget?.let { id -> { exitSelection(); actionAnchorBounds = bubbleBounds[id]; actionsId = id } },
             onForward = { forwardAsCopy = false; selectionForwardOpen = true; selectionError = null },
             onDelete = ::requestSelectionDelete,
             onCopy = ::copySelection,
             onSave = ::saveSelection
-        ) else if (actionMessage != null) MessageActionsBar(
-            capabilities = capabilities?.let { caps ->
-                // TDLib already forbids this; keep a local guard so a stale capability response cannot expose view-once.
-                if (actionMessage.isViewOnce) caps.copy(canForward = false, canCopy = false, canGetLink = false, canEdit = false) else caps
-            },
-            error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
-            canPin = canTogglePin(capabilities?.canPin == true), isPinned = actionMessage.isPinned,
-            onClose = ::closeActions, onRetry = { capabilitiesAttempt++ },
-            onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
-            onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
-            onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
-            onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
-            onTogglePin = {
-                if (chat.isChannel && !actionMessage.isPinned) pinConfirm = true
-                else setPinned(actionMessage, !actionMessage.isPinned)
-            },
-            onCopyLink = {
-                val target = actionMessage
-                scope.launch {
-                    conversation.messageLink(chat.id, target.id, inMessageThread = forumTopicId > 0L)
-                        .onSuccess {
-                            clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.message_link), it))
-                            Toast.makeText(context, context.getString(R.string.message_link_copied), Toast.LENGTH_SHORT).show()
-                        }
-                        .onFailure { error = it.userMessage(context, R.string.err_message_link_unavailable) }
-                    closeActions()
-                }
-            },
-            onReactions = if (reactionOwner != null && reactionOptions.isNotEmpty()) { { reactionPickerOpen = true } } else null,
-            onCopyEntity = if (actionMessage.isViewOnce || chat.hasProtectedContent) null else copyableMessageLinks(actionMessage.text, actionMessage.entities)
-                .takeIf { it.isNotEmpty() }
-                ?.let { values -> { copyLinks = values; closeActions() } },
-            onForward = { forwardAsCopy = false; forwardId = actionMessage.id; closeActions() },
-            onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() },
-            onSelect = { enterSelection(actionMessage) },
-            onTranslate = if (actionMessage.mediaAlbumId == 0L && actionMessage.sendState == MessageSendState.Sent &&
-                TranslationPolicy.canTranslate(chat.isSecret, actionMessage.text.isNotBlank())) {
-                { translationPickerId = actionMessage.id; closeActions() }
-            } else null,
-            onReport = if (!actionMessage.isOutgoing && !chat.isSecret) {
-                { reportMessageId = actionMessage.id; closeActions() }
-            } else null,
-            onAddToPlaylist = if (chat.hasProtectedContent) null else playlistTrackOf(actionMessage, accountId, { id -> observeFile(id).value }, context.getString(R.string.media_kind_audio))?.let { track -> { playlistTrack = track; closeActions() } },
-            onPlayNext = queueActionItem(actionMessage, chat.hasProtectedContent)?.let { item -> { enqueueMusic(item, atEnd = false); closeActions() } },
-            onEnqueue = queueActionItem(actionMessage, chat.hasProtectedContent)?.let { item -> { enqueueMusic(item, atEnd = true); closeActions() } }
         ) else if (searching) ChatSearchBar(
             query = searchQuery,
             onQueryChange = { searchQuery = it },
@@ -1678,7 +1638,7 @@ fun ChatScreen(
         // Keep playback accessible below the chat header, not between messages and the composer.
         // The input/IME and reply controls should remain adjacent to the message list.
         // In the split layout the player already lives under the list on the left, so the chat has no strip of its own.
-        if (!windowLayout.twoPane) NowPlayingBar()
+        if (!windowLayout.twoPane) NowPlayingBar(compact = true)
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
         if (translationTargetMessage != null && TranslationPolicy.canTranslate(chat.isSecret, translationTargetMessage.text.isNotBlank())) {
@@ -1699,6 +1659,75 @@ fun ChatScreen(
                     }
                 },
                 onDismiss = { reportMessageId = null }
+            )
+        }
+        if (actionMessage != null && !deleting && !reactionPickerOpen && !pinConfirm) {
+            val chosenReactions = reactionOwner?.reactions
+                ?.filter { it.isChosen && !it.isPaid }
+                ?.mapTo(hashSetOf()) { it.option }
+                .orEmpty()
+            MessageContextPopover(
+                anchorBounds = actionAnchorBounds,
+                isOutgoing = actionMessage.isOutgoing,
+                capabilities = capabilities?.let { caps ->
+                    // TDLib already forbids this; keep a local guard so a stale capability response cannot expose view-once.
+                    if (actionMessage.isViewOnce) caps.copy(canForward = false, canCopy = false, canGetLink = false, canEdit = false) else caps
+                },
+                error = capabilitiesError,
+                hasText = actionMessage.text.isNotBlank(),
+                isMedia = actionMessage.media != null,
+                canPin = canTogglePin(capabilities?.canPin == true),
+                isPinned = actionMessage.isPinned,
+                reactionOptions = reactionOptions,
+                chosenReactions = chosenReactions,
+                observeCustomEmoji = conversation::observeCustomEmoji,
+                observeFile = observeFile,
+                onDownloadFile = onDownloadFile,
+                onQuickReaction = if (reactionOwner != null) {
+                    { option ->
+                        setReaction(reactionOwner.id, option, addToRecent = true)
+                        closeActions()
+                    }
+                } else null,
+                onClose = ::closeActions,
+                onRetry = { capabilitiesAttempt++ },
+                onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
+                onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
+                onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
+                onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
+                onTogglePin = {
+                    if (chat.isChannel && !actionMessage.isPinned) pinConfirm = true
+                    else setPinned(actionMessage, !actionMessage.isPinned)
+                },
+                onCopyLink = {
+                    val target = actionMessage
+                    scope.launch {
+                        conversation.messageLink(chat.id, target.id, inMessageThread = forumTopicId > 0L)
+                            .onSuccess {
+                                clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.message_link), it))
+                                Toast.makeText(context, context.getString(R.string.message_link_copied), Toast.LENGTH_SHORT).show()
+                            }
+                            .onFailure { error = it.userMessage(context, R.string.err_message_link_unavailable) }
+                        closeActions()
+                    }
+                },
+                onReactions = if (reactionOwner != null && reactionOptions.isNotEmpty()) { { reactionPickerOpen = true } } else null,
+                onCopyEntity = if (actionMessage.isViewOnce || chat.hasProtectedContent) null else copyableMessageLinks(actionMessage.text, actionMessage.entities)
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { values -> { copyLinks = values; closeActions() } },
+                onForward = { forwardAsCopy = false; forwardId = actionMessage.id; closeActions() },
+                onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() },
+                onSelect = { enterSelection(actionMessage) },
+                onTranslate = if (actionMessage.mediaAlbumId == 0L && actionMessage.sendState == MessageSendState.Sent &&
+                    TranslationPolicy.canTranslate(chat.isSecret, actionMessage.text.isNotBlank())) {
+                    { translationPickerId = actionMessage.id; closeActions() }
+                } else null,
+                onReport = if (!actionMessage.isOutgoing && !chat.isSecret) {
+                    { reportMessageId = actionMessage.id; closeActions() }
+                } else null,
+                onAddToPlaylist = if (chat.hasProtectedContent) null else playlistTrackOf(actionMessage, accountId, { id -> observeFile(id).value }, context.getString(R.string.media_kind_audio))?.let { track -> { playlistTrack = track; closeActions() } },
+                onPlayNext = queueActionItem(actionMessage, chat.hasProtectedContent)?.let { item -> { enqueueMusic(item, atEnd = false); closeActions() } },
+                onEnqueue = queueActionItem(actionMessage, chat.hasProtectedContent)?.let { item -> { enqueueMusic(item, atEnd = true); closeActions() } }
             )
         }
         reactionOwner?.takeIf { !deleting && reactionPickerOpen }?.let { owner ->
@@ -1764,7 +1793,15 @@ fun ChatScreen(
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                     highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
                                     onOpen = { selectedMediaId = it }, onActions = ::openActionsOnLongPress, onReplyClick = ::jump,
-                                    onMediaBounds = { rect -> listItem.messages.forEach { mediaOrigins[it.id] = rect } }, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                    onMediaBounds = { rect ->
+                                        listItem.messages.forEach {
+                                            mediaOrigins[it.id] = rect
+                                            bubbleBounds[it.id] = rect
+                                        }
+                                        if (actionsId != null && listItem.messages.any { it.id == actionsId }) {
+                                            actionAnchorBounds = rect
+                                        }
+                                    }, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                     onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
                                     selectionMode = selectionMode,
                                     selected = listItem.messages.all { it.id in selectionIds },
@@ -1786,8 +1823,10 @@ fun ChatScreen(
                     val diceAnimationId = rememberDiceAnimationId(message.id, history.recentReplacements)
                     val launch = launchTargets[message.id]
                     val launchModifier = if (launch != null) Modifier.graphicsLayer { alpha = 0f } else Modifier
-                    val bubblePosition: ((Rect) -> Unit)? = launch?.let { target ->
-                        { rect ->
+                    val bubblePosition: (Rect) -> Unit = { rect ->
+                        bubbleBounds[message.id] = rect
+                        if (actionsId == message.id) actionAnchorBounds = rect
+                        launch?.let { target ->
                             val fieldTop = composerFieldBounds?.top ?: Float.MAX_VALUE
                             val screenTop = launchOverlayBounds?.top ?: 0f
                             // Ignore prefetched or offscreen rows: the overlay must land on a bubble the user can see.

@@ -38,4 +38,28 @@ internal object MediaViewerPolicy {
         }.takeIf { it >= 0 } ?: pages.size
         return pages.toMutableList().apply { add(index, retained) }
     }
+
+    /**
+     * Side pager arrows and zoom +/- buttons are shown when touch exploration (TalkBack) is active,
+     * on large screens/tablets, or when hardware keyboard/d-pad navigation is present. On touch phones,
+     * horizontal swipe and pinch-to-zoom keep the photo free of permanent overlay buttons.
+     */
+    fun shouldShowNavigationControls(
+        touchExploration: Boolean,
+        smallestScreenWidthDp: Int,
+        hasNonTouchNavigation: Boolean
+    ): Boolean = touchExploration || smallestScreenWidthDp >= 600 || hasNonTouchNavigation
+
+    /**
+     * Still images auto-hide chrome after idle when no menu is open, TalkBack is off, the spoiler is
+     * already revealed, and the image is ready.
+     */
+    fun shouldAutoHideControls(
+        isStillImage: Boolean,
+        controlsVisible: Boolean,
+        menuOpen: Boolean,
+        touchExploration: Boolean,
+        spoilerHidden: Boolean,
+        fileReady: Boolean
+    ): Boolean = isStillImage && controlsVisible && !menuOpen && !touchExploration && !spoilerHidden && fileReady
 }

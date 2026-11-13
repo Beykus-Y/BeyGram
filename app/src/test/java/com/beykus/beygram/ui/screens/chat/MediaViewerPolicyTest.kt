@@ -102,4 +102,20 @@ class MediaViewerPolicyTest {
         assertEquals(emptyList<MediaViewerItem>(), MediaViewerPolicy.retainViewOncePage(emptyList(), ordinary))
         assertEquals(emptyList<MediaViewerItem>(), MediaViewerPolicy.retainViewOncePage(emptyList(), null))
     }
+
+    @Test fun navigationControlsHiddenOnTouchPhoneAndShownForAssistiveOrLargeScreens() {
+        assertFalse(MediaViewerPolicy.shouldShowNavigationControls(touchExploration = false, smallestScreenWidthDp = 390, hasNonTouchNavigation = false))
+        assertTrue(MediaViewerPolicy.shouldShowNavigationControls(touchExploration = true, smallestScreenWidthDp = 390, hasNonTouchNavigation = false))
+        assertTrue(MediaViewerPolicy.shouldShowNavigationControls(touchExploration = false, smallestScreenWidthDp = 600, hasNonTouchNavigation = false))
+        assertTrue(MediaViewerPolicy.shouldShowNavigationControls(touchExploration = false, smallestScreenWidthDp = 390, hasNonTouchNavigation = true))
+    }
+
+    @Test fun autoHideOnlyAppliesToReadyUnobstructedStillImages() {
+        assertTrue(MediaViewerPolicy.shouldAutoHideControls(isStillImage = true, controlsVisible = true, menuOpen = false, touchExploration = false, spoilerHidden = false, fileReady = true))
+        assertFalse(MediaViewerPolicy.shouldAutoHideControls(isStillImage = false, controlsVisible = true, menuOpen = false, touchExploration = false, spoilerHidden = false, fileReady = true))
+        assertFalse(MediaViewerPolicy.shouldAutoHideControls(isStillImage = true, controlsVisible = true, menuOpen = true, touchExploration = false, spoilerHidden = false, fileReady = true))
+        assertFalse(MediaViewerPolicy.shouldAutoHideControls(isStillImage = true, controlsVisible = true, menuOpen = false, touchExploration = true, spoilerHidden = false, fileReady = true))
+        assertFalse(MediaViewerPolicy.shouldAutoHideControls(isStillImage = true, controlsVisible = true, menuOpen = false, touchExploration = false, spoilerHidden = true, fileReady = true))
+        assertFalse(MediaViewerPolicy.shouldAutoHideControls(isStillImage = true, controlsVisible = true, menuOpen = false, touchExploration = false, spoilerHidden = false, fileReady = false))
+    }
 }
