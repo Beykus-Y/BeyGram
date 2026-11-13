@@ -101,12 +101,17 @@ data class ProviderTrack(
     val liked: Boolean? = null,
     /** Album of the track inside the provider, for opening the album. Null when the track has none. */
     val albumId: String? = null,
+    /** Artists of the track with their provider ids, for a radio of the artist. Empty when the provider gives no ids. */
+    val artistRefs: List<ProviderArtistRef> = emptyList(),
 ) {
     /** Stable player key for this track: `ym:<trackId>`. */
     val key: String get() = YANDEX_TRACK_KEY_PREFIX + trackId
 
     val performer: String get() = artists.joinToString(", ")
 }
+
+/** An artist of a track: the provider id and the name shown. */
+data class ProviderArtistRef(val id: String, val name: String)
 
 data class ProviderPlaylist(
     /** Playlist id inside the provider, passed to [MusicProvider.playlistTracks]. */

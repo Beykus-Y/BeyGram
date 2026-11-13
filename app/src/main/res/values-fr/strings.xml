@@ -791,6 +791,8 @@
     <string name="music_provider_like">J’aime</string>
     <string name="music_provider_unlike">Retirer des titres aimés</string>
     <string name="music_provider_wave_track">Vague à partir de ce titre</string>
+    <string name="music_provider_wave_artist">Vague de cet artiste</string>
+    <string name="music_provider_wave_artist_named">Vague : %1$s</string>
     <string name="music_provider_open_album">Aller à l’album</string>
     <string name="music_provider_share_link">Partager le lien</string>
     <string name="music_open_in_browser">Ouvrir dans le navigateur</string>

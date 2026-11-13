@@ -20,6 +20,9 @@ internal object YandexWave {
     /** Seed of a wave built from one track; the id is the service's track id. Format not yet checked on the live API. */
     fun trackSeed(trackId: String): String = "track:$trackId"
 
+    /** Seed of a wave built from one artist. Format not yet checked on the live API. */
+    fun artistSeed(artistId: String): String = "artist:$artistId"
+
     /** How many of the last given tracks are sent back, so the service does not repeat them. */
     const val QUEUE_HINT = 50
 

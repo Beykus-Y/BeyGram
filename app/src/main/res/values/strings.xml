@@ -2342,6 +2342,8 @@
     <string name="music_provider_like">Нравится</string>
     <string name="music_provider_unlike">Убрать из «Мне нравится»</string>
     <string name="music_provider_wave_track">Волна по треку</string>
+    <string name="music_provider_wave_artist">Волна по исполнителю</string>
+    <string name="music_provider_wave_artist_named">Волна: %1$s</string>
     <string name="music_provider_open_album">Перейти к альбому</string>
     <string name="music_provider_share_link">Поделиться ссылкой</string>
     <string name="music_open_in_browser">Открыть в браузере</string>

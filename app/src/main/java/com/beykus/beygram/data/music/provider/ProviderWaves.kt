@@ -9,4 +9,8 @@ import android.content.Context
 object ProviderWaves {
     @Volatile
     var fromTrack: ((Context, ProviderTrack) -> Unit)? = null
+
+    /** Starts a radio of one artist of a track, from the track menu. */
+    @Volatile
+    var fromArtist: ((Context, ProviderTrack, ProviderArtistRef) -> Unit)? = null
 }

@@ -41,6 +41,7 @@
     <string name="yandex_wave_title">Ma Vague</string>
     <string name="yandex_wave_source_personal">Selon vos goûts</string>
     <string name="yandex_wave_source_track">Selon « %1$s »</string>
+    <string name="yandex_wave_source_artist">Selon l’artiste « %1$s »</string>
     <string name="yandex_wave_subtitle">Un flux infini de titres choisis pour vous</string>
     <string name="yandex_wave_starting">Sélection des titres…</string>
     <string name="yandex_wave_failed">Impossible de lancer la vague. Touchez pour réessayer.</string>
