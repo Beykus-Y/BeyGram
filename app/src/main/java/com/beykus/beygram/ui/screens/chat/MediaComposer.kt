@@ -117,6 +117,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassSheet
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.motion.rememberMotionSpec
@@ -1238,7 +1239,7 @@ internal fun AttachmentPanel(
             shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = exitSpec.animationSpec()) +
                 fadeOut(animationSpec = exitSpec.animationSpec())
     ) {
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    Column(Modifier.fillMaxWidth().glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)) {
         when {
             state.menuOpen || (!visible && exitMenuOpen) -> AttachmentMenu(
                 allowsPolls = state.allowsPolls,

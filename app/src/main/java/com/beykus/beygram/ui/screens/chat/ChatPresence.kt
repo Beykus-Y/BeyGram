@@ -45,6 +45,10 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ProfileInfo
 import com.beykus.beygram.domain.model.ProfilePresence
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.usesGlassPanels
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
@@ -122,7 +126,12 @@ internal fun TypingRow(names: List<String>) {
     val palette = beyGramPalette()
     // Пустое имя значит, что имя неизвестно. UiText.Res не разворачивает вложенный UiText, поэтому подставляем его здесь.
     val someone = stringResource(R.string.presence_someone)
-    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    // In Liquid Glass the line is a floating card, so it keeps a fill without the glass pane behind it.
+    val design = LocalDesignSystem.current
+    val frame = if (design.usesGlassPanels) Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        .glassCard(design, palette.surface, palette.textSecondary, RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 6.dp)
+    else Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+    Row(Modifier.fillMaxWidth().then(frame), verticalAlignment = Alignment.CenterVertically) {
         Text(typingLabel(names.map { it.ifBlank { someone } }).resolve(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false))
         Spacer(Modifier.width(8.dp))
