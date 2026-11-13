@@ -67,6 +67,8 @@ if(HAVE_BGMEDIA)
     # BG Wave peer-to-peer adapters (libopus + libdatachannel). Off until the Android build is verified.
 option(BEYGRAM_WAVE_P2P "Build the BG Wave Opus and WebRTC adapters" ON)
 if(BEYGRAM_WAVE_P2P)
+    # libdatachannel pulls in plog, whose cmake_minimum_required(VERSION < 3.5) the NDK CMake rejects.
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
     set(BGMEDIA_BUILD_WAVE_OPUS ON CACHE BOOL "" FORCE)
     set(BGMEDIA_BUILD_WAVE_WEBRTC ON CACHE BOOL "" FORCE)
 endif()
