@@ -72,6 +72,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.StarBorder
@@ -1176,6 +1177,7 @@ private fun PlayerActions(
     val radioLiked = radioTrack?.let { likes[it.trackId] ?: it.liked ?: false }
     val likeLabel = stringResource(R.string.music_provider_like)
     val likeFailed = stringResource(R.string.music_provider_like_failed)
+    val dislikeLabel = stringResource(R.string.music_radio_dislike)
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
     // The sound button shows the timer when one runs, else a speed other than 1×, else the plain word.
@@ -1210,7 +1212,12 @@ private fun PlayerActions(
             enabled = false
         )
     }
-    val playlistSlot = PlayerActionUi(
+    // In a radio this slot dislikes the track instead: it is skipped at once and an undo offer shows for a few seconds.
+    val playlistSlot = if (radioTrack != null) PlayerActionUi(
+        icon = Icons.Rounded.ThumbDown,
+        label = dislikeLabel,
+        onClick = { ProviderTracks.dislikeWithUndo(context, radioTrack) }
+    ) else PlayerActionUi(
         icon = Icons.Rounded.Add,
         label = addLabel,
         onClick = { addOpen = true },
@@ -1223,6 +1230,8 @@ private fun PlayerActions(
         onClick = { soundOpen = true },
         active = soundStatus != null
     )
+    val pendingDislike by ProviderTracks.pendingDislike.collectAsStateWithLifecycle()
+    if (pendingDislike != null) DislikeUndoBar(onUndo = { ProviderTracks.undoDislike(context) })
     // Always four places, in the same order for every source.
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(likeSlot, playlistSlot, queueSlot, soundSlot).forEach { action ->
@@ -1231,6 +1240,20 @@ private fun PlayerActions(
     }
     if (addOpen && track != null) AddToPlaylistSheet(accountId = item.accountId, track = track, onDismiss = { addOpen = false })
     if (soundOpen) PlayerSoundSheet(player = player, onOpenEqualizer = onOpenEqualizer, onDismiss = { soundOpen = false })
+}
+
+@Composable
+private fun DislikeUndoBar(onUndo: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            stringResource(R.string.music_radio_disliked),
+            color = palette.textSecondary,
+            fontSize = 12.sp,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onUndo) { Text(stringResource(R.string.music_radio_dislike_undo), color = palette.accent) }
+    }
 }
 
 private data class PlayerActionUi(

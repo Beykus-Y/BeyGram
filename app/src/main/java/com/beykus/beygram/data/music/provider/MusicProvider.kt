@@ -44,6 +44,13 @@ interface MusicProvider {
 
     suspend fun setLiked(trackId: String, liked: Boolean): ProviderResult<Unit>
 
+    /**
+     * Dislikes a track so the source stops giving it, or undoes that. Sources without the feature keep this default:
+     * the request fails and nothing changes for the listener.
+     */
+    suspend fun setDisliked(trackId: String, disliked: Boolean): ProviderResult<Unit> =
+        ProviderResult.Failure(MusicProviderFailure.Unavailable)
+
     suspend fun playlists(): ProviderResult<List<ProviderPlaylist>>
 
     /**

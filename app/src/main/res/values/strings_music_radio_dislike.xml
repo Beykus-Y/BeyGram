@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="music_radio_dislike">Не нравится</string>
+    <string name="music_radio_disliked">Трек пропущен, волна его не повторит</string>
+    <string name="music_radio_dislike_undo">Отменить</string>
+</resources>

@@ -77,6 +77,15 @@ internal class YandexApi(private val http: YandexHttp) {
         return call(token, "/users/$uid/likes/tracks/$action", form = mapOf("track-ids" to trackId)) { Unit }
     }
 
+    /**
+     * Dislikes a track (or undoes it). Endpoint and form are not yet checked on the live API: a failure only means the
+     * service did not learn about it, and the radio keeps playing.
+     */
+    fun setDisliked(token: String, uid: String, trackId: String, disliked: Boolean): ProviderResult<Unit> {
+        val action = if (disliked) "add-multiple" else "remove"
+        return call(token, "/users/$uid/dislikes/tracks/$action", form = mapOf("track-ids" to trackId)) { Unit }
+    }
+
     fun playlists(token: String, uid: String): ProviderResult<List<ProviderPlaylist>> =
         call(token, "/users/$uid/playlists/list") { root ->
             val array = root.resultArray()
