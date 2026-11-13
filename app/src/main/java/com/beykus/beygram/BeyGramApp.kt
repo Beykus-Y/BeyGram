@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.snap
+import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.Box
@@ -1624,7 +1625,13 @@ private fun BeyGramAppContent(
     // Направление перехода берётся из порядка открытия экранов: назад — pop, новый экран — push, вкладки — fade.
     // Keep back-stack direction local to the active account. A route visited in another account
     // must not turn a new screen into a backwards transition after switching accounts.
-    val routeHistory = remember(selectedAccountId) { NavigationHistory(initial = route, isRoot = { it in tabRootRoutes }) }
+    val routeHistory = remember(selectedAccountId) {
+        NavigationHistory(
+            initial = route,
+            isRoot = { it in tabRootRoutes },
+            rootIndex = { MainTab.entries.indexOfFirst { tab -> tab.route == it } }
+        )
+    }
     val routeMove = routeHistory.visit(route)
     LaunchedEffect(route, previousRouteName) {
         // Every Equalizer entry (player, Settings, profile) records its caller here. The Settings shortcut used to
@@ -2497,9 +2504,12 @@ GlobalSearchScreen(
                             else -> it
                         }
                     },
-                    transitionSpec = { routeContentTransform(routeMove, pushSpec, popSpec, tabSpec) },
+                    transitionSpec = {
+                        routeContentTransform(routeMove, pushSpec, popSpec, tabSpec, routeHistory.tabDirection)
+                    },
                     label = "routeTransition"
                 ) { screenRoute ->
+                Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
                 when (if (routeTwoPane && screenRoute in twoPaneSlotRoutes) AppRoute.Chats else screenRoute) {
                 AppRoute.Start -> StartScreen(
                     tdLibReadiness = tdLibReadiness,
@@ -3142,6 +3152,7 @@ GlobalSearchScreen(
                 else LaunchedEffect(selectedAccountId) {
                     routeName = AppRoute.Proxy.name
                 }
+            }
             }
             }
             }
