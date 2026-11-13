@@ -28,4 +28,12 @@
     <string name="bgwave_error_busy">Ya hay otra ola en marcha. Detenla primero.</string>
     <string name="bgwave_error_expired">La invitación ha caducado.</string>
     <string name="bgwave_error_rejected">La respuesta no corresponde a esta ola.</string>
+    <string name="bgwave_share_action">Compartir ola</string>
+    <string name="bgwave_action_stop_wave">Detener ola</string>
+    <string name="bgwave_share_one_person">Elige a una persona: la ola suena para un solo oyente.</string>
+    <string name="bgwave_share_sent">Invitación enviada</string>
+    <string name="bgwave_share_confirm_title">¿Enviar la invitación al chat «%s»?</string>
+    <string name="bgwave_share_confirm_body">Verá una invitación para escuchar lo que suena ahora en tu dispositivo. Con una conexión directa, tu dirección IP puede ser visible para esa persona. El sonido no se guarda y solo suena mientras dura la ola.</string>
+    <string name="bgwave_share_confirm_send">Enviar</string>
+    <string name="bgwave_share_confirm_cancel">Cancelar</string>
 </resources>
