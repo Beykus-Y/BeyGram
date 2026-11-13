@@ -625,6 +625,8 @@ object PlaybackEngine {
         startIndex: Int,
         loadMore: (suspend () -> List<com.beykus.beygram.data.music.provider.ProviderTrack>)? = null,
         radio: PlaybackRadio? = null,
+        /** Set when the first track is the one already playing: the queue takes over at this position without restarting it. */
+        keepPositionMs: Long? = null,
     ) {
         val playable = tracks.filter { it.isAvailable }
         if (playable.isEmpty()) return
@@ -641,7 +643,7 @@ object PlaybackEngine {
                 radio = radio
             )
         }
-        playQueue(context, items, 0, source = source)
+        playQueue(context, items, 0, source = source, startPositionMs = keepPositionMs)
     }
 
     /**

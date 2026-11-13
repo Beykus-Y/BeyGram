@@ -5,6 +5,7 @@ import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.provider.MusicProviderFactory
 import com.beykus.beygram.data.music.provider.ProviderWaves
+import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.ui.screens.music.yandex.YandexLibrarySnapshots
 
 /** Loaded by name from [com.beykus.beygram.data.music.provider.MusicProviders] in the DEV build only. */
@@ -32,6 +33,8 @@ class YandexMusicProviderFactory : MusicProviderFactory {
                 startTrack = track,
                 isCurrent = { true },
                 onDone = {},
+                // The track already playing keeps playing: the wave takes over at its position.
+                keepPositionMs = PlaybackEngine.state.value.takeIf { it.item?.key == track.key }?.positionMs,
             )
         }
         ProviderWaves.fromArtist = { context, _, ref ->
