@@ -45,5 +45,6 @@
     <string name="yandex_wave_subtitle">Un flux infini de titres choisis pour vous</string>
     <string name="yandex_wave_starting">Sélection des titres…</string>
     <string name="yandex_wave_failed">Impossible de lancer la vague. Touchez pour réessayer.</string>
+    <string name="yandex_wave_resume">Reprendre : %1$s · %2$s</string>
     <string name="yandex_wave_play">Écouter Ma Vague</string>
 </resources>

@@ -644,6 +644,30 @@ object PlaybackEngine {
         playQueue(context, items, 0, source = source)
     }
 
+    /**
+     * Restores a paused «Моя волна» after a restart: [track] is current at [positionMs]. Nothing plays, downloads or asks
+     * the source until Play; [loadMore] continues the wave when the queue runs low.
+     */
+    fun restoreYandexRadio(
+        context: Context,
+        track: com.beykus.beygram.data.music.provider.ProviderTrack,
+        positionMs: Long,
+        loadMore: suspend () -> List<com.beykus.beygram.data.music.provider.ProviderTrack>,
+        radio: PlaybackRadio,
+    ) {
+        if (_state.value.item != null || !track.isAvailable) return
+        YandexTrackResolver.ensureConfigured(context)
+        val source = PlaybackQueueSource(
+            accountId = LEGACY_PLAYBACK_ACCOUNT_ID,
+            observeFile = { fileId -> MutableStateFlow(MediaFileState(id = fileId)) },
+            download = {},
+            loadMore = { loadMore().filter { it.isAvailable }.map(::providerPlaybackItem) },
+            radio = radio,
+        )
+        val queue = queueForPlayback(listOf(providerPlaybackItem(track)), 0)
+        startQueue(context, queue, source, startPositionMs = positionMs, startFraction = 0f, autoPlay = false)
+    }
+
     private fun providerPlaybackItem(track: com.beykus.beygram.data.music.provider.ProviderTrack): PlaybackItem =
         PlaybackItem(
             key = track.key,

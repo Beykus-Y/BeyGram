@@ -59,6 +59,7 @@ import com.beykus.beygram.data.yandex.YandexMusicProvider
 import com.beykus.beygram.data.yandex.YandexWave
 import com.beykus.beygram.data.yandex.YandexWaveLauncher
 import com.beykus.beygram.data.yandex.YandexWaveFeedback
+import com.beykus.beygram.data.yandex.YandexWaveResume
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.material.icons.rounded.MoreVert
@@ -386,10 +387,13 @@ class YandexMusicHost : ProviderMusicHost {
         }
         if (account.hasSubscription) item(key = "yandex-wave") {
             val context = LocalContext.current
+            val offered by YandexWaveResume.offered.collectAsStateWithLifecycle()
             WaveTile(
                 starting = waveStarting,
                 failure = waveFailure,
-                onStart = if (onPlay != null) ({ startWave(context, provider) }) else null
+                resume = offered,
+                onStart = if (onPlay != null) ({ startWave(context, provider) }) else null,
+                onResume = { YandexWaveResume.resume() },
             )
         }
         val failure = libraryFailure
@@ -507,13 +511,21 @@ class YandexMusicHost : ProviderMusicHost {
 
     /** The «Моя волна» card at the top of the tab: one tap starts an endless stream of recommendations. */
     @Composable
-    private fun WaveTile(starting: Boolean, failure: MusicProviderFailure?, onStart: (() -> Unit)?) {
+    private fun WaveTile(
+        starting: Boolean,
+        failure: MusicProviderFailure?,
+        resume: YandexWaveResume.Saved?,
+        onStart: (() -> Unit)?,
+        onResume: () -> Unit,
+    ) {
         val palette = beyGramPalette()
         val subtitle = when {
             starting -> stringResource(R.string.yandex_wave_starting)
+            resume != null -> stringResource(R.string.yandex_wave_resume, resume.track.performer, resume.track.title)
             failure != null -> stringResource(waveFailureText(failure))
             else -> stringResource(R.string.yandex_wave_subtitle)
         }
+        val action: (() -> Unit)? = if (resume != null) onResume else onStart
         Row(
             Modifier.fillMaxWidth()
                 .padding(horizontal = MusicScreenGutter)
@@ -521,11 +533,11 @@ class YandexMusicHost : ProviderMusicHost {
                 .musicCard()
                 .background(Brush.linearGradient(listOf(palette.accentSoft.copy(alpha = 0.55f), palette.accent.copy(alpha = 0.22f))))
                 .then(
-                    if (onStart != null && !starting) {
+                    if (action != null && !starting) {
                         Modifier.clickable(
                             role = Role.Button,
                             onClickLabel = stringResource(R.string.yandex_wave_play),
-                            onClick = onStart
+                            onClick = action
                         )
                     } else {
                         Modifier
@@ -563,7 +575,7 @@ class YandexMusicHost : ProviderMusicHost {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (onStart != null) {
+            if (action != null) {
                 Spacer(Modifier.width(8.dp))
                 Icon(
                     Icons.Rounded.PlayArrow,
