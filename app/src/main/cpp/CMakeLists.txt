@@ -56,6 +56,7 @@ add_library(bgbeat_jni SHARED
     bgbeat_jni.cpp
     bgmix_jni.cpp
     bgwave_jni.cpp
+    bgwave_session_jni.cpp
     bgmotion_jni.cpp
     bg_analysis_registry.cpp
 )
@@ -120,6 +121,11 @@ if(NOT TARGET bgmedia_core)
         log
     )
     target_compile_definitions(bgbeat_jni PRIVATE HAVE_BGMEDIA=1 MA_NO_DEVICE_IO)
+    if(BEYGRAM_WAVE_P2P)
+        # Real P2P session layer: BG-Media pipeline + Opus + libdatachannel WebRTC.
+        target_compile_definitions(bgbeat_jni PRIVATE BGWAVE_P2P=1)
+        target_link_libraries(bgbeat_jni PRIVATE bgmedia_wave_opus bgmedia_wave_webrtc)
+    endif()
 else()
     target_link_libraries(bgbeat_jni PRIVATE
         android
