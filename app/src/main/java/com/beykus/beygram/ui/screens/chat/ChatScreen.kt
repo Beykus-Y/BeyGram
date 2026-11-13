@@ -292,6 +292,16 @@ fun ChatScreen(
     var pendingJumpId by remember(chat.id, forumTopicId) { mutableStateOf<Long?>(null) }
     var jumpGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     var jumpScrollJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
+    var jumpLoadJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
+    fun cancelActiveJump() {
+        jumpGeneration++
+        pendingJumpId = null
+        jumpScrollJob?.cancel()
+        jumpScrollJob = null
+        jumpLoadJob?.cancel()
+        jumpLoadJob = null
+        conversation.cancelMessageJump(chat.id, forumTopicId)
+    }
     var searching by rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
     var searchQuery by rememberSaveable(chat.id, forumTopicId) { mutableStateOf("") }
     var searchFilter by rememberSaveable(chat.id, forumTopicId, stateSaver = ChatSearchFilterSaver) { mutableStateOf(ChatSearchFilter()) }
@@ -310,10 +320,7 @@ fun ChatScreen(
         if (clearMatchSession) {
             searchMatchGeneration++
             searchMatchSession = ChatSearchMatchSession()
-            jumpGeneration++
-            pendingJumpId = null
-            jumpScrollJob?.cancel()
-            jumpScrollJob = null
+            cancelActiveJump()
         }
     }
     var sending by remember { mutableStateOf(false) }
@@ -1350,10 +1357,8 @@ fun ChatScreen(
         }
     }
     fun jumpToMessage(messageId: Long, failure: Int) {
-        val generation = ++jumpGeneration
-        pendingJumpId = null
-        jumpScrollJob?.cancel()
-        jumpScrollJob = null
+        cancelActiveJump()
+        val generation = jumpGeneration
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
         if (index >= 0) {
             jumpScrollJob = scope.launch {
@@ -1367,17 +1372,21 @@ fun ChatScreen(
             }
             return
         }
-        scope.launch {
-            (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, messageId) else conversation.loadMessagesAround(chat.id, messageId))
-                .onSuccess { applied ->
-                    if (generation != jumpGeneration) return@onSuccess
-                    if (applied) pendingJumpId = messageId else settleFocusedOpening()
-                }
-                .onFailure {
-                    if (generation != jumpGeneration) return@onFailure
-                    error = it.userMessage(context, failure)
-                    settleFocusedOpening()
-                }
+        jumpLoadJob = scope.launch {
+            try {
+                (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, messageId) else conversation.loadMessagesAround(chat.id, messageId))
+                    .onSuccess { applied ->
+                        if (generation != jumpGeneration) return@onSuccess
+                        if (applied) pendingJumpId = messageId else settleFocusedOpening()
+                    }
+                    .onFailure {
+                        if (generation != jumpGeneration) return@onFailure
+                        error = it.userMessage(context, failure)
+                        settleFocusedOpening()
+                    }
+            } finally {
+                if (generation == jumpGeneration) jumpLoadJob = null
+            }
         }
     }
     fun openSearchResult(message: ChatMessage) {
@@ -1401,6 +1410,7 @@ fun ChatScreen(
     }
     fun reopenSearchFromMatches() {
         val session = searchMatchSession
+        cancelActiveJump()
         searchMatchGeneration++
         searchQuery = session.query
         searchFilter = session.filter
