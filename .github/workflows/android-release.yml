@@ -120,6 +120,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Gradle dependency cache
+        # Only public plugins and libraries from the Gradle User Home. No Build Cache and no configuration cache are
+        # stored: the build embeds secrets.properties values, and a cache saved by a push is readable by PR code.
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: ${{ github.event_name != 'push' }}
+          gradle-home-cache-excludes: caches/build-cache-1
+
       - name: Install Android platform 36.1
         # The runner image ships the Android SDK but not sdkmanager on PATH.
         # Command output is echoed as notice annotations so failures are readable.
