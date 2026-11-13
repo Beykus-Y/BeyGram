@@ -89,11 +89,13 @@ if(BEYGRAM_WAVE_P2P)
         if(NOT beygram_openssl_rc EQUAL 0)
             message(FATAL_ERROR "OpenSSL for Android failed (${beygram_openssl_rc}): ${beygram_openssl_err}")
         endif()
-        set(OPENSSL_ROOT_DIR "${BEYGRAM_OPENSSL_PREFIX}")
-        set(OPENSSL_USE_STATIC_LIBS TRUE)
-        set(OPENSSL_INCLUDE_DIR "${BEYGRAM_OPENSSL_PREFIX}/include")
-        set(OPENSSL_CRYPTO_LIBRARY "${BEYGRAM_OPENSSL_PREFIX}/lib/libcrypto.a")
-        set(OPENSSL_SSL_LIBRARY "${BEYGRAM_OPENSSL_PREFIX}/lib/libssl.a")
+        # Cache entries, not normal variables: libdatachannel calls find_package(OpenSSL) in its own
+        # subdirectory scope, where plain variables set here were not visible.
+        set(OPENSSL_ROOT_DIR "${BEYGRAM_OPENSSL_PREFIX}" CACHE PATH "" FORCE)
+        set(OPENSSL_USE_STATIC_LIBS TRUE CACHE BOOL "" FORCE)
+        set(OPENSSL_INCLUDE_DIR "${BEYGRAM_OPENSSL_PREFIX}/include" CACHE PATH "" FORCE)
+        set(OPENSSL_CRYPTO_LIBRARY "${BEYGRAM_OPENSSL_PREFIX}/lib/libcrypto.a" CACHE FILEPATH "" FORCE)
+        set(OPENSSL_SSL_LIBRARY "${BEYGRAM_OPENSSL_PREFIX}/lib/libssl.a" CACHE FILEPATH "" FORCE)
     endif()
 endif()
 
