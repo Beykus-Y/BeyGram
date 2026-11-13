@@ -1060,6 +1060,7 @@ internal fun MediaViewer(
     val shownCaption = if (!shownHidden) shown.caption.trim() else ""
     val reserveNonStillFooter = !isStillImage && (actions != null || canExport)
     val density = LocalDensity.current
+    var topBarHeightPx by remember { mutableIntStateOf(0) }
     var bottomOverlayHeightPx by remember { mutableIntStateOf(0) }
     val zoomControlsBottomPadding = if (isStillImage && controlsVisible && bottomOverlayHeightPx > 0) {
         with(density) { bottomOverlayHeightPx.toDp() } + 12.dp
@@ -1149,6 +1150,7 @@ internal fun MediaViewer(
                         Modifier
                             .fillMaxWidth()
                             .align(Alignment.TopCenter)
+                            .onSizeChanged { topBarHeightPx = it.height }
                             .graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
                             .background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent)
                             .padding(horizontal = 6.dp, vertical = 6.dp),
@@ -1216,9 +1218,21 @@ internal fun MediaViewer(
                         modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
                     ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
                 }
-                val showBottomOverlay = (isStillImage && (hasPrimaryBottomActions || shownCaption.isNotEmpty())) ||
-                    (!isStillImage && shownCaption.isNotEmpty())
-                if (showBottomOverlay) {
+                if (!isStillImage && shownCaption.isNotEmpty()) {
+                    // Video/audio player controls occupy the bottom of the frame, so place non-still captions under the top bar.
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = controlsVisible,
+                        enter = chromeSpec.fadeEnter(),
+                        exit = chromeSpec.fadeExit(),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = with(density) { topBarHeightPx.toDp() })
+                            .graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
+                    ) {
+                        captionBox()
+                    }
+                }
+                if (isStillImage && (hasPrimaryBottomActions || shownCaption.isNotEmpty())) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = controlsVisible,
                         enter = chromeSpec.fadeEnter(),
@@ -1233,7 +1247,7 @@ internal fun MediaViewer(
                                 .onSizeChanged { bottomOverlayHeightPx = it.height }
                         ) {
                             if (shownCaption.isNotEmpty()) captionBox()
-                            if (isStillImage && hasPrimaryBottomActions) bottomChromeContent()
+                            if (hasPrimaryBottomActions) bottomChromeContent()
                         }
                     }
                 } else {

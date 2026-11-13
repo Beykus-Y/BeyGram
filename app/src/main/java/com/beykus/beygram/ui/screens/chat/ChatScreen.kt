@@ -291,6 +291,7 @@ fun ChatScreen(
     // A message outside the loaded history is scrolled to once the window around it reaches the list.
     var pendingJumpId by remember(chat.id, forumTopicId) { mutableStateOf<Long?>(null) }
     var jumpGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
+    var jumpScrollJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
     var searching by rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
     var searchQuery by rememberSaveable(chat.id, forumTopicId) { mutableStateOf("") }
     var searchFilter by rememberSaveable(chat.id, forumTopicId, stateSaver = ChatSearchFilterSaver) { mutableStateOf(ChatSearchFilter()) }
@@ -309,6 +310,10 @@ fun ChatScreen(
         if (clearMatchSession) {
             searchMatchGeneration++
             searchMatchSession = ChatSearchMatchSession()
+            jumpGeneration++
+            pendingJumpId = null
+            jumpScrollJob?.cancel()
+            jumpScrollJob = null
         }
     }
     var sending by remember { mutableStateOf(false) }
@@ -1346,10 +1351,20 @@ fun ChatScreen(
     }
     fun jumpToMessage(messageId: Long, failure: Int) {
         val generation = ++jumpGeneration
+        pendingJumpId = null
+        jumpScrollJob?.cancel()
+        jumpScrollJob = null
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
         if (index >= 0) {
-            pendingJumpId = null
-            scope.launch { try { listState.animateScrollToItem(index); highlighted = messageId } finally { settleFocusedOpening() } }
+            jumpScrollJob = scope.launch {
+                try {
+                    listState.animateScrollToItem(index)
+                    if (generation == jumpGeneration) highlighted = messageId
+                } finally {
+                    settleFocusedOpening()
+                    if (generation == jumpGeneration) jumpScrollJob = null
+                }
+            }
             return
         }
         scope.launch {
