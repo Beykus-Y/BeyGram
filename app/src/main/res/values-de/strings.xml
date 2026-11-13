@@ -765,6 +765,8 @@
     <string name="music_provider_like">Gefällt mir</string>
     <string name="music_provider_unlike">Aus „Gefällt mir“ entfernen</string>
     <string name="music_provider_wave_track">Welle aus diesem Titel</string>
+    <string name="music_provider_wave_artist">Welle aus diesem Künstler</string>
+    <string name="music_provider_wave_artist_named">Welle: %1$s</string>
     <string name="music_provider_open_album">Zum Album</string>
     <string name="music_provider_share_link">Link teilen</string>
     <string name="music_open_in_browser">Im Browser öffnen</string>

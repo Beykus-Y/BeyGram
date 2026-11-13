@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.music
 import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Favorite
@@ -117,6 +118,22 @@ internal fun ProviderTrackMenuItems(
             startWave(context, track)
         }
     )
+    val startArtistWave = ProviderWaves.fromArtist
+    if (startArtistWave != null && track.isAvailable) track.artistRefs.forEach { ref ->
+        DropdownMenuItem(
+            text = {
+                Text(
+                    if (track.artistRefs.size == 1) stringResource(R.string.music_provider_wave_artist)
+                    else stringResource(R.string.music_provider_wave_artist_named, ref.name)
+                )
+            },
+            leadingIcon = { Icon(Icons.Rounded.Person, null, tint = palette.textSecondary) },
+            onClick = {
+                onDismiss()
+                startArtistWave(context, track, ref)
+            }
+        )
+    }
     val albumId = track.albumId
     if (onOpenAlbum != null && !albumId.isNullOrBlank()) DropdownMenuItem(
         text = { Text(stringResource(R.string.music_provider_open_album)) },

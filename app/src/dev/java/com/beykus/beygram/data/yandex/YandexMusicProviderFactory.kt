@@ -32,6 +32,17 @@ class YandexMusicProviderFactory : MusicProviderFactory {
                 onDone = {},
             )
         }
+        ProviderWaves.fromArtist = { context, _, ref ->
+            YandexWaveLauncher.start(
+                context = context,
+                provider = provider,
+                seeds = listOf(YandexWave.artistSeed(ref.id)),
+                subtitle = context.getString(R.string.yandex_wave_source_artist, ref.name),
+                startTrack = null,
+                isCurrent = { true },
+                onDone = {},
+            )
+        }
         return provider
     }
 }

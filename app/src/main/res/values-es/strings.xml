@@ -765,6 +765,8 @@
     <string name="music_provider_like">Me gusta</string>
     <string name="music_provider_unlike">Quitar de Me gusta</string>
     <string name="music_provider_wave_track">Ola desde esta pista</string>
+    <string name="music_provider_wave_artist">Ola de este artista</string>
+    <string name="music_provider_wave_artist_named">Ola: %1$s</string>
     <string name="music_provider_open_album">Ir al álbum</string>
     <string name="music_provider_share_link">Compartir enlace</string>
     <string name="music_open_in_browser">Abrir en el navegador</string>

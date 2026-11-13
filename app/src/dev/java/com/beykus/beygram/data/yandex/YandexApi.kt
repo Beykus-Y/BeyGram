@@ -290,9 +290,14 @@ internal class YandexApi(private val http: YandexHttp) {
     fun parseTrack(o: JSONObject): ProviderTrack? {
         val id = o.idOf("id") ?: return null
         val title = o.optString("title").takeIf { it.isNotBlank() } ?: return null
-        val artists = o.optJSONArray("artists")?.let { array ->
-            (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
+        val artistObjects = o.optJSONArray("artists")?.let { array ->
+            (0 until array.length()).mapNotNull { array.optJSONObject(it) }
         }.orEmpty()
+        val artists = artistObjects.mapNotNull { it.optString("name").takeIf(String::isNotBlank) }
+        val artistRefs = artistObjects.mapNotNull { obj ->
+            val name = obj.optString("name").takeIf(String::isNotBlank) ?: return@mapNotNull null
+            obj.idOf("id")?.let { ProviderArtistRef(it, name) }
+        }
         val firstAlbum = o.optJSONArray("albums")?.optJSONObject(0)
         val album = firstAlbum?.optString("title")?.takeIf { it.isNotBlank() }
         return ProviderTrack(
@@ -304,6 +309,7 @@ internal class YandexApi(private val http: YandexHttp) {
             coverUrl = coverUrl(o.optString("coverUri")),
             isAvailable = o.optBoolean("available", true),
             liked = null,
+            artistRefs = artistRefs,
             albumId = firstAlbum?.idOf("id"),
         )
     }
