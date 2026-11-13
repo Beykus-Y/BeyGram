@@ -10,6 +10,9 @@ class BgWaveSession private constructor(private var handle: Long) : BgWaveSessio
 
     val isOpen: Boolean get() = handle != 0L
 
+    /** Native handle, for attaching this session as the BG Mix host PCM tap. 0 when closed. */
+    val nativeHandle: Long get() = handle
+
     override fun startOffer(nowSeconds: Long, ttlSeconds: Long): Boolean =
         isOpen && BgWaveSessionNative.nativeStartOffer(handle, nowSeconds, ttlSeconds)
 

@@ -6,6 +6,8 @@
 // outbound signal queue, stats, and host/listener PCM. It never builds signaling bytes itself.
 #include <jni.h>
 
+#include "bgwave_session.h"
+
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -37,6 +39,15 @@ struct Session {
 Session* sessionOf(jlong handle) {
     return reinterpret_cast<Session*>(static_cast<intptr_t>(handle));
 }
+
+}  // namespace
+
+std::shared_ptr<WaveAudioPipeline> bgWaveSessionPipeline(std::int64_t sessionHandle) {
+    Session* session = sessionOf(sessionHandle);
+    return session ? session->pipeline : nullptr;
+}
+
+namespace {
 
 std::string toStd(JNIEnv* env, jstring value) {
     if (!value) return {};
@@ -98,6 +109,9 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeDestroy(JNIEnv*, 
     Session* session = sessionOf(handle);
     if (!session) return;
     session->pipeline->stop(false, 0);
+    // The mix engine may still hold the pipeline as its PCM tap. Drop the callbacks that point at
+    // this Session before deleting it, so a late render or transport event cannot reach freed memory.
+    session->pipeline->setCallbacks(WavePipelineCallbacks{});
     delete session;
 #else
     (void)handle;
