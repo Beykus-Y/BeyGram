@@ -33,7 +33,16 @@ internal interface LazyTrackSource {
 
     /** The queue row now names the copy, so the provider keeps it for as long as the row is there. */
     fun published(key: String)
+
+    /**
+     * A copy that is still downloading and can already be played from its readable start. Null when there is no such
+     * copy yet; the player waits for the file as it does for any other row.
+     */
+    fun growingCopy(key: String): LazyGrowingCopy? = null
 }
+
+/** The file a provider is still writing, and the reader that follows it as the bytes arrive. */
+internal data class LazyGrowingCopy(val path: String, val growing: GrowingPlaybackSource)
 
 /** Routes a queue key to the provider that owns its prefix. A key with no owner plays as an ordinary queue row. */
 /** Which lazy rows are being fetched right now, and which fetched copies are already held. */

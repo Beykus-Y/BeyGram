@@ -1070,13 +1070,22 @@ object PlaybackEngine {
         if (_state.value.item?.key == resolved.key && LazyTrackRegistry.isLazyKey(resolved.key)) prefetchNext()
     }
 
+    /** A provider row whose download finished while it played from the growing copy: the same row, as a complete file. */
+    private fun settledProviderItem(item: PlaybackItem): PlaybackItem? {
+        if (item.growing == null) return null
+        val path = LazyTrackRegistry.sourceFor(item.key)?.resolvedPath(item.key) ?: return null
+        return item.copy(path = path, growing = null)
+    }
+
     /**
      * A growing track whose download has finished becomes a complete file. Until this runs, the track keeps its
      * "still loading" flag, so BG Beat says so and the silence and crossfade rules never measure it.
      */
     private fun settleFinishedDownload() {
         val item = _state.value.item ?: return
-        val settled = settledGrowingItem(item) ?: return
+        // A provider row settles here too, whatever its length is: its download completed, so the row is a file again.
+        // Without this, a row whose length is not advertised would keep the rows after it waiting forever.
+        val settled = settledGrowingItem(item) ?: settledProviderItem(item) ?: return
         publishResolvedSource(settled)
         // A track that finished downloading while it plays has no measurement yet; ask for it right away.
         requestSilenceMeasurement()
@@ -3411,9 +3420,9 @@ object PlaybackEngine {
         }
     }
 
-    /** A provider row (bot result or service track) whose file has not been fetched yet. */
+    /** A provider row (bot result or service track) whose file is not complete yet. */
     private fun lazyRowPending(item: PlaybackItem): Boolean {
-        if (item.path.isNotBlank()) return false
+        // The row names a growing copy while it downloads, so the provider decides, not the path.
         val lazy = LazyTrackRegistry.sourceFor(item.key) ?: return false
         return lazy.resolvedPath(item.key) == null && !lazy.failed(item.key)
     }

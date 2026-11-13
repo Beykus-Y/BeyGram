@@ -126,7 +126,9 @@ internal class PlaybackSourceHandle(
         val current = item
         if (current.path.isNotBlank()) return ResolvedPlaybackSource(current.path, current.growing)
         LazyTrackRegistry.sourceFor(current.key)?.let { lazy ->
-            return lazy.resolvedPath(current.key)?.let { ResolvedPlaybackSource(it, null) }
+            lazy.resolvedPath(current.key)?.let { return ResolvedPlaybackSource(it, null) }
+            // A provider row that is still downloading plays from its readable start, as a growing TDLib file does.
+            return lazy.growingCopy(current.key)?.let { ResolvedPlaybackSource(it.path, it.growing) }
         }
         val fileId = current.fileId ?: return null
         val source = queueSource?.takeIf { it.accountId == current.accountId } ?: return null
