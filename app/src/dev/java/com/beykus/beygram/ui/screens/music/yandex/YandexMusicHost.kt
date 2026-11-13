@@ -52,8 +52,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
-import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.MusicProviderState
+import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderAlbum
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
@@ -62,6 +62,7 @@ import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.data.yandex.YandexMusicProvider
 import com.beykus.beygram.data.yandex.YandexWave
+import com.beykus.beygram.data.yandex.YandexWaveSettingsStore
 import com.beykus.beygram.data.yandex.YandexWaveLauncher
 import com.beykus.beygram.data.yandex.YandexWaveFeedback
 import com.beykus.beygram.data.yandex.YandexWaveResume
@@ -266,10 +267,13 @@ class YandexMusicHost : ProviderMusicHost {
         val mine = ++selectionGeneration
         waveStarting = true
         waveFailure = null
+        // The saved settings of this account shape the radio; the card's chips still choose its character.
+        val uid = (yandex.state.value as? MusicProviderState.SignedIn)?.account?.uid.orEmpty()
+        val saved = YandexWaveSettingsStore.load(context, uid)
         YandexWaveLauncher.start(
             context = context,
             provider = yandex,
-            seeds = YandexWave.seedsFor(YandexWave.MY_WAVE_SEED, waveDiversity),
+            seeds = saved.copy(character = waveDiversity).seeds(YandexWave.MY_WAVE_SEED),
             subtitle = context.getString(R.string.yandex_wave_source_personal),
             startTrack = null,
             isCurrent = { mine == selectionGeneration },
