@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.playback
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
 import android.os.SystemClock
