@@ -34,6 +34,7 @@ import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.groupCardShape
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
