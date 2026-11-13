@@ -8,11 +8,14 @@
 
 #include "bgwave_session.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 
 #if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA && defined(BGWAVE_P2P) && BGWAVE_P2P
 #include "bgmedia/wave/OpusWaveCodec.hpp"
@@ -34,6 +37,10 @@ struct Session {
     std::mutex mutex;
     std::deque<std::string> outbound;  // bg://wave/v1/... URIs waiting for TDLib to send
     std::string lastError;
+    // The pipeline does its work only in process(): encoding and sending on the host, jitter and decode on the
+    // listener. This thread calls it about every 10 ms for the whole life of the session.
+    std::atomic<bool> pumpRunning{false};
+    std::thread pump;
 };
 
 Session* sessionOf(jlong handle) {
@@ -95,6 +102,15 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeCreate(JNIEnv*, j
         session->lastError = error.message;
     };
     session->pipeline->setCallbacks(std::move(callbacks));
+    session->pumpRunning.store(true, std::memory_order_release);
+    session->pump = std::thread([session]() {
+        const auto origin = std::chrono::steady_clock::now();
+        while (session->pumpRunning.load(std::memory_order_acquire)) {
+            const double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - origin).count();
+            session->pipeline->process(now);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
     return static_cast<jlong>(reinterpret_cast<intptr_t>(session));
 #else
     (void)role;
@@ -109,6 +125,8 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeDestroy(JNIEnv*, 
     Session* session = sessionOf(handle);
     if (!session) return;
     session->pipeline->stop(false, 0);
+    session->pumpRunning.store(false, std::memory_order_release);
+    if (session->pump.joinable()) session->pump.join();
     // The mix engine may still hold the pipeline as its PCM tap. Drop the callbacks that point at
     // this Session before deleting it, so a late render or transport event cannot reach freed memory.
     session->pipeline->setCallbacks(WavePipelineCallbacks{});

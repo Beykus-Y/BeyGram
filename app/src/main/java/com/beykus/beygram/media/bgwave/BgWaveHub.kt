@@ -32,6 +32,8 @@ object BgWaveHub {
     private val senders = ConcurrentHashMap<String, BgWaveSender>()
     @Volatile private var audioManager: AudioManager? = null
     @Volatile private var listenerAudio: BgWaveListenerAudio? = null
+    private var bgMixTapAttached = false
+    private var hostTapMissingLogged = false
 
     /**
      * Host: attaches (handle, true) or detaches (0, false) the wave session as the tap of the BG Mix player that is
@@ -110,9 +112,20 @@ object BgWaveHub {
     private fun syncAudio(state: BgWaveSessionState) {
         val live = state.phase == BgWavePhase.Live
         if (state.role == BgWaveRole.Host) {
-            val tap = hostTap ?: return
+            val tap = hostTap
+            if (tap == null) {
+                if (live && !hostTapMissingLogged) {
+                    BgWaveLog.w("host.bgmix.tap", null, "reason" to "no-provider")
+                    hostTapMissingLogged = true
+                }
+                return
+            }
             val handle = controller.activeSession()?.sessionHandle() ?: 0L
-            if (live && handle != 0L) tap(handle, true) else tap(0L, false)
+            val attached = if (live && handle != 0L) tap(handle, true) else tap(0L, false)
+            if (live && attached != bgMixTapAttached) {
+                BgWaveLog.i("host.bgmix.tap", "attached" to attached)
+            }
+            bgMixTapAttached = attached && live
             return
         }
         if (live && listenerAudio == null) {
