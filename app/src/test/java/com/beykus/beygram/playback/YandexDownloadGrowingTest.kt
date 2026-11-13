@@ -3,7 +3,6 @@ package com.beykus.beygram.playback
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,7 +25,7 @@ class YandexDownloadGrowingTest {
         download.start(file, total = 9_000_000L)
         download.advance(YANDEX_PLAY_START_BYTES)
 
-        val copy = assertNotNull(download.growingCopy())
+        val copy = requireNotNull(download.growingCopy())
         assertEquals(file.absolutePath, copy.path)
         assertEquals(9_000_000L, copy.growing.totalSize)
         assertTrue(copy.growing.advertiseLength)
@@ -42,7 +41,7 @@ class YandexDownloadGrowingTest {
         download.advance(9_000_000L)
         download.finish()
 
-        val copy = assertNotNull(download.growingCopy())
+        val copy = requireNotNull(download.growingCopy())
         assertTrue(copy.growing.isComplete())
         assertFalse(copy.growing.isDownloading())
         assertEquals(file.absolutePath, copy.growing.completedPath())
@@ -53,7 +52,7 @@ class YandexDownloadGrowingTest {
         val download = YandexDownload()
         download.start(file, total = -1L)
         download.advance(YANDEX_PLAY_START_BYTES)
-        assertFalse(assertNotNull(download.growingCopy()).growing.advertiseLength)
+        assertFalse(requireNotNull(download.growingCopy()).growing.advertiseLength)
     }
 
     @Test
