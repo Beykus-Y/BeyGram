@@ -141,6 +141,15 @@ internal fun TypingRow(names: List<String>) {
 
 @Composable
 private fun TypingDots(color: Color) {
+    val motion = rememberMotionSpec(MotionToken.MicroFeedback)
+    if (motion.isInstant) {
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+            repeat(3) {
+                Box(Modifier.size(5.dp).clip(CircleShape).background(color.copy(alpha = 0.7f)))
+            }
+        }
+        return
+    }
     val transition = rememberInfiniteTransition(label = "typing")
     Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->

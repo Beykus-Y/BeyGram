@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.design.LocalDesignSystem
 
 /*
@@ -223,9 +225,10 @@ private fun ClassicSwitch(
     }.let { if (enabled) it else it.copy(alpha = 0.38f).compositeOver(scheme.surface) }
     val trackTarget = (if (checked) scheme.primary.copy(alpha = 0.5f) else scheme.onSurface.copy(alpha = 0.38f))
         .let { if (enabled) it else it.copy(alpha = it.alpha * 0.5f) }
-    val thumb by animateColorAsState(thumbTarget, label = "classicSwitchThumb")
-    val track by animateColorAsState(trackTarget, label = "classicSwitchTrack")
-    val thumbOffset by animateDpAsState(if (checked) 16.dp else 0.dp, label = "classicSwitchOffset")
+    val microMotion = rememberMotionSpec(MotionToken.MicroFeedback)
+    val thumb by animateColorAsState(thumbTarget, animationSpec = microMotion.animationSpec(), label = "classicSwitchThumb")
+    val track by animateColorAsState(trackTarget, animationSpec = microMotion.animationSpec(), label = "classicSwitchTrack")
+    val thumbOffset by animateDpAsState(if (checked) 16.dp else 0.dp, animationSpec = microMotion.animationSpec(), label = "classicSwitchOffset")
 
     val toggle = if (onCheckedChange != null) {
         Modifier.toggleable(

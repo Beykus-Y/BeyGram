@@ -2,6 +2,9 @@ package com.beykus.beygram.ui.screens.profile
 
 import android.widget.Toast
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.scrollToPageRespectingMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -134,11 +137,12 @@ internal fun SharedMediaSection(
 
     Text(stringResource(R.string.profile_shared_header), color = palette.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp))
+    val tabMotion = rememberMotionSpec(MotionToken.TabSelect)
     SharedMediaTabBar(
         titles = chatSharedKinds.map { stringResource(it.titleRes()) },
         counts = chatSharedKinds.map { counts?.countOf(it)?.toString() },
         selected = pagerState.currentPage,
-        onSelect = { index -> scope.launch { pagerState.animateScrollToPage(index) } }
+        onSelect = { index -> scope.launch { pagerState.scrollToPageRespectingMotion(index, motionInstant = tabMotion.isInstant) } }
     )
     Spacer(Modifier.height(12.dp))
     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(pagerHeight)) { page ->

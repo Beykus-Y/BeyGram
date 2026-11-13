@@ -1,10 +1,9 @@
 package com.beykus.beygram.ui.screens.chats
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
@@ -37,6 +36,10 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.StateFlow
@@ -70,10 +73,16 @@ internal fun ChatPeekSheet(
     }
     val dismiss: () -> Unit = { closing = true }
 
+    val enterSpec = rememberMotionSpec(MotionToken.SheetEnter)
+    val exitSpec = rememberMotionSpec(MotionToken.SheetExit)
     Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             // Dimmed backdrop: a tap anywhere outside the card closes it.
-            AnimatedVisibility(visibleState, enter = fadeIn(tween(180)), exit = fadeOut(tween(160))) {
+            AnimatedVisibility(
+                visibleState,
+                enter = enterSpec.fadeEnter(),
+                exit = exitSpec.fadeExit()
+            ) {
                 Box(
                     Modifier.fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.45f))
@@ -82,8 +91,10 @@ internal fun ChatPeekSheet(
             }
             AnimatedVisibility(
                 visibleState,
-                enter = fadeIn(tween(180)) + scaleIn(tween(220), initialScale = 0.92f),
-                exit = fadeOut(tween(160)) + scaleOut(tween(160), targetScale = 0.92f)
+                enter = if (enterSpec.isInstant) EnterTransition.None else
+                    enterSpec.fadeEnter() + scaleIn(enterSpec.animationSpec(), initialScale = 1f - 0.08f * enterSpec.intensity),
+                exit = if (exitSpec.isInstant) ExitTransition.None else
+                    exitSpec.fadeExit() + scaleOut(exitSpec.animationSpec(), targetScale = 1f - 0.08f * exitSpec.intensity)
             ) {
                 PeekCard(chat, palette, loaded, observeFile, downloadFile)
             }

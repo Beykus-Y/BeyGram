@@ -4,6 +4,9 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -46,3 +49,35 @@ fun MotionSpec.fadeEnter(): EnterTransition =
 
 fun MotionSpec.fadeExit(): ExitTransition =
     if (isInstant) ExitTransition.None else fadeOut(animationSpec())
+
+/**
+ * Programmatic scroll that respects Motion Off, disabled categories, and system reduced motion.
+ * Interactive user drag/scroll is unaffected; only automated jumps snap when [motionInstant] is true.
+ */
+suspend fun LazyListState.scrollToItemRespectingMotion(
+    index: Int,
+    scrollOffset: Int = 0,
+    motionInstant: Boolean
+) {
+    if (motionInstant) scrollToItem(index, scrollOffset)
+    else animateScrollToItem(index, scrollOffset)
+}
+
+/** Programmatic grid scroll that snaps to [index] when [motionInstant] is true. */
+suspend fun LazyGridState.scrollToItemRespectingMotion(
+    index: Int,
+    scrollOffset: Int = 0,
+    motionInstant: Boolean
+) {
+    if (motionInstant) scrollToItem(index, scrollOffset)
+    else animateScrollToItem(index, scrollOffset)
+}
+
+/** Programmatic pager jump that snaps to [page] when [motionInstant] is true. */
+suspend fun PagerState.scrollToPageRespectingMotion(
+    page: Int,
+    motionInstant: Boolean
+) {
+    if (motionInstant) scrollToPage(page)
+    else animateScrollToPage(page)
+}

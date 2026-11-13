@@ -12,6 +12,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -24,16 +26,22 @@ private val TAU: Float = (2 * PI).toFloat()
  */
 @Composable
 internal fun WaveBackdrop(color: Color, secondary: Color, modifier: Modifier) {
-    val transition = rememberInfiniteTransition(label = "wave-backdrop")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = TAU,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 6000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "wave-backdrop-phase",
-    )
+    val mediaMotion = rememberMotionSpec(MotionToken.MediaExpand)
+    val phase = if (mediaMotion.isInstant) {
+        0f
+    } else {
+        val transition = rememberInfiniteTransition(label = "wave-backdrop")
+        val animated by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = TAU,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 6000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "wave-backdrop-phase",
+        )
+        animated
+    }
     Canvas(modifier) {
         val w: Float = size.width
         val h = size.height

@@ -149,6 +149,7 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.scrollToPageRespectingMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import com.beykus.beygram.ui.components.TrafficUsageBadge
@@ -1156,12 +1157,12 @@ internal fun MediaViewer(
                 // Кнопки листания показываются для TalkBack, клавиатуры/мыши и планшетов; на сенсорном телефоне фото остаётся свободным от стрелок.
                 if (showAssistiveControls && controlsVisible && currentPages.size > 1) {
                     IconButton(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage - 1) } },
+                        onClick = { scope.launch { pagerState.scrollToPageRespectingMotion(safeSettledPage - 1, motionInstant = chromeSpec.isInstant) } },
                         enabled = safeSettledPage > 0,
                         modifier = Modifier.align(Alignment.CenterStart).padding(8.dp).background(Color(0x80070B10), CircleShape)
                     ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (safeSettledPage > 0) 1f else 0.3f)) }
                     IconButton(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage + 1) } },
+                        onClick = { scope.launch { pagerState.scrollToPageRespectingMotion(safeSettledPage + 1, motionInstant = chromeSpec.isInstant) } },
                         enabled = safeSettledPage < currentPages.lastIndex,
                         modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
                     ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
