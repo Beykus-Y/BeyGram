@@ -49,4 +49,6 @@
     <string name="yandex_wave_failed">Не удалось запустить волну. Нажмите, чтобы попробовать снова.</string>
     <string name="yandex_wave_resume">Продолжить: %1$s · %2$s</string>
     <string name="yandex_wave_play">Слушать «Мою волну»</string>
+    <string name="yandex_wave_now_playing">Сейчас играет волна</string>
+    <string name="yandex_wave_paused">На паузе · нажмите, чтобы продолжить</string>
 </resources>

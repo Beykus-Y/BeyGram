@@ -49,4 +49,6 @@
     <string name="yandex_wave_failed">Could not start the wave. Tap to try again.</string>
     <string name="yandex_wave_resume">Continue: %1$s · %2$s</string>
     <string name="yandex_wave_play">Play My Wave</string>
+    <string name="yandex_wave_now_playing">Playing the wave now</string>
+    <string name="yandex_wave_paused">Paused · tap to continue</string>
 </resources>
