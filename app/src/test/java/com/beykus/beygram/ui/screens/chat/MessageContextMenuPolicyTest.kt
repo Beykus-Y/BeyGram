@@ -145,4 +145,27 @@ class MessageContextMenuPolicyTest {
         val placement = computeMessagePopoverPlacement(anchor, viewport, 500, maxHeight, 16, 24, isOutgoing = false, minPopoverHeightPx = 300)
         assertTrue(placement.useBottomSheetFallback)
     }
+
+    @Test
+    fun midScreenAnchorWithTallMenuNeverOverlapsSelectedBubble() {
+        // Exact scenario from review: viewport 0..800, anchor 300..350, menuHeightPx=600, gap=8, margin=12.
+        // spaceAbove=280, spaceBelow=430. Menu must either constrain height to 430 below (y=358) or fall back, never overlap 300..350.
+        val viewport = Rect(0f, 0f, 1080f, 800f)
+        val anchor = Rect(40f, 300f, 540f, 350f)
+        val placement = computeMessagePopoverPlacement(
+            anchorBounds = anchor,
+            viewportBounds = viewport,
+            menuWidthPx = 480,
+            menuHeightPx = 600,
+            gapPx = 8,
+            marginPx = 12,
+            isOutgoing = false,
+            minPopoverHeightPx = 280
+        )
+        assertFalse(placement.useBottomSheetFallback)
+        assertFalse(placement.placedAbove)
+        assertEquals(358, placement.y)
+        assertEquals(430, placement.maxHeightPx)
+        assertTrue(placement.y >= anchor.bottom + 8)
+    }
 }

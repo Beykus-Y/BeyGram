@@ -49,9 +49,13 @@ class MiniPlayerVisibilityPolicyTest {
     }
 
     @Test
-    fun slotHidesBothMiniPlayerAndUndoWhenImeVisibleAndConfiguredToYield() {
+    fun slotHidesMiniPlayerForImeButPreservesUndoDuringUndoWindow() {
         assertEquals(
             NowPlayingBarSlot.Hidden,
+            resolveNowPlayingBarSlot(hasItem = true, undoAvailable = false, hideWhenImeVisible = true, keyboardVisible = true)
+        )
+        assertEquals(
+            NowPlayingBarSlot.UndoClose,
             resolveNowPlayingBarSlot(hasItem = false, undoAvailable = true, hideWhenImeVisible = true, keyboardVisible = true)
         )
         assertEquals(

@@ -2,6 +2,7 @@ package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
 import android.content.res.Configuration
+import com.beykus.beygram.ui.accessibility.rememberHasMousePointer
 import com.beykus.beygram.ui.accessibility.rememberTouchExplorationEnabled
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
@@ -90,6 +91,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -963,8 +965,12 @@ internal fun MediaViewer(
     // Панель возвращается при каждом переходе: иначе после скрытия на фото нельзя вернуть действия на видео или файле.
     LaunchedEffect(pagerState.settledPage) { controlsVisible = true }
     val touchExploration = rememberTouchExplorationEnabled()
+    // Restoring chrome when TalkBack is toggled on after auto-hide ensures assistive arrows/zoom are immediately reachable.
+    LaunchedEffect(touchExploration) { if (touchExploration) controlsVisible = true }
+    val hasMousePointer = rememberHasMousePointer()
     val configuration = LocalConfiguration.current
-    val hasNonTouchNavigation = configuration.keyboard != Configuration.KEYBOARD_NOKEYS ||
+    val hasNonTouchNavigation = hasMousePointer ||
+        configuration.keyboard != Configuration.KEYBOARD_NOKEYS ||
         configuration.navigation == Configuration.NAVIGATION_DPAD ||
         configuration.navigation == Configuration.NAVIGATION_TRACKBALL ||
         configuration.navigation == Configuration.NAVIGATION_WHEEL
@@ -977,6 +983,7 @@ internal fun MediaViewer(
     // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
     val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
     val exportPath = if (canExport && !shown.media.isSecret && !shown.viewOnce && !shownHidden) shownFile.localPath else null
+    var interactionTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(
         pagerState.settledPage,
         controlsVisible,
@@ -984,7 +991,8 @@ internal fun MediaViewer(
         touchExploration,
         shownHidden,
         shownFile.localPath != null,
-        isStillImage
+        isStillImage,
+        interactionTick
     ) {
         if (MediaViewerPolicy.shouldAutoHideControls(
                 isStillImage = isStillImage,
@@ -1030,13 +1038,15 @@ internal fun MediaViewer(
         }
     }
     val hasPrimaryBottomActions = (actions != null && actions.canForward) || exportPath != null
+    val reserveNonStillFooter = !isStillImage && (actions != null || canExport)
+    val zoomControlsBottomPadding = if (isStillImage && hasPrimaryBottomActions && controlsVisible) 76.dp else 16.dp
     val hasOverflowActions = (actions != null && (actions.canEdit || actions.canDelete)) || exportPath != null || onShowInChat != null
     val bottomChromeContent: @Composable () -> Unit = {
         Row(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 64.dp)
-                .background(Color(0xB3070B10))
+                .background(if (isStillImage) Color(0xB3070B10) else Color.Transparent)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
@@ -1073,7 +1083,9 @@ internal fun MediaViewer(
                             revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                             onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
                             onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
-                            showZoomControls = showAssistiveControls && controlsVisible && page == safeSettledPage)
+                            showZoomControls = showAssistiveControls && controlsVisible && page == safeSettledPage,
+                            zoomControlsBottomPadding = zoomControlsBottomPadding,
+                            onUserInteraction = { interactionTick++ })
                     }
                 }
                 Row(
@@ -1157,8 +1169,9 @@ internal fun MediaViewer(
                     }
                 }
             }
-            if (!isStillImage && hasPrimaryBottomActions && controlsVisible) {
-                bottomChromeContent()
+            if (reserveNonStillFooter) {
+                if (controlsVisible) bottomChromeContent()
+                else Box(Modifier.fillMaxWidth().heightIn(min = 64.dp))
             }
             externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
             fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).errorAnnouncement()) }
@@ -1173,7 +1186,7 @@ private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     autoDownloadFile: (AutoDownloadRequest) -> Unit,
     canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
-    onDismiss: () -> Unit, onToggleControls: () -> Unit, showZoomControls: Boolean
+    onDismiss: () -> Unit, onToggleControls: () -> Unit, showZoomControls: Boolean, zoomControlsBottomPadding: Dp, onUserInteraction: () -> Unit
 ) {
     val media = item.media
     val context = LocalContext.current
@@ -1351,6 +1364,7 @@ private fun MediaViewerPage(
                 if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
             media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = showZoomControls,
+                zoomControlsBottomPadding = zoomControlsBottomPadding, onUserInteraction = onUserInteraction,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) })
@@ -1388,7 +1402,15 @@ private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color.W
 }
 
 @Composable
-private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls: () -> Unit, showZoomControls: Boolean, contentDescription: String?) {
+private fun ZoomableImage(
+    path: String,
+    onDismiss: () -> Unit,
+    onToggleControls: () -> Unit,
+    showZoomControls: Boolean,
+    zoomControlsBottomPadding: Dp,
+    onUserInteraction: () -> Unit,
+    contentDescription: String?
+) {
     var scale by remember(path) { mutableFloatStateOf(1f) }
     var offset by remember(path) { mutableStateOf(Offset.Zero) }
     // Протяжка вниз при масштабе 1 двигает картинку за пальцем; отпущенная дальше четверти высоты закрывает просмотр.
@@ -1396,15 +1418,23 @@ private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls:
     var size by remember { mutableStateOf(IntSize.Zero) }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     val currentOnToggleControls by rememberUpdatedState(onToggleControls)
+    val currentOnUserInteraction by rememberUpdatedState(onUserInteraction)
     val transform = rememberTransformableState { zoom, pan, _ ->
+        currentOnUserInteraction()
         scale = (scale * zoom).coerceIn(1f, 5f)
         offset = clampImageOffset(offset + pan, scale, size)
     }
-    val dismissDrag = rememberDraggableState { delta -> if (scale <= 1f) dismissY += delta }
+    val dismissDrag = rememberDraggableState { delta ->
+        if (scale <= 1f) {
+            currentOnUserInteraction()
+            dismissY += delta
+        }
+    }
     // Масштаб, ушедший выше 1 посреди протяжки, отменяет её: сдвиг не должен остаться после возврата к масштабу 1.
     LaunchedEffect(scale > 1f) { if (scale > 1f) dismissY = 0f }
     // Кнопки масштаба меняют его вокруг центра, как и жест. Нужны тем, кому неудобно сводить два пальца.
     fun zoomTo(target: Float) {
+        currentOnUserInteraction()
         val next = target.coerceIn(1f, 5f)
         offset = offsetAroundCenter(offset, scale, next, size)
         scale = next
@@ -1433,7 +1463,9 @@ private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls:
         // Кнопки стоят поверх картинки, а не внутри её жестов: тап по кнопке не должен переключать панели или сдвигать фото.
         // Внизу по центру, чтобы на низком окне не наезжать на кнопки листания у краёв.
         if (showZoomControls) Row(
-            Modifier.align(Alignment.BottomCenter).padding(16.dp).background(Color(0x80070B10), styledShape(24.dp)),
+            Modifier.align(Alignment.BottomCenter)
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = zoomControlsBottomPadding)
+                .background(Color(0x80070B10), styledShape(24.dp)),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { zoomTo(scale / 1.5f) }, enabled = scale > 1f) {

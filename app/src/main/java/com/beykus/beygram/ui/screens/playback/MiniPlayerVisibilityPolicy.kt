@@ -27,11 +27,9 @@ internal fun resolveNowPlayingBarSlot(
     undoAvailable: Boolean,
     hideWhenImeVisible: Boolean,
     keyboardVisible: Boolean
-): NowPlayingBarSlot {
-    if (hideWhenImeVisible && keyboardVisible) return NowPlayingBarSlot.Hidden
-    return when {
-        hasItem -> NowPlayingBarSlot.MiniPlayer
-        undoAvailable -> NowPlayingBarSlot.UndoClose
-        else -> NowPlayingBarSlot.Hidden
-    }
+): NowPlayingBarSlot = when {
+    hasItem -> if (hideWhenImeVisible && keyboardVisible) NowPlayingBarSlot.Hidden else NowPlayingBarSlot.MiniPlayer
+    // Undo stays reachable even if the keyboard opens during the short undo window.
+    undoAvailable -> NowPlayingBarSlot.UndoClose
+    else -> NowPlayingBarSlot.Hidden
 }

@@ -324,7 +324,12 @@ internal fun MessageContextPopover(
     )
 
     val maxCardHeightPx = computePopoverMaxHeightPx(viewportBounds, marginPx)
-    val maxCardHeightDp = if (maxCardHeightPx > 0) with(density) { maxCardHeightPx.toDp() } else 360.dp
+    val effectiveMaxHeightPx = if (!placement.useBottomSheetFallback && placement.maxHeightPx != null) {
+        minOf(maxCardHeightPx, placement.maxHeightPx)
+    } else {
+        maxCardHeightPx
+    }
+    val maxCardHeightDp = if (effectiveMaxHeightPx > 0) with(density) { effectiveMaxHeightPx.toDp() } else 360.dp
 
     val freeReactions = remember(reactionOptions) { reactionOptions.filter { !it.isPaid }.take(6) }
     val showReactionStrip = onQuickReaction != null && (freeReactions.isNotEmpty() || onReactions != null)

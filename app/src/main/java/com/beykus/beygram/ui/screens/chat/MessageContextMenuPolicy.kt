@@ -63,7 +63,8 @@ internal data class PopoverPlacement(
     val x: Int,
     val y: Int,
     val placedAbove: Boolean,
-    val useBottomSheetFallback: Boolean
+    val useBottomSheetFallback: Boolean,
+    val maxHeightPx: Int? = null
 )
 
 /**
@@ -102,22 +103,31 @@ internal fun computeMessagePopoverPlacement(
     val anchorBottom = anchorBounds.bottom.coerceIn(viewportBounds.top, viewportBounds.bottom)
     val spaceBelow = (viewportBounds.bottom - anchorBottom - gapPx - marginPx).toInt().coerceAtLeast(0)
     val spaceAbove = (anchorTop - viewportBounds.top - gapPx - marginPx).toInt().coerceAtLeast(0)
-    if (maxOf(spaceBelow, spaceAbove) < minPopoverHeightPx) {
+    val maxAvailableSide = maxOf(spaceBelow, spaceAbove)
+    if (maxAvailableSide < minPopoverHeightPx) {
         return PopoverPlacement(0, 0, placedAbove = false, useBottomSheetFallback = true)
     }
     val placeAbove = spaceBelow < menuHeightPx && spaceAbove > spaceBelow
+    val availableOnSide = if (placeAbove) spaceAbove else spaceBelow
+    val constrainedHeight = menuHeightPx.coerceAtMost(availableOnSide)
+    val minY = viewportBounds.top.toInt() + marginPx
+    val maxY = (viewportBounds.bottom.toInt() - constrainedHeight - marginPx).coerceAtLeast(minY)
     val rawY = if (placeAbove) {
-        (anchorTop - gapPx - menuHeightPx).toInt()
+        (anchorTop - gapPx - constrainedHeight).toInt()
     } else {
         (anchorBottom + gapPx).toInt()
     }
-    val minY = viewportBounds.top.toInt() + marginPx
-    val maxY = (viewportBounds.bottom.toInt() - menuHeightPx - marginPx).coerceAtLeast(minY)
     val y = rawY.coerceIn(minY, maxY)
 
     val rawX = if (isOutgoing) (anchorBounds.right - menuWidthPx).toInt() else anchorBounds.left.toInt()
     val minX = viewportBounds.left.toInt() + marginPx
     val maxX = (viewportBounds.right.toInt() - menuWidthPx - marginPx).coerceAtLeast(minX)
     val x = rawX.coerceIn(minX, maxX)
-    return PopoverPlacement(x = x, y = y, placedAbove = placeAbove, useBottomSheetFallback = false)
+    return PopoverPlacement(
+        x = x,
+        y = y,
+        placedAbove = placeAbove,
+        useBottomSheetFallback = false,
+        maxHeightPx = availableOnSide.takeIf { it < menuHeightPx }
+    )
 }
