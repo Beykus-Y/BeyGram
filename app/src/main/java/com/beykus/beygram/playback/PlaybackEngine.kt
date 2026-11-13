@@ -622,17 +622,19 @@ object PlaybackEngine {
     fun replaceYandexUpcoming(
         context: Context,
         tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>,
+        radio: PlaybackRadio,
         loadMore: suspend () -> List<com.beykus.beygram.data.music.provider.ProviderTrack>,
     ) {
         val playable = tracks.filter { it.isAvailable }
         if (playable.isEmpty() || _state.value.item == null) return
         clearUpcoming()
-        // clearUpcoming drops the loader; this queue gets the new one, so the radio keeps going.
+        // clearUpcoming drops the loader; this queue gets the new one, so the radio keeps going under the same radio.
         queueSource = PlaybackQueueSource(
             accountId = LEGACY_PLAYBACK_ACCOUNT_ID,
             observeFile = { fileId -> MutableStateFlow(MediaFileState(id = fileId)) },
             download = {},
             loadMore = { loadMore().filter { it.isAvailable }.map(::providerPlaybackItem) },
+            radio = radio,
         )
         playable.forEach { track -> enqueue(context, providerPlaybackItem(track), source = null, atEnd = true) }
     }

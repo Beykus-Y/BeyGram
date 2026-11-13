@@ -49,11 +49,12 @@ internal object YandexWaveResume {
         val savedAtMs: Long,
     )
 
+    /** The wave that plays. [sessionOf] gives the live session, which a settings change replaces. */
     private class Active(
-        val session: YandexWaveSession,
+        val sessionOf: () -> YandexWaveSession,
         val radio: PlaybackRadio,
-        val seeds: List<String>,
-        val subtitle: String,
+        var seeds: List<String>,
+        var subtitle: String,
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -109,10 +110,17 @@ internal object YandexWaveResume {
     }
 
     /** Called when a wave starts: from now on its place is saved while it plays. */
-    fun attach(context: Context, session: YandexWaveSession, radio: PlaybackRadio, seeds: List<String>, subtitle: String) {
+    fun attach(context: Context, sessionOf: () -> YandexWaveSession, radio: PlaybackRadio, seeds: List<String>, subtitle: String) {
         appContext = context.applicationContext
-        active = Active(session, radio, seeds, subtitle)
+        active = Active(sessionOf, radio, seeds, subtitle)
         ensureWatching()
+    }
+
+    /** The playing wave got new settings: its saved seeds and caption follow, so a restart plays the new choice. */
+    fun settingsChanged(seeds: List<String>, subtitle: String) {
+        val current = active ?: return
+        current.seeds = seeds
+        current.subtitle = subtitle
     }
 
     /** Continues the saved wave from its place: restores it first when nothing is loaded yet. */
@@ -166,7 +174,7 @@ internal object YandexWaveResume {
             subtitle = current.subtitle,
             track = track,
             positionMs = state.positionMs.coerceIn(0L, MAX_POSITION_MS),
-            given = current.session.givenIds(),
+            given = current.sessionOf().givenIds(),
             savedAtMs = now,
         )
         write(context, value)
@@ -193,7 +201,7 @@ internal object YandexWaveResume {
         )
         session.seed(saved.track)
         val radio = PlaybackRadio(title = app.getString(R.string.yandex_wave_title), subtitle = saved.subtitle)
-        active = Active(session, radio, saved.seeds, saved.subtitle)
+        active = Active({ session }, radio, saved.seeds, saved.subtitle)
         // Paused: nothing plays and no request goes out until the person presses Play.
         PlaybackEngine.restoreYandexRadio(app, saved.track, saved.positionMs, { session.more() }, radio)
         YandexWaveFeedback.start(yandex, session, radio)
