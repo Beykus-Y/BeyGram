@@ -63,4 +63,24 @@ class MiniPlayerVisibilityPolicyTest {
             resolveNowPlayingBarSlot(hasItem = false, undoAvailable = true, hideWhenImeVisible = false, keyboardVisible = true)
         )
     }
+
+    @Test
+    fun listenerInLiveWaveGetsBarWithoutTrack() {
+        assertEquals(
+            NowPlayingBarSlot.MiniPlayer,
+            resolveNowPlayingBarSlot(hasItem = false, undoAvailable = false, hideWhenImeVisible = false, keyboardVisible = false, waveListening = true)
+        )
+        assertEquals(
+            NowPlayingBarSlot.Hidden,
+            resolveNowPlayingBarSlot(hasItem = false, undoAvailable = false, hideWhenImeVisible = true, keyboardVisible = true, waveListening = true)
+        )
+    }
+
+    @Test
+    fun waveDoesNotChangeSlotWhenTrackIsPresent() {
+        assertEquals(
+            NowPlayingBarSlot.MiniPlayer,
+            resolveNowPlayingBarSlot(hasItem = true, undoAvailable = false, hideWhenImeVisible = false, keyboardVisible = false, waveListening = true)
+        )
+    }
 }

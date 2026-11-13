@@ -128,6 +128,10 @@ class BgMixPlayer(private val cacheDir: File) {
 
     fun removeTrack(id: Long): Boolean = withHandle(false) { h -> BgMixNative.nativeRemoveTrack(h, id) }
 
+    /** Attaches a BG Wave session as this player's host PCM tap, or detaches it with 0. */
+    fun attachWaveSession(sessionHandle: Long): Boolean =
+        withHandle(false) { h -> BgMixNative.nativeSetWaveTap(h, sessionHandle) }
+
     fun play() = transport(BgMixNative.ACTION_PLAY)
 
     fun pause() = transport(BgMixNative.ACTION_PAUSE)
