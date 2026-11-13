@@ -29,6 +29,19 @@ internal object YandexWave {
     /** Seed of a wave built from one playlist: owner uid and kind. Format not yet checked on the live API. */
     fun playlistSeed(ownerUid: String, kind: String): String = "playlist:${ownerUid}_$kind"
 
+    /**
+     * Diversity setting of the personal wave, sent as an extra seed. Seed format not yet checked on the live API:
+     * unverified on device, so a wrong value must not break the wave (the seed is simply left out by [seedsFor]).
+     */
+    enum class Diversity(val seed: String?) {
+        DEFAULT(null),
+        DISCOVER("settingDiversity:discover"),
+        POPULAR("settingDiversity:popular"),
+    }
+
+    /** The seeds of a wave that starts from [base] with the chosen [diversity]. */
+    fun seedsFor(base: String, diversity: Diversity): List<String> = listOfNotNull(base, diversity.seed)
+
     /** How many of the last given tracks are sent back, so the service does not repeat them. */
     const val QUEUE_HINT = 50
 

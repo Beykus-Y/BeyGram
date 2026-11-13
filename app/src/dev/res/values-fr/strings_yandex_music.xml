@@ -53,4 +53,7 @@
     <string name="yandex_wave_play">Écouter Ma Vague</string>
     <string name="yandex_wave_now_playing">La vague joue maintenant</string>
     <string name="yandex_wave_paused">En pause · touchez pour reprendre</string>
+    <string name="yandex_wave_diversity_default">Selon vos goûts</string>
+    <string name="yandex_wave_diversity_discover">Nouveautés</string>
+    <string name="yandex_wave_diversity_popular">Populaires</string>
 </resources>

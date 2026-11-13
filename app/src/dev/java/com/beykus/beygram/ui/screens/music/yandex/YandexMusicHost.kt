@@ -21,6 +21,8 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Pause
 import com.beykus.beygram.playback.PlaybackEngine
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -261,6 +263,8 @@ class YandexMusicHost : ProviderMusicHost {
     }
 
     private var waveStarting by mutableStateOf(false)
+    /** Diversity of the next personal wave; applies from the next start, not to a wave already playing. */
+    private var waveDiversity by mutableStateOf(YandexWave.Diversity.DEFAULT)
     private var waveFailure by mutableStateOf<MusicProviderFailure?>(null)
 
     /**
@@ -276,7 +280,7 @@ class YandexMusicHost : ProviderMusicHost {
         YandexWaveLauncher.start(
             context = context,
             provider = yandex,
-            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            seeds = YandexWave.seedsFor(YandexWave.MY_WAVE_SEED, waveDiversity),
             subtitle = context.getString(R.string.yandex_wave_source_personal),
             startTrack = null,
             isCurrent = { mine == selectionGeneration },
@@ -408,6 +412,7 @@ class YandexMusicHost : ProviderMusicHost {
             val waveTitle = stringResource(R.string.yandex_wave_title)
             // The radio is not a flow, so it is read on each playback change; the state flow drives recomposition.
             val waveActive = PlaybackEngine.activeRadio?.title == waveTitle && playback.item != null
+            Column(Modifier.fillMaxWidth()) {
             WaveTile(
                 starting = waveStarting,
                 failure = waveFailure,
@@ -418,6 +423,11 @@ class YandexMusicHost : ProviderMusicHost {
                 onResume = { YandexWaveResume.resume() },
                 onTogglePlayPause = { PlaybackEngine.togglePlayPause() },
             )
+            WaveDiversityRow(
+                selected = waveDiversity,
+                onSelect = { waveDiversity = it },
+            )
+            }
         }
         val failure = libraryFailure
         if (failure != null && !libraryLoading) item(key = "yandex-failure") {
@@ -528,6 +538,29 @@ class YandexMusicHost : ProviderMusicHost {
                         )
                     }
                 }
+            }
+        }
+    }
+
+    /** Diversity chips under the wave card. Not verified on device yet: the seed values come from the API docs. */
+    @Composable
+    private fun WaveDiversityRow(selected: YandexWave.Diversity, onSelect: (YandexWave.Diversity) -> Unit) {
+        Row(
+            Modifier.fillMaxWidth()
+                .padding(horizontal = MusicScreenGutter, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val options = listOf(
+                YandexWave.Diversity.DEFAULT to R.string.yandex_wave_diversity_default,
+                YandexWave.Diversity.DISCOVER to R.string.yandex_wave_diversity_discover,
+                YandexWave.Diversity.POPULAR to R.string.yandex_wave_diversity_popular,
+            )
+            options.forEach { (value, label) ->
+                FilterChip(
+                    selected = selected == value,
+                    onClick = { onSelect(value) },
+                    label = { Text(stringResource(label)) },
+                )
             }
         }
     }
