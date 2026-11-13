@@ -3,14 +3,11 @@ package com.beykus.beygram.ui.motion
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.FastOutLinearInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 
 /** How the screen that is now shown relates to the one before it. */
@@ -20,9 +17,17 @@ enum class NavigationMove { None, Push, Pop, Tab }
  * Remembers the order routes were opened in. Going back to a route that is already on the stack is a pop, and opening
  * any other route is a push. A tab root resets the stack, so switching tabs reads as [NavigationMove.Tab], not as a push.
  */
-class NavigationHistory<T>(initial: T, private val isRoot: (T) -> Boolean) {
+class NavigationHistory<T>(
+    initial: T,
+    private val isRoot: (T) -> Boolean,
+    private val rootIndex: (T) -> Int = { 0 }
+) {
     private val stack = mutableListOf(initial)
     private var move = NavigationMove.None
+
+    /** +1 when moving to a later tab in bar order, -1 when moving to an earlier tab. */
+    var tabDirection: Int = 1
+        private set
 
     /** Records [target] and returns how it was reached. Asking again for the same target returns the same move. */
     fun visit(target: T): NavigationMove {
@@ -34,6 +39,9 @@ class NavigationHistory<T>(initial: T, private val isRoot: (T) -> Boolean) {
             isRoot(target) -> NavigationMove.Pop
             previousIndex >= 0 -> NavigationMove.Pop
             else -> NavigationMove.Push
+        }
+        if (move == NavigationMove.Tab) {
+            tabDirection = if (rootIndex(target) >= rootIndex(current)) 1 else -1
         }
         when {
             isRoot(target) -> {
@@ -51,83 +59,70 @@ class NavigationHistory<T>(initial: T, private val isRoot: (T) -> Boolean) {
     }
 }
 
-/** Share of the screen width a push or pop slides across at full intensity. */
-private const val RouteSlideFraction = 0.12f
+/** Base share of the screen width the underlying route shifts for parallax during a push or pop. */
+private const val RouteParallaxFraction = 0.22f
+private const val MaxRouteParallaxFraction = 0.33f
 
-/** Share of a route transition spent on the outgoing screen; the incoming one starts only when that share is over. */
-private const val RouteExitShare = 0.4f
+internal fun routeParallaxFraction(intensity: Float): Float =
+    (RouteParallaxFraction * intensity.coerceAtLeast(0f)).coerceAtMost(MaxRouteParallaxFraction)
 
 /**
- * The transition for one [move]. A push slides in from the right and a pop from the left; tab switches fade the incoming screen in over the still opaque outgoing one.
- * Push and pop run in sequence, never as a crossfade: the outgoing screen leaves first and the incoming one starts after it, so
- * two screens are never readable at the same time (a crossfade left Contacts over Calls and Appearance over Settings
- * half-transparent). An instant spec gives a cut with no alpha or offset, so reduced motion and the Off preset show the
- * new screen on its first frame. Intensity scales only the slide distance.
+ * The transition for one [move].
+ *
+ * All transitions keep both screens opaque (no fade-to-empty gap and no semi-transparent double-text overlap):
+ * - [NavigationMove.Push]: the incoming screen slides over the outgoing one from the right (`targetContentZIndex = 1f`)
+ *   while the outgoing screen shifts left with subtle parallax.
+ * - [NavigationMove.Pop]: the outgoing screen stays on top (`targetContentZIndex = -1f`) and slides off to the right,
+ *   revealing the previous screen returning from its parallax offset.
+ * - [NavigationMove.Tab]: both tab roots slide edge-to-edge in tab-bar order ([tabDirection]).
+ * - [NavigationMove.None], instant specs (Off / reduced motion), or zero-intensity specs produce an immediate cut with
+ *   no alpha or offset.
  */
 fun routeContentTransform(
     move: NavigationMove,
     push: MotionSpec,
     pop: MotionSpec,
-    tab: MotionSpec
+    tab: MotionSpec,
+    tabDirection: Int = 1
 ): ContentTransform = when (move) {
-    NavigationMove.Push -> slideTransform(push, direction = 1)
-    NavigationMove.Pop -> slideTransform(pop, direction = -1)
-    NavigationMove.Tab -> tabFadeOver(tab)
-    NavigationMove.None -> fadeThrough(tab)
+    NavigationMove.Push -> pushTransform(push)
+    NavigationMove.Pop -> popTransform(pop)
+    NavigationMove.Tab -> tabSlideTransform(tab, tabDirection)
+    NavigationMove.None -> instantTransform()
 }
 
-/** Splits one token's duration into the exit part and the enter part, which follows it without overlap. */
-private class RouteTimeline(spec: MotionSpec) {
-    val exitMillis: Int = (spec.durationMillis * RouteExitShare).roundToInt().coerceAtLeast(1)
-    val enterMillis: Int = (spec.durationMillis - exitMillis).coerceAtLeast(1)
-}
+private fun instantTransform(): ContentTransform =
+    EnterTransition.None togetherWith ExitTransition.None
 
-/** Share of a tab switch the incoming screen takes to become opaque; the outgoing one is removed only after that. */
-private const val TabEnterShare = 0.7f
-
-/** Splits a tab switch: the incoming screen fades in first, the covered outgoing screen is dropped in the rest. */
-internal class TabTimeline(durationMillis: Int) {
-    val enterMillis: Int = (durationMillis * TabEnterShare).roundToInt().coerceAtLeast(1)
-    val exitMillis: Int = (durationMillis - enterMillis).coerceAtLeast(1)
-}
-
-/**
- * Tab switches: the incoming screen fades in above the outgoing one, which stays fully opaque until it is covered and
- * only then fades out underneath. Two opaque screens are blended, so the window background never shows through and the
- * dock, identical in both screens, appears to stay in place. Tab roots must be opaque over their whole area.
- */
-private fun tabFadeOver(spec: MotionSpec): ContentTransform {
-    if (spec.isInstant) return EnterTransition.None togetherWith ExitTransition.None
-    val timeline = TabTimeline(spec.durationMillis)
-    val enter = fadeIn(animationSpec = tween(timeline.enterMillis, easing = spec.easing))
-    val exit = fadeOut(
-        animationSpec = tween(timeline.exitMillis, delayMillis = timeline.enterMillis, easing = LinearEasing)
-    )
-    return enter togetherWith exit
-}
-
-private fun slideTransform(spec: MotionSpec, direction: Int): ContentTransform {
-    if (spec.isInstant) return EnterTransition.None togetherWith ExitTransition.None
-    val timeline = RouteTimeline(spec)
-    val travel = { fullWidth: Int -> direction * (fullWidth * RouteSlideFraction * spec.intensity).roundToInt() }
-    val enter = slideInHorizontally(
-        animationSpec = tween(timeline.enterMillis, delayMillis = timeline.exitMillis, easing = spec.easing),
-        initialOffsetX = travel
-    ) + fadeIn(animationSpec = tween(timeline.enterMillis, delayMillis = timeline.exitMillis, easing = spec.easing))
+private fun pushTransform(spec: MotionSpec): ContentTransform {
+    if (spec.isInstant || spec.intensity <= 0f) return instantTransform()
+    val animSpec = tween<IntOffset>(spec.durationMillis, easing = spec.easing)
+    val parallax = routeParallaxFraction(spec.intensity)
+    val enter = slideInHorizontally(animationSpec = animSpec, initialOffsetX = { it })
     val exit = slideOutHorizontally(
-        animationSpec = tween(timeline.exitMillis, easing = FastOutLinearInEasing),
-        targetOffsetX = { -travel(it) }
-    ) + fadeOut(animationSpec = tween(timeline.exitMillis, easing = FastOutLinearInEasing))
-    return enter togetherWith exit
+        animationSpec = animSpec,
+        targetOffsetX = { fullWidth -> -(fullWidth * parallax).roundToInt() }
+    )
+    return ContentTransform(enter, exit, targetContentZIndex = 1f)
 }
 
-/**
- * Used when there is no known direction (first route of a session).
- */
-private fun fadeThrough(spec: MotionSpec): ContentTransform {
-    if (spec.isInstant) return EnterTransition.None togetherWith ExitTransition.None
-    val timeline = RouteTimeline(spec)
-    val enter = fadeIn(animationSpec = tween(timeline.enterMillis, delayMillis = timeline.exitMillis, easing = spec.easing))
-    val exit = fadeOut(animationSpec = tween(timeline.exitMillis, easing = FastOutLinearInEasing))
-    return enter togetherWith exit
+private fun popTransform(spec: MotionSpec): ContentTransform {
+    if (spec.isInstant || spec.intensity <= 0f) return instantTransform()
+    val animSpec = tween<IntOffset>(spec.durationMillis, easing = spec.easing)
+    val parallax = routeParallaxFraction(spec.intensity)
+    val enter = slideInHorizontally(
+        animationSpec = animSpec,
+        initialOffsetX = { fullWidth -> -(fullWidth * parallax).roundToInt() }
+    )
+    val exit = slideOutHorizontally(animationSpec = animSpec, targetOffsetX = { it })
+    return ContentTransform(enter, exit, targetContentZIndex = -1f)
+}
+
+private fun tabSlideTransform(spec: MotionSpec, direction: Int): ContentTransform {
+    if (spec.isInstant || spec.intensity <= 0f) return instantTransform()
+    val dir = if (direction >= 0) 1 else -1
+    val animSpec = tween<IntOffset>(spec.durationMillis, easing = spec.easing)
+    val enter = slideInHorizontally(animationSpec = animSpec, initialOffsetX = { dir * it })
+    val exit = slideOutHorizontally(animationSpec = animSpec, targetOffsetX = { -dir * it })
+    return ContentTransform(enter, exit, targetContentZIndex = 0f)
 }
