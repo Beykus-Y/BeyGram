@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -48,6 +49,15 @@ std::shared_ptr<WaveAudioPipeline> bgWaveSessionPipeline(std::int64_t sessionHan
 }
 
 namespace {
+
+// A host PCM tap keeps its own copy of the session pipeline, so pushes from the ExoPlayer render thread
+// stay valid even if the session is destroyed in the meantime.
+struct HostTap {
+    std::shared_ptr<WaveAudioPipeline> pipeline;
+};
+std::mutex tapMutex;
+std::map<std::int64_t, std::shared_ptr<HostTap>> hostTaps;
+std::int64_t nextTapId = 1;
 
 std::string toStd(JNIEnv* env, jstring value) {
     if (!value) return {};
@@ -301,6 +311,59 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativePullListenerPcm(J
 #else
     (void)env; (void)handle; (void)out; (void)frames; (void)sampleRate;
     return 0;
+#endif
+}
+
+// Opens a host PCM tap on a live session and returns its id, or 0.
+JNIEXPORT jlong JNICALL
+Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeOpenHostTap(JNIEnv*, jclass, jlong handle) {
+#if BGWAVE_SESSION_ENABLED
+    Session* session = sessionOf(handle);
+    if (!session || !session->pipeline) return 0;
+    auto tap = std::make_shared<HostTap>();
+    tap->pipeline = session->pipeline;
+    std::lock_guard<std::mutex> lock(tapMutex);
+    const std::int64_t id = nextTapId++;
+    hostTaps[id] = tap;
+    return static_cast<jlong>(id);
+#else
+    (void)handle;
+    return 0;
+#endif
+}
+
+// Pushes interleaved stereo float PCM into the tap's session. Returns false for an unknown or closed tap.
+JNIEXPORT jboolean JNICALL
+Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativePushHostTap(JNIEnv* env, jclass, jlong tapId,
+                                                                           jfloatArray pcm, jint frames,
+                                                                           jint sampleRate) {
+#if BGWAVE_SESSION_ENABLED
+    std::shared_ptr<HostTap> tap;
+    {
+        std::lock_guard<std::mutex> lock(tapMutex);
+        auto it = hostTaps.find(static_cast<std::int64_t>(tapId));
+        if (it == hostTaps.end()) return JNI_FALSE;
+        tap = it->second;
+    }
+    if (!pcm || frames <= 0 || env->GetArrayLength(pcm) < frames * 2) return JNI_FALSE;
+    jfloat* data = env->GetFloatArrayElements(pcm, nullptr);
+    if (!data) return JNI_FALSE;
+    tap->pipeline->pushHostPcm(data, static_cast<std::size_t>(frames), static_cast<std::uint32_t>(sampleRate));
+    env->ReleaseFloatArrayElements(pcm, data, JNI_ABORT);
+    return JNI_TRUE;
+#else
+    (void)env; (void)tapId; (void)pcm; (void)frames; (void)sampleRate;
+    return JNI_FALSE;
+#endif
+}
+
+JNIEXPORT void JNICALL
+Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeCloseHostTap(JNIEnv*, jclass, jlong tapId) {
+#if BGWAVE_SESSION_ENABLED
+    std::lock_guard<std::mutex> lock(tapMutex);
+    hostTaps.erase(static_cast<std::int64_t>(tapId));
+#else
+    (void)tapId;
 #endif
 }
 
