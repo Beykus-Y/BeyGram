@@ -251,6 +251,11 @@
     <string name="chat_sending_description">Envoi</string>
     <string name="chat_sent_description">Envoyé</string>
     <string name="chat_status_not_sent">non envoyé</string>
+    <string name="chat_status_waiting_network">en attente de réseau</string>
+    <string name="chat_send_failure_details">Détails</string>
+    <string name="chat_send_failure_title">Échec de l’envoi du message</string>
+    <string name="chat_send_failure_discard">Supprimer</string>
+    <string name="chat_send_failure_copy">Copier le texte</string>
     <string name="chat_video_note_permission_denied">Les autorisations de caméra et de microphone sont requises pour les messages vidéo</string>
     <string name="chat_video_note_processing">Traitement</string>
     <string name="chat_video_note_send_failed">Impossible d’envoyer le message vidéo</string>
