@@ -2453,4 +2453,7 @@
     <string name="chat_preview_animation">🎞 GIF</string>
     <string name="chat_preview_expired_media">⌛ Медиа недоступно</string>
     <string name="deleted_account_name">Удалённый аккаунт</string>
+    <string name="player_sound">Звук</string>
+    <string name="player_share">Поделиться</string>
+    <string name="player_sleep_minutes_short">%1$d мин</string>
 </resources>

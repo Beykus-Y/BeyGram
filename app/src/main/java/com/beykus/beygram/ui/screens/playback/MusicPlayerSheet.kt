@@ -61,7 +61,7 @@ import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Replay
-import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Shuffle
@@ -161,7 +161,6 @@ import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackRepeatMode
 import com.beykus.beygram.playback.SLEEP_TIMER_MAX_MINUTES
-import com.beykus.beygram.playback.SLEEP_TIMER_MINUTES
 import com.beykus.beygram.playback.SleepTimerState
 import com.beykus.beygram.playback.sleepTimerRemainingMinutes
 import com.beykus.beygram.data.music.provider.ProviderTracks
@@ -273,7 +272,6 @@ internal fun MusicPlayerSheet(
                         source = source,
                         onCollapse = onDismiss,
                         onOpenSource = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } },
-                        onOpenMusicSearch = onOpenMusicSearch?.let { open -> { onDismiss(); open() } },
                         onOpenMyMusic = onOpenMyMusic?.let { open -> { onDismiss(); open() } }
                     )
                     PlayerBody(
@@ -310,7 +308,7 @@ internal fun MusicPlayerSheet(
 
 /** Minutes left on the running sleep timer, refreshed every half minute. The one counter both the menu and the status line read. */
 @Composable
-private fun rememberSleepMinutes(sleepTimer: SleepTimerState?): Int {
+internal fun rememberSleepMinutes(sleepTimer: SleepTimerState?): Int {
     val minutes by produceState(0, sleepTimer) {
         val activeTimer = sleepTimer
         while (activeTimer != null && !activeTimer.untilTrackEnd) {
@@ -322,7 +320,7 @@ private fun rememberSleepMinutes(sleepTimer: SleepTimerState?): Int {
 }
 
 @Composable
-private fun sleepTimerStatusText(sleepTimer: SleepTimerState, minutesRemaining: Int): String =
+internal fun sleepTimerStatusText(sleepTimer: SleepTimerState, minutesRemaining: Int): String =
     if (sleepTimer.untilTrackEnd) stringResource(R.string.player_sleep_status_track_end)
     else stringResource(R.string.player_sleep_remaining, minutesRemaining)
 
@@ -332,14 +330,9 @@ private fun PlayerHeader(
     source: PlaybackSourceLabel,
     onCollapse: () -> Unit,
     onOpenSource: (() -> Unit)?,
-    onOpenMusicSearch: (() -> Unit)?,
     onOpenMyMusic: (() -> Unit)?
 ) {
     val palette = beyGramPalette()
-    var speedMenu by remember { mutableStateOf(false) }
-    var sleepDialog by remember { mutableStateOf(false) }
-    val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
-    val minutesRemaining = rememberSleepMinutes(sleepTimer)
     val closeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
     val sourceLabel = source.caption ?: stringResource(R.string.player_source_from)
@@ -387,188 +380,109 @@ private fun PlayerHeader(
                 textAlign = TextAlign.Center
             )
         }
-        if (onOpenMusicSearch != null) IconButton(onClick = onOpenMusicSearch) {
-            Icon(Icons.Rounded.Search, stringResource(R.string.music_search_action), tint = palette.textSecondary)
+        PlayerTrackMenu(item = player.item, onCollapse = onCollapse, onOpenMyMusic = onOpenMyMusic)
+    }
+}
+
+/**
+ * The «⋮» menu of the full player. It holds only what the track itself can do; speed, the sleep timer and the equalizer
+ * live in the sound sheet. «Моя музыка» comes last, under a divider, because it leaves the player for another screen.
+ */
+@Composable
+private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMyMusic: (() -> Unit)?) {
+    val palette = beyGramPalette()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var menuOpen by remember { mutableStateOf(false) }
+    var pendingShare by remember { mutableStateOf<PendingTrackShare?>(null) }
+    // Sharing sends from the chat source the player uses. A track from a chat is offered only once that chat is known
+    // not to protect its content; a chat that cannot be checked here gets no share.
+    val originChat = rememberOriginChat(item.origin)
+    val protectedChat = originChat?.hasProtectedContent == true
+    val shareSource = LocalPlaybackRepositorySource.current
+    val shareAllowed = shareSource != null &&
+        canShareTrack(completedShareItem(item), originUnprotected = item.origin == null || originChat?.hasProtectedContent == false)
+    // A source track is shared as its link; the file never leaves the app.
+    val providerTrack = ProviderTracks.byKey(item.key)?.takeIf { ProviderTracks.isProviderKey(item.key) }
+    val shareLabel = stringResource(R.string.player_share)
+    val shareChooser = stringResource(R.string.music_provider_share_link)
+    val showInChatLabel = stringResource(R.string.media_show_in_chat)
+    val addToProfile = LocalAddProfileAudio.current
+    val addToProfileLabel = stringResource(R.string.player_add_to_profile)
+    val addToProfileDone = stringResource(R.string.player_add_to_profile_done)
+    // The shared player may be bound to another account; its file ids mean nothing to the active one.
+    val activeAccount = PlaybackEngine.activeAccount()
+    val myMusicLabel = stringResource(R.string.music_library_title)
+    Box {
+        IconButton(onClick = { menuOpen = true }) {
+            Icon(Icons.Rounded.MoreVert, stringResource(R.string.player_menu), tint = palette.textSecondary)
         }
-        Box {
-            IconButton(onClick = { speedMenu = true }) {
-                Icon(Icons.Rounded.MoreVert, stringResource(R.string.player_menu), tint = palette.textSecondary)
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            // Wave by track and album of a source track. The like is in the bottom row, and the share is merged below.
+            PlayerProviderTrackMenuItems(
+                key = item.key,
+                onDismiss = { menuOpen = false },
+                // The album opens behind the player, so the player closes first.
+                onLeavePlayer = onCollapse
+            )
+            if (providerTrack != null) PlayerMenuEntry(shareLabel, Icons.Rounded.Share) {
+                menuOpen = false
+                ProviderTracks.shareLink(context, providerTrack, shareChooser)
+            } else if (shareAllowed) PlayerMenuEntry(shareLabel, Icons.Rounded.Share) {
+                menuOpen = false
+                shareSource?.let { source ->
+                    pendingShare = PendingTrackShare(completedShareItem(item), shareTimecode(PlaybackEngine.state.value.positionMs), source)
+                }
             }
-            DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
-                if (onOpenMyMusic != null) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.music_library_title), color = palette.textPrimary) },
-                        leadingIcon = { Icon(Icons.Rounded.MusicNote, null, tint = palette.accent) },
-                        onClick = {
-                            speedMenu = false
-                            onOpenMyMusic()
-                        }
-                    )
-                    HorizontalDivider(color = palette.divider)
+            item.origin?.let { origin ->
+                PlayerMenuEntry(showInChatLabel, Icons.Rounded.ChatBubble) {
+                    menuOpen = false
+                    PlaybackEngine.requestShowInChat(origin)
+                    onCollapse()
                 }
-                // A track of an optional source: like, its album and a link to share instead of the file.
-                PlayerProviderTrackMenuItems(
-                    key = player.item.key,
-                    onDismiss = { speedMenu = false },
-                    // The album opens behind the player, so the player closes first.
-                    onLeavePlayer = onCollapse
-                )
-                Text(
-                    stringResource(R.string.player_speed_title),
-                    color = palette.textSecondary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-                if (player.bgMix) {
-                    Text(
-                        stringResource(R.string.player_speed_bgmix_hint),
-                        color = palette.textSecondary,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
+            }
+            // Only a music file the active account can see from a chat is a Telegram profile track. A track that already
+            // plays from a profile is in a profile, so the action would only add a copy.
+            if (addToProfile != null && item.isMusic && item.fileId != null && !item.systemPrivate && !protectedChat &&
+                !item.key.startsWith(PROFILE_AUDIO_KEY_PREFIX) && (activeAccount == null || item.accountId == activeAccount)
+            ) PlayerMenuEntry(addToProfileLabel, Icons.Rounded.PersonAdd) {
+                menuOpen = false
+                scope.launch {
+                    addToProfile(item)
+                        .onSuccess { Toast.makeText(context, addToProfileDone, Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(context, it.userMessage(context, R.string.player_add_to_profile_failed), Toast.LENGTH_SHORT).show() }
                 }
-                PLAYBACK_SPEED_OPTIONS.forEach { speed ->
-                    val selected = player.speed == speed
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                stringResource(R.string.player_speed_option, speedLabel(speed)),
-                                color = if (selected) palette.accent else palette.textPrimary,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        enabled = !player.bgMix,
-                        onClick = {
-                            PlaybackEngine.setMusicSpeed(speed)
-                            speedMenu = false
-                        }
-                    )
-                }
+            }
+            if (onOpenMyMusic != null) {
                 HorizontalDivider(color = palette.divider)
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text(stringResource(R.string.player_sleep_timer), color = palette.textPrimary)
-                            sleepTimer?.let { timer ->
-                                Text(
-                                    sleepTimerStatusText(timer, minutesRemaining),
-                                    color = palette.textSecondary, fontSize = 11.sp
-                                )
-                            }
-                        }
-                    },
-                    onClick = {
-                        speedMenu = false
-                        sleepDialog = true
-                    }
-                )
+                PlayerMenuEntry(myMusicLabel, Icons.Rounded.MusicNote) {
+                    menuOpen = false
+                    onOpenMyMusic()
+                }
             }
         }
     }
-    if (sleepDialog) {
-        var customOpen by remember { mutableStateOf(false) }
-        if (customOpen) {
-            var text by remember { mutableStateOf("") }
-            val minutes = text.toIntOrNull()
-            val valid = minutes != null && minutes in 1..SLEEP_TIMER_MAX_MINUTES
-            AlertDialog(
-                onDismissRequest = { customOpen = false },
-                containerColor = palette.surface,
-                title = { Text(stringResource(R.string.player_sleep_custom_title), color = palette.textPrimary) },
-                text = {
-                    androidx.compose.material3.OutlinedTextField(
-                        value = text,
-                        onValueChange = { value -> text = value.filter { it.isDigit() }.take(3) },
-                        singleLine = true,
-                        label = { Text(stringResource(R.string.player_sleep_custom_label, SLEEP_TIMER_MAX_MINUTES)) },
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                        )
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = valid,
-                        onClick = {
-                            PlaybackEngine.setSleepTimer(minutes)
-                            customOpen = false
-                            sleepDialog = false
-                        }
-                    ) { Text(stringResource(R.string.player_sleep_custom_set), color = palette.accentInk) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { customOpen = false }) {
-                        Text(stringResource(R.string.common_cancel), color = palette.textSecondary)
-                    }
-                }
-            )
-        }
-        AlertDialog(
-            onDismissRequest = { sleepDialog = false },
-            containerColor = palette.surface,
-            title = { Text(stringResource(R.string.player_sleep_timer), color = palette.textPrimary) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    SLEEP_TIMER_MINUTES.sorted().forEach { duration ->
-                        TextButton(
-                            onClick = {
-                                PlaybackEngine.setSleepTimer(duration)
-                                sleepDialog = false
-                            },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        ) {
-                            Text(stringResource(R.string.player_sleep_in_minutes, duration), color = palette.accentInk)
-                        }
-                    }
-                    TextButton(
-                        onClick = {
-                            PlaybackEngine.setSleepTimerUntilTrackEnd()
-                            sleepDialog = false
-                        },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    ) {
-                        Text(stringResource(R.string.player_sleep_until_track_end), color = palette.accentInk)
-                    }
-                    TextButton(
-                        onClick = { customOpen = true },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    ) {
-                        Text(stringResource(R.string.player_sleep_custom), color = palette.accentInk)
-                    }
-                    if (sleepTimer != null) {
-                        HorizontalDivider(color = palette.divider)
-                        TextButton(
-                            onClick = {
-                                PlaybackEngine.extendSleepTimer(SLEEP_EXTEND_MINUTES)
-                                sleepDialog = false
-                            },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        ) {
-                            Text(stringResource(R.string.player_sleep_extend, SLEEP_EXTEND_MINUTES), color = palette.accentInk)
-                        }
-                        TextButton(
-                            onClick = {
-                                PlaybackEngine.cancelSleepTimer()
-                                sleepDialog = false
-                            },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        ) {
-                            Text(stringResource(R.string.player_sleep_cancel_plain), color = palette.textPrimary)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { sleepDialog = false }) {
-                    Text(stringResource(R.string.common_close), color = palette.textSecondary)
-                }
-            }
+    pendingShare?.let { share ->
+        ShareTrackDialog(
+            repository = share.source.repository,
+            item = share.item,
+            caption = share.caption,
+            onClose = { pendingShare = null }
         )
     }
 }
 
-private const val SLEEP_EXTEND_MINUTES = 15
+@Composable
+private fun PlayerMenuEntry(label: String, icon: ImageVector, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    DropdownMenuItem(
+        text = { Text(label, color = palette.textPrimary) },
+        leadingIcon = { Icon(icon, null, tint = palette.accent) },
+        onClick = onClick
+    )
+}
+
+internal const val SLEEP_EXTEND_MINUTES = 15
 
 @Composable
 private fun PlayerBody(
@@ -671,7 +585,7 @@ private fun PlayerDetails(
         YandexLyricsSection(key = player.item.key, positionState = positionState)
         Spacer(Modifier.height(10.dp))
     }
-    PlayerActions(player.item, onOpenQueue, onOpenEqualizer, onShowInChat)
+    PlayerActions(player, onOpenQueue, onOpenEqualizer)
 }
 
 @Composable
@@ -1216,53 +1130,45 @@ private fun PlayPauseButton(player: MusicPlayerUi, reduced: Boolean) {
 
 @Composable
 private fun PlayerActions(
-    item: PlaybackItem,
+    player: MusicPlayerUi,
     onOpenQueue: () -> Unit,
-    onOpenEqualizer: (() -> Unit)?,
-    onShowInChat: (() -> Unit)?
+    onOpenEqualizer: (() -> Unit)?
 ) {
-    val queueLabel = stringResource(R.string.player_queue)
-    val moreLabel = stringResource(R.string.player_more)
-    val equalizerLabel = stringResource(R.string.player_equalizer)
-    val showInChatLabel = stringResource(R.string.media_show_in_chat)
+    val item = player.item
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // Heart and add need a Telegram origin and a loaded library for this account; both stay hidden until then.
-    // Items of a chat with protected content are never kept in the library, so they stay hidden too. The chat is only
-    // known for the selected account; otherwise the buttons stay.
+    val queueLabel = stringResource(R.string.player_queue)
+    val soundLabel = stringResource(R.string.player_sound)
+    // Heart and add need a Telegram origin and a loaded library for this account. When they cannot be offered, their
+    // place stays in the row and the button is off, so the row never shifts.
+    // Items of a chat with protected content are never kept in the library, so they stay off too.
     val originChat = rememberOriginChat(item.origin)
     val protectedChat = originChat?.hasProtectedContent == true
     val track = remember(item.occurrenceId, item.origin) { item.toPlaylistTrack() }?.takeUnless { protectedChat }
     val library = rememberMusicLibrary(item.accountId)
     var addOpen by remember(item.occurrenceId) { mutableStateOf(false) }
-    // The picked track, timecode and source are fixed when the button is tapped. Nothing here is keyed to the track, so
-    // the picker stays open when the player moves on to the next track.
-    var pendingShare by remember { mutableStateOf<PendingTrackShare?>(null) }
-    val shareLabel = stringResource(R.string.player_share_timecode)
-    // Sharing sends from the chat source the player uses. A track from a chat is offered only once that chat is known
-    // not to protect its content; a chat that cannot be checked here gets no share.
-    val shareSource = LocalPlaybackRepositorySource.current
-    val shareAllowed = shareSource != null &&
-        canShareTrack(completedShareItem(item), originUnprotected = item.origin == null || originChat?.hasProtectedContent == false)
+    var soundOpen by remember { mutableStateOf(false) }
     val favorite = track != null && containsTrack(library?.favorites, track)
     val favoriteLabel = stringResource(R.string.music_favorite_label)
     val favoriteOnState = stringResource(R.string.music_favorite_state_on)
     val favoriteOffState = stringResource(R.string.music_favorite_state_off)
     val addLabel = stringResource(R.string.music_playlist_label)
-    val addToProfile = LocalAddProfileAudio.current
-    val addToProfileLabel = stringResource(R.string.player_add_to_profile)
-    val addToProfileDone = stringResource(R.string.player_add_to_profile_done)
-    // The shared player may be bound to another account; its file ids mean nothing to the active one.
-    val activeAccount = PlaybackEngine.activeAccount()
-    // A track of an endless radio gets a heart in the row. It toggles the like on the service, not the library, and
-    // the star with it goes to the menu, as the radio has no library list.
+    // A track of an endless radio gets a heart. It toggles the like on the service, not the library.
     val radioTrack = ProviderTracks.byKey(item.key)?.takeIf { ProviderTracks.isProviderKey(item.key) && PlaybackEngine.currentQueueIsEndless() }
     val likes by ProviderTracks.liked.collectAsStateWithLifecycle()
     val radioLiked = radioTrack?.let { likes[it.trackId] ?: it.liked ?: false }
     val likeLabel = stringResource(R.string.music_provider_like)
     val likeFailed = stringResource(R.string.music_provider_like_failed)
-    val actions = buildList {
-        if (radioTrack != null && radioLiked != null) add(PlayerActionUi(
+    val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
+    val minutesRemaining = rememberSleepMinutes(sleepTimer)
+    // The sound button shows the timer when one runs, else a speed other than 1×, else the plain word.
+    val soundStatus: String? = sleepTimer?.let { timer ->
+        if (timer.untilTrackEnd) stringResource(R.string.player_sleep_until_track_end)
+        else stringResource(R.string.player_sleep_minutes_short, minutesRemaining)
+    } ?: player.speed.takeIf { it != 1f }?.let { stringResource(R.string.player_speed_option, speedLabel(it)) }
+    val libraryTrack = track != null && library != null && radioTrack == null
+    val likeSlot = when {
+        radioTrack != null && radioLiked != null -> PlayerActionUi(
             icon = if (radioLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
             label = likeLabel,
             onClick = {
@@ -1271,81 +1177,43 @@ private fun PlayerActions(
                 }
             },
             active = radioLiked,
-            stateDescription = if (radioLiked) favoriteOnState else favoriteOffState,
-            primary = true
-        ))
-        if (track != null && library != null && radioTrack == null) {
-            add(PlayerActionUi(
-                icon = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                label = favoriteLabel,
-                onClick = { scope.launch { context.reportMusicOutcome(MusicLibraries.get(context).toggleFavorite(track)) } },
-                active = favorite,
-                stateDescription = if (favorite) favoriteOnState else favoriteOffState,
-                primary = true
-            ))
-            add(PlayerActionUi(Icons.Rounded.Add, addLabel, onClick = { addOpen = true }, primary = true))
-        }
-        // Only a music file the active account can see from a chat is a Telegram profile track. A track that already
-        // plays from a profile is in a profile, so the action would only add a copy.
-        if (addToProfile != null && item.isMusic && item.fileId != null && !item.systemPrivate && !protectedChat &&
-            !item.key.startsWith(PROFILE_AUDIO_KEY_PREFIX) && (activeAccount == null || item.accountId == activeAccount)
-        ) add(PlayerActionUi(Icons.Rounded.PersonAdd, addToProfileLabel, onClick = {
-            scope.launch {
-                addToProfile(item)
-                    .onSuccess { Toast.makeText(context, addToProfileDone, Toast.LENGTH_SHORT).show() }
-                    .onFailure { Toast.makeText(context, it.userMessage(context, R.string.player_add_to_profile_failed), Toast.LENGTH_SHORT).show() }
-            }
-        }))
-        add(PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue, primary = true))
-        if (shareAllowed) {
-            add(PlayerActionUi(Icons.Rounded.Share, shareLabel, onClick = {
-                shareSource?.let { source ->
-                    pendingShare = PendingTrackShare(completedShareItem(item), shareTimecode(PlaybackEngine.state.value.positionMs), source)
-                }
-            }))
-        }
-        if (onOpenEqualizer != null) add(PlayerActionUi(Icons.Rounded.Equalizer, equalizerLabel, onOpenEqualizer))
-        if (onShowInChat != null) add(PlayerActionUi(Icons.Rounded.ChatBubble, showInChatLabel, onShowInChat))
+            stateDescription = if (radioLiked) favoriteOnState else favoriteOffState
+        )
+        track != null && library != null && radioTrack == null -> PlayerActionUi(
+            icon = if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+            label = favoriteLabel,
+            onClick = { scope.launch { context.reportMusicOutcome(MusicLibraries.get(context).toggleFavorite(track)) } },
+            active = favorite,
+            stateDescription = if (favorite) favoriteOnState else favoriteOffState
+        )
+        else -> PlayerActionUi(
+            icon = if (radioTrack != null) Icons.Rounded.FavoriteBorder else Icons.Rounded.StarBorder,
+            label = if (radioTrack != null) likeLabel else favoriteLabel,
+            onClick = {},
+            enabled = false
+        )
     }
-    if (actions.isEmpty()) return
-    // Three frequent actions stay under the controls. The rare ones live in "More" with their full labels, so no
-    // caption is cut off on a narrow screen.
-    val frequent = actions.filter { it.primary }
-    val rare = actions.filterNot { it.primary }
-    var moreOpen by remember { mutableStateOf(false) }
-    val palette = beyGramPalette()
+    val playlistSlot = PlayerActionUi(
+        icon = Icons.Rounded.Add,
+        label = addLabel,
+        onClick = { addOpen = true },
+        enabled = libraryTrack
+    )
+    val queueSlot = PlayerActionUi(Icons.Rounded.QueueMusic, queueLabel, onOpenQueue)
+    val soundSlot = PlayerActionUi(
+        icon = Icons.Rounded.Tune,
+        label = soundStatus ?: soundLabel,
+        onClick = { soundOpen = true },
+        active = soundStatus != null
+    )
+    // Always four places, in the same order for every source.
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        frequent.forEach { action ->
+        listOf(likeSlot, playlistSlot, queueSlot, soundSlot).forEach { action ->
             PlayerAction(action, Modifier.weight(1f))
-        }
-        if (rare.isNotEmpty()) Box(Modifier.weight(1f)) {
-            PlayerAction(
-                PlayerActionUi(Icons.Rounded.MoreHoriz, moreLabel, onClick = { moreOpen = true }),
-                Modifier.fillMaxWidth()
-            )
-            DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
-                rare.forEach { action ->
-                    DropdownMenuItem(
-                        text = { Text(action.label, color = palette.textPrimary) },
-                        leadingIcon = { Icon(action.icon, null, tint = palette.accent) },
-                        onClick = {
-                            moreOpen = false
-                            action.onClick()
-                        }
-                    )
-                }
-            }
         }
     }
     if (addOpen && track != null) AddToPlaylistSheet(accountId = item.accountId, track = track, onDismiss = { addOpen = false })
-    pendingShare?.let { share ->
-        ShareTrackDialog(
-            repository = share.source.repository,
-            item = share.item,
-            caption = share.caption,
-            onClose = { pendingShare = null }
-        )
-    }
+    if (soundOpen) PlayerSoundSheet(player = player, onOpenEqualizer = onOpenEqualizer, onDismiss = { soundOpen = false })
 }
 
 private data class PlayerActionUi(
@@ -1354,8 +1222,7 @@ private data class PlayerActionUi(
     val onClick: () -> Unit,
     val active: Boolean = false,
     val stateDescription: String? = null,
-    /** Shown under the controls; the others go to the "More" menu. */
-    val primary: Boolean = false
+    val enabled: Boolean = true
 )
 
 @Composable
@@ -1365,8 +1232,9 @@ private fun PlayerAction(action: PlayerActionUi, modifier: Modifier = Modifier) 
     Column(
         modifier
             .heightIn(min = 56.dp)
+            .alpha(if (action.enabled) 1f else 0.4f)
             .clip(styledShape(14.dp))
-            .clickable(role = Role.Button, onClick = action.onClick)
+            .clickable(enabled = action.enabled, role = Role.Button, onClick = action.onClick)
             .padding(vertical = 7.dp)
             .then(if (described != null) Modifier.semantics { stateDescription = described } else Modifier),
         horizontalAlignment = Alignment.CenterHorizontally,
