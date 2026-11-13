@@ -8,4 +8,24 @@
     <string name="bgwave_safe_not_yet_valid">La invitación aún no es válida. Revisa la hora del dispositivo.</string>
     <string name="bgwave_safe_invalid">No se pudo leer la invitación.</string>
     <string name="bgwave_safe_unavailable">La ola no está disponible en este dispositivo.</string>
+    <string name="bgwave_status_sent">Invitación enviada</string>
+    <string name="bgwave_status_offering">Enviando la invitación…</string>
+    <string name="bgwave_status_awaiting">Esperando respuesta…</string>
+    <string name="bgwave_status_connecting">Conectando…</string>
+    <string name="bgwave_status_live">La ola está sonando</string>
+    <string name="bgwave_status_reconnecting">Reconectando…</string>
+    <string name="bgwave_status_failed">No se pudo conectar</string>
+    <string name="bgwave_status_ended">La ola ha terminado</string>
+    <string name="bgwave_status_declined">Rechazaste la invitación</string>
+    <string name="bgwave_status_cancelled">La invitación fue cancelada</string>
+    <string name="bgwave_action_join">Unirse</string>
+    <string name="bgwave_action_decline">Rechazar</string>
+    <string name="bgwave_action_stop">Detener</string>
+    <string name="bgwave_action_retry">Reintentar</string>
+    <string name="bgwave_error_unavailable">La ola no está disponible en este dispositivo.</string>
+    <string name="bgwave_error_send_failed">No se pudo enviar el mensaje. Comprueba la conexión e inténtalo de nuevo.</string>
+    <string name="bgwave_error_no_connection">Falló la conexión directa. Inténtalo de nuevo.</string>
+    <string name="bgwave_error_busy">Ya hay otra ola en marcha. Detenla primero.</string>
+    <string name="bgwave_error_expired">La invitación ha caducado.</string>
+    <string name="bgwave_error_rejected">La respuesta no corresponde a esta ola.</string>
 </resources>

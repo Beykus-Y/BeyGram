@@ -100,6 +100,7 @@ import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.copyableMessageLinks
+import com.beykus.beygram.media.bgwave.BgWaveLink
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.domain.search.appendDistinctBy
@@ -688,7 +689,7 @@ fun ChatScreen(
     // Sender picker is built from the loaded history; no extra TDLib member request is needed in the search bar.
     val searchSenders = remember(messages) { chatSearchSenders(messages) }
     // Album grouping reads only the messages, so a pending video note does not regroup the whole loaded history.
-    val albumItems = remember(messages) { groupTelegramMediaAlbums(messages) }
+    val albumItems = remember(messages) { groupTelegramMediaAlbums(messages.filterNot(::isBgWaveSignalMessage)) }
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
     val rawMessageItems = remember(albumItems, pendingVideoNotes) {
         pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + albumItems
@@ -2911,7 +2912,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val special = message.special
     // Expired media owns its card; unknown content still gets the explicit fallback, never an empty bubble.
     val renderedSpecial = resolvedSpecialContent(message)
-    val showText = hasText && special !is MessageSpecialContent.Contact
+    // A BG Wave invitation is drawn as a card; its hidden service link is never shown as text or as a page preview.
+    val isWave = remember(message.id, message.text, message.entities) { BgWaveLink.find(message.text, message.entities) != null }
+    val showText = hasText && special !is MessageSpecialContent.Contact && !isWave
     val circle = message.media?.kind == MediaKind.VideoNote
     // Стикер лежит без пузыря: ни цвета, ни ширины фото.
     val stickerMedia = message.media?.takeIf { it.kind == MediaKind.Sticker }
@@ -3063,7 +3066,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 )
                             }
                             if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
-                            MessageMusicLinkCard(message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards)
+                            if (isWave) BgWaveMessageCard(message)
+                            else MessageMusicLinkCard(message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards)
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,

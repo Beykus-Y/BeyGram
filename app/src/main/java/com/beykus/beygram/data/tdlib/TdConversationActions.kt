@@ -325,7 +325,8 @@ internal class TdConversationActions(
         if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_media_only))
         val bounded = boundTelegramText(text, entities, limits.value.text)
         if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
-        send(chatId, replyId, forumTopicId, options) { TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft } }
+        send(chatId, replyId, forumTopicId, options) { TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft
+            if (options.disableLinkPreview) linkPreviewOptions = TdApi.LinkPreviewOptions().apply { isDisabled = true } } }
     }.onFailure { recordSendFailure("text", it) }
 
     /** A poll carries its own question and options; no caption is involved, so only the send options are checked. */
