@@ -44,6 +44,8 @@
     <string name="yandex_wave_source_artist">По исполнителю «%1$s»</string>
     <string name="yandex_wave_album">Волна по альбому</string>
     <string name="yandex_wave_source_album">По альбому «%1$s»</string>
+    <string name="yandex_wave_playlist">Волна по плейлисту</string>
+    <string name="yandex_wave_source_playlist">По плейлисту «%1$s»</string>
     <string name="yandex_wave_subtitle">Бесконечный поток треков под ваш вкус</string>
     <string name="yandex_wave_starting">Подбираем треки…</string>
     <string name="yandex_wave_failed">Не удалось запустить волну. Нажмите, чтобы попробовать снова.</string>

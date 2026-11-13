@@ -271,7 +271,29 @@ internal fun YandexCollectionScreen(
                     }
                     playlistUuid?.let { uuid ->
                         val menuTitle = head.title
-                        YandexCollectionMenu(menuKey = uuid, webLink = ProviderTracks.playlistWebLink(uuid)) { context, label ->
+                        val yandex = provider as? YandexMusicProvider
+                        val playlistRef = ref as? YandexCollectionRef.Playlist
+                        // The seed is `playlist:<owner uid>_<kind>`; the owner comes from the library or the link.
+                        val owner = playlistRef?.let { r ->
+                            (snapshot?.playlists?.firstOrNull { it.isRefOf(r) } ?: linkedPlaylist)?.ownerUid ?: r.ownerUid
+                        }
+                        val kind = playlistRef?.kind
+                        YandexCollectionMenu(
+                            menuKey = uuid,
+                            webLink = ProviderTracks.playlistWebLink(uuid),
+                            waveLabel = if (yandex != null && owner != null && kind != null) stringResource(R.string.yandex_wave_playlist) else null,
+                            onWave = if (yandex != null && owner != null && kind != null) ({ context: android.content.Context ->
+                                YandexWaveLauncher.start(
+                                    context = context,
+                                    provider = yandex,
+                                    seeds = listOf(YandexWave.playlistSeed(owner, kind)),
+                                    subtitle = context.getString(R.string.yandex_wave_source_playlist, menuTitle),
+                                    startTrack = null,
+                                    isCurrent = { true },
+                                    onDone = {},
+                                )
+                            }) else null,
+                        ) { context, label ->
                             ProviderTracks.sharePlaylistLink(context, menuTitle, uuid, label)
                         }
                     }
