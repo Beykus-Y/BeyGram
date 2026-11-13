@@ -47,6 +47,7 @@ import com.beykus.beygram.domain.model.ProfilePresence
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.usesGlassPanels
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.fadeEnter
