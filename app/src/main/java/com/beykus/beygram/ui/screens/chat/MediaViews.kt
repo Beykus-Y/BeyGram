@@ -28,7 +28,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
@@ -1043,8 +1042,9 @@ internal fun MediaViewer(
     val palette = beyGramPalette()
     var viewerShown by remember { mutableStateOf(viewerSpec.isInstant) }
     var viewerClosing by remember { mutableStateOf(false) }
-    var dismissFraction by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(pagerState.settledPage) { dismissFraction = 0f }
+    // Read only inside graphicsLayer so continuous vertical drags never recompose MediaViewer.
+    val dismissFractionState = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(pagerState.settledPage) { dismissFractionState.floatValue = 0f }
     LaunchedEffect(Unit) { viewerShown = true }
     val viewerProgress by animateFloatAsState(if (viewerShown) 1f else 0f, viewerSpec.animationSpec<Float>(), label = "mediaViewerProgress")
     fun requestClose() {
@@ -1059,20 +1059,26 @@ internal fun MediaViewer(
     val hasPrimaryBottomActions = (actions != null && actions.canForward) || exportPath != null
     val shownCaption = if (!shownHidden) shown.caption.trim() else ""
     val reserveNonStillFooter = !isStillImage && (actions != null || canExport)
-    val zoomControlsBottomPadding = when {
-        isStillImage && controlsVisible && (hasPrimaryBottomActions || shownCaption.isNotEmpty()) ->
-            if (shownCaption.isNotEmpty() && hasPrimaryBottomActions) 124.dp else 76.dp
-        else -> 16.dp
-    }
-    val chromeDragAlpha = (1f - dismissFraction * 2f).coerceIn(0f, 1f)
+    val density = LocalDensity.current
+    var bottomOverlayHeightPx by remember { mutableIntStateOf(0) }
+    val zoomControlsBottomPadding = if (isStillImage && controlsVisible && bottomOverlayHeightPx > 0) {
+        with(density) { bottomOverlayHeightPx.toDp() } + 12.dp
+    } else 16.dp
     val hasOverflowActions = (actions != null && (actions.canEdit || actions.canDelete)) || exportPath != null || onShowInChat != null
+    val captionScroll = key(shown.messageId) { rememberScrollState() }
+    LaunchedEffect(captionScroll.isScrollInProgress) {
+        while (captionScroll.isScrollInProgress) {
+            interactionChannel.trySend(Unit)
+            delay(500L)
+        }
+    }
     val captionBox: @Composable () -> Unit = {
         Box(
             Modifier
                 .fillMaxWidth()
-                .background(if (isStillImage) Color(0xB3070B10) else Color(0x99070B10))
+                .background(if (isStillImage) Color(0xB3070B10) else Color(0xCC070B10))
                 .heightIn(max = 120.dp)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(captionScroll)
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Text(
@@ -1111,7 +1117,7 @@ internal fun MediaViewer(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = viewerProgress * mediaViewerDismissBackdropAlpha(dismissFraction) }
+                    .graphicsLayer { alpha = viewerProgress * mediaViewerDismissBackdropAlpha(dismissFractionState.floatValue) }
                     .background(Color(0xFF070B10))
             )
             // Read in the draw phase, so the page moves per frame without recomposing the dialog content.
@@ -1133,7 +1139,7 @@ internal fun MediaViewer(
                                 revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
                                 onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
                                 onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
-                                onDismissProgress = { fraction -> if (page == safeSettledPage && !viewerClosing) dismissFraction = fraction },
+                                onDismissProgress = { fraction -> if (page == safeSettledPage && !viewerClosing) dismissFractionState.floatValue = fraction },
                                 showZoomControls = showAssistiveControls && controlsVisible && page == safeSettledPage,
                                 zoomControlsBottomPadding = zoomControlsBottomPadding,
                                 onUserInteraction = { interactionChannel.trySend(Unit) })
@@ -1143,7 +1149,7 @@ internal fun MediaViewer(
                         Modifier
                             .fillMaxWidth()
                             .align(Alignment.TopCenter)
-                            .graphicsLayer { alpha = chromeDragAlpha }
+                            .graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
                             .background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent)
                             .padding(horizontal = 6.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -1210,25 +1216,32 @@ internal fun MediaViewer(
                         modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
                     ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
                 }
-                if (isStillImage && (hasPrimaryBottomActions || shownCaption.isNotEmpty())) {
+                val showBottomOverlay = (isStillImage && (hasPrimaryBottomActions || shownCaption.isNotEmpty())) ||
+                    (!isStillImage && shownCaption.isNotEmpty())
+                if (showBottomOverlay) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = controlsVisible,
                         enter = chromeSpec.fadeEnter(),
                         exit = chromeSpec.fadeExit(),
-                        modifier = Modifier.align(Alignment.BottomCenter).graphicsLayer { alpha = chromeDragAlpha }
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
                     ) {
-                        Column(Modifier.fillMaxWidth()) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .onSizeChanged { bottomOverlayHeightPx = it.height }
+                        ) {
                             if (shownCaption.isNotEmpty()) captionBox()
-                            if (hasPrimaryBottomActions) bottomChromeContent()
+                            if (isStillImage && hasPrimaryBottomActions) bottomChromeContent()
                         }
                     }
+                } else {
+                    bottomOverlayHeightPx = 0
                 }
             }
-            if (!isStillImage && controlsVisible && shownCaption.isNotEmpty()) {
-                Box(Modifier.graphicsLayer { alpha = chromeDragAlpha }) { captionBox() }
-            }
             if (reserveNonStillFooter) {
-                if (controlsVisible) Box(Modifier.graphicsLayer { alpha = chromeDragAlpha }) { bottomChromeContent() }
+                if (controlsVisible) Box(Modifier.graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }) { bottomChromeContent() }
                 else Box(Modifier.fillMaxWidth().heightIn(min = 64.dp))
             }
             externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
@@ -1473,20 +1486,18 @@ private fun ZoomableImage(
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val motionSpec = rememberMotionSpec(MotionToken.MediaExpand)
     var scale by remember(path) { mutableFloatStateOf(1f) }
     var offset by remember(path) { mutableStateOf(Offset.Zero) }
     var zoomJob by remember(path) { mutableStateOf<Job?>(null) }
-    // Вертикальная протяжка вверх или вниз при масштабе 1 двигает картинку за пальцем, плавно уменьшая её и открывая фон.
-    val dismissY = remember(path) { Animatable(0f) }
+    // Вертикальная протяжка вверх или вниз при масштабе 1 двигает картинку за пальцем синхронно без очереди корутин.
+    var dismissOffsetY by remember(path) { mutableFloatStateOf(0f) }
+    var dismissReturnJob by remember(path) { mutableStateOf<Job?>(null) }
     var size by remember { mutableStateOf(IntSize.Zero) }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     val currentOnToggleControls by rememberUpdatedState(onToggleControls)
     val currentOnDismissProgress by rememberUpdatedState(onDismissProgress)
     val currentOnUserInteraction by rememberUpdatedState(onUserInteraction)
-    LaunchedEffect(dismissY, size) {
-        snapshotFlow { mediaViewerDismissFraction(dismissY.value, size.height.toFloat()) }
-            .collect { currentOnDismissProgress(it) }
-    }
     val transform = rememberTransformableState { zoom, pan, _ ->
         zoomJob?.cancel()
         zoomJob = null
@@ -1496,14 +1507,20 @@ private fun ZoomableImage(
     }
     val dismissDrag = rememberDraggableState { delta ->
         if (scale <= 1.01f) {
+            dismissReturnJob?.cancel()
+            dismissReturnJob = null
             currentOnUserInteraction()
-            scope.launch { dismissY.snapTo(dismissY.value + delta) }
+            dismissOffsetY += delta
+            currentOnDismissProgress(mediaViewerDismissFraction(dismissOffsetY, size.height.toFloat()))
         }
     }
     // Масштаб, ушедший выше 1 посреди протяжки, отменяет её: сдвиг не должен остаться после возврата к масштабу 1.
     LaunchedEffect(scale > 1.01f) {
-        if (scale > 1.01f && dismissY.value != 0f) {
-            dismissY.snapTo(0f)
+        if (scale > 1.01f && (dismissOffsetY != 0f || dismissReturnJob != null)) {
+            dismissReturnJob?.cancel()
+            dismissReturnJob = null
+            dismissOffsetY = 0f
+            currentOnDismissProgress(0f)
         }
     }
     fun animateZoomTo(targetScale: Float, focalPoint: Offset?) {
@@ -1512,6 +1529,17 @@ private fun ZoomableImage(
         val startOffset = offset
         val center = Offset(size.width / 2f, size.height / 2f)
         zoomJob?.cancel()
+        if (motionSpec.isInstant) {
+            zoomJob = null
+            val rawOffset = if (focalPoint != null) {
+                offsetAroundPoint(focalPoint, center, startOffset, startScale, nextScale)
+            } else {
+                offsetAroundCenter(startOffset, startScale, nextScale, size)
+            }
+            scale = nextScale
+            offset = clampImageOffset(rawOffset, nextScale, size)
+            return
+        }
         zoomJob = scope.launch {
             animate(
                 initialValue = 0f,
@@ -1539,20 +1567,33 @@ private fun ZoomableImage(
         animateZoomTo(target, focalPoint = null)
     }
     val velocityThresholdPx = remember(density) { with(density) { 800.dp.toPx() } }
+    val minFlingTravelPx = remember(density) { with(density) { 24.dp.toPx() } }
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1.01f })
             .draggable(state = dismissDrag, orientation = Orientation.Vertical, enabled = scale <= 1.01f, onDragStopped = { velocity ->
-                if (shouldDismissMediaViewer(dismissY.value, velocity, size.height.toFloat(), velocityThresholdPx)) {
+                if (shouldDismissMediaViewer(dismissOffsetY, velocity, size.height.toFloat(), velocityThresholdPx, minFlingTravelPx)) {
                     currentOnDismiss()
+                } else if (motionSpec.isInstant) {
+                    dismissReturnJob?.cancel()
+                    dismissReturnJob = null
+                    dismissOffsetY = 0f
+                    currentOnDismissProgress(0f)
                 } else {
-                    scope.launch {
-                        dismissY.animateTo(
+                    dismissReturnJob?.cancel()
+                    val startOffset = dismissOffsetY
+                    dismissReturnJob = scope.launch {
+                        animate(
+                            initialValue = startOffset,
                             targetValue = 0f,
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioNoBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             )
-                        )
+                        ) { value, _ ->
+                            dismissOffsetY = value
+                            currentOnDismissProgress(mediaViewerDismissFraction(value, size.height.toFloat()))
+                        }
+                        dismissReturnJob = null
                     }
                 }
             })
@@ -1572,12 +1613,12 @@ private fun ZoomableImage(
                 path,
                 Modifier.fillMaxSize().graphicsLayer {
                     val dragScale = if (scale <= 1.01f) {
-                        mediaViewerDismissScale(mediaViewerDismissFraction(dismissY.value, size.height.toFloat()))
+                        mediaViewerDismissScale(mediaViewerDismissFraction(dismissOffsetY, size.height.toFloat()))
                     } else 1f
                     scaleX = scale * dragScale
                     scaleY = scale * dragScale
                     translationX = offset.x
-                    translationY = offset.y + dismissY.value
+                    translationY = offset.y + dismissOffsetY
                 },
                 fit = true,
                 maxDimension = 4096,

@@ -50,16 +50,19 @@ internal fun mediaViewerDismissBackdropAlpha(fraction: Float): Float =
 /**
  * Decides on release whether a vertical swipe (either up or down) should dismiss the viewer,
  * considering both drag distance and fling velocity in the drag direction.
+ * A fast fling requires at least [minFlingTravelPx] of net displacement in the fling direction so
+ * pulling one way and snapping back near the origin does not accidentally dismiss.
  */
 internal fun shouldDismissMediaViewer(
     offsetY: Float,
     velocityY: Float,
     viewportHeightPx: Float,
-    velocityThresholdPxPerSec: Float
+    velocityThresholdPxPerSec: Float,
+    minFlingTravelPx: Float = 0f
 ): Boolean {
     if (viewportHeightPx > 0f && abs(offsetY) > viewportHeightPx * MEDIA_VIEWER_DISMISS_DISTANCE_FRACTION) {
         return true
     }
-    val sameDirection = offsetY == 0f || offsetY * velocityY >= 0f
-    return sameDirection && abs(velocityY) >= velocityThresholdPxPerSec
+    val sameDirection = offsetY * velocityY > 0f
+    return sameDirection && abs(offsetY) >= minFlingTravelPx && abs(velocityY) >= velocityThresholdPxPerSec
 }

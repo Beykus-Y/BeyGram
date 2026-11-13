@@ -65,9 +65,11 @@ class MediaViewerTransformTest {
 
     @Test
     fun dismissesOnFastFlingInSameDirection() {
-        assertTrue(shouldDismissMediaViewer(offsetY = 80f, velocityY = 2200f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f))
-        assertTrue(shouldDismissMediaViewer(offsetY = -80f, velocityY = -2200f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f))
-        assertFalse(shouldDismissMediaViewer(offsetY = 80f, velocityY = -2200f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f))
+        assertTrue(shouldDismissMediaViewer(offsetY = 80f, velocityY = 2200f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f, minFlingTravelPx = 40f))
+        assertTrue(shouldDismissMediaViewer(offsetY = -80f, velocityY = -2200f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f, minFlingTravelPx = 40f))
+        assertFalse(shouldDismissMediaViewer(offsetY = 80f, velocityY = -2200f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f, minFlingTravelPx = 40f))
+        // Pull and snap back near origin must not dismiss even with high velocity.
+        assertFalse(shouldDismissMediaViewer(offsetY = 12f, velocityY = 2500f, viewportHeightPx = 2000f, velocityThresholdPxPerSec = 2000f, minFlingTravelPx = 40f))
     }
 
     @Test
