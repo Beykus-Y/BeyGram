@@ -187,6 +187,9 @@ internal class YandexMusicProvider(
     override suspend fun setLiked(trackId: String, liked: Boolean): ProviderResult<Unit> =
         withSession { s -> api.setLiked(s.accessToken, s.uid, trackId, liked) }
 
+    override suspend fun setDisliked(trackId: String, disliked: Boolean): ProviderResult<Unit> =
+        withSession { s -> api.setDisliked(s.accessToken, s.uid, trackId, disliked) }
+
     override suspend fun playlists(): ProviderResult<List<ProviderPlaylist>> =
         withSession { s -> api.playlists(s.accessToken, s.uid) }
 
