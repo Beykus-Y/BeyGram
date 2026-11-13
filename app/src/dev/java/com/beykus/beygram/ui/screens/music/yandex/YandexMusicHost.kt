@@ -34,6 +34,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import kotlin.math.PI
+import kotlin.math.sin
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -90,6 +100,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private val WaveCardHeight = 168.dp
 
 /**
  * Yandex Music in the music screens: its tab (likes, playlists, albums) and its search results. DEV only; loaded by
@@ -526,12 +538,12 @@ class YandexMusicHost : ProviderMusicHost {
             else -> stringResource(R.string.yandex_wave_subtitle)
         }
         val action: (() -> Unit)? = if (resume != null) onResume else onStart
-        Row(
+        Box(
             Modifier.fillMaxWidth()
                 .padding(horizontal = MusicScreenGutter)
-                .heightIn(min = 92.dp)
+                .height(WaveCardHeight)
                 .musicCard()
-                .background(Brush.linearGradient(listOf(palette.accentSoft.copy(alpha = 0.55f), palette.accent.copy(alpha = 0.22f))))
+                .background(palette.accentSoft.copy(alpha = 0.35f))
                 .then(
                     if (action != null && !starting) {
                         Modifier.clickable(
@@ -543,25 +555,29 @@ class YandexMusicHost : ProviderMusicHost {
                         Modifier
                     }
                 )
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
         ) {
+            WaveBackdrop(
+                color = palette.accent,
+                secondary = palette.accentSoft,
+                modifier = Modifier.matchParentSize(),
+            )
             Box(
-                Modifier.size(56.dp).clip(CircleShape).background(palette.accent),
+                Modifier.align(Alignment.TopEnd).padding(14.dp).size(56.dp).clip(CircleShape).background(palette.accent),
                 contentAlignment = Alignment.Center
             ) {
                 if (starting) {
                     CircularProgressIndicator(Modifier.size(24.dp), color = palette.onAccent, strokeWidth = 2.5.dp)
                 } else {
-                    Icon(Icons.Rounded.Waves, null, tint = palette.onAccent, modifier = Modifier.size(28.dp))
+                    Icon(Icons.Rounded.PlayArrow, null, tint = palette.onAccent, modifier = Modifier.size(32.dp))
                 }
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
+            Column(
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+            ) {
                 Text(
                     stringResource(R.string.yandex_wave_title),
                     color = palette.textPrimary,
-                    fontSize = 18.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -575,14 +591,43 @@ class YandexMusicHost : ProviderMusicHost {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (action != null) {
-                Spacer(Modifier.width(8.dp))
-                Icon(
-                    Icons.Rounded.PlayArrow,
-                    null,
-                    tint = palette.accentInk,
-                    modifier = Modifier.size(28.dp)
-                )
+        }
+    }
+
+    /**
+     * Soft ribbons drifting across the wave card. Three sine bands in the palette's accent tones; the phase keeps
+     * moving on a slow loop, so the card reads as alive without any state of its own.
+     */
+    @Composable
+    private fun WaveBackdrop(color: Color, secondary: Color, modifier: Modifier) {
+        val transition = rememberInfiniteTransition(label = "wave-backdrop")
+        val phase by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = (2 * PI).toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 6000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "wave-backdrop-phase",
+        )
+        Canvas(modifier) {
+            val w = size.width
+            val h = size.height
+            for (band in 0 until 3) {
+                val baseY = h * (0.42f + 0.14f * band)
+                val amplitude = h * (0.08f + 0.03f * band)
+                val cycles = 1.1f + 0.35f * band
+                val shift = phase * (1f + 0.4f * band) + 1.3f * band
+                val path = Path()
+                path.moveTo(0f, h)
+                for (step in 0..48) {
+                    val x = w * step / 48f
+                    val y = baseY + amplitude * sin(2 * PI.toFloat() * cycles * x / w + shift)
+                    path.lineTo(x, y)
+                }
+                path.lineTo(w, h)
+                path.close()
+                drawPath(path, color = if (band == 1) secondary else color, alpha = 0.16f + 0.06f * band)
             }
         }
     }
