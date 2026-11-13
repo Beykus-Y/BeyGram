@@ -1344,8 +1344,14 @@ private fun PreparedAttachmentsPanel(
     val palette = beyGramPalette()
     val enabled = !closing && !state.sending && !state.importing
     val itemCount = displayPending.size + if (state.extra != null && !closing) 1 else 0
+    // Визуальный каркас: шапка предпросмотра — отдельная поверхность с токеном палитры, без изменения логики очереди и качества.
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 14.dp, end = 6.dp),
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clip(styledShape(16.dp))
+            .background(palette.surface2)
+            .heightIn(min = 48.dp)
+            .padding(start = 14.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
