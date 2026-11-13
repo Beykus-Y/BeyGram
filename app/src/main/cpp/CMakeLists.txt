@@ -65,7 +65,7 @@ target_compile_options(bgbeat_jni PRIVATE -fexceptions -frtti -Wall -Wextra)
 
 if(HAVE_BGMEDIA)
     # BG Wave peer-to-peer adapters (libopus + libdatachannel). Off until the Android build is verified.
-option(BEYGRAM_WAVE_P2P "Build the BG Wave Opus and WebRTC adapters" ON)
+option(BEYGRAM_WAVE_P2P "Build the BG Wave Opus and WebRTC adapters" OFF)
 if(BEYGRAM_WAVE_P2P)
     # libdatachannel pulls in plog, whose cmake_minimum_required(VERSION < 3.5) the NDK CMake rejects.
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
