@@ -871,4 +871,8 @@
     <string name="player_sound">Sonido</string>
     <string name="player_share">Compartir</string>
     <string name="player_sleep_minutes_short">%1$d min</string>
+    <string name="chat_peek_empty">Todavía no hay mensajes</string>
+    <string name="chat_peek_failed">La vista previa no está disponible ahora</string>
+    <string name="chat_peek_hint">El chat seguirá sin leer</string>
+    <string name="chat_peek_media">Adjunto</string>
 </resources>

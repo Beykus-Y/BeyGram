@@ -2456,4 +2456,8 @@
     <string name="player_sound">Звук</string>
     <string name="player_share">Поделиться</string>
     <string name="player_sleep_minutes_short">%1$d мин</string>
+    <string name="chat_peek_empty">Сообщений пока нет</string>
+    <string name="chat_peek_failed">Предпросмотр сейчас недоступен</string>
+    <string name="chat_peek_hint">Чат останется непрочитанным</string>
+    <string name="chat_peek_media">Вложение</string>
 </resources>

@@ -2519,6 +2519,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> =
         conversationActions.newerMessages(chatId, forumTopicId, afterMessageId)
 
+    override suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.peekMessages(chatId)
+
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
         // Taken before the wait, so a latest load or another jump that starts meanwhile supersedes this one.
         val request = nextHistoryRequest(chatId)
