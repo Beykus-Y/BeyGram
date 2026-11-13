@@ -23,6 +23,9 @@ internal object YandexWave {
     /** Seed of a wave built from one artist. Format not yet checked on the live API. */
     fun artistSeed(artistId: String): String = "artist:$artistId"
 
+    /** Seed of a wave built from one album. Format not yet checked on the live API. */
+    fun albumSeed(albumId: String): String = "album:$albumId"
+
     /** How many of the last given tracks are sent back, so the service does not repeat them. */
     const val QUEUE_HINT = 50
 
