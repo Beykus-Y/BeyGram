@@ -77,12 +77,14 @@ internal class YandexWaveSession(
     private val seeds: List<String>,
     private val start: suspend (seeds: List<String>, queue: List<String>) -> ProviderResult<YandexWaveBatch>,
     private val next: suspend (sessionId: String, queue: List<String>) -> ProviderResult<YandexWaveBatch>,
+    /** Tracks given before a restart, as `id:albumId`, so the wave does not repeat them. */
+    initialGiven: Collection<String> = emptyList(),
 ) {
     private val lock = Mutex()
     private var sessionId: String? = null
 
     /** Tracks the session gave, as `id:albumId`, oldest first. Also used to drop repeats. */
-    private val given = LinkedHashSet<String>()
+    private val given = LinkedHashSet<String>(initialGiven)
 
     /** Per player key: the track as `id:albumId` and the batch it came in, for feedback. */
     private val byKey = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String?>>()
@@ -141,11 +143,21 @@ internal class YandexWaveSession(
         emptyList()
     }
 
+    /** The tracks given so far, as `id:albumId`, oldest first, for saving the wave. */
+    fun givenIds(): List<String> = synchronized(given) { given.toList() }
+
+    /** Marks a track restored from a saved wave as given and known, so its feedback has a key. */
+    fun seed(track: ProviderTrack) {
+        val id = queueId(track)
+        synchronized(given) { given.add(id) }
+        byKey[track.key] = id to null
+    }
+
     /** Keeps the tracks the session has not given before, and remembers them. */
     private fun accept(tracks: List<ProviderTrack>, batchId: String?): List<ProviderTrack> =
         tracks.filter { track ->
             val id = queueId(track)
-            given.add(id).also { fresh -> if (fresh) byKey[track.key] = id to batchId }
+            synchronized(given) { given.add(id) }.also { fresh -> if (fresh) byKey[track.key] = id to batchId }
         }
 
     companion object {

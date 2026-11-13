@@ -45,5 +45,6 @@
     <string name="yandex_wave_subtitle">An endless stream of tracks picked for you</string>
     <string name="yandex_wave_starting">Picking tracks…</string>
     <string name="yandex_wave_failed">Could not start the wave. Tap to try again.</string>
+    <string name="yandex_wave_resume">Continue: %1$s · %2$s</string>
     <string name="yandex_wave_play">Play My Wave</string>
 </resources>

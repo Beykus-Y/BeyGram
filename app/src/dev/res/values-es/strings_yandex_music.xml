@@ -45,5 +45,6 @@
     <string name="yandex_wave_subtitle">Un flujo infinito de canciones elegidas para ti</string>
     <string name="yandex_wave_starting">Eligiendo canciones…</string>
     <string name="yandex_wave_failed">No se pudo iniciar la ola. Toca para intentarlo de nuevo.</string>
+    <string name="yandex_wave_resume">Continuar: %1$s · %2$s</string>
     <string name="yandex_wave_play">Escuchar Mi Ola</string>
 </resources>

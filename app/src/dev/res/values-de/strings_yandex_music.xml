@@ -45,5 +45,6 @@
     <string name="yandex_wave_subtitle">Ein endloser Strom von Titeln nach deinem Geschmack</string>
     <string name="yandex_wave_starting">Titel werden ausgewählt…</string>
     <string name="yandex_wave_failed">Die Welle konnte nicht gestartet werden. Tippe, um es erneut zu versuchen.</string>
+    <string name="yandex_wave_resume">Weiter: %1$s · %2$s</string>
     <string name="yandex_wave_play">Meine Welle abspielen</string>
 </resources>

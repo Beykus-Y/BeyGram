@@ -51,6 +51,7 @@ internal object YandexWaveLauncher {
                             subtitle = subtitle,
                         )
                         ProviderArtwork.playTracks(app, ordered, 0, { session.more() }, radio)
+                        YandexWaveResume.attach(app, session, radio, seeds, subtitle)
                         // After the queue started, so the tracker sees the radio as the player's queue.
                         YandexWaveFeedback.start(provider, session, radio)
                         onDone(null)
