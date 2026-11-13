@@ -14,7 +14,7 @@ import android.media.AudioTrack
  * is left to the caller. Every resource is released in [stop], which is safe to call more than once.
  */
 class BgWaveListenerAudio(
-    private val session: BgWaveSession,
+    private val session: BgWaveSessionPort,
     private val audioManager: AudioManager,
     private val onFocusLost: () -> Unit,
 ) {

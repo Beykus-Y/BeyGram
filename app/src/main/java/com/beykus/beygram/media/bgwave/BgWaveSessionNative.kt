@@ -13,6 +13,8 @@ class BgWaveSession private constructor(private var handle: Long) : BgWaveSessio
     /** Native handle, for attaching this session as the BG Mix host PCM tap. 0 when closed. */
     val nativeHandle: Long get() = handle
 
+    override fun sessionHandle(): Long = handle
+
     override fun startOffer(nowSeconds: Long, ttlSeconds: Long): Boolean =
         isOpen && BgWaveSessionNative.nativeStartOffer(handle, nowSeconds, ttlSeconds)
 
@@ -52,7 +54,7 @@ class BgWaveSession private constructor(private var handle: Long) : BgWaveSessio
     }
 
     /** Listener: fills [out] with decoded interleaved stereo and returns the frame count written. */
-    fun pullListenerPcm(out: FloatArray, frames: Int, sampleRate: Int): Int =
+    override fun pullListenerPcm(out: FloatArray, frames: Int, sampleRate: Int): Int =
         if (isOpen) BgWaveSessionNative.nativePullListenerPcm(handle, out, frames, sampleRate) else 0
 
     fun stats(): String = if (isOpen) BgWaveSessionNative.nativeStats(handle) else ""

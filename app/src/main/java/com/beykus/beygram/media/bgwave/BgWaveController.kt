@@ -13,6 +13,10 @@ interface BgWaveSessionPort : AutoCloseable {
     fun status(): BgWaveSessionStatus
     fun stop(emitEnd: Boolean, nowSeconds: Long)
     fun reconnect(nowSeconds: Long): Boolean
+    /** Native handle for attaching the host PCM tap; 0 when there is no native session. */
+    fun sessionHandle(): Long = 0L
+    /** Listener: pulls decoded interleaved stereo frames for playback. Returns frames written. */
+    fun pullListenerPcm(out: FloatArray, frames: Int, sampleRate: Int): Int = 0
 }
 
 enum class BgWaveRole { Host, Listener }
@@ -105,6 +109,9 @@ class BgWaveController(
         _state.value = BgWaveSessionState(BgWaveRole.Host, accountId, chatId, peerId, decoded.sidHex, BgWavePhase.Offering)
         link
     }
+
+    /** The live native session, for the audio pump. Read when the wave changes phase, never per frame. */
+    fun activeSession(): BgWaveSessionPort? = synchronized(lock) { session }
 
     /** The invitation was handed to Telegram (or not). A failed send tears the wave down. */
     fun offerSent(sidHex: String, success: Boolean, nowSeconds: Long): Unit = synchronized(lock) {
