@@ -30,6 +30,8 @@ internal object YandexWaveLauncher {
         startTrack: ProviderTrack?,
         isCurrent: () -> Boolean,
         onDone: (MusicProviderFailure?) -> Unit,
+        /** Position of [startTrack] when it is already playing: the wave takes over there and the track is not restarted. */
+        keepPositionMs: Long? = null,
     ) {
         val app = context.applicationContext
         scope.launch {
@@ -46,11 +48,17 @@ internal object YandexWaveLauncher {
                     else -> {
                         // Stable sort: the chosen track moves to the front, the rest keep the service's order.
                         val ordered = startTrack?.let { seed -> first.value.sortedBy { it.trackId != seed.trackId } } ?: first.value
+                        // A track that is playing must lead the queue, or the queue would restart it, so it is put first.
+                        val leading = if (startTrack != null && keepPositionMs != null && ordered.none { it.trackId == startTrack.trackId }) {
+                            listOf(startTrack) + ordered
+                        } else {
+                            ordered
+                        }
                         val radio = PlaybackRadio(
                             title = app.getString(R.string.yandex_wave_title),
                             subtitle = subtitle,
                         )
-                        ProviderArtwork.playTracks(app, ordered, 0, { session.more() }, radio)
+                        ProviderArtwork.playTracks(app, leading, 0, { session.more() }, radio, keepPositionMs)
                         YandexWaveResume.attach(app, session, radio, seeds, subtitle)
                         // After the queue started, so the tracker sees the radio as the player's queue.
                         YandexWaveFeedback.start(provider, session, radio)

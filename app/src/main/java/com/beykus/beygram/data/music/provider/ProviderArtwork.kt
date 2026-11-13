@@ -37,11 +37,12 @@ object ProviderArtwork {
         startIndex: Int,
         loadMore: (suspend () -> List<ProviderTrack>)?,
         radio: PlaybackRadio? = null,
+        keepPositionMs: Long? = null,
     ) {
         remember(tracks)
         watch(context)
         val remembering = loadMore?.let { load -> suspend { load().also { remember(it) } } }
-        PlaybackEngine.playYandexTracks(context, tracks, startIndex, remembering, radio)
+        PlaybackEngine.playYandexTracks(context, tracks, startIndex, remembering, radio, keepPositionMs)
     }
 
     private fun remember(tracks: List<ProviderTrack>) = ProviderTracks.remember(tracks)
