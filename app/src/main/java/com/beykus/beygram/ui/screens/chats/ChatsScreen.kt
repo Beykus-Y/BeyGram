@@ -1041,7 +1041,18 @@ fun ChatsScreen(
                 else onPinChat(selected.id, pinned)
             },
             setMuted = { onMuteChat(selected.id, it) },
+            setRead = {
+                if (onMarkRead(selected)) Result.success(Unit) else Result.failure(IllegalStateException("mark read"))
+            },
             setUnread = { onMarkUnread(selected) },
+            archive = {
+                if (onArchive(selected)) {
+                    onSwipePerformed(selected, ChatSwipeActionKind.Archive)
+                    Result.success(Unit)
+                } else {
+                    Result.failure(IllegalStateException("archive"))
+                }
+            },
             delete = { onDeleteChat(selected.id) }
         )
     }
