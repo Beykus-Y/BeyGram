@@ -73,7 +73,9 @@ internal fun ProviderTrackMenuItems(
     track: ProviderTrack,
     onDismiss: () -> Unit,
     showPlayNext: Boolean,
-    onOpenAlbum: ((String) -> Unit)?
+    onOpenAlbum: ((String) -> Unit)?,
+    showLike: Boolean = true,
+    showShare: Boolean = true
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
@@ -91,7 +93,7 @@ internal fun ProviderTrackMenuItems(
             ProviderTracks.playNext(context, track)
         }
     )
-    if (liked != null) DropdownMenuItem(
+    if (showLike && liked != null) DropdownMenuItem(
         text = { Text(stringResource(if (liked) R.string.music_provider_unlike else R.string.music_provider_like)) },
         leadingIcon = {
             Icon(
@@ -126,7 +128,7 @@ internal fun ProviderTrackMenuItems(
             onOpenAlbum(albumId)
         }
     )
-    DropdownMenuItem(
+    if (showShare) DropdownMenuItem(
         text = { Text(stringResource(R.string.music_provider_share_link)) },
         leadingIcon = { Icon(Icons.Rounded.Share, null, tint = palette.textSecondary) },
         onClick = {
@@ -149,6 +151,8 @@ internal fun PlayerProviderTrackMenuItems(key: String, onDismiss: () -> Unit, on
         track = track,
         onDismiss = onDismiss,
         showPlayNext = false,
-        onOpenAlbum = openAlbum?.let { open -> { albumId -> onLeavePlayer(); open(albumId) } }
+        onOpenAlbum = openAlbum?.let { open -> { albumId -> onLeavePlayer(); open(albumId) } },
+        showLike = false,
+        showShare = false
     )
 }
