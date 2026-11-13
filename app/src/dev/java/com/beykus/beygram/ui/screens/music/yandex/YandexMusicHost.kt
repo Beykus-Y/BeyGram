@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -102,6 +103,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val WaveCardHeight = 168.dp
+private val TAU: Float = (2 * PI).toFloat()
 
 /**
  * Yandex Music in the music screens: its tab (likes, playlists, albums) and its search results. DEV only; loaded by
@@ -603,7 +605,7 @@ class YandexMusicHost : ProviderMusicHost {
         val transition = rememberInfiniteTransition(label = "wave-backdrop")
         val phase by transition.animateFloat(
             initialValue = 0f,
-            targetValue = (2 * PI).toFloat(),
+            targetValue = TAU,
             animationSpec = infiniteRepeatable(
                 animation = tween(durationMillis = 6000, easing = LinearEasing),
                 repeatMode = RepeatMode.Restart,
@@ -611,7 +613,7 @@ class YandexMusicHost : ProviderMusicHost {
             label = "wave-backdrop-phase",
         )
         Canvas(modifier) {
-            val w = size.width
+            val w: Float = size.width
             val h = size.height
             for (band in 0 until 3) {
                 val baseY = h * (0.42f + 0.14f * band)
@@ -622,7 +624,7 @@ class YandexMusicHost : ProviderMusicHost {
                 path.moveTo(0f, h)
                 for (step in 0..48) {
                     val x = w * step / 48f
-                    val y = baseY + amplitude * sin(2 * PI.toFloat() * cycles * x / w + shift)
+                    val y = baseY + amplitude * sin(TAU * cycles * x / w + shift)
                     path.lineTo(x, y)
                 }
                 path.lineTo(w, h)
