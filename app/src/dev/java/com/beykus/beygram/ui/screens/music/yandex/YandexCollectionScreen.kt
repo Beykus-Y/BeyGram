@@ -50,6 +50,9 @@ import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
+import com.beykus.beygram.data.yandex.YandexMusicProvider
+import com.beykus.beygram.data.yandex.YandexWave
+import com.beykus.beygram.data.yandex.YandexWaveLauncher
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.styledShape
@@ -244,7 +247,25 @@ internal fun YandexCollectionScreen(
                 actions = {
                     if (ref is YandexCollectionRef.Album) {
                         val menuTitle = head.title
-                        YandexCollectionMenu(menuKey = ref.id, webLink = ProviderTracks.albumWebLink(ref.id)) { context, label ->
+                        val yandex = provider as? YandexMusicProvider
+                        YandexCollectionMenu(
+                            menuKey = ref.id,
+                            webLink = ProviderTracks.albumWebLink(ref.id),
+                            waveLabel = if (yandex != null) stringResource(R.string.yandex_wave_album) else null,
+                            onWave = yandex?.let { source ->
+                                { context: android.content.Context ->
+                                    YandexWaveLauncher.start(
+                                        context = context,
+                                        provider = source,
+                                        seeds = listOf(YandexWave.albumSeed(ref.id)),
+                                        subtitle = context.getString(R.string.yandex_wave_source_album, menuTitle),
+                                        startTrack = null,
+                                        isCurrent = { true },
+                                        onDone = {},
+                                    )
+                                }
+                            },
+                        ) { context, label ->
                             ProviderTracks.shareAlbumLink(context, menuTitle, ref.id, label)
                         }
                     }
@@ -376,7 +397,13 @@ private fun TrackRowWithMenu(
  * [menuKey] keeps the open state apart for each collection.
  */
 @Composable
-private fun YandexCollectionMenu(menuKey: String, webLink: String, onShare: (android.content.Context, String) -> Unit) {
+private fun YandexCollectionMenu(
+    menuKey: String,
+    webLink: String,
+    waveLabel: String? = null,
+    onWave: ((android.content.Context) -> Unit)? = null,
+    onShare: (android.content.Context, String) -> Unit,
+) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val shareLabel = stringResource(R.string.music_provider_share_link)
@@ -386,6 +413,13 @@ private fun YandexCollectionMenu(menuKey: String, webLink: String, onShare: (and
             Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textPrimary)
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            if (waveLabel != null && onWave != null) DropdownMenuItem(
+                text = { Text(waveLabel) },
+                onClick = {
+                    menu = false
+                    onWave(context)
+                }
+            )
             DropdownMenuItem(
                 text = { Text(shareLabel) },
                 onClick = {

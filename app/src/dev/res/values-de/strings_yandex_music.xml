@@ -42,6 +42,8 @@
     <string name="yandex_wave_source_personal">Nach deinem Geschmack</string>
     <string name="yandex_wave_source_track">Nach „%1$s“</string>
     <string name="yandex_wave_source_artist">Nach Künstler „%1$s“</string>
+    <string name="yandex_wave_album">Welle aus diesem Album</string>
+    <string name="yandex_wave_source_album">Nach Album „%1$s“</string>
     <string name="yandex_wave_subtitle">Ein endloser Strom von Titeln nach deinem Geschmack</string>
     <string name="yandex_wave_starting">Titel werden ausgewählt…</string>
     <string name="yandex_wave_failed">Die Welle konnte nicht gestartet werden. Tippe, um es erneut zu versuchen.</string>
