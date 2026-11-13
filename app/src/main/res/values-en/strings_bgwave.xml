@@ -28,4 +28,12 @@
     <string name="bgwave_error_busy">Another wave is already running. Stop it first.</string>
     <string name="bgwave_error_expired">The invitation has expired.</string>
     <string name="bgwave_error_rejected">The answer did not match this wave.</string>
+    <string name="bgwave_share_action">Share wave</string>
+    <string name="bgwave_action_stop_wave">Stop wave</string>
+    <string name="bgwave_share_one_person">Pick one person: a wave plays for a single listener.</string>
+    <string name="bgwave_share_sent">Invitation sent</string>
+    <string name="bgwave_share_confirm_title">Send the invitation to the chat “%s”?</string>
+    <string name="bgwave_share_confirm_body">They will see an invitation to listen to what is playing for you now. With a direct connection your IP address may be visible to them. The sound is not saved and plays only while the wave runs.</string>
+    <string name="bgwave_share_confirm_send">Send</string>
+    <string name="bgwave_share_confirm_cancel">Cancel</string>
 </resources>

@@ -158,6 +158,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.media.bgwave.BgWaveHub
+import androidx.compose.material.icons.rounded.GraphicEq
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
@@ -413,6 +415,7 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
     val scope = rememberCoroutineScope()
     var menuOpen by remember { mutableStateOf(false) }
     var pendingShare by remember { mutableStateOf<PendingTrackShare?>(null) }
+    var waveSharing by remember { mutableStateOf(false) }
     // Sharing sends from the chat source the player uses. A track from a chat is offered only once that chat is known
     // not to protect its content; a chat that cannot be checked here gets no share.
     val originChat = rememberOriginChat(item.origin)
@@ -423,6 +426,9 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
     // A source track is shared as its link; the file never leaves the app.
     val providerTrack = ProviderTracks.byKey(item.key)?.takeIf { ProviderTracks.isProviderKey(item.key) }
     val shareLabel = stringResource(R.string.player_share)
+    val waveActive = rememberWaveActive()
+    val waveShareLabel = stringResource(R.string.bgwave_share_action)
+    val waveStopLabel = stringResource(R.string.bgwave_action_stop_wave)
     val shareChooser = stringResource(R.string.music_provider_share_link)
     val showInChatLabel = stringResource(R.string.media_show_in_chat)
     val addToProfile = LocalAddProfileAudio.current
@@ -452,6 +458,15 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
                     pendingShare = PendingTrackShare(completedShareItem(item), shareTimecode(PlaybackEngine.state.value.positionMs), source)
                 }
             }
+            if (waveActive) PlayerMenuEntry(waveStopLabel, Icons.Rounded.GraphicEq) {
+                menuOpen = false
+                scope.launch { BgWaveHub.stop() }
+            } else if (shareSource != null && canShareWave(item, originUnprotected = item.origin == null || originChat?.hasProtectedContent == false, isProviderTrack = providerTrack != null)) {
+                PlayerMenuEntry(waveShareLabel, Icons.Rounded.GraphicEq) {
+                    menuOpen = false
+                    waveSharing = true
+                }
+            }
             item.origin?.let { origin ->
                 PlayerMenuEntry(showInChatLabel, Icons.Rounded.ChatBubble) {
                     menuOpen = false
@@ -479,6 +494,9 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
                 }
             }
         }
+    }
+    if (waveSharing && shareSource != null) {
+        ShareWaveDialog(shareSource.repository, shareSource.accountId, onClose = { waveSharing = false })
     }
     pendingShare?.let { share ->
         ShareTrackDialog(

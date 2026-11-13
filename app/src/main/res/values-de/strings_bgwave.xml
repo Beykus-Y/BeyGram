@@ -28,4 +28,12 @@
     <string name="bgwave_error_busy">Es läuft bereits eine andere Welle. Beende sie zuerst.</string>
     <string name="bgwave_error_expired">Die Einladung ist abgelaufen.</string>
     <string name="bgwave_error_rejected">Die Antwort passt nicht zu dieser Welle.</string>
+    <string name="bgwave_share_action">Welle teilen</string>
+    <string name="bgwave_action_stop_wave">Welle stoppen</string>
+    <string name="bgwave_share_one_person">Wähle eine Person: Eine Welle läuft nur für einen Zuhörer.</string>
+    <string name="bgwave_share_sent">Einladung gesendet</string>
+    <string name="bgwave_share_confirm_title">Einladung in den Chat „%s“ senden?</string>
+    <string name="bgwave_share_confirm_body">Die Person sieht eine Einladung, mitzuhören, was bei dir gerade läuft. Bei einer direkten Verbindung kann deine IP-Adresse für sie sichtbar sein. Der Ton wird nicht gespeichert und läuft nur, solange die Welle aktiv ist.</string>
+    <string name="bgwave_share_confirm_send">Senden</string>
+    <string name="bgwave_share_confirm_cancel">Abbrechen</string>
 </resources>
