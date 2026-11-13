@@ -112,6 +112,8 @@ object BgWaveHub {
     private fun syncAudio(state: BgWaveSessionState) {
         val live = state.phase == BgWavePhase.Live
         if (state.role == BgWaveRole.Host) {
+            if (live && !BgWaveHostTap.isOpen) BgWaveHostTap.open(controller.openHostTap())
+            if (!live) BgWaveHostTap.close()
             val tap = hostTap
             if (tap == null) {
                 if (live && !hostTapMissingLogged) {

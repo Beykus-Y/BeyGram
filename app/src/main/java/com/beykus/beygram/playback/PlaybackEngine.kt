@@ -39,6 +39,7 @@ import com.beykus.beygram.media.bgmix.BgMixAudible
 import com.beykus.beygram.media.bgmix.BgMixNative
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
 import com.beykus.beygram.media.bgwave.BgWaveHub
+import com.beykus.beygram.media.bgwave.BgWaveRenderersFactory
 import com.beykus.beygram.media.bgmix.BgMixStatus
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -456,6 +457,7 @@ object PlaybackEngine {
     @OptIn(UnstableApi::class)
     private fun createPlayer(context: Context): Player {
         val created = ExoPlayer.Builder(context.applicationContext)
+            .setRenderersFactory(BgWaveRenderersFactory(context.applicationContext))
             .setMediaSourceFactory(DefaultMediaSourceFactory(PlaybackDataSourceFactory(context.applicationContext)))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
