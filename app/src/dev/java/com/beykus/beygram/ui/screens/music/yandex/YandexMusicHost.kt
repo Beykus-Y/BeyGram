@@ -28,6 +28,7 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,6 +63,7 @@ import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.data.yandex.YandexMusicProvider
 import com.beykus.beygram.data.yandex.YandexWave
+import com.beykus.beygram.data.yandex.YandexWaveSettings
 import com.beykus.beygram.data.yandex.YandexWaveSettingsStore
 import com.beykus.beygram.data.yandex.YandexWaveLauncher
 import com.beykus.beygram.data.yandex.YandexWaveFeedback
@@ -253,8 +255,9 @@ class YandexMusicHost : ProviderMusicHost {
     }
 
     private var waveStarting by mutableStateOf(false)
-    /** Diversity of the next personal wave; applies from the next start, not to a wave already playing. */
-    private var waveDiversity by mutableStateOf(YandexWave.Diversity.DEFAULT)
+    /** The «Моя волна» settings of the signed-in account; read on sign-in, saved on «Слушать». */
+    private var waveSettings by mutableStateOf(YandexWaveSettings.DEFAULTS)
+    private var waveSettingsOpen by mutableStateOf(false)
     private var waveFailure by mutableStateOf<MusicProviderFailure?>(null)
 
     /**
@@ -267,13 +270,10 @@ class YandexMusicHost : ProviderMusicHost {
         val mine = ++selectionGeneration
         waveStarting = true
         waveFailure = null
-        // The saved settings of this account shape the radio; the card's chips still choose its character.
-        val uid = (yandex.state.value as? MusicProviderState.SignedIn)?.account?.uid.orEmpty()
-        val saved = YandexWaveSettingsStore.load(context, uid)
         YandexWaveLauncher.start(
             context = context,
             provider = yandex,
-            seeds = saved.copy(character = waveDiversity).seeds(YandexWave.MY_WAVE_SEED),
+            seeds = waveSettings.seeds(YandexWave.MY_WAVE_SEED),
             subtitle = context.getString(R.string.yandex_wave_source_personal),
             startTrack = null,
             isCurrent = { mine == selectionGeneration },
@@ -406,8 +406,11 @@ class YandexMusicHost : ProviderMusicHost {
             // The radio is not a flow, so it is read on each playback change; the state flow drives recomposition.
             val waveActive = PlaybackEngine.activeRadio?.title == waveTitle && playback.item != null
             Column(Modifier.fillMaxWidth()) {
+            val uid = (provider.state.value as? MusicProviderState.SignedIn)?.account?.uid.orEmpty()
+            LaunchedEffect(uid) { waveSettings = YandexWaveSettingsStore.load(context, uid) }
             WaveTile(
                 starting = waveStarting,
+                summary = waveSummary(waveSettings),
                 failure = waveFailure,
                 resume = offered,
                 active = waveActive,
@@ -416,9 +419,28 @@ class YandexMusicHost : ProviderMusicHost {
                 onResume = { YandexWaveResume.resume() },
                 onTogglePlayPause = { PlaybackEngine.togglePlayPause() },
             )
-            WaveDiversityRow(
-                selected = waveDiversity,
-                onSelect = { waveDiversity = it },
+            TextButton(onClick = { waveSettingsOpen = true }, modifier = Modifier.padding(horizontal = MusicScreenGutter)) {
+                Text(stringResource(R.string.yandex_wave_settings_open))
+            }
+            if (waveSettingsOpen) YandexWaveSettingsSheet(
+                initial = waveSettings,
+                onListen = { chosen ->
+                    waveSettingsOpen = false
+                    if (waveActive) {
+                        // The playing track keeps playing; the upcoming ones change. On failure nothing is saved.
+                        YandexWaveLauncher.changeSeeds(context, chosen.seeds(YandexWave.MY_WAVE_SEED)) { changed ->
+                            if (changed) {
+                                waveSettings = chosen
+                                YandexWaveSettingsStore.save(context, uid, chosen)
+                            }
+                        }
+                    } else {
+                        waveSettings = chosen
+                        YandexWaveSettingsStore.save(context, uid, chosen)
+                        if (onPlay != null) startWave(context, provider)
+                    }
+                },
+                onDismiss = { waveSettingsOpen = false },
             )
             }
         }
@@ -562,6 +584,7 @@ class YandexMusicHost : ProviderMusicHost {
     @Composable
     private fun WaveTile(
         starting: Boolean,
+        summary: String,
         failure: MusicProviderFailure?,
         resume: YandexWaveResume.Saved?,
         active: Boolean,
@@ -577,7 +600,7 @@ class YandexMusicHost : ProviderMusicHost {
             active -> stringResource(R.string.yandex_wave_paused)
             resume != null -> stringResource(R.string.yandex_wave_resume, resume.track.performer, resume.track.title)
             failure != null -> stringResource(waveFailureText(failure))
-            else -> stringResource(R.string.yandex_wave_subtitle)
+            else -> summary
         }
         val action: (() -> Unit)? = when {
             active -> onTogglePlayPause

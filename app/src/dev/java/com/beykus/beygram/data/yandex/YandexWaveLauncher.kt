@@ -6,6 +6,8 @@ import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.ProviderArtwork
 import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
+import com.beykus.beygram.data.music.provider.ProviderTracks
+import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackRadio
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +17,45 @@ import kotlinx.coroutines.launch
 /** Opens a «Моя волна» for some seeds (the personal wave, or one track) and plays it. */
 internal object YandexWaveLauncher {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** The router of the radio started last; a settings change swaps the upcoming tracks of that radio. */
+    @Volatile
+    private var active: YandexWaveRouter? = null
+
+    private fun openSession(provider: YandexMusicProvider, seeds: List<String>, given: Collection<String>) = YandexWaveSession(
+        seeds = seeds,
+        start = { s, queue -> provider.waveStart(s, queue) },
+        next = { id, queue -> provider.waveNext(id, queue) },
+        initialGiven = given,
+    )
+
+    /**
+     * Changes the seeds of the radio that plays: the upcoming tracks are replaced, the playing one keeps playing. [onDone]
+     * gets true once the new tracks are queued; false means nothing was changed for the listener.
+     */
+    fun changeSeeds(context: Context, seeds: List<String>, onDone: (Boolean) -> Unit) {
+        val router = active
+        if (router == null || !PlaybackEngine.currentQueueIsEndless()) {
+            onDone(false)
+            return
+        }
+        val app = context.applicationContext
+        scope.launch {
+            when (val result = router.swap(seeds)) {
+                is ProviderResult.Failure -> onDone(false)
+                is ProviderResult.Success -> {
+                    val fresh = result.value.filter { it.isAvailable }
+                    if (fresh.isEmpty()) {
+                        onDone(false)
+                    } else {
+                        ProviderTracks.remember(fresh)
+                        PlaybackEngine.replaceYandexUpcoming(app, fresh) { router.more() }
+                        onDone(true)
+                    }
+                }
+            }
+        }
+    }
 
     /**
      * Opens a radio session for [seeds] and plays its first batch; the player asks the session for more as the queue
@@ -35,11 +76,7 @@ internal object YandexWaveLauncher {
     ) {
         val app = context.applicationContext
         scope.launch {
-            val session = YandexWaveSession(
-                seeds = seeds,
-                start = { s, queue -> provider.waveStart(s, queue) },
-                next = { id, queue -> provider.waveNext(id, queue) },
-            )
+            val session = openSession(provider, seeds, emptyList())
             when (val first = session.first()) {
                 is ProviderResult.Failure -> onDone(first.failure)
                 is ProviderResult.Success -> when {
@@ -58,10 +95,12 @@ internal object YandexWaveLauncher {
                             title = app.getString(R.string.yandex_wave_title),
                             subtitle = subtitle,
                         )
-                        ProviderArtwork.playTracks(app, leading, 0, { session.more() }, radio, keepPositionMs)
+                        val router = YandexWaveRouter(session) { s, given -> openSession(provider, s, given) }
+                        active = router
+                        ProviderArtwork.playTracks(app, leading, 0, { router.more() }, radio, keepPositionMs)
                         YandexWaveResume.attach(app, session, radio, seeds, subtitle)
                         // After the queue started, so the tracker sees the radio as the player's queue.
-                        YandexWaveFeedback.start(provider, session, radio)
+                        YandexWaveFeedback.start(provider, { router.current }, radio)
                         onDone(null)
                     }
                 }

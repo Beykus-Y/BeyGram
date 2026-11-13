@@ -17,7 +17,9 @@ data class MessageSendOptions(
      * The user agreed to send at once although stealth mode schedules sends on the server (#541). Without it a send
      * that cannot be scheduled fails instead of going out as an ordinary message.
      */
-    val sendNowConsent: Boolean = false
+    val sendNowConsent: Boolean = false,
+    /** Sends text without a web-page preview; used for the hidden service links that carry no page worth showing. */
+    val disableLinkPreview: Boolean = false
 ) {
     companion object {
         /**

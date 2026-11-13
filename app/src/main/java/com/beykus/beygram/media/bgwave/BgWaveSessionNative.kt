@@ -6,27 +6,27 @@ package com.beykus.beygram.media.bgwave
  * Every call is safe when the native library lacks the P2P build: [create] returns null and the
  * session is reported as unavailable. Nothing here encodes or decodes signaling bytes; BG-Media does that.
  */
-class BgWaveSession private constructor(private var handle: Long) : AutoCloseable {
+class BgWaveSession private constructor(private var handle: Long) : BgWaveSessionPort {
 
     val isOpen: Boolean get() = handle != 0L
 
     /** Native handle, for attaching this session as the BG Mix host PCM tap. 0 when closed. */
     val nativeHandle: Long get() = handle
 
-    fun startOffer(nowSeconds: Long, ttlSeconds: Long): Boolean =
+    override fun startOffer(nowSeconds: Long, ttlSeconds: Long): Boolean =
         isOpen && BgWaveSessionNative.nativeStartOffer(handle, nowSeconds, ttlSeconds)
 
     /** Routes one remote BG Wave URI (OFFER, ANSWER, CANCEL or END) to the native pipeline. */
-    fun handleRemote(uri: String, nowSeconds: Long): Boolean =
+    override fun handleRemote(uri: String, nowSeconds: Long): Boolean =
         isOpen && BgWaveSessionNative.nativeHandleRemote(handle, uri, nowSeconds)
 
     /** Next outbound BG Wave URI to send through TDLib, or null when none is waiting. */
-    fun pollOutbound(): String? {
+    override fun pollOutbound(): String? {
         if (!isOpen) return null
         return BgWaveSessionNative.nativePollOutbound(handle).ifEmpty { null }
     }
 
-    fun status(): BgWaveSessionStatus {
+    override fun status(): BgWaveSessionStatus {
         if (!isOpen) return BgWaveSessionStatus(state = "Failed", route = "None", lastError = "closed")
         val parts = BgWaveSessionNative.nativeStatus(handle).split('|', limit = 3)
         return BgWaveSessionStatus(
@@ -36,7 +36,7 @@ class BgWaveSession private constructor(private var handle: Long) : AutoCloseabl
         )
     }
 
-    fun stop(emitEnd: Boolean, nowSeconds: Long) {
+    override fun stop(emitEnd: Boolean, nowSeconds: Long) {
         if (isOpen) BgWaveSessionNative.nativeStop(handle, emitEnd, nowSeconds)
     }
 
@@ -44,7 +44,7 @@ class BgWaveSession private constructor(private var handle: Long) : AutoCloseabl
         if (isOpen) BgWaveSessionNative.nativeReset(handle)
     }
 
-    fun reconnect(nowSeconds: Long): Boolean = isOpen && BgWaveSessionNative.nativeReconnect(handle, nowSeconds)
+    override fun reconnect(nowSeconds: Long): Boolean = isOpen && BgWaveSessionNative.nativeReconnect(handle, nowSeconds)
 
     /** Host: pushes interleaved stereo float PCM captured from the mix. */
     fun pushHostPcm(pcm: FloatArray, frames: Int, sampleRate: Int) {
