@@ -3,6 +3,7 @@ package com.beykus.beygram.data.yandex
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.ProviderAlbum
 import com.beykus.beygram.data.music.provider.ProviderAlbumTracks
+import com.beykus.beygram.data.music.provider.ProviderArtistRef
 import com.beykus.beygram.data.music.provider.ProviderAudio
 import com.beykus.beygram.data.music.provider.ProviderLyrics
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
