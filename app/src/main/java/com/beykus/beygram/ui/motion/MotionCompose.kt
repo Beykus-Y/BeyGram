@@ -8,6 +8,14 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.selects.select
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.beykus.beygram.ui.accessibility.LocalSystemReducedMotion
@@ -51,33 +59,61 @@ fun MotionSpec.fadeExit(): ExitTransition =
     if (isInstant) ExitTransition.None else fadeOut(animationSpec())
 
 /**
- * Programmatic scroll that respects Motion Off, disabled categories, and system reduced motion.
- * Interactive user drag/scroll is unaffected; only automated jumps snap when [motionInstant] is true.
+ * Live policy for long-running scroll jobs. A captured Boolean only checks the setting
+ * at the start; this State also changes when the user disables motion mid-scroll.
  */
+@Composable
+fun rememberMotionInstant(token: MotionToken): State<Boolean> =
+    rememberUpdatedState(rememberMotionSpec(token).isInstant)
+
+/** Cancel an in-flight programmatic movement and snap when motion becomes instant. */
+internal suspend fun scrollWithMotion(
+    motionInstant: State<Boolean>,
+    snap: suspend () -> Unit,
+    animate: suspend () -> Unit
+) {
+    if (motionInstant.value) {
+        snap()
+        return
+    }
+    coroutineScope {
+        val animation = async { animate() }
+        val restriction = async { snapshotFlow { motionInstant.value }.first { it } }
+        try {
+            val becameInstant = select<Boolean> {
+                restriction.onAwait { true }
+                animation.onAwait { false }
+            }
+            if (becameInstant || motionInstant.value) {
+                animation.cancelAndJoin()
+                snap()
+            }
+        } finally {
+            restriction.cancel()
+        }
+    }
+}
+
+/** Interactive drag remains unchanged; only programmatic list movement is adapted. */
 suspend fun LazyListState.scrollToItemRespectingMotion(
     index: Int,
     scrollOffset: Int = 0,
-    motionInstant: Boolean
-) {
-    if (motionInstant) scrollToItem(index, scrollOffset)
-    else animateScrollToItem(index, scrollOffset)
-}
+    motionInstant: State<Boolean>
+) = scrollWithMotion(motionInstant,
+    snap = { scrollToItem(index, scrollOffset) },
+    animate = { animateScrollToItem(index, scrollOffset) })
 
-/** Programmatic grid scroll that snaps to [index] when [motionInstant] is true. */
 suspend fun LazyGridState.scrollToItemRespectingMotion(
     index: Int,
     scrollOffset: Int = 0,
-    motionInstant: Boolean
-) {
-    if (motionInstant) scrollToItem(index, scrollOffset)
-    else animateScrollToItem(index, scrollOffset)
-}
+    motionInstant: State<Boolean>
+) = scrollWithMotion(motionInstant,
+    snap = { scrollToItem(index, scrollOffset) },
+    animate = { animateScrollToItem(index, scrollOffset) })
 
-/** Programmatic pager jump that snaps to [page] when [motionInstant] is true. */
 suspend fun PagerState.scrollToPageRespectingMotion(
     page: Int,
-    motionInstant: Boolean
-) {
-    if (motionInstant) scrollToPage(page)
-    else animateScrollToPage(page)
-}
+    motionInstant: State<Boolean>
+) = scrollWithMotion(motionInstant,
+    snap = { scrollToPage(page) },
+    animate = { animateScrollToPage(page) })

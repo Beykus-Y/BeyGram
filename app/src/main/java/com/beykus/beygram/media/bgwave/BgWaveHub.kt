@@ -1,5 +1,6 @@
 package com.beykus.beygram.media.bgwave
 
+import android.media.AudioManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,6 +30,21 @@ object BgWaveHub {
     )
 
     private val senders = ConcurrentHashMap<String, BgWaveSender>()
+    @Volatile private var audioManager: AudioManager? = null
+    @Volatile private var listenerAudio: BgWaveListenerAudio? = null
+    private var bgMixTapAttached = false
+    private var hostTapMissingLogged = false
+
+    /**
+     * Host: attaches (handle, true) or detaches (0, false) the wave session as the tap of the BG Mix player that is
+     * playing. Set by the playback layer; null until then, so the host is silent until it is wired.
+     */
+    @Volatile var hostTap: ((sessionHandle: Long, attach: Boolean) -> Boolean)? = null
+
+    /** Called once from the application, so the listener can take audio focus and play. */
+    fun attachAudioManager(manager: AudioManager) {
+        audioManager = manager
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var ticker: Job? = null
 
@@ -89,6 +105,44 @@ object BgWaveHub {
 
     fun retry(): Boolean = controller.retry(nowSeconds())
 
+    /**
+     * Keeps local audio in step with the wave phase. Host: the BG Mix tap is attached while Live and detached otherwise,
+     * re-attached each tick so a new mix player picks it up. Listener: playback starts when Live and stops when not.
+     */
+    private fun syncAudio(state: BgWaveSessionState) {
+        val live = state.phase == BgWavePhase.Live
+        if (state.role == BgWaveRole.Host) {
+            if (live && !BgWaveHostTap.isOpen) BgWaveHostTap.open(controller.openHostTap())
+            if (!live) BgWaveHostTap.close()
+            val tap = hostTap
+            if (tap == null) {
+                if (live && !hostTapMissingLogged) {
+                    BgWaveLog.w("host.bgmix.tap", null, "reason" to "no-provider")
+                    hostTapMissingLogged = true
+                }
+                return
+            }
+            val handle = controller.activeSession()?.sessionHandle() ?: 0L
+            val attached = if (live && handle != 0L) tap(handle, true) else tap(0L, false)
+            if (live && attached != bgMixTapAttached) {
+                BgWaveLog.i("host.bgmix.tap", "attached" to attached)
+            }
+            bgMixTapAttached = attached && live
+            return
+        }
+        if (live && listenerAudio == null) {
+            val source = controller.activeSession()
+            val manager = audioManager
+            if (source != null && manager != null) {
+                val output = BgWaveListenerAudio(source, manager) { listenerAudio = null }
+                if (output.start()) listenerAudio = output
+            }
+        } else if (!live) {
+            listenerAudio?.stop()
+            listenerAudio = null
+        }
+    }
+
     @Synchronized
     private fun ensureTicker() {
         if (ticker?.isActive == true) return
@@ -98,6 +152,7 @@ object BgWaveHub {
                 val state = controller.state.value ?: break
                 val links = controller.poll(nowSeconds())
                 for (link in links) send(state.accountId, state.chatId, link)
+                controller.state.value?.let { syncAudio(it) }
                 if (controller.state.value?.phase.let { it == BgWavePhase.Ended || it == BgWavePhase.Failed }) break
             }
         }

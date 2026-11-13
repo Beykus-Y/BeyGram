@@ -36,4 +36,5 @@
     <string name="bgwave_share_confirm_body">Verá una invitación para escuchar lo que suena ahora en tu dispositivo. Con una conexión directa, tu dirección IP puede ser visible para esa persona. El sonido no se guarda y solo suena mientras dura la ola.</string>
     <string name="bgwave_share_confirm_send">Enviar</string>
     <string name="bgwave_share_confirm_cancel">Cancelar</string>
+    <string name="bgwave_mini_title">Ola</string>
 </resources>

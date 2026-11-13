@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.rememberMotionInstant
 import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
@@ -129,10 +130,10 @@ fun StarsScreen(
         checkout is StarsTopUpStep.Opening ||
         checkout is StarsTopUpStep.AwaitingReturn
     val listState = rememberLazyListState()
-    val listMotion = rememberMotionSpec(MotionToken.ListReorder)
+    val listMotionInstant = rememberMotionInstant(MotionToken.ListReorder)
 
-    LaunchedEffect(notice, listMotion.isInstant) {
-        if (notice != null) listState.scrollToItemRespectingMotion(0, motionInstant = listMotion.isInstant)
+    LaunchedEffect(notice) {
+        if (notice != null) listState.scrollToItemRespectingMotion(0, motionInstant = listMotionInstant)
     }
 
     fun refreshAfterPayment() {

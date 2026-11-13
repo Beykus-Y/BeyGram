@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.rememberMotionInstant
 import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviders
@@ -155,11 +156,11 @@ private fun ReadyLyrics(lyrics: ProviderLyrics, positionState: State<PlaybackPos
     val active by remember(timed) {
         derivedStateOf { if (timed.isEmpty) -1 else timed.activeIndex(positionState.value.positionMs) }
     }
-    val listMotion = rememberMotionSpec(MotionToken.ListReorder)
-    LaunchedEffect(active, listMotion.isInstant) {
+    val listMotionInstant = rememberMotionInstant(MotionToken.ListReorder)
+    LaunchedEffect(active) {
         if (active >= 0) {
             val viewport = listState.layoutInfo.viewportSize.height
-            listState.scrollToItemRespectingMotion(active, -(viewport / 3), motionInstant = listMotion.isInstant)
+            listState.scrollToItemRespectingMotion(active, -(viewport / 3), motionInstant = listMotionInstant)
         }
     }
     val holder = lyrics.copyrightHolder

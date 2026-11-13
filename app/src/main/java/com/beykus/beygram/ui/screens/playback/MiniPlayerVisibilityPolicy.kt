@@ -26,9 +26,11 @@ internal fun resolveNowPlayingBarSlot(
     hasItem: Boolean,
     undoAvailable: Boolean,
     hideWhenImeVisible: Boolean,
-    keyboardVisible: Boolean
+    keyboardVisible: Boolean,
+    /** A listener in a live BG Wave gets the bar even with no track; the wave bar shows the Stop action. */
+    waveListening: Boolean = false
 ): NowPlayingBarSlot = when {
-    hasItem -> if (hideWhenImeVisible && keyboardVisible) NowPlayingBarSlot.Hidden else NowPlayingBarSlot.MiniPlayer
+    hasItem || waveListening -> if (hideWhenImeVisible && keyboardVisible) NowPlayingBarSlot.Hidden else NowPlayingBarSlot.MiniPlayer
     // Undo stays reachable even if the keyboard opens during the short undo window.
     undoAvailable -> NowPlayingBarSlot.UndoClose
     else -> NowPlayingBarSlot.Hidden

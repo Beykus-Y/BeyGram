@@ -36,4 +36,5 @@
     <string name="bgwave_share_confirm_body">They will see an invitation to listen to what is playing for you now. With a direct connection your IP address may be visible to them. The sound is not saved and plays only while the wave runs.</string>
     <string name="bgwave_share_confirm_send">Send</string>
     <string name="bgwave_share_confirm_cancel">Cancel</string>
+    <string name="bgwave_mini_title">Wave</string>
 </resources>

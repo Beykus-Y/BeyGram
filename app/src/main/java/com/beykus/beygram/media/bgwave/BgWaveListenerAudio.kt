@@ -14,7 +14,7 @@ import android.media.AudioTrack
  * is left to the caller. Every resource is released in [stop], which is safe to call more than once.
  */
 class BgWaveListenerAudio(
-    private val session: BgWaveSession,
+    private val session: BgWaveSessionPort,
     private val audioManager: AudioManager,
     private val onFocusLost: () -> Unit,
 ) {
@@ -112,8 +112,20 @@ class BgWaveListenerAudio(
 
     private fun pumpLoop(out: AudioTrack) {
         val buffer = FloatArray(FRAMES_PER_READ * CHANNELS)
+        var pulledFrames = 0L
+        var underruns = 0L
+        var lastLogNanos = System.nanoTime()
         while (running) {
             val frames = session.pullListenerPcm(buffer, FRAMES_PER_READ, SAMPLE_RATE)
+            pulledFrames += maxOf(frames, 0)
+            if (frames <= 0) underruns++
+            val now = System.nanoTime()
+            if (now - lastLogNanos >= 1_000_000_000L) {
+                BgWaveLog.i("audio.pull", "frames" to pulledFrames, "underruns" to underruns)
+                pulledFrames = 0L
+                underruns = 0L
+                lastLogNanos = now
+            }
             if (frames <= 0) {
                 // No decoded audio yet: write silence so the output clock keeps running.
                 buffer.fill(0f)

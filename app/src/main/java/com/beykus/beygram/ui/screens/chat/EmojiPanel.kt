@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.rememberMotionInstant
 import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -64,7 +65,7 @@ internal fun EmojiPanel(
     val groups = remember(recents) { EmojiCatalog.withRecent(recents) }
     val headerIndexes = remember(groups) { groupHeaderIndexes(groups) }
     val gridState = rememberLazyGridState()
-    val listMotion = rememberMotionSpec(MotionToken.ListReorder)
+    val listMotionInstant = rememberMotionInstant(MotionToken.ListReorder)
     val scope = rememberCoroutineScope()
     // The strip highlights the last group whose header has scrolled to the top of the grid.
     val activeId by remember(groups) {
@@ -93,7 +94,7 @@ internal fun EmojiPanel(
             groups = groups,
             activeId = activeId,
             onSelect = { group ->
-                scope.launch { gridState.scrollToItemRespectingMotion(headerIndexes[group.id] ?: 0, motionInstant = listMotion.isInstant) }
+                scope.launch { gridState.scrollToItemRespectingMotion(headerIndexes[group.id] ?: 0, motionInstant = listMotionInstant) }
             },
             onBackspace = onBackspace
         )

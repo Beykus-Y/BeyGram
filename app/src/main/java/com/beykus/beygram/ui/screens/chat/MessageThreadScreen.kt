@@ -6,6 +6,7 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.rememberMotionInstant
 import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -270,8 +271,7 @@ internal fun MessageThreadScreen(
         }
     }
 
-    val listScrollMotion = rememberMotionSpec(MotionToken.ListReorder)
-    val currentListScrollInstant by rememberUpdatedState(listScrollMotion.isInstant)
+    val listScrollInstant = rememberMotionInstant(MotionToken.ListReorder)
     fun jump(reply: MessageReply) {
         if (reply.isUnavailable || reply.messageId <= 0L) {
             sendError = context.getString(R.string.chat_reply_original_unavailable)
@@ -281,7 +281,7 @@ internal fun MessageThreadScreen(
         val isPost = (reply.chatId == channelChatId && reply.messageId == postId) ||
             (reply.chatId == thread?.discussionChatId && reply.messageId == thread?.threadId)
         if (isPost) {
-            if (post != null) scope.launch { listState.scrollToItemRespectingMotion(listState.layoutInfo.totalItemsCount - 1, motionInstant = currentListScrollInstant) }
+            if (post != null) scope.launch { listState.scrollToItemRespectingMotion(listState.layoutInfo.totalItemsCount - 1, motionInstant = listScrollInstant) }
             return
         }
         val index = messages.indexOfFirst { it.id == reply.messageId && it.chatId == reply.chatId }
@@ -289,7 +289,7 @@ internal fun MessageThreadScreen(
             sendError = context.getString(R.string.thread_reply_not_loaded)
             return
         }
-        scope.launch { listState.scrollToItemRespectingMotion(messages.lastIndex - index, motionInstant = currentListScrollInstant) }
+        scope.launch { listState.scrollToItemRespectingMotion(messages.lastIndex - index, motionInstant = listScrollInstant) }
     }
 
     val stealthFallback = remember { StealthScheduleFallback() }
@@ -332,7 +332,7 @@ internal fun MessageThreadScreen(
                         replyTarget = null
                         replyTargetId = 0L
                         onDraftChange("", emptyList(), 0L)
-                        scope.launch { listState.scrollToItemRespectingMotion(0, motionInstant = currentListScrollInstant) }
+                        scope.launch { listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant) }
                     }
                     .onFailure { failure ->
                         if (!stealthFallback.offer(failure) { send(sendNowConsent = true) }) {

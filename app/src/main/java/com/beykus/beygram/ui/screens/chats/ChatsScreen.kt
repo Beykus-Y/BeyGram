@@ -197,6 +197,7 @@ import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.rememberMotionInstant
 import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import com.beykus.beygram.ui.screens.stories.StoryBarSection
 
@@ -423,20 +424,19 @@ fun ChatsScreen(
     val archiveAvailable = activeFolderId == null && archivedChats.isNotEmpty() && selectedFilter == ChatFilter.All && query.isBlank()
     val density = LocalDensity.current
     val listState = state.listState
-    val listScrollMotion = rememberMotionSpec(MotionToken.ListReorder)
-    val currentListScrollInstant by rememberUpdatedState(listScrollMotion.isInstant)
+    val listScrollInstant = rememberMotionInstant(MotionToken.ListReorder)
     LaunchedEffect(state) {
         // Each scroll runs in its own child job: a drag that cancels the animation must not end the request collector.
         var scrollJob: Job? = null
         state.scrollToTopRequests.collect {
             scrollJob?.cancel()
-            scrollJob = launch { state.listState.scrollToItemRespectingMotion(0, motionInstant = currentListScrollInstant) }
+            scrollJob = launch { state.listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant) }
         }
     }
     // The folder chips scroll in their own strip. When the selected chip is not whole in view, the strip moves so its name
     // is fully visible, and the chip before it stays in view as a hint.
     val folderTabsState = rememberLazyListState()
-    val folderTabMotion = rememberMotionSpec(MotionToken.TabSelect)
+    val folderTabMotion = rememberMotionInstant(MotionToken.TabSelect)
     val folderTabsForScroll = orderedTelegramFolderTabs(folderSnapshot)
     val selectedFolderTabIndex = folderTabsForScroll.indexOfFirst { tab ->
         when (tab) {
@@ -452,7 +452,7 @@ fun ChatsScreen(
             visible.offset >= info.viewportStartOffset &&
             visible.offset + visible.size <= info.viewportEndOffset
         // The selected chip goes to the start edge: its whole name is in view, even when the chip before it is wide.
-        if (!fullyVisible) folderTabsState.scrollToItemRespectingMotion(selectedFolderTabIndex, motionInstant = folderTabMotion.isInstant)
+        if (!fullyVisible) folderTabsState.scrollToItemRespectingMotion(selectedFolderTabIndex, motionInstant = folderTabMotion)
     }
     val headerCollapseThresholdPx = with(density) { 96.dp.roundToPx() }
     val headerCollapsed by remember(listState, headerCollapseThresholdPx) {
