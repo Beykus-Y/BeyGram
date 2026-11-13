@@ -892,4 +892,7 @@
     <string name="lyrics_need_sign_in">Connectez-vous à Yandex Music pour voir les paroles</string>
     <string name="lyrics_failed">Impossible de charger les paroles. Réessayez plus tard.</string>
     <string name="lyrics_copyright">Paroles : %1$s</string>
+    <string name="player_sound">Son</string>
+    <string name="player_share">Partager</string>
+    <string name="player_sleep_minutes_short">%1$d min</string>
 </resources>

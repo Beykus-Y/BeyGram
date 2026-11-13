@@ -866,4 +866,7 @@
     <string name="lyrics_need_sign_in">Inicia sesión en Yandex Music para ver la letra</string>
     <string name="lyrics_failed">No se pudo cargar la letra. Inténtalo más tarde.</string>
     <string name="lyrics_copyright">Letra: %1$s</string>
+    <string name="player_sound">Sonido</string>
+    <string name="player_share">Compartir</string>
+    <string name="player_sleep_minutes_short">%1$d min</string>
 </resources>
