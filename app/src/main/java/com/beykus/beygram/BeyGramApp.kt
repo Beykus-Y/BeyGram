@@ -2104,6 +2104,7 @@ private fun BeyGramAppContent(
                     // exact list position without reopening or reloading the channel.
                     if (commentsOpen) {
                         MessageThreadScreen(
+                            accountId = selectedAccountId,
                             channelChatId = selectedChatId,
                             channelTitle = chat.title,
                             postId = threadPostId,

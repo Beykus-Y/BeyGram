@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.lifecycle.viewmodel.initializer
 import com.beykus.beygram.ui.design.panelFill
 import com.beykus.beygram.ui.design.PanelFloor
 import com.beykus.beygram.ui.design.ComposerVariant
@@ -308,7 +309,10 @@ fun ChatScreen(
         searchBusy = false; searchError = null
     }
     var sending by remember(accountId, chat.id, forumTopicId) { mutableStateOf(false) }
-    val textSendModel: ChatTextSendViewModel = viewModel(key = "chat-text-send-$accountId")
+    val sendApplication = androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application
+    val textSendModel: ChatTextSendViewModel = viewModel(key = "chat-text-send-$accountId", factory = androidx.lifecycle.viewmodel.viewModelFactory {
+        initializer { ChatTextSendViewModel(sendApplication, accountId) }
+    })
     val textSendScopeKey = remember(accountId, chat.id, forumTopicId) { TextSendScopeKey(accountId, chat.id, forumTopicId) }
     val queuedTextAttempts by remember(textSendModel, textSendScopeKey) {
         textSendModel.queue.observe(textSendScopeKey)
@@ -1544,7 +1548,6 @@ fun ChatScreen(
             } else null
             val timeLabel = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())
             val baselineSeq = history.liveArrivalSequence
-            updateDraft { MessageDraft() }
             error = null
             lateinit var enqueuedAttempt: TextSendAttempt
             enqueuedAttempt = textSendModel.queue.enqueue(
@@ -1567,7 +1570,7 @@ fun ChatScreen(
                     attachments.stealthFallback.offer(failure) {
                         textSendModel.queue.retry(
                             scopeKey = textSendScopeKey,
-                            attemptId = enqueuedAttempt.attemptId,
+                            attemptId = attempt.attemptId,
                             sendNowConsent = true,
                             baselineSequence = history.liveArrivalSequence,
                             execute = { retryAttempt -> executeTextSendAttempt(conversation, retryAttempt) },
@@ -1577,6 +1580,7 @@ fun ChatScreen(
                 },
                 formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
             )
+            updateDraft { MessageDraft() }
             return
         }
         // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.

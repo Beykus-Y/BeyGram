@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.lifecycle.viewmodel.initializer
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -96,6 +97,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 internal fun MessageThreadScreen(
+    accountId: String,
     channelChatId: Long,
     channelTitle: String,
     postId: Long,
@@ -289,7 +291,46 @@ internal fun MessageThreadScreen(
     }
 
     val stealthFallback = remember { StealthScheduleFallback() }
-    val sendMutex = remember(thread?.discussionChatId, thread?.threadId) { Mutex() }
+    val sendModel: ChatTextSendViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        key = "chat-text-send-$accountId",
+        factory = androidx.lifecycle.viewmodel.viewModelFactory {
+            initializer { ChatTextSendViewModel(context.applicationContext as android.app.Application, accountId) }
+        }
+    )
+    val sendKey = TextSendScopeKey(accountId, thread?.discussionChatId ?: 0L, thread?.threadId ?: 0L)
+    val pending by remember(sendModel, sendKey) { sendModel.queue.observe(sendKey) }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    fun dispatchComment(attemptId: Long? = null, consent: Boolean = false) {
+        val current = thread ?: return
+        val execute: suspend (TextSendAttempt) -> Result<Unit> = { attempt ->
+            conversation.sendThreadReply(attempt.scope.chatId, attempt.scope.forumTopicId, attempt.text,
+                attempt.entities, attempt.replyToMessageId, attempt.options.sendNowConsent).map { sent ->
+                if (sent != null) {
+                    val history = conversation.observeChatHistory(current.discussionChatId).value
+                    messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history,
+                        current.discussionChatId, current.threadId)
+                    thread = current.copy(replyCount = current.replyCount + 1)
+                } else showStealthScheduledNotice(context)
+                Unit
+            }
+        }
+        val failure: (TextSendAttempt, Throwable) -> Unit = { attempt, error ->
+            if (!stealthFallback.offer(error) { dispatchComment(attempt.attemptId, true) }) {
+                sendError = error.userMessage(context, R.string.thread_comments_send_failed)
+            }
+        }
+        val format: (Throwable) -> String = { it.userMessage(context, R.string.thread_comments_send_failed) }
+        if (attemptId != null) {
+            sendModel.queue.retry(sendKey, attemptId, sendNowConsent = consent,
+                execute = execute, onFailure = failure, formatError = format)
+        } else {
+            sendModel.queue.enqueue(sendKey, text, entities, replyTarget?.id ?: replyTargetId.takeIf { it > 0L },
+                null, com.beykus.beygram.domain.model.MessageSendOptions(sendNowConsent = consent),
+                conversation.observeChatHistory(current.discussionChatId).value.liveArrivalSequence,
+                java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date()),
+                execute = execute, onFailure = failure, formatError = format)
+        }
+    }
     fun retryComment(chatId: Long, messageId: Long, sendNowConsent: Boolean) {
         scope.launch {
             conversation.retryMessages(chatId, listOf(messageId), sendNowConsent).onFailure { failure ->
@@ -306,43 +347,13 @@ internal fun MessageThreadScreen(
             sendError = context.getString(R.string.chat_truncated_notice, messageLimits.text)
             return
         }
-        val outgoingText = text
-        val outgoingEntities = entities
-        val replyTo = replyTarget?.id ?: replyTargetId.takeIf { it > 0L }
+        dispatchComment(consent = sendNowConsent)
         text = ""
         entities = emptyList()
         replyTarget = null
         replyTargetId = 0L
         onDraftChange("", emptyList(), 0L)
         sendError = null
-        scope.launch {
-            sendMutex.withLock {
-                conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo, sendNowConsent)
-                    .onSuccess { sent ->
-                        if (sent != null) {
-                            // TDLib may already have confirmed this comment, so the snapshot must not bring its temporary copy back.
-                            val history = conversation.observeChatHistory(current.discussionChatId).value
-                            messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history, current.discussionChatId, current.threadId)
-                            thread = current.copy(replyCount = current.replyCount + 1)
-                        } else {
-                            // Stealth mode put the comment into Telegram's scheduled queue; it appears when the server publishes it.
-                            showStealthScheduledNotice(context)
-                        }
-                        scope.launch { listState.animateScrollToItem(0) }
-                    }
-                    .onFailure { failure ->
-                        if (!stealthFallback.offer(failure) {
-                                scope.launch {
-                                    sendMutex.withLock {
-                                        conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo, sendNowConsent = true)
-                                    }
-                                }
-                            }) {
-                            sendError = failure.userMessage(context, R.string.thread_comments_send_failed)
-                        }
-                    }
-            }
-        }
     }
 
     val commentsCount = thread?.replyCount?.takeIf { it > 0 } ?: post?.replyCount ?: 0
@@ -404,7 +415,7 @@ internal fun MessageThreadScreen(
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                items(messages.asReversed(), key = { it.id }) { message ->
+                items(pending.asReversed().map { it.toChatMessage() } + messages.asReversed(), key = { it.id }) { message ->
                     ThreadCommentRow(
                         message = message,
                         observeFile = observeFile,
@@ -412,7 +423,7 @@ internal fun MessageThreadScreen(
                         onOpenProfile = onOpenProfile,
                         onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
                         onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
-                        onRetry = { retryComment(message.chatId, message.id, sendNowConsent = false) },
+                        onRetry = { if (message.id < 0L && pending.any { it.attemptId == -message.id }) dispatchComment(-message.id) else retryComment(message.chatId, message.id, sendNowConsent = false) },
                         onActions = { reactionTarget = message.chatId to message },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {

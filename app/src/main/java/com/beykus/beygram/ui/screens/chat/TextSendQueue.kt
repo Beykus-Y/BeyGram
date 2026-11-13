@@ -93,12 +93,17 @@ internal data class TextSendJobRequest(
  * replies, entities, and send options without blocking the composer input field.
  */
 internal class TextSendQueue(
-    private val workerScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val workerScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    private val store: TextSendAttemptStore? = null,
+    recoveryError: String? = null
 ) {
-    private val nextAttemptId = AtomicLong(1L)
-    private val attemptsByScope = MutableStateFlow<Map<TextSendScopeKey, List<TextSendAttempt>>>(emptyMap())
-    private val channels = HashMap<TextSendScopeKey, Channel<TextSendJobRequest>>()
+    private val restored = store?.load().orEmpty().map { if (it.phase == TextSendAttemptPhase.Sending) it.copy(phase = TextSendAttemptPhase.Failed, errorMessage = recoveryError) else it }
+    private val nextAttemptId = AtomicLong((restored.maxOfOrNull { it.attemptId } ?: 0L) + 1L)
+    private val attemptsByScope = MutableStateFlow(restored.groupBy { it.scope })
+    private val jobs = HashMap<TextSendScopeKey, java.util.ArrayDeque<TextSendJobRequest>>()
     private val lock = Any()
+
+    internal val activeWorkerCount: Int get() = synchronized(lock) { jobs.size }
 
     fun observe(scopeKey: TextSendScopeKey): Flow<List<TextSendAttempt>> =
         attemptsByScope.map { it[scopeKey].orEmpty() }.distinctUntilChanged()
@@ -137,7 +142,8 @@ internal class TextSendQueue(
             val list = current[scopeKey].orEmpty() + attempt
             current + (scopeKey to list)
         }
-        channelFor(scopeKey).trySend(
+        persist()
+        submit(
             TextSendJobRequest(scopeKey, attempt.attemptId, execute, onSuccess, onFailure, formatError)
         )
         return attempt
@@ -154,10 +160,12 @@ internal class TextSendQueue(
         formatError: (Throwable) -> String
     ): Boolean {
         var found = false
+        synchronized(lock) {
         attemptsByScope.update { current ->
+            found = false
             val list = current[scopeKey].orEmpty()
             val updated = list.map { attempt ->
-                if (attempt.attemptId == attemptId) {
+                if (attempt.attemptId == attemptId && attempt.phase == TextSendAttemptPhase.Failed) {
                     found = true
                     attempt.copy(
                         phase = TextSendAttemptPhase.Sending,
@@ -169,8 +177,10 @@ internal class TextSendQueue(
             }
             if (found) current + (scopeKey to updated) else current
         }
+        }
         if (found) {
-            channelFor(scopeKey).trySend(
+            persist()
+            submit(
                 TextSendJobRequest(scopeKey, attemptId, execute, onSuccess, onFailure, formatError)
             )
         }
@@ -182,19 +192,30 @@ internal class TextSendQueue(
             val list = current[scopeKey].orEmpty().filterNot { it.attemptId == attemptId }
             if (list.isEmpty()) current - scopeKey else current + (scopeKey to list)
         }
+        persist()
     }
 
-    private fun channelFor(scopeKey: TextSendScopeKey): Channel<TextSendJobRequest> = synchronized(lock) {
-        channels.getOrPut(scopeKey) {
-            Channel<TextSendJobRequest>(Channel.UNLIMITED).also { channel ->
-                workerScope.launch {
-                    for (job in channel) {
-                        processJob(job)
-                    }
+    private fun submit(job: TextSendJobRequest): Unit = synchronized(lock) {
+        val existing = jobs[job.scopeKey]
+        if (existing != null) {
+            existing.addLast(job)
+        } else {
+            jobs[job.scopeKey] = java.util.ArrayDeque<TextSendJobRequest>().apply { addLast(job) }
+            workerScope.launch {
+                while (true) {
+                    val next = synchronized(lock) {
+                        val pending = jobs[job.scopeKey]
+                        val item = pending?.pollFirst()
+                        if (item == null) jobs.remove(job.scopeKey)
+                        item
+                    } ?: break
+                    processJob(next)
                 }
             }
         }
     }
+
+    private fun persist() { store?.save(attemptsByScope.value.values.flatten()) }
 
     private suspend fun processJob(job: TextSendJobRequest) {
         val attempt = attemptsByScope.value[job.scopeKey]
@@ -217,12 +238,14 @@ internal class TextSendQueue(
                 }
                 if (updated.isEmpty()) current - job.scopeKey else current + (job.scopeKey to updated)
             }
+            persist()
             job.onFailure(attempt, error)
         }
     }
 
     fun close() {
         workerScope.cancel()
+        synchronized(lock) { jobs.clear() }
     }
 }
 
@@ -259,8 +282,8 @@ internal fun visiblePendingTextAttempts(
     return visible.asReversed()
 }
 
-internal class ChatTextSendViewModel : androidx.lifecycle.ViewModel() {
-    val queue = TextSendQueue()
+internal class ChatTextSendViewModel(application: android.app.Application, accountId: String) : androidx.lifecycle.AndroidViewModel(application) {
+    val queue = TextSendQueue(store = FileTextSendAttemptStore(java.io.File(application.filesDir, "pending-text-sends-" + java.security.MessageDigest.getInstance("SHA-256").digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) } + ".json")), recoveryError = application.getString(R.string.chat_send_recovery_notice))
 
     override fun onCleared() {
         queue.close()
