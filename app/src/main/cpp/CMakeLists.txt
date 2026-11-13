@@ -12,8 +12,8 @@ set(BGMEDIA_BUILD_MINIAUDIO ON CACHE BOOL "" FORCE)
 set(BGMEDIA_BUILD_DESKTOP OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
-# Pinned commit of BG Media main (BG Mix 0.3 MixSession, BG Beat, PcmTrack resampler, PR #65 mix fixes). Bump deliberately.
-set(BGMEDIA_PINNED_COMMIT "2368c132660d73ee976ec3a50b67249417938a7f")
+# Pinned commit of BG Media dev (BG Mix 0.3, BG Beat, BG Wave Foundation: WaveSignaling). Bump deliberately.
+set(BGMEDIA_PINNED_COMMIT "fb8cb3d52d700a03537dac1f74999d5497f7cebd")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media/CMakeLists.txt")
     set(BGMEDIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media")
@@ -55,6 +55,7 @@ endif()
 add_library(bgbeat_jni SHARED
     bgbeat_jni.cpp
     bgmix_jni.cpp
+    bgwave_jni.cpp
     bgmotion_jni.cpp
     bg_analysis_registry.cpp
 )
