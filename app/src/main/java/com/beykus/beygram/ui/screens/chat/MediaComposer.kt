@@ -116,6 +116,7 @@ import com.beykus.beygram.domain.model.ViewOncePolicy
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.motion.rememberMotionSpec
@@ -1142,6 +1143,8 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
     val focus = LocalFocusManager.current
     val available = enabled && !state.sending && !state.importing && !state.locating
     // The sticker/GIF entry is drawn next to this button by the chat screen, not here.
+    // The same 48 dp round surface as the record control beside the field, so the attach button is not a bare glyph.
+    val tonal = LocalDesignSystem.current.composerTonal
     IconButton(
         onClick = {
             // The action grid replaces the keyboard, not the other way round.
@@ -1150,7 +1153,9 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
             state.toggleMenu()
         },
         enabled = available,
-        modifier = Modifier.size(48.dp).semantics { contentDescription = context.getString(R.string.composer_attach_description) }
+        modifier = Modifier.size(48.dp).clip(CircleShape)
+            .background(if (tonal) palette.accentSoft else palette.surface2)
+            .semantics { contentDescription = context.getString(R.string.composer_attach_description) }
     ) {
         Icon(
             Icons.Rounded.AttachFile,
