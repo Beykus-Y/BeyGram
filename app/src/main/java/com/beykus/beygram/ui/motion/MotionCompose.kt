@@ -4,7 +4,18 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.selects.select
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.beykus.beygram.ui.accessibility.LocalSystemReducedMotion
@@ -46,3 +57,63 @@ fun MotionSpec.fadeEnter(): EnterTransition =
 
 fun MotionSpec.fadeExit(): ExitTransition =
     if (isInstant) ExitTransition.None else fadeOut(animationSpec())
+
+/**
+ * Live policy for long-running scroll jobs. A captured Boolean only checks the setting
+ * at the start; this State also changes when the user disables motion mid-scroll.
+ */
+@Composable
+fun rememberMotionInstant(token: MotionToken): State<Boolean> =
+    rememberUpdatedState(rememberMotionSpec(token).isInstant)
+
+/** Cancel an in-flight programmatic movement and snap when motion becomes instant. */
+internal suspend fun scrollWithMotion(
+    motionInstant: State<Boolean>,
+    snap: suspend () -> Unit,
+    animate: suspend () -> Unit
+) {
+    if (motionInstant.value) {
+        snap()
+        return
+    }
+    coroutineScope {
+        val animation = async { animate() }
+        val restriction = async { snapshotFlow { motionInstant.value }.first { it } }
+        try {
+            val becameInstant = select<Boolean> {
+                restriction.onAwait { true }
+                animation.onAwait { false }
+            }
+            if (becameInstant || motionInstant.value) {
+                animation.cancelAndJoin()
+                snap()
+            }
+        } finally {
+            restriction.cancel()
+        }
+    }
+}
+
+/** Interactive drag remains unchanged; only programmatic list movement is adapted. */
+suspend fun LazyListState.scrollToItemRespectingMotion(
+    index: Int,
+    scrollOffset: Int = 0,
+    motionInstant: State<Boolean>
+) = scrollWithMotion(motionInstant,
+    snap = { scrollToItem(index, scrollOffset) },
+    animate = { animateScrollToItem(index, scrollOffset) })
+
+suspend fun LazyGridState.scrollToItemRespectingMotion(
+    index: Int,
+    scrollOffset: Int = 0,
+    motionInstant: State<Boolean>
+) = scrollWithMotion(motionInstant,
+    snap = { scrollToItem(index, scrollOffset) },
+    animate = { animateScrollToItem(index, scrollOffset) })
+
+suspend fun PagerState.scrollToPageRespectingMotion(
+    page: Int,
+    motionInstant: State<Boolean>
+) = scrollWithMotion(motionInstant,
+    snap = { scrollToPage(page) },
+    animate = { animateScrollToPage(page) })

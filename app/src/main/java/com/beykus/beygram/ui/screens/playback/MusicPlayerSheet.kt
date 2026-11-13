@@ -54,6 +54,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import com.beykus.beygram.ui.components.sheetSurfaceColor
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.theme.LocalBeyGramTokens
 import com.beykus.beygram.media.bgbeat.BgBeatSection
 import androidx.compose.material.icons.rounded.Pause
@@ -528,7 +530,8 @@ private fun PlayerBody(
     onShowInChat: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
-    val reduced = systemReducedMotion()
+    val mediaMotion = rememberMotionSpec(MotionToken.MediaExpand)
+    val reduced = mediaMotion.isInstant
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val landscape = maxWidth > maxHeight && maxWidth >= 600.dp
         if (landscape) {

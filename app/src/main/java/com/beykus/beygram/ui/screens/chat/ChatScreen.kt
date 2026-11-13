@@ -130,6 +130,8 @@ import com.beykus.beygram.ui.motion.motionEntrance
 import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.screens.playback.parseShareTimecodeMs
@@ -1216,9 +1218,10 @@ fun ChatScreen(
             }
         }
     }
+    val listScrollInstant = rememberMotionInstant(MotionToken.ListReorder)
     // Появление кружка в ленте прокручивает к низу, как и исходящее сообщение.
     LaunchedEffect(pendingVideoNotes.firstOrNull()?.sessionName) {
-        if (pendingVideoNotes.isNotEmpty()) listState.animateScrollToItem(0)
+        if (pendingVideoNotes.isNotEmpty()) listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
     }
     LaunchedEffect(chat.id, newest?.id) {
         // A message sent while the chat opens drops the boundary: the list goes to the bottom and the boundary is not placed.
@@ -1228,7 +1231,9 @@ fun ChatScreen(
             if (arrived && newest?.isOutgoing == true) scrollPosition.readBoundaryChecked = true
             else return@LaunchedEffect
         }
-        if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) listState.animateScrollToItem(0)
+        if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) {
+            listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
+        }
     }
     // Открытие с непрочитанными: экран встаёт у разделителя «Непрочитанные», а не у последнего сообщения.
     // Пока граница не зафиксирована, отметки прочтения не отправляются (см. сбор видимых сообщений выше), поэтому она не сдвигается.
@@ -1272,7 +1277,7 @@ fun ChatScreen(
         }
         // A scroll cancelled by the user's touch still settles the opening, or read marks would stay held for the visit.
         try {
-            listState.animateScrollToItem(index)
+            listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant)
             highlighted = target
         } finally {
             settleFocusedOpening()
@@ -1284,7 +1289,7 @@ fun ChatScreen(
     fun jump(reply: MessageReply) {
         if (reply.isUnavailable || reply.messageId <= 0) { error = context.getString(R.string.chat_reply_original_unavailable); return }
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
-        if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = reply.messageId }
+        if (index >= 0) scope.launch { listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant); highlighted = reply.messageId }
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
     }
     // The reply is checked on the server first: a channel, or a chat without reply rights, must not enter reply mode.
@@ -1364,7 +1369,7 @@ fun ChatScreen(
         if (index >= 0) {
             jumpScrollJob = scope.launch {
                 try {
-                    listState.animateScrollToItem(index)
+                    listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant)
                     if (generation == jumpGeneration) highlighted = messageId
                 } finally {
                     settleFocusedOpening()
@@ -1500,7 +1505,7 @@ fun ChatScreen(
         if (boundary <= 0L) {
             if (!history.hasOlderMessages && firstUnread >= 0) {
                 val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing }?.id
-                scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
+                scope.launch { listState.scrollToItemRespectingMotion(firstUnread, motionInstant = listScrollInstant); highlighted = target }
             } else if (history.hasOlderMessages) {
                 scope.launch {
                     val items = groupTelegramMediaAlbums(loadOlderUntilBeginning())
@@ -1512,7 +1517,7 @@ fun ChatScreen(
         }
         if (!needsUnreadWindow(readLoaded, firstUnread)) {
             val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
-            scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
+            scope.launch { listState.scrollToItemRespectingMotion(firstUnread, motionInstant = listScrollInstant); highlighted = target }
             return
         }
         // A zero watermark has no message to anchor GetChatHistory; extend the oldest loaded page instead.
@@ -2116,8 +2121,8 @@ fun ChatScreen(
                 scope.launch {
                     // Honor Motion Off / system reduced motion for the scroll itself,
                     // not only for the button's entrance and exit.
-                    if (shouldAnimateJumpToLatest(jumpMotion.isInstant, hasNewerMessages)) {
-                        listState.animateScrollToItem(0)
+                    if (shouldAnimateJumpToLatest(listScrollInstant.value, hasNewerMessages)) {
+                        listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
                     } else {
                         listState.scrollToItem(0)
                     }

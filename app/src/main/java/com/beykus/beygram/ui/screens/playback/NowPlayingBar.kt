@@ -199,7 +199,12 @@ fun NowPlayingBar(
     if (railCover) {
         // The slim rail spends no height on a bar: a tap pauses or resumes, a long press opens the full player.
         val shown = mini ?: lastMini
-        AnimatedVisibility(visible = mini != null && shouldShowMiniPlayer(true, hideWhenImeVisible, keyboardVisible)) {
+        val railInstant = hiddenForIme || enterSpec.isInstant || exitSpec.isInstant
+        AnimatedVisibility(
+            visible = mini != null && shouldShowMiniPlayer(true, hideWhenImeVisible, keyboardVisible),
+            enter = if (railInstant) EnterTransition.None else enterSpec.fadeEnter(),
+            exit = if (railInstant) ExitTransition.None else exitSpec.fadeExit()
+        ) {
             if (shown != null) RailMiniPlayerCover(shown, onOpen = { fullPlayerOpen = true })
         }
     } else {

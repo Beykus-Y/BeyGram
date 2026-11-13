@@ -20,6 +20,8 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.tdlib.TdLibReadiness
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.text.resolve
 
 /** Branded startup while TDLib restores authorization; login is shown only after its response. */
@@ -31,12 +33,18 @@ fun StartScreen(
     onStartClick: () -> Unit
 ) {
     val palette = beyGramPalette()
-    val transition = rememberInfiniteTransition(label = "startup logo")
-    val scale by transition.animateFloat(
-        initialValue = 0.94f, targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "logo breathing"
-    )
+    val mediaMotion = rememberMotionSpec(MotionToken.MediaExpand)
+    val scale = if (mediaMotion.isInstant) {
+        1f
+    } else {
+        val transition = rememberInfiniteTransition(label = "startup logo")
+        val animated by transition.animateFloat(
+            initialValue = 0.94f, targetValue = 1.04f,
+            animationSpec = infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "logo breathing"
+        )
+        animated
+    }
     val restoring = tdLibReadiness.canCreateClient &&
         (authState == AuthState.Idle || authState == AuthState.Loading || authState == AuthState.Ready)
     Box(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
