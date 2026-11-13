@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
@@ -287,6 +289,7 @@ internal fun MessageThreadScreen(
     }
 
     val stealthFallback = remember { StealthScheduleFallback() }
+    val sendMutex = remember(thread?.discussionChatId, thread?.threadId) { Mutex() }
     fun retryComment(chatId: Long, messageId: Long, sendNowConsent: Boolean) {
         scope.launch {
             conversation.retryMessages(chatId, listOf(messageId), sendNowConsent).onFailure { failure ->
@@ -298,7 +301,7 @@ internal fun MessageThreadScreen(
     }
     fun send(sendNowConsent: Boolean = false) {
         val current = thread ?: return
-        if (!current.canReply || sending || text.isBlank()) return
+        if (!current.canReply || text.isBlank()) return
         if (text.codePointCount(0, text.length) > messageLimits.text) {
             sendError = context.getString(R.string.chat_truncated_notice, messageLimits.text)
             return
@@ -306,10 +309,14 @@ internal fun MessageThreadScreen(
         val outgoingText = text
         val outgoingEntities = entities
         val replyTo = replyTarget?.id ?: replyTargetId.takeIf { it > 0L }
-        sending = true
+        text = ""
+        entities = emptyList()
+        replyTarget = null
+        replyTargetId = 0L
+        onDraftChange("", emptyList(), 0L)
         sendError = null
         scope.launch {
-            try {
+            sendMutex.withLock {
                 conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo, sendNowConsent)
                     .onSuccess { sent ->
                         if (sent != null) {
@@ -321,20 +328,19 @@ internal fun MessageThreadScreen(
                             // Stealth mode put the comment into Telegram's scheduled queue; it appears when the server publishes it.
                             showStealthScheduledNotice(context)
                         }
-                        text = ""
-                        entities = emptyList()
-                        replyTarget = null
-                        replyTargetId = 0L
-                        onDraftChange("", emptyList(), 0L)
                         scope.launch { listState.animateScrollToItem(0) }
                     }
                     .onFailure { failure ->
-                        if (!stealthFallback.offer(failure) { send(sendNowConsent = true) }) {
+                        if (!stealthFallback.offer(failure) {
+                                scope.launch {
+                                    sendMutex.withLock {
+                                        conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo, sendNowConsent = true)
+                                    }
+                                }
+                            }) {
                             sendError = failure.userMessage(context, R.string.thread_comments_send_failed)
                         }
                     }
-            } finally {
-                sending = false
             }
         }
     }
@@ -556,7 +562,7 @@ internal fun MessageThreadScreen(
                             onChange = { text = it; onDraftChange(it, entities, replyTarget?.id ?: replyTargetId) },
                             onEntitiesChange = { entities = it; onDraftChange(text, it, replyTarget?.id ?: replyTargetId) },
                             placeholder = stringResource(R.string.thread_reply_placeholder),
-                            locked = sending,
+                            locked = false,
                             isError = false,
                             modifier = Modifier.weight(1f),
                             focusRequest = focusRequest
@@ -566,13 +572,12 @@ internal fun MessageThreadScreen(
                         val tonalSend = LocalDesignSystem.current.composerTonal
                         Box(
                             Modifier.size(40.dp).clip(CircleShape)
-                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank() && !sending) 1f else 0.4f))
-                                .clickable(enabled = text.isNotBlank() && !sending) { send() },
+                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank()) 1f else 0.4f))
+                                .clickable(enabled = text.isNotBlank()) { send() },
                             contentAlignment = Alignment.Center
                         ) {
                             val sendInk = if (tonalSend) palette.accentInk else palette.onAccent
-                            if (sending) CircularProgressIndicator(Modifier.size(20.dp), color = sendInk, strokeWidth = 2.dp)
-                            else Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = sendInk, modifier = Modifier.size(21.dp))
+                            Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = sendInk, modifier = Modifier.size(21.dp))
                         }
                     }
                 }

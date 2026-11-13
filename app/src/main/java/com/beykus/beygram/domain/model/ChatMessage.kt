@@ -57,7 +57,9 @@ data class ChatMessage(
     /** TDLib's Message.effectId: the effect chosen by the sender, or zero when the message has none. */
     val effectId: Long = 0L,
     /** What Chat Memory kept for this message: a deletion by the other side and earlier versions. Null when nothing was kept. */
-    val memory: ChatMemoryMark? = null
+    val memory: ChatMemoryMark? = null,
+    /** Failure reason reported by TDLib or local send attempt when [sendState] is [MessageSendState.Failed]. */
+    val sendError: String? = null
 ) {
     /** View-once media is the per-message "open once" type, not every attachment in a secret chat. */
     val isViewOnce: Boolean get() = selfDestruct is MessageSelfDestruct.Immediately

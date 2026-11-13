@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -35,6 +36,7 @@ import com.beykus.beygram.data.appearance.BubbleStyle
 import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageSendState
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.DesignBubbleGeometry
 
@@ -223,11 +225,21 @@ internal fun BubbleMeta(
     /** Opens the earlier texts that Chat Memory kept; the versions link shows only when the message has some and this is set. */
     onShowVersions: (() -> Unit)? = null,
     /** How many earlier texts the link counts; an album passes the member that kept them. */
-    versionCount: Int = message.memory?.versionCount ?: 0
+    versionCount: Int = message.memory?.versionCount ?: 0,
+    /** Confirmed TDLib connection state, used only to label queued outgoing messages while offline. */
+    connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
+    /** Opens compact failure details (reason, retry, copy, discard) for a failed outgoing message. */
+    onShowFailureDetails: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val failed = message.sendState == MessageSendState.Failed
-    val status = if (message.isOutgoing && failed) " · " + stringResource(R.string.chat_status_not_sent) else ""
+    val waitingOffline = message.isOutgoing && message.sendState == MessageSendState.Sending &&
+        (connectionState == TelegramConnectionState.WaitingForNetwork || connectionState == TelegramConnectionState.Connecting)
+    val status = when {
+        message.isOutgoing && failed -> " · " + stringResource(R.string.chat_status_not_sent)
+        waitingOffline -> " · " + stringResource(R.string.chat_status_waiting_network)
+        else -> ""
+    }
     val textColor = when {
         overlay -> Color.White
         failed -> palette.warningText
@@ -248,14 +260,31 @@ internal fun BubbleMeta(
     val memoryPrefix = if (memoryLabels.isEmpty()) "" else memoryLabels.joinToString(" · ") + " · "
     Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (message.isOutgoing && failed) {
+                Icon(
+                    Icons.Rounded.ErrorOutline,
+                    contentDescription = stringResource(R.string.chat_status_not_sent),
+                    tint = if (overlay) Color.White else palette.warningText,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(3.dp))
+            }
             Text(memoryPrefix + (if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
                 color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText, fontSize = 12.sp,
-                modifier = Modifier.clickable(onClick = onRetry))
+            if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = textColor, fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable(onClick = onRetry))
+            if (message.isOutgoing && failed && onShowFailureDetails != null) {
+                Text(" · " + stringResource(R.string.chat_send_failure_details), color = textColor, fontSize = 12.sp,
+                    modifier = Modifier.clickable(onClick = onShowFailureDetails))
+            }
             if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
                 Spacer(Modifier.width(3.dp))
-                Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = if (overlay) Color.White else palette.messageTime,
-                    modifier = Modifier.size(14.dp))
+                Icon(
+                    Icons.Rounded.Schedule,
+                    if (waitingOffline) stringResource(R.string.chat_status_waiting_network) else stringResource(R.string.chat_sending_description),
+                    tint = if (overlay) Color.White else palette.messageTime,
+                    modifier = Modifier.size(14.dp)
+                )
             }
             if (message.isOutgoing && message.sendState == MessageSendState.Sent) {
                 Spacer(Modifier.width(3.dp))

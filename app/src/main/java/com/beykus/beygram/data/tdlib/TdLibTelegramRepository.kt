@@ -3452,6 +3452,7 @@ class TdLibTelegramRepository private constructor(
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
         sendState = sendingState.toSendState(),
+        sendError = (sendingState as? TdApi.MessageSendingStateFailed)?.error?.message?.takeIf { it.isNotBlank() },
         media = if (secretChat) attachment?.copy(isSecretChat = true) else attachment,
         special = special,
         mediaAlbumId = mediaAlbumId,
