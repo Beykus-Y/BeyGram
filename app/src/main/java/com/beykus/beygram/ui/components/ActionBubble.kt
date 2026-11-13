@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.motionEntrance
 import com.beykus.beygram.ui.motion.rememberMotionSpec
