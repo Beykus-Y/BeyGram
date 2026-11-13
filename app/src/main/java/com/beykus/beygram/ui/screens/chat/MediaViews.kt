@@ -82,6 +82,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -1072,118 +1074,156 @@ internal fun MediaViewer(
         // Верхняя панель и нижние действия на фото лежат поверх страницы: тап по картинке или idle их прячет, крестик закрытия остаётся доступным.
         // На видео/аудио нижние действия стоят под страницей, чтобы не перекрывать полосу перемотки плеера.
         val pageSize = LocalWindowInfo.current.containerSize
-        // Read in the draw phase, so the page moves per frame without recomposing the dialog content.
-        Column(Modifier.fillMaxSize().graphicsLayer {
-            val transform = mediaViewerTransform(originBounds, pageSize.width.toFloat(), pageSize.height.toFloat(), (1f - viewerProgress) * viewerSpec.intensity)
-            alpha = viewerProgress
-            scaleX = transform.scale
-            scaleY = transform.scale
-            translationX = transform.offsetX
-            translationY = transform.offsetY
-        }.background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { index -> mediaViewerPageKey(pageIds, index) }) { page ->
-                    // Compose may request an index belonging to the preceding page count during an update.
-                    // Never index the backing list until this page exists in our current snapshot.
-                    currentPages.getOrNull(page)?.let { item ->
-                        MediaViewerPage(item, observeFile, downloadFile, autoDownload, canExport = canExport, active = page == safeSettledPage,
-                            fullFileOnlyWhenActive = fullFileOnlyWhenActive,
-                            revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
-                            onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
-                            onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
-                            showZoomControls = showAssistiveControls && controlsVisible && page == safeSettledPage,
-                            zoomControlsBottomPadding = zoomControlsBottomPadding,
-                            onUserInteraction = { interactionChannel.trySend(Unit) })
-                    }
-                }
-                Row(
+        var mediaBounds by remember { mutableStateOf<Rect?>(null) }
+        // Read in the draw phase, so backdrop, media, and chrome animate per frame without recomposing.
+        Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = viewerProgress }
+                    .background(Color(0xFF070B10))
+            )
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                Box(
                     Modifier
                         .fillMaxWidth()
-                        .align(Alignment.TopCenter)
-                        .background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent)
-                        .padding(horizontal = 6.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .weight(1f)
+                        .onGloballyPositioned { coords -> mediaBounds = coords.boundsInWindow() }
                 ) {
-                    IconButton(
-                        onClick = ::requestClose,
-                        modifier = if (!controlsVisible) Modifier.background(Color(0x66070B10), CircleShape) else Modifier
-                    ) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
-                    if (controlsVisible) {
-                        Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                            Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            val counter = if (currentPages.size > 1) "${safeSettledPage + 1} / ${currentPages.size}" else null
-                            val subtitleLine = listOfNotNull(counter, subtitle?.takeIf { it.isNotBlank() }).joinToString(" · ")
-                            if (subtitleLine.isNotEmpty()) {
-                                Text(subtitleLine, color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            // Read-only traffic line for the selected file. Secret, view-once and hidden-spoiler
-                            // pages keep their existing presentation and never show download details.
-                            if (shownFile.isDownloading && !shown.media.isSecret && !shown.media.isSecretChat && !shown.viewOnce && !shownHidden) {
-                                TrafficUsageBadge(
-                                    accountId = accountId,
-                                    fileId = shown.media.fileId,
-                                    downloadedBytes = shownFile.downloadedBytes,
-                                    totalBytes = shownFile.size,
-                                    modifier = Modifier.padding(top = 4.dp)
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val transform = mediaViewerTransform(
+                                    origin = originBounds,
+                                    pageWidth = pageSize.width.toFloat(),
+                                    pageHeight = pageSize.height.toFloat(),
+                                    travel = (1f - viewerProgress) * viewerSpec.intensity,
+                                    target = mediaBounds
                                 )
-                            }
+                                alpha = viewerProgress
+                                scaleX = transform.scale
+                                scaleY = transform.scale
+                                translationX = transform.offsetX
+                                translationY = transform.offsetY
+                                val cornerPx = transform.cornerRadiusDp.dp.toPx()
+                                if (cornerPx > 0.5f) {
+                                    clip = true
+                                    shape = RoundedCornerShape(cornerPx)
+                                } else {
+                                    clip = false
+                                }
+                            },
+                        key = { index -> mediaViewerPageKey(pageIds, index) }
+                    ) { page ->
+                        // Compose may request an index belonging to the preceding page count during an update.
+                        // Never index the backing list until this page exists in our current snapshot.
+                        currentPages.getOrNull(page)?.let { item ->
+                            MediaViewerPage(item, observeFile, downloadFile, autoDownload, canExport = canExport, active = page == safeSettledPage,
+                                fullFileOnlyWhenActive = fullFileOnlyWhenActive,
+                                revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
+                                onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
+                                onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
+                                showZoomControls = showAssistiveControls && controlsVisible && page == safeSettledPage,
+                                zoomControlsBottomPadding = zoomControlsBottomPadding,
+                                onUserInteraction = { interactionChannel.trySend(Unit) })
                         }
-                        if (hasOverflowActions) Box {
-                            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                if (actions != null && actions.canEdit) DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.common_edit)) },
-                                    leadingIcon = { Icon(Icons.Rounded.Edit, null) },
-                                    onClick = { menuOpen = false; actions.onEdit() }
-                                )
-                                if (exportPath != null) DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.media_open_in_other_app)) },
-                                    onClick = { menuOpen = false; openExternal(shown, exportPath) }
-                                )
-                                if (onShowInChat != null) DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.media_show_in_chat)) },
-                                    onClick = { menuOpen = false; onShowInChat(shown.messageId) }
-                                )
-                                if (actions != null && actions.canDelete) DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.common_delete), color = palette.danger) },
-                                    leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = palette.danger) },
-                                    onClick = { menuOpen = false; actions.onDelete() }
-                                )
-                            }
-                        }
-                    } else Spacer(Modifier.weight(1f))
-                }
-                // Кнопки листания показываются для TalkBack, клавиатуры/мыши и планшетов; на сенсорном телефоне фото остаётся свободным от стрелок.
-                if (showAssistiveControls && controlsVisible && currentPages.size > 1) {
-                    IconButton(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage - 1) } },
-                        enabled = safeSettledPage > 0,
-                        modifier = Modifier.align(Alignment.CenterStart).padding(8.dp).background(Color(0x80070B10), CircleShape)
-                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (safeSettledPage > 0) 1f else 0.3f)) }
-                    IconButton(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage + 1) } },
-                        enabled = safeSettledPage < currentPages.lastIndex,
-                        modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
-                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
-                }
-                if (isStillImage && hasPrimaryBottomActions) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = controlsVisible,
-                        enter = chromeSpec.fadeEnter(),
-                        exit = chromeSpec.fadeExit(),
-                        modifier = Modifier.align(Alignment.BottomCenter)
+                    }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .graphicsLayer { alpha = viewerProgress }
+                            .background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent)
+                            .padding(horizontal = 6.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        bottomChromeContent()
+                        IconButton(
+                            onClick = ::requestClose,
+                            modifier = if (!controlsVisible) Modifier.background(Color(0x66070B10), CircleShape) else Modifier
+                        ) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
+                        if (controlsVisible) {
+                            Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                                Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                val counter = if (currentPages.size > 1) "${safeSettledPage + 1} / ${currentPages.size}" else null
+                                val subtitleLine = listOfNotNull(counter, subtitle?.takeIf { it.isNotBlank() }).joinToString(" · ")
+                                if (subtitleLine.isNotEmpty()) {
+                                    Text(subtitleLine, color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                // Read-only traffic line for the selected file. Secret, view-once and hidden-spoiler
+                                // pages keep their existing presentation and never show download details.
+                                if (shownFile.isDownloading && !shown.media.isSecret && !shown.media.isSecretChat && !shown.viewOnce && !shownHidden) {
+                                    TrafficUsageBadge(
+                                        accountId = accountId,
+                                        fileId = shown.media.fileId,
+                                        downloadedBytes = shownFile.downloadedBytes,
+                                        totalBytes = shownFile.size,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            }
+                            if (hasOverflowActions) Box {
+                                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
+                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    if (actions != null && actions.canEdit) DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.common_edit)) },
+                                        leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                                        onClick = { menuOpen = false; actions.onEdit() }
+                                    )
+                                    if (exportPath != null) DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.media_open_in_other_app)) },
+                                        onClick = { menuOpen = false; openExternal(shown, exportPath) }
+                                    )
+                                    if (onShowInChat != null) DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.media_show_in_chat)) },
+                                        onClick = { menuOpen = false; onShowInChat(shown.messageId) }
+                                    )
+                                    if (actions != null && actions.canDelete) DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.common_delete), color = palette.danger) },
+                                        leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = palette.danger) },
+                                        onClick = { menuOpen = false; actions.onDelete() }
+                                    )
+                                }
+                            }
+                        } else Spacer(Modifier.weight(1f))
+                    }
+                    // Кнопки листания показываются для TalkBack, клавиатуры/мыши и планшетов; на сенсорном телефоне фото остаётся свободным от стрелок.
+                    if (showAssistiveControls && controlsVisible && currentPages.size > 1) {
+                        IconButton(
+                            onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage - 1) } },
+                            enabled = safeSettledPage > 0,
+                            modifier = Modifier.align(Alignment.CenterStart).padding(8.dp).graphicsLayer { alpha = viewerProgress }.background(Color(0x80070B10), CircleShape)
+                        ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (safeSettledPage > 0) 1f else 0.3f)) }
+                        IconButton(
+                            onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage + 1) } },
+                            enabled = safeSettledPage < currentPages.lastIndex,
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).graphicsLayer { alpha = viewerProgress }.background(Color(0x80070B10), CircleShape)
+                        ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
+                    }
+                    if (isStillImage && hasPrimaryBottomActions) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = controlsVisible,
+                            enter = chromeSpec.fadeEnter(),
+                            exit = chromeSpec.fadeExit(),
+                            modifier = Modifier.align(Alignment.BottomCenter).graphicsLayer { alpha = viewerProgress }
+                        ) {
+                            bottomChromeContent()
+                        }
+                    }
+                }
+                if (reserveNonStillFooter || externalError != null || fileNotice != null || extraFooter != null) {
+                    Column(Modifier.fillMaxWidth().graphicsLayer { alpha = viewerProgress }) {
+                        if (reserveNonStillFooter) {
+                            if (controlsVisible) bottomChromeContent()
+                            else Box(Modifier.fillMaxWidth().heightIn(min = 64.dp))
+                        }
+                        externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
+                        fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).errorAnnouncement()) }
+                        extraFooter?.invoke()
                     }
                 }
             }
-            if (reserveNonStillFooter) {
-                if (controlsVisible) bottomChromeContent()
-                else Box(Modifier.fillMaxWidth().heightIn(min = 64.dp))
-            }
-            externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
-            fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).errorAnnouncement()) }
-            extraFooter?.invoke()
         }
     }
 }
