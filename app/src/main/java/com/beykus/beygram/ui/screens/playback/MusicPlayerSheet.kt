@@ -17,6 +17,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.matchParentSize
+import com.beykus.beygram.ui.screens.music.WaveBackdrop
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -257,10 +259,25 @@ internal fun MusicPlayerSheet(
     )
     BackHandler(enabled = panel == PlayerPanel.Queue) { panel = PlayerPanel.Player }
     CoverPlayerSheet(cover = cover, onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
+        // The endless radio (a wave) gets soft drifting ribbons behind the player while it is audible.
+        val endless = PlaybackEngine.activeRadio != null && PlaybackEngine.currentQueueIsEndless()
+        val waveRibbons = endless && current.playing
+        val palette = beyGramPalette()
+        Box(
             Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.94f)
+        ) {
+            if (waveRibbons) {
+                WaveBackdrop(
+                    color = palette.accent,
+                    secondary = palette.accentSoft,
+                    modifier = Modifier.matchParentSize().alpha(0.5f),
+                )
+            }
+        Column(
+            Modifier
+                .fillMaxSize()
                 .nestedScroll(SheetOverscrollGuard)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                 .navigationBarsPadding()
@@ -302,6 +319,7 @@ internal fun MusicPlayerSheet(
                     }
                 )
             }
+        }
         }
     }
 }
