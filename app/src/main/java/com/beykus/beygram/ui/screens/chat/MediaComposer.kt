@@ -1611,6 +1611,11 @@ private fun CompactVisualAttachmentTray(
                             }
                         }
                     )
+                    // Видимое удаление одним нажатием поверх тайла; long-press меню остаётся как прежде.
+                    Box(Modifier.align(Alignment.TopEnd)) {
+                        AttachmentRemoveButton(fileName = item.fileName.ifBlank { item.kind.label(context) }, enabled = enabled,
+                            onClick = { state.remove(item) })
+                    }
                     if (item.kind == MediaKind.Video && !documentTile) {
                         Row(
                             modifier = Modifier.align(Alignment.BottomStart)
