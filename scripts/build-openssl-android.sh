@@ -23,6 +23,7 @@ if [ -f "$prefix/lib/libssl.a" ] && [ -f "$prefix/lib/libcrypto.a" ]; then
     exit 0
 fi
 
+export ANDROID_NDK_ROOT="$ndk"  # OpenSSL 15-android.conf refuses to configure without it
 toolchain_bin="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
 if [ ! -d "$toolchain_bin" ]; then
     echo "NDK toolchain not found at $toolchain_bin" >&2
