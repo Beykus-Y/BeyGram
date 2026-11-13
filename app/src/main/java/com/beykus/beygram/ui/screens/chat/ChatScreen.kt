@@ -119,7 +119,6 @@ import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.data.music.PlaylistTrack
 import com.beykus.beygram.ui.screens.music.AddToPlaylistSheet
 import com.beykus.beygram.security.AppLockManager
-import com.beykus.beygram.ui.accessibility.accessibleTouchTarget
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.LocalWindowLayout
@@ -2205,7 +2204,7 @@ fun ChatScreen(
                 .background(palette.accent).clickable(enabled = !busy, role = androidx.compose.ui.semantics.Role.Button) {
                     if (recordingMode == ComposerRecordingMode.Voice) audioNote.finishLocked() else videoNote.sendLocked()
                 }, contentAlignment = Alignment.Center) {
-                Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.recorder_send), tint = Color.White, modifier = Modifier.size(21.dp))
+                Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.recorder_send), tint = palette.onAccent, modifier = Modifier.size(ComposerIconSize))
             }
             else if (showRecord) RecordingControlButton(
                 mode = recordingMode, active = recordingActive, canceling = recordingCanceling, enabled = !sending && !busy,
@@ -2224,7 +2223,7 @@ fun ChatScreen(
                 onLock = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.lock() else videoNote.lock() },
                 onRelease = { if (recordingMode == ComposerRecordingMode.Voice) audioNote.release(it) else videoNote.release(it) }
             )
-            else Box(Modifier.size(accessibleTouchTarget(40.dp))
+            else Box(Modifier.size(ComposerButtonSize)
                 // A tap must not move focus off the text field, or the keyboard closes.
                 .focusProperties { canFocus = false }
                 .combinedClickable(
@@ -2560,10 +2559,10 @@ private fun SendControlFace(busy: Boolean, canSend: Boolean, editing: Boolean) {
     val design = LocalDesignSystem.current
     val fill = if (design.composerTonal) palette.accentSoft else palette.accent
     val ink = if (design.composerTonal) palette.accentInk else palette.onAccent
-    Box(Modifier.size(40.dp).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(fill.copy(alpha = if (canSend || busy) 1f else 0.4f)), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(ComposerButtonSize).clip(if (design.squareSendButton) RoundedCornerShape(design.shapes.button) else CircleShape).background(fill.copy(alpha = if (canSend || busy) 1f else 0.4f)), contentAlignment = Alignment.Center) {
         if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = ink, strokeWidth = 2.dp)
         else Icon(if (editing) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, contentDescription = null,
-            tint = ink.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(22.dp))
+            tint = ink.copy(alpha = if (canSend) 1f else 0.8f), modifier = Modifier.size(ComposerIconSize))
     }
 }
 
