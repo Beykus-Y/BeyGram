@@ -1,6 +1,10 @@
 package com.beykus.beygram.playback
 
 import android.content.Context
+import android.os.SystemClock
+import com.beykus.beygram.diagnostics.recordAppEvent
+import com.beykus.beygram.diagnostics.report.EventKind
+import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviders
@@ -98,15 +102,42 @@ internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFI
         trackId: String,
         linkOf: suspend (String) -> YandexAudioLink?,
     ): String? {
+        val startedAt = SystemClock.elapsedRealtime()
         val first = linkOf(trackId) ?: return null
+        val linkedAt = SystemClock.elapsedRealtime()
+        var retried = false
         val path = try {
             YandexAudioDownloader.download(first, dir)
         } catch (expired: YandexAudioDownloader.LinkExpired) {
             // The link lived less than the download took: one fresh link, then give up for this attempt.
+            retried = true
             val fresh = linkOf(trackId) ?: return null
             YandexAudioDownloader.download(fresh, dir)
         }
+        recordFetchTiming(linkMs = linkedAt - startedAt, totalMs = SystemClock.elapsedRealtime() - startedAt, path.length(), retried)
         return path.absolutePath
+    }
+
+    /**
+     * How long a track took before it could play: the link, then the whole file. Only durations and the size are
+     * recorded, never the track or the link, so a diagnostics report shows where the wait before the first sound goes.
+     */
+    private fun recordFetchTiming(linkMs: Long, totalMs: Long, bytes: Long, retried: Boolean) {
+        val downloadMs = (totalMs - linkMs).coerceAtLeast(1L)
+        recordAppEvent(
+            kind = EventKind.PERFORMANCE,
+            code = "provider_track_fetch",
+            text = "Музыка: трек сервиса загружен за $totalMs мс",
+            severity = Severity.INFO,
+            attrs = mapOf(
+                "link_ms" to linkMs.toString(),
+                "download_ms" to downloadMs.toString(),
+                "total_ms" to totalMs.toString(),
+                "size_kb" to (bytes / 1024L).toString(),
+                "kbps" to (bytes * 8L / downloadMs).toString(),
+                "link_retried" to retried.toString(),
+            )
+        )
     }
 
     override fun pathOf(track: String): String = track

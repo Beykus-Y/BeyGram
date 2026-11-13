@@ -23,28 +23,34 @@ internal class YandexHttp(
     private var nextAllowedAt = 0L
     private var blockedUntil = 0L
 
-    /** Throws [IOException] when the network is unreachable. */
-    fun get(url: String, token: String? = null): YandexResponse =
-        send("GET", url, token, null)
+    /**
+     * Throws [IOException] when the network is unreachable. [paced] false skips the gap between requests: it is for
+     * helper files on the storage hosts (the download XML of a track), which are not API calls. A 429 pause still applies.
+     */
+    fun get(url: String, token: String? = null, paced: Boolean = true): YandexResponse =
+        send("GET", url, token, null, paced)
 
     fun post(url: String, form: Map<String, String>, token: String? = null): YandexResponse {
         val payload = form.entries.joinToString("&") { "${encode(it.key)}=${encode(it.value)}" }
-        return send("POST", url, token, Body(payload.toByteArray(Charsets.UTF_8), "application/x-www-form-urlencoded"))
+        return send("POST", url, token, Body(payload.toByteArray(Charsets.UTF_8), "application/x-www-form-urlencoded"), paced = true)
     }
 
     /** POST with a JSON body, as the radio (rotor) endpoints expect. */
     fun postJson(url: String, json: String, token: String? = null): YandexResponse =
-        send("POST", url, token, Body(json.toByteArray(Charsets.UTF_8), "application/json; charset=utf-8"))
+        send("POST", url, token, Body(json.toByteArray(Charsets.UTF_8), "application/json; charset=utf-8"), paced = true)
 
     private class Body(val bytes: ByteArray, val contentType: String)
 
-    private fun send(method: String, url: String, token: String?, body: Body?): YandexResponse {
+    private fun send(method: String, url: String, token: String?, body: Body?, paced: Boolean): YandexResponse {
         synchronized(lock) {
-            val wait = maxOf(nextAllowedAt, blockedUntil) - now()
+            val wait = (if (paced) maxOf(nextAllowedAt, blockedUntil) else blockedUntil) - now()
             if (wait > 0) pause(wait)
-            nextAllowedAt = now() + YandexConfig.MIN_REQUEST_GAP_MS
+            if (paced) nextAllowedAt = now() + YandexConfig.MIN_REQUEST_GAP_MS
         }
         val connection = MihomoProxyClient.openConnection(URL(url), proxy = null)
+        // A response read to the end and closed leaves the connection in the pool, so the next request to the same host
+        // skips the TCP and TLS handshake. Only a request that failed half-way is disconnected.
+        var reusable = false
         try {
             connection.requestMethod = method
             connection.connectTimeout = YandexConfig.CONNECT_TIMEOUT_MS
@@ -62,6 +68,7 @@ internal class YandexHttp(
             val code = connection.responseCode
             val stream = if (code in 200..399) connection.inputStream else connection.errorStream
             val body = stream?.let { BufferedReader(InputStreamReader(it, Charsets.UTF_8)).use { r -> r.readText() } }.orEmpty()
+            reusable = true
             val retryAfter = if (code == HTTP_TOO_MANY_REQUESTS) {
                 val seconds = connection.getHeaderField("Retry-After")?.trim()?.toLongOrNull()
                 val ms = seconds?.times(1_000L) ?: YandexConfig.DEFAULT_RETRY_AFTER_MS
@@ -72,7 +79,7 @@ internal class YandexHttp(
             }
             return YandexResponse(code, body, retryAfter)
         } finally {
-            connection.disconnect()
+            if (!reusable) connection.disconnect()
         }
     }
 

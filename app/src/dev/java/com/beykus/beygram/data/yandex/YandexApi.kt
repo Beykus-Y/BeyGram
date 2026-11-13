@@ -353,7 +353,8 @@ internal class YandexApi(private val http: YandexHttp) {
 
     /** Downloads a helper file (lyrics, download XML) without the token and maps its text. */
     private fun <T> fetchFile(url: String, map: (String) -> T?): ProviderResult<T> = try {
-        val response = http.get(url)
+        // A storage host, not the API: the gap between API requests does not apply.
+        val response = http.get(url, paced = false)
         if (response.code !in 200..299) {
             ProviderResult.Failure(YandexAuth.failureForCode(response.code))
         } else {
