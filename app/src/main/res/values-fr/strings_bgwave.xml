@@ -36,4 +36,5 @@
     <string name="bgwave_share_confirm_body">Cette personne verra une invitation à écouter ce qui joue chez vous. Avec une connexion directe, votre adresse IP peut lui être visible. Le son n\'est pas enregistré et ne passe que pendant la vague.</string>
     <string name="bgwave_share_confirm_send">Envoyer</string>
     <string name="bgwave_share_confirm_cancel">Annuler</string>
+    <string name="bgwave_mini_title">Onde</string>
 </resources>
