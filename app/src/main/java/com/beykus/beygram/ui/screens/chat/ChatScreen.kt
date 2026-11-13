@@ -2121,8 +2121,8 @@ fun ChatScreen(
                 scope.launch {
                     // Honor Motion Off / system reduced motion for the scroll itself,
                     // not only for the button's entrance and exit.
-                    if (shouldAnimateJumpToLatest(jumpMotion.isInstant, hasNewerMessages)) {
-                        listState.animateScrollToItem(0)
+                    if (shouldAnimateJumpToLatest(listScrollInstant.value, hasNewerMessages)) {
+                        listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
                     } else {
                         listState.scrollToItem(0)
                     }
