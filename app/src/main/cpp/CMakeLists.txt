@@ -13,7 +13,7 @@ set(BGMEDIA_BUILD_DESKTOP OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
 # Pinned commit of BG Media dev (BG Mix 0.3, BG Beat, BG Wave Foundation: WaveSignaling). Bump deliberately.
-set(BGMEDIA_PINNED_COMMIT "fb8cb3d52d700a03537dac1f74999d5497f7cebd")
+set(BGMEDIA_PINNED_COMMIT "28a54a8affe6e96a7231854127e312d8455ac578")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media/CMakeLists.txt")
     set(BGMEDIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media")
@@ -64,7 +64,14 @@ target_compile_features(bgbeat_jni PRIVATE cxx_std_20)
 target_compile_options(bgbeat_jni PRIVATE -fexceptions -frtti -Wall -Wextra)
 
 if(HAVE_BGMEDIA)
-    if(NOT TARGET bgmedia_core)
+    # BG Wave peer-to-peer adapters (libopus + libdatachannel). Off until the Android build is verified.
+option(BEYGRAM_WAVE_P2P "Build the BG Wave Opus and WebRTC adapters" ON)
+if(BEYGRAM_WAVE_P2P)
+    set(BGMEDIA_BUILD_WAVE_OPUS ON CACHE BOOL "" FORCE)
+    set(BGMEDIA_BUILD_WAVE_WEBRTC ON CACHE BOOL "" FORCE)
+endif()
+
+if(NOT TARGET bgmedia_core)
         # bgmedia_miniaudio keeps miniaudio device IO enabled: MiniaudioMixDevice.cpp needs ma_device,
         # which MA_NO_DEVICE_IO removes. bgbeat_jni.cpp still defines it for its own translation unit.
         add_subdirectory("${BGMEDIA_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/bgmedia" EXCLUDE_FROM_ALL)
