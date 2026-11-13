@@ -58,8 +58,7 @@ internal fun YandexWave.Diversity.labelRes(): Int = when (this) {
     YandexWave.Diversity.POPULAR -> R.string.yandex_wave_diversity_popular
 }
 
-/** The one-line summary of the settings on the card; with every group at its default it reads «По вашему вкусу». */
-@Composable
+/** The one-line summary of the settings on the card and in the player; with every group at its default it reads «По вашему вкусу». */
 internal fun waveSummary(context: Context, settings: YandexWaveSettings): String {
     val parts = buildList {
         if (settings.activity != YandexWaveSettings.Activity.NONE) add(context.getString(settings.activity.labelRes()))
