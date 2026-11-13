@@ -13,7 +13,7 @@ set(BGMEDIA_BUILD_DESKTOP OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
 # Pinned commit of BG Media dev (BG Mix 0.3, BG Beat, BG Wave Foundation: WaveSignaling). Bump deliberately.
-set(BGMEDIA_PINNED_COMMIT "fb8cb3d52d700a03537dac1f74999d5497f7cebd")
+set(BGMEDIA_PINNED_COMMIT "28a54a8affe6e96a7231854127e312d8455ac578")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media/CMakeLists.txt")
     set(BGMEDIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media")
@@ -64,7 +64,42 @@ target_compile_features(bgbeat_jni PRIVATE cxx_std_20)
 target_compile_options(bgbeat_jni PRIVATE -fexceptions -frtti -Wall -Wextra)
 
 if(HAVE_BGMEDIA)
-    if(NOT TARGET bgmedia_core)
+    # BG Wave peer-to-peer adapters (libopus + libdatachannel). Off until the Android build is verified.
+option(BEYGRAM_WAVE_P2P "Build the BG Wave Opus and WebRTC adapters" ON)
+if(BEYGRAM_WAVE_P2P)
+    # libdatachannel pulls in plog, whose cmake_minimum_required(VERSION < 3.5) the NDK CMake rejects.
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+    set(BGMEDIA_BUILD_WAVE_OPUS ON CACHE BOOL "" FORCE)
+    set(BGMEDIA_BUILD_WAVE_WEBRTC ON CACHE BOOL "" FORCE)
+
+    # OpenSSL for libsrtp/libdatachannel (BG-Media BG_WAVE.md: OpenSSL on Android). Built once per ABI;
+    # BEYGRAM_OPENSSL_CACHE, when set, is a directory CI can cache between runs.
+    if(CMAKE_ANDROID_ARCH_ABI AND CMAKE_ANDROID_NDK)
+        if(DEFINED ENV{BEYGRAM_OPENSSL_CACHE} AND NOT "$ENV{BEYGRAM_OPENSSL_CACHE}" STREQUAL "")
+            set(BEYGRAM_OPENSSL_PREFIX "$ENV{BEYGRAM_OPENSSL_CACHE}/${CMAKE_ANDROID_ARCH_ABI}")
+        else()
+            set(BEYGRAM_OPENSSL_PREFIX "${CMAKE_BINARY_DIR}/openssl-${CMAKE_ANDROID_ARCH_ABI}")
+        endif()
+        execute_process(
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/../../../../scripts/build-openssl-android.sh"
+                    "${CMAKE_ANDROID_ARCH_ABI}" "${CMAKE_ANDROID_NDK}" "${BEYGRAM_OPENSSL_PREFIX}"
+            RESULT_VARIABLE beygram_openssl_rc
+            ERROR_VARIABLE beygram_openssl_err
+        )
+        if(NOT beygram_openssl_rc EQUAL 0)
+            message(FATAL_ERROR "OpenSSL for Android failed (${beygram_openssl_rc}): ${beygram_openssl_err}")
+        endif()
+        # Cache entries, not normal variables: libdatachannel calls find_package(OpenSSL) in its own
+        # subdirectory scope, where plain variables set here were not visible.
+        set(OPENSSL_ROOT_DIR "${BEYGRAM_OPENSSL_PREFIX}" CACHE PATH "" FORCE)
+        set(OPENSSL_USE_STATIC_LIBS TRUE CACHE BOOL "" FORCE)
+        set(OPENSSL_INCLUDE_DIR "${BEYGRAM_OPENSSL_PREFIX}/include" CACHE PATH "" FORCE)
+        set(OPENSSL_CRYPTO_LIBRARY "${BEYGRAM_OPENSSL_PREFIX}/lib/libcrypto.a" CACHE FILEPATH "" FORCE)
+        set(OPENSSL_SSL_LIBRARY "${BEYGRAM_OPENSSL_PREFIX}/lib/libssl.a" CACHE FILEPATH "" FORCE)
+    endif()
+endif()
+
+if(NOT TARGET bgmedia_core)
         # bgmedia_miniaudio keeps miniaudio device IO enabled: MiniaudioMixDevice.cpp needs ma_device,
         # which MA_NO_DEVICE_IO removes. bgbeat_jni.cpp still defines it for its own translation unit.
         add_subdirectory("${BGMEDIA_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/bgmedia" EXCLUDE_FROM_ALL)

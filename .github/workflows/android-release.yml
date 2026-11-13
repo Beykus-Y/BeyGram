@@ -186,7 +186,17 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # OpenSSL for the BG Wave WebRTC adapter is built once per ABI and cached; the key carries the
+      # OpenSSL version and ABI, so ordinary builds restore it instead of rebuilding it.
+      - name: Restore OpenSSL for Android (BG Wave)
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/beygram-openssl
+          key: beygram-openssl-3.4.0-arm64-v8a-${{ runner.os }}
+
       - name: Build debug, release and instrumented-test APKs (no device tests)
+        env:
+          BEYGRAM_OPENSSL_CACHE: ${{ runner.temp }}/beygram-openssl
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease :app:assembleDevDebugAndroidTest
 
       - name: Assert install permission comes only from flavor overlays
