@@ -183,10 +183,32 @@ jobs:
             echo "yandexMusicClientSecret=${YANDEX_MUSIC_CLIENT_SECRET:-}"
           } > secrets.properties
 
+      - name: Read the NDK version
+        id: ndk
+        run: echo "version=$(sed -n 's/.*ndkVersion = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)" >> "$GITHUB_OUTPUT"
+
+      # OpenSSL for the BG Wave adapter is built once per script version, NDK and ABI and shared by DEV and main
+      # builds. Only push builds save it; pull requests restore from the DEV or main cache.
+      - name: Restore OpenSSL for Android (BG Wave)
+        id: openssl-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/beygram-openssl
+          key: beygram-openssl-${{ hashFiles('scripts/build-openssl-android.sh') }}-ndk${{ steps.ndk.outputs.version }}-arm64-v8a-${{ runner.os }}
+
       - name: Build DEV beta (unsigned)
+        env:
+          BEYGRAM_OPENSSL_CACHE: ${{ runner.temp }}/beygram-openssl
         # The run number is strictly increasing for this workflow, so every DEV build has a newer versionCode.
         # It is the same in every job of a run, including re-runs of a failed job.
         run: ./gradlew --no-daemon -PdevBuildNumber=${{ github.run_number }} :app:assembleDevRelease
+
+      - name: Save OpenSSL for Android (BG Wave)
+        if: github.event_name == 'push' && steps.openssl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/beygram-openssl
+          key: ${{ steps.openssl-cache.outputs.cache-primary-key }}
 
       - name: Upload unsigned DEV beta
         uses: actions/upload-artifact@v4
