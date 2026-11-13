@@ -79,7 +79,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -284,6 +286,7 @@ fun ChatsScreen(
     val displayedChats = activeFolderId?.let { folderChats[it].orEmpty() } ?: chats
     val folderLoad = activeFolderId?.let { folderLoadStates[it] } ?: TelegramFolderLoadState(hasMore = false)
     val palette = beyGramPalette()
+    val haptics = LocalHapticFeedback.current
     // Pinning, unpinning and removal move rows through the ListReorder token. Off and reduced motion snap instead,
     // so rows never fade in or out on a frame the user did not ask for.
     val listSpec = rememberMotionSpec(MotionToken.ListReorder)
@@ -826,7 +829,7 @@ fun ChatsScreen(
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { openChat(chat) },
-                        onLongClick = { selectedActions = chat },
+                        onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); selectedActions = chat },
                         left = actionFor(chat, swipePreferences.left),
                         right = actionFor(chat, swipePreferences.right),
                         onPerformed = onSwipePerformed,
@@ -888,7 +891,7 @@ fun ChatsScreen(
                             openChatId = openSwipeChatId,
                             onOpenChange = { openSwipeChatId = it },
                             onClick = { openChat(chat) },
-                            onLongClick = { selectedActions = chat },
+                            onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); selectedActions = chat },
                             left = actionFor(chat, swipePreferences.left),
                             right = actionFor(chat, swipePreferences.right),
                             onPerformed = onSwipePerformed,
@@ -1030,6 +1033,8 @@ fun ChatsScreen(
     selectedActions?.let { selected ->
         ChatActionsSheet(
             chat = selected,
+            observeFile = observeFile,
+            downloadFile = downloadFile,
             onClose = { selectedActions = null },
             setPinned = { pinned ->
                 if (activeFolderId != null) onPinFolderChat(activeFolderId, selected.id, pinned)
