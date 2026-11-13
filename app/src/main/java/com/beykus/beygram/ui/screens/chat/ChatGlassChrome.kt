@@ -8,8 +8,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.input.pointer.awaitPointerEvent
+import androidx.compose.ui.input.pointer.awaitPointerEventScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
@@ -47,12 +50,25 @@ internal fun ChatChromeHost(
     onHeight: (Int) -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val palette = beyGramPalette()
     if (!glass) {
         // The top stack is drawn above the message list, so a header shadow (Material 2) is not painted over by it.
         Column(Modifier.fillMaxWidth().zIndex(if (edge == GlassEdge.BottomHairline) 1f else 0f), content = content)
         return
     }
-    val palette = beyGramPalette()
+    if (edge == GlassEdge.TopHairline) {
+        // The Liquid Glass composer has no full-width glass slab: a soft scrim fades the list out under the row, and the
+        // field and round buttons carry their own surfaces. Touches are still kept from the list underneath.
+        CompositionLocalProvider(LocalChatChromeOnGlass provides true, LocalGlassBackdrop provides backdrop) {
+            Column(
+                Modifier.fillMaxWidth().zIndex(1f).onSizeChanged { onHeight(it.height) }
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, palette.screen.copy(alpha = 0.72f))))
+                    .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
+                content = content
+            )
+        }
+        return
+    }
     val design = LocalDesignSystem.current
     CompositionLocalProvider(LocalChatChromeOnGlass provides true, LocalGlassBackdrop provides backdrop) {
         GlassPanel(
