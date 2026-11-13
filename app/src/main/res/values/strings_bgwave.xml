@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgwave_service_label">Служебное сообщение BeyGram</string>
+    <string name="bgwave_card_invite_title">Волна вместе</string>
+    <string name="bgwave_card_invite_subtitle">Приглашение послушать волну</string>
+    <string name="bgwave_safe_unsupported_version">Эта версия волны не поддерживается. Обновите BeyGram.</string>
+    <string name="bgwave_safe_expired">Приглашение истекло.</string>
+    <string name="bgwave_safe_not_yet_valid">Приглашение ещё не действует. Проверьте время на устройстве.</string>
+    <string name="bgwave_safe_invalid">Не удалось прочитать приглашение.</string>
+    <string name="bgwave_safe_unavailable">Волна недоступна на этом устройстве.</string>
+</resources>

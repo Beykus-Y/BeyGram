@@ -18,6 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Pause
+import com.beykus.beygram.playback.PlaybackEngine
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
@@ -402,12 +404,19 @@ class YandexMusicHost : ProviderMusicHost {
         if (account.hasSubscription) item(key = "yandex-wave") {
             val context = LocalContext.current
             val offered by YandexWaveResume.offered.collectAsStateWithLifecycle()
+            val playback by PlaybackEngine.state.collectAsStateWithLifecycle()
+            val waveTitle = stringResource(R.string.yandex_wave_title)
+            // The radio is not a flow, so it is read on each playback change; the state flow drives recomposition.
+            val waveActive = PlaybackEngine.activeRadio?.title == waveTitle && playback.item != null
             WaveTile(
                 starting = waveStarting,
                 failure = waveFailure,
                 resume = offered,
+                active = waveActive,
+                playing = waveActive && (playback.playing || playback.intentPlaying),
                 onStart = if (onPlay != null) ({ startWave(context, provider) }) else null,
                 onResume = { YandexWaveResume.resume() },
+                onTogglePlayPause = { PlaybackEngine.togglePlayPause() },
             )
         }
         val failure = libraryFailure
@@ -529,17 +538,26 @@ class YandexMusicHost : ProviderMusicHost {
         starting: Boolean,
         failure: MusicProviderFailure?,
         resume: YandexWaveResume.Saved?,
+        active: Boolean,
+        playing: Boolean,
         onStart: (() -> Unit)?,
         onResume: () -> Unit,
+        onTogglePlayPause: () -> Unit,
     ) {
         val palette = beyGramPalette()
         val subtitle = when {
             starting -> stringResource(R.string.yandex_wave_starting)
+            active && playing -> stringResource(R.string.yandex_wave_now_playing)
+            active -> stringResource(R.string.yandex_wave_paused)
             resume != null -> stringResource(R.string.yandex_wave_resume, resume.track.performer, resume.track.title)
             failure != null -> stringResource(waveFailureText(failure))
             else -> stringResource(R.string.yandex_wave_subtitle)
         }
-        val action: (() -> Unit)? = if (resume != null) onResume else onStart
+        val action: (() -> Unit)? = when {
+            active -> onTogglePlayPause
+            resume != null -> onResume
+            else -> onStart
+        }
         Box(
             Modifier.fillMaxWidth()
                 .padding(horizontal = MusicScreenGutter)
@@ -570,7 +588,12 @@ class YandexMusicHost : ProviderMusicHost {
                 if (starting) {
                     CircularProgressIndicator(Modifier.size(24.dp), color = palette.onAccent, strokeWidth = 2.5.dp)
                 } else {
-                    Icon(Icons.Rounded.PlayArrow, null, tint = palette.onAccent, modifier = Modifier.size(32.dp))
+                    Icon(
+                        if (active && playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        null,
+                        tint = palette.onAccent,
+                        modifier = Modifier.size(32.dp),
+                    )
                 }
             }
             Column(

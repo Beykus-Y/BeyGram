@@ -42,9 +42,15 @@
     <string name="yandex_wave_source_personal">По вашему вкусу</string>
     <string name="yandex_wave_source_track">По треку «%1$s»</string>
     <string name="yandex_wave_source_artist">По исполнителю «%1$s»</string>
+    <string name="yandex_wave_album">Волна по альбому</string>
+    <string name="yandex_wave_source_album">По альбому «%1$s»</string>
+    <string name="yandex_wave_playlist">Волна по плейлисту</string>
+    <string name="yandex_wave_source_playlist">По плейлисту «%1$s»</string>
     <string name="yandex_wave_subtitle">Бесконечный поток треков под ваш вкус</string>
     <string name="yandex_wave_starting">Подбираем треки…</string>
     <string name="yandex_wave_failed">Не удалось запустить волну. Нажмите, чтобы попробовать снова.</string>
     <string name="yandex_wave_resume">Продолжить: %1$s · %2$s</string>
     <string name="yandex_wave_play">Слушать «Мою волну»</string>
+    <string name="yandex_wave_now_playing">Сейчас играет волна</string>
+    <string name="yandex_wave_paused">На паузе · нажмите, чтобы продолжить</string>
 </resources>

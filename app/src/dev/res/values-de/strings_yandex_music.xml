@@ -42,9 +42,15 @@
     <string name="yandex_wave_source_personal">Nach deinem Geschmack</string>
     <string name="yandex_wave_source_track">Nach „%1$s“</string>
     <string name="yandex_wave_source_artist">Nach Künstler „%1$s“</string>
+    <string name="yandex_wave_album">Welle aus diesem Album</string>
+    <string name="yandex_wave_source_album">Nach Album „%1$s“</string>
+    <string name="yandex_wave_playlist">Welle aus dieser Playlist</string>
+    <string name="yandex_wave_source_playlist">Nach Playlist „%1$s“</string>
     <string name="yandex_wave_subtitle">Ein endloser Strom von Titeln nach deinem Geschmack</string>
     <string name="yandex_wave_starting">Titel werden ausgewählt…</string>
     <string name="yandex_wave_failed">Die Welle konnte nicht gestartet werden. Tippe, um es erneut zu versuchen.</string>
     <string name="yandex_wave_resume">Weiter: %1$s · %2$s</string>
     <string name="yandex_wave_play">Meine Welle abspielen</string>
+    <string name="yandex_wave_now_playing">Welle läuft gerade</string>
+    <string name="yandex_wave_paused">Pausiert · tippen zum Fortsetzen</string>
 </resources>
