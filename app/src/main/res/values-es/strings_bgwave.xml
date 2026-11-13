@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgwave_service_label">Mensaje de servicio de BeyGram</string>
+    <string name="bgwave_card_invite_title">Escuchar la ola juntos</string>
+    <string name="bgwave_card_invite_subtitle">Invitación a escuchar la ola</string>
+    <string name="bgwave_safe_unsupported_version">Esta versión de la ola no es compatible. Actualiza BeyGram.</string>
+    <string name="bgwave_safe_expired">La invitación ha caducado.</string>
+    <string name="bgwave_safe_not_yet_valid">La invitación aún no es válida. Revisa la hora del dispositivo.</string>
+    <string name="bgwave_safe_invalid">No se pudo leer la invitación.</string>
+    <string name="bgwave_safe_unavailable">La ola no está disponible en este dispositivo.</string>
+</resources>
