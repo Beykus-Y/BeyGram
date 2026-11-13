@@ -37,6 +37,9 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         val single: Boolean
     )
 
+    /** Host: attaches the BG Wave session as the tap of the active BG Mix player; false when none is active. */
+    fun attachWaveTap(sessionHandle: Long): Boolean = player?.attachWaveSession(sessionHandle) ?: false
+
     val isActive: Boolean get() = player != null
 
     /** Native status stream for the current session; null when stopped. */

@@ -38,6 +38,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.media.bgmix.BgMixAudible
 import com.beykus.beygram.media.bgmix.BgMixNative
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
+import com.beykus.beygram.media.bgwave.BgWaveHub
 import com.beykus.beygram.media.bgmix.BgMixStatus
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -1874,7 +1875,10 @@ object PlaybackEngine {
     }
 
     private fun bgMixDriver(context: Context): BgMixQueueDriver =
-        bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }
+        (bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }).also {
+            // Lets a live BG Wave host tap the mix that is playing right now; the hub re-attaches every tick.
+            BgWaveHub.hostTap = { handle, attach -> it.attachWaveTap(if (attach) handle else 0L) }
+        }
 
     /**
      * The item as a complete local file BG Mix can decode, or null while it is not one. The queue snapshot may still
