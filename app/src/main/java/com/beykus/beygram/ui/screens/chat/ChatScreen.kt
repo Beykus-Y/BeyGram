@@ -2083,7 +2083,7 @@ fun ChatScreen(
             )
         }
         // The reply strip lives inside the field container, above the text, as one composer unit.
-        val replyHeader: (@Composable () -> Unit)? = if (replyId == null) null else @Composable {
+        val replyHeader: (@Composable () -> Unit)? = if (replyId == null) null else ({
             Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).padding(start = 12.dp, end = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clip(styledShape(12.dp)).then(if (chatGlass) Modifier.background(palette.surface.copy(alpha = 0.35f)) else Modifier).border(1.dp, palette.accent.copy(alpha = 0.45f), styledShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
                     Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -2091,7 +2091,7 @@ fun ChatScreen(
                 }
                 IconButton(enabled = !sending, onClick = ::clearReply) { Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary) }
             }
-        }
+        })
         val editing = editMessage != null
         val fieldText = if (editing) editText else draft
         val fieldEntities = if (editing) editEntities else draftEntities
