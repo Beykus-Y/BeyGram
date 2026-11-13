@@ -28,6 +28,9 @@ object BgMixNative {
     @JvmStatic
     external fun nativeDestroy(handle: Long)
 
+    /** Attaches or detaches the BG Wave host PCM tap. Returns false when BG Media is unavailable. */
+    external fun nativeSetWaveTap(handle: Long, sessionHandle: Long): Boolean
+
     /** Returns the queue item id, or 0 when the path was rejected. */
     @JvmStatic
     external fun nativeAddTrack(handle: Long, path: ByteArray): Long

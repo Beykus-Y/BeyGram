@@ -42,8 +42,18 @@
     <string name="yandex_wave_source_personal">Selon vos goûts</string>
     <string name="yandex_wave_source_track">Selon « %1$s »</string>
     <string name="yandex_wave_source_artist">Selon l’artiste « %1$s »</string>
+    <string name="yandex_wave_album">Vague de cet album</string>
+    <string name="yandex_wave_source_album">Selon l’album « %1$s »</string>
+    <string name="yandex_wave_playlist">Vague de cette playlist</string>
+    <string name="yandex_wave_source_playlist">Selon la playlist « %1$s »</string>
     <string name="yandex_wave_subtitle">Un flux infini de titres choisis pour vous</string>
     <string name="yandex_wave_starting">Sélection des titres…</string>
     <string name="yandex_wave_failed">Impossible de lancer la vague. Touchez pour réessayer.</string>
+    <string name="yandex_wave_resume">Reprendre : %1$s · %2$s</string>
     <string name="yandex_wave_play">Écouter Ma Vague</string>
+    <string name="yandex_wave_now_playing">La vague joue maintenant</string>
+    <string name="yandex_wave_paused">En pause · touchez pour reprendre</string>
+    <string name="yandex_wave_diversity_default">Selon vos goûts</string>
+    <string name="yandex_wave_diversity_discover">Nouveautés</string>
+    <string name="yandex_wave_diversity_popular">Populaires</string>
 </resources>

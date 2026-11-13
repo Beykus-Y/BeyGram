@@ -38,6 +38,8 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.media.bgmix.BgMixAudible
 import com.beykus.beygram.media.bgmix.BgMixNative
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
+import com.beykus.beygram.media.bgwave.BgWaveHub
+import com.beykus.beygram.media.bgwave.BgWaveRenderersFactory
 import com.beykus.beygram.media.bgmix.BgMixStatus
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -455,6 +457,7 @@ object PlaybackEngine {
     @OptIn(UnstableApi::class)
     private fun createPlayer(context: Context): Player {
         val created = ExoPlayer.Builder(context.applicationContext)
+            .setRenderersFactory(BgWaveRenderersFactory(context.applicationContext))
             .setMediaSourceFactory(DefaultMediaSourceFactory(PlaybackDataSourceFactory(context.applicationContext)))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
@@ -616,6 +619,30 @@ object PlaybackEngine {
     fun currentQueueIsEndless(): Boolean = queueSource?.loadMore != null
 
     /**
+     * Replaces the tracks after the playing one with [tracks], and makes [loadMore] the loader of this queue. The playing
+     * track keeps playing from its position. Used when a radio's settings change; does nothing without a playing item.
+     */
+    fun replaceYandexUpcoming(
+        context: Context,
+        tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>,
+        radio: PlaybackRadio,
+        loadMore: suspend () -> List<com.beykus.beygram.data.music.provider.ProviderTrack>,
+    ) {
+        val playable = tracks.filter { it.isAvailable }
+        if (playable.isEmpty() || _state.value.item == null) return
+        clearUpcoming()
+        // clearUpcoming drops the loader; this queue gets the new one, so the radio keeps going under the same radio.
+        queueSource = PlaybackQueueSource(
+            accountId = LEGACY_PLAYBACK_ACCOUNT_ID,
+            observeFile = { fileId -> MutableStateFlow(MediaFileState(id = fileId)) },
+            download = {},
+            loadMore = { loadMore().filter { it.isAvailable }.map(::providerPlaybackItem) },
+            radio = radio,
+        )
+        playable.forEach { track -> enqueue(context, providerPlaybackItem(track), source = null, atEnd = true) }
+    }
+
+    /**
      * Plays source [tracks] from [startIndex]. [loadMore] makes the queue endless (a radio such as «Моя волна»): the
      * engine asks it for the next tracks when few are left, as it does for Telegram history pages.
      */
@@ -625,6 +652,8 @@ object PlaybackEngine {
         startIndex: Int,
         loadMore: (suspend () -> List<com.beykus.beygram.data.music.provider.ProviderTrack>)? = null,
         radio: PlaybackRadio? = null,
+        /** Set when the first track is the one already playing: the queue takes over at this position without restarting it. */
+        keepPositionMs: Long? = null,
     ) {
         val playable = tracks.filter { it.isAvailable }
         if (playable.isEmpty()) return
@@ -641,8 +670,38 @@ object PlaybackEngine {
                 radio = radio
             )
         }
-        playQueue(context, items, 0, source = source)
+        playQueue(context, items, 0, source = source, startPositionMs = keepPositionMs)
     }
+
+    /**
+     * Restores a paused «Моя волна» after a restart: [track] is current at [positionMs]. Nothing plays, downloads or asks
+     * the source until Play; [loadMore] continues the wave when the queue runs low.
+     */
+    fun restoreYandexRadio(
+        context: Context,
+        track: com.beykus.beygram.data.music.provider.ProviderTrack,
+        positionMs: Long,
+        loadMore: suspend () -> List<com.beykus.beygram.data.music.provider.ProviderTrack>,
+        radio: PlaybackRadio,
+    ) {
+        if (_state.value.item != null || !track.isAvailable) return
+        YandexTrackResolver.ensureConfigured(context)
+        val source = PlaybackQueueSource(
+            accountId = LEGACY_PLAYBACK_ACCOUNT_ID,
+            observeFile = { fileId -> MutableStateFlow(MediaFileState(id = fileId)) },
+            download = {},
+            loadMore = { loadMore().filter { it.isAvailable }.map(::providerPlaybackItem) },
+            radio = radio,
+        )
+        val queue = queueForPlayback(listOf(providerPlaybackItem(track)), 0)
+        // Shown paused without preparing the player: a prepared player would request the file at once. Play starts it for real.
+        val appContext = context.applicationContext
+        restoredRadioStart = { startQueue(appContext, queue, source, startPositionMs = positionMs, startFraction = 0f, autoPlay = true) }
+        startQueue(context, queue, source, startPositionMs = positionMs, startFraction = 0f, autoPlay = false)
+    }
+
+    /** The first Play of a restored «Моя волна»: starts the stored queue for real (file request, prepare, play). */
+    private var restoredRadioStart: (() -> Unit)? = null
 
     private fun providerPlaybackItem(track: com.beykus.beygram.data.music.provider.ProviderTrack): PlaybackItem =
         PlaybackItem(
@@ -878,6 +937,7 @@ object PlaybackEngine {
         offerBgMix: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
+        restoredRadioStart = null
         // The queue always starts on ExoPlayer, which plays a local file at once and streams one that is still downloading.
         // With BG Mix on, the handover below moves the queue into BG Mix once the track is ready for it (see
         // scheduleBgMixHandover): starting BG Mix directly kept the track silent while its whole file was decoded.
@@ -1380,6 +1440,11 @@ object PlaybackEngine {
     fun resume(key: String, onStarted: () -> Unit) {
         if (_state.value.item?.key != key) return
         startedCallback = key to onStarted
+        restoredRadioStart?.let { start ->
+            restoredRadioStart = null
+            start()
+            return
+        }
         if (deferredSeek?.key == key) {
             deferredSeek = deferredSeek?.copy(resume = true)
             _state.update { it.copy(intentPlaying = true) }
@@ -1396,6 +1461,11 @@ object PlaybackEngine {
 
     /** Пауза или продолжение. Конец файла и ошибку обрабатывает обёртка плеера, поэтому системные кнопки ведут себя так же. */
     fun togglePlayPause() {
+        restoredRadioStart?.let { start ->
+            restoredRadioStart = null
+            start()
+            return
+        }
         if (bgMixActive()) {
             toggleBgMix()
             return
@@ -1533,6 +1603,7 @@ object PlaybackEngine {
     }
 
     private fun releaseQueueAndHalt() {
+        restoredRadioStart = null
         cancelSleepTimer()
         _queuePageLoading.value = false
         interruptedMusic = null
@@ -1806,7 +1877,10 @@ object PlaybackEngine {
     }
 
     private fun bgMixDriver(context: Context): BgMixQueueDriver =
-        bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }
+        (bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }).also {
+            // Lets a live BG Wave host tap the mix that is playing right now; the hub re-attaches every tick.
+            BgWaveHub.hostTap = { handle, attach -> it.attachWaveTap(if (attach) handle else 0L) }
+        }
 
     /**
      * The item as a complete local file BG Mix can decode, or null while it is not one. The queue snapshot may still

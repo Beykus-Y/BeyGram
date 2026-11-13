@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import com.beykus.beygram.ui.screens.music.WaveBackdrop
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -71,6 +72,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.StarBorder
@@ -156,6 +158,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.media.bgwave.BgWaveHub
+import androidx.compose.material.icons.rounded.GraphicEq
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
@@ -257,10 +261,25 @@ internal fun MusicPlayerSheet(
     )
     BackHandler(enabled = panel == PlayerPanel.Queue) { panel = PlayerPanel.Player }
     CoverPlayerSheet(cover = cover, onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
+        // The endless radio (a wave) gets soft drifting ribbons behind the player while it is audible.
+        val endless = PlaybackEngine.activeRadio != null && PlaybackEngine.currentQueueIsEndless()
+        val waveRibbons = endless && current.playing
+        val palette = beyGramPalette()
+        Box(
             Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.94f)
+        ) {
+            if (waveRibbons) {
+                WaveBackdrop(
+                    color = palette.accent,
+                    secondary = palette.accentSoft,
+                    modifier = Modifier.matchParentSize().alpha(0.5f),
+                )
+            }
+        Column(
+            Modifier
+                .fillMaxSize()
                 .nestedScroll(SheetOverscrollGuard)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                 .navigationBarsPadding()
@@ -302,6 +321,7 @@ internal fun MusicPlayerSheet(
                     }
                 )
             }
+        }
         }
     }
 }
@@ -395,6 +415,7 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
     val scope = rememberCoroutineScope()
     var menuOpen by remember { mutableStateOf(false) }
     var pendingShare by remember { mutableStateOf<PendingTrackShare?>(null) }
+    var waveSharing by remember { mutableStateOf(false) }
     // Sharing sends from the chat source the player uses. A track from a chat is offered only once that chat is known
     // not to protect its content; a chat that cannot be checked here gets no share.
     val originChat = rememberOriginChat(item.origin)
@@ -405,6 +426,9 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
     // A source track is shared as its link; the file never leaves the app.
     val providerTrack = ProviderTracks.byKey(item.key)?.takeIf { ProviderTracks.isProviderKey(item.key) }
     val shareLabel = stringResource(R.string.player_share)
+    val waveActive = rememberWaveActive()
+    val waveShareLabel = stringResource(R.string.bgwave_share_action)
+    val waveStopLabel = stringResource(R.string.bgwave_action_stop_wave)
     val shareChooser = stringResource(R.string.music_provider_share_link)
     val showInChatLabel = stringResource(R.string.media_show_in_chat)
     val addToProfile = LocalAddProfileAudio.current
@@ -434,6 +458,15 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
                     pendingShare = PendingTrackShare(completedShareItem(item), shareTimecode(PlaybackEngine.state.value.positionMs), source)
                 }
             }
+            if (waveActive) PlayerMenuEntry(waveStopLabel, Icons.Rounded.GraphicEq) {
+                menuOpen = false
+                scope.launch { BgWaveHub.stop() }
+            } else if (shareSource != null && canShareWave(item, originUnprotected = item.origin == null || originChat?.hasProtectedContent == false, isProviderTrack = providerTrack != null)) {
+                PlayerMenuEntry(waveShareLabel, Icons.Rounded.GraphicEq) {
+                    menuOpen = false
+                    waveSharing = true
+                }
+            }
             item.origin?.let { origin ->
                 PlayerMenuEntry(showInChatLabel, Icons.Rounded.ChatBubble) {
                     menuOpen = false
@@ -461,6 +494,9 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
                 }
             }
         }
+    }
+    if (waveSharing && shareSource != null) {
+        ShareWaveDialog(shareSource.repository, shareSource.accountId, onClose = { waveSharing = false })
     }
     pendingShare?.let { share ->
         ShareTrackDialog(
@@ -1159,6 +1195,7 @@ private fun PlayerActions(
     val radioLiked = radioTrack?.let { likes[it.trackId] ?: it.liked ?: false }
     val likeLabel = stringResource(R.string.music_provider_like)
     val likeFailed = stringResource(R.string.music_provider_like_failed)
+    val dislikeLabel = stringResource(R.string.music_radio_dislike)
     val sleepTimer by PlaybackEngine.sleepTimer.collectAsStateWithLifecycle()
     val minutesRemaining = rememberSleepMinutes(sleepTimer)
     // The sound button shows the timer when one runs, else a speed other than 1×, else the plain word.
@@ -1193,7 +1230,12 @@ private fun PlayerActions(
             enabled = false
         )
     }
-    val playlistSlot = PlayerActionUi(
+    // In a radio this slot dislikes the track instead: it is skipped at once and an undo offer shows for a few seconds.
+    val playlistSlot = if (radioTrack != null) PlayerActionUi(
+        icon = Icons.Rounded.ThumbDown,
+        label = dislikeLabel,
+        onClick = { ProviderTracks.dislikeWithUndo(context, radioTrack) }
+    ) else PlayerActionUi(
         icon = Icons.Rounded.Add,
         label = addLabel,
         onClick = { addOpen = true },
@@ -1206,6 +1248,8 @@ private fun PlayerActions(
         onClick = { soundOpen = true },
         active = soundStatus != null
     )
+    val pendingDislike by ProviderTracks.pendingDislike.collectAsStateWithLifecycle()
+    if (pendingDislike != null) DislikeUndoBar(onUndo = { ProviderTracks.undoDislike(context) })
     // Always four places, in the same order for every source.
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(likeSlot, playlistSlot, queueSlot, soundSlot).forEach { action ->
@@ -1214,6 +1258,20 @@ private fun PlayerActions(
     }
     if (addOpen && track != null) AddToPlaylistSheet(accountId = item.accountId, track = track, onDismiss = { addOpen = false })
     if (soundOpen) PlayerSoundSheet(player = player, onOpenEqualizer = onOpenEqualizer, onDismiss = { soundOpen = false })
+}
+
+@Composable
+private fun DislikeUndoBar(onUndo: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            stringResource(R.string.music_radio_disliked),
+            color = palette.textSecondary,
+            fontSize = 12.sp,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onUndo) { Text(stringResource(R.string.music_radio_dislike_undo), color = palette.accent) }
+    }
 }
 
 private data class PlayerActionUi(

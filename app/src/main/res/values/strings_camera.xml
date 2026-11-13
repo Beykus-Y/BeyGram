@@ -157,4 +157,5 @@
     <string name="composer_quality_short_balanced_audio">96 кбит/с</string>
     <string name="composer_attachments_clear_action">Удалить все вложения</string>
     <string name="composer_menu_chat_unavailable">Сначала отправьте или уберите подготовленные вложения.</string>
+    <string name="composer_quality_all_title">Качество для всех</string>
 </resources>

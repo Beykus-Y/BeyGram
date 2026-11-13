@@ -26,12 +26,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  dev-beta:
-    name: Build and sign DEV beta
+  unit-tests:
+    name: Unit tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -39,8 +39,6 @@ jobs:
           token: ${{ secrets.GH_TOCKEN || secrets.GH_TOKEN || secrets.BG_MEDIA_TOKEN || github.token }}
           # The build runs code from the branch: the token must not stay in .git/config, where that code could read it.
           persist-credentials: false
-          # Full history: the prerelease notes list the commits since the previous DEV build.
-          fetch-depth: 0
           submodules: false
 
       - name: Checkout BG Media submodule
@@ -61,6 +59,103 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Set up Gradle dependency cache
+        # Only public plugins and libraries from the Gradle User Home. No Build Cache and no configuration cache are
+        # stored: the build embeds secrets.properties values, and a cache saved by a push is readable by PR code.
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: false
+          gradle-home-cache-excludes: caches/build-cache-1
+
+      - name: Install Android platform 36.1
+        run: |
+          set -uo pipefail
+          sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$sdkmanager" ]; then
+            echo "::error::sdkmanager not found" >&2
+            exit 1
+          fi
+          yes | "$sdkmanager" --licenses > "$RUNNER_TEMP/licenses.txt" 2>&1 || true
+          "$sdkmanager" --install "platforms;android-36.1" > "$RUNNER_TEMP/install.txt" 2>&1
+
+      - name: Write empty Telegram API credentials
+        # Unit tests need no keys, so this job never sees the secrets (same as the pull request check).
+        run: |
+          {
+            echo "telegramApiId=0"
+            echo "telegramApiHash="
+            echo "yandexMusicClientId="
+            echo "yandexMusicClientSecret="
+          } > secrets.properties
+
+      - name: Run unit tests
+        run: ./gradlew --no-daemon :app:testDevDebugUnitTest
+
+      - name: Upload unit test reports
+        # A failed run keeps the report, so the exact failing assertion can be read after the job ends.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports-${{ github.sha }}
+          path: |
+            app/build/reports/tests/testDevDebugUnitTest/
+            app/build/test-results/testDevDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload screenshot goldens and diffs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.sha }}
+          path: |
+            app/src/test/screenshots/
+            app/build/outputs/roborazzi/
+          if-no-files-found: warn
+          retention-days: 14
+
+  build:
+    name: Build DEV beta (unsigned)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOCKEN || secrets.GH_TOKEN || secrets.BG_MEDIA_TOKEN || github.token }}
+          # The build runs code from the branch: the token must not stay in .git/config, where that code could read it.
+          persist-credentials: false
+          submodules: false
+
+      - name: Checkout BG Media submodule
+        env:
+          BG_MEDIA_PAT: ${{ secrets.BG_MEDIA_TOKEN }}
+        run: |
+          if [ -n "$BG_MEDIA_PAT" ]; then
+            echo "Configuring submodule authentication for BG Media..."
+            git config --global url."https://${BG_MEDIA_PAT}@github.com/".insteadOf "https://github.com/"
+            git submodule update --init --depth 1 third_party/bg-media
+            git config --global --unset-all url."https://${BG_MEDIA_PAT}@github.com/".insteadOf || true
+          else
+            echo "::warning::No BG_MEDIA token configured. Submodule third_party/bg-media skipped."
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle dependency cache
+        # Only public plugins and libraries from the Gradle User Home. No Build Cache and no configuration cache are
+        # stored: the build embeds secrets.properties values, and a cache saved by a push is readable by PR code.
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: false
+          gradle-home-cache-excludes: caches/build-cache-1
 
       - name: Install Android platform 36.1
         run: |
@@ -88,12 +183,78 @@ jobs:
             echo "yandexMusicClientSecret=${YANDEX_MUSIC_CLIENT_SECRET:-}"
           } > secrets.properties
 
-      - name: Run unit tests
-        run: ./gradlew --no-daemon :app:testDevDebugUnitTest
+      - name: Read the NDK version
+        id: ndk
+        run: echo "version=$(sed -n 's/.*ndkVersion = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)" >> "$GITHUB_OUTPUT"
+
+      # OpenSSL for the BG Wave adapter is built once per script version, NDK and ABI and shared by DEV and main
+      # builds. Only push builds save it; pull requests restore from the DEV or main cache.
+      - name: Restore OpenSSL for Android (BG Wave)
+        id: openssl-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/beygram-openssl
+          key: beygram-openssl-${{ hashFiles('scripts/build-openssl-android.sh') }}-ndk${{ steps.ndk.outputs.version }}-arm64-v8a-${{ runner.os }}
 
       - name: Build DEV beta (unsigned)
+        env:
+          BEYGRAM_OPENSSL_CACHE: ${{ runner.temp }}/beygram-openssl
         # The run number is strictly increasing for this workflow, so every DEV build has a newer versionCode.
+        # It is the same in every job of a run, including re-runs of a failed job.
         run: ./gradlew --no-daemon -PdevBuildNumber=${{ github.run_number }} :app:assembleDevRelease
+
+      - name: Save OpenSSL for Android (BG Wave)
+        if: github.event_name == 'push' && steps.openssl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/beygram-openssl
+          key: ${{ steps.openssl-cache.outputs.cache-primary-key }}
+
+      - name: Upload unsigned DEV beta
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-unsigned-${{ github.sha }}
+          path: app/build/outputs/apk/dev/release/*-unsigned.apk
+          retention-days: 1
+          overwrite: true
+          if-no-files-found: error
+
+  publish:
+    name: Sign and publish DEV beta
+    needs: [unit-tests, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOCKEN || secrets.GH_TOKEN || secrets.BG_MEDIA_TOKEN || github.token }}
+          # The build runs code from the branch: the token must not stay in .git/config, where that code could read it.
+          persist-credentials: false
+          # Full history: the prerelease notes list the commits since the previous DEV build.
+          fetch-depth: 0
+          submodules: false
+
+      - name: Download unsigned DEV beta
+        uses: actions/download-artifact@v4
+        with:
+          name: dev-unsigned-${{ github.sha }}
+          path: ${{ runner.temp }}/dev-unsigned
+
+      - name: Check the versionCode of the unsigned build
+        run: |
+          set -euo pipefail
+          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          unsigned=$(ls "$RUNNER_TEMP"/dev-unsigned/*-unsigned.apk | head -n 1)
+          IFS=. read -r a b c d <<< "$(sed -n 's/^versionName=//p' release-version.properties | head -n 1)"
+          expected=$(( a * 100000000 + b * 1000000 + c * 10000 + d + ${{ github.run_number }} ))
+          actual=$("$build_tools/aapt" dump badging "$unsigned" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -n 1)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::versionCode $actual does not match the expected $expected (Stable version + run number); not publishing." >&2
+            exit 1
+          fi
 
       - name: Sign and verify DEV beta
         env:
@@ -108,7 +269,7 @@ jobs:
             exit 1
           fi
           build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
-          unsigned=$(ls app/build/outputs/apk/dev/release/*-unsigned.apk | head -n 1)
+          unsigned=$(ls "$RUNNER_TEMP"/dev-unsigned/*-unsigned.apk | head -n 1)
           out="$RUNNER_TEMP/BeyGram-dev-beta.apk"
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           "$build_tools/zipalign" -f -p 4 "$unsigned" "$RUNNER_TEMP/aligned.apk"

@@ -100,6 +100,7 @@ import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.copyableMessageLinks
+import com.beykus.beygram.media.bgwave.BgWaveLink
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.domain.search.appendDistinctBy
@@ -289,20 +290,39 @@ fun ChatScreen(
     var contextMessageId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var highlighted by remember { mutableStateOf<Long?>(null) }
     // A message outside the loaded history is scrolled to once the window around it reaches the list.
-    var pendingJumpId by remember(chat.id) { mutableStateOf<Long?>(null) }
-    var searching by rememberSaveable(chat.id) { mutableStateOf(false) }
-    var searchQuery by rememberSaveable(chat.id) { mutableStateOf("") }
-    var searchFilter by rememberSaveable(chat.id, stateSaver = ChatSearchFilterSaver) { mutableStateOf(ChatSearchFilter()) }
-    var searchResults by remember(chat.id) { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var searchNextId by remember(chat.id) { mutableLongStateOf(0L) }
-    var searchTotalCount by remember(chat.id) { mutableIntStateOf(0) }
-    var searchGeneration by remember(chat.id) { mutableIntStateOf(0) }
-    var searchBusy by remember(chat.id) { mutableStateOf(false) }
-    var searchError by remember(chat.id) { mutableStateOf<String?>(null) }
-    fun closeSearch() {
+    var pendingJumpId by remember(chat.id, forumTopicId) { mutableStateOf<Long?>(null) }
+    var jumpGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
+    var jumpScrollJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
+    var jumpLoadJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
+    fun cancelActiveJump() {
+        jumpGeneration++
+        pendingJumpId = null
+        jumpScrollJob?.cancel()
+        jumpScrollJob = null
+        jumpLoadJob?.cancel()
+        jumpLoadJob = null
+        conversation.cancelMessageJump(chat.id, forumTopicId)
+    }
+    var searching by rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
+    var searchQuery by rememberSaveable(chat.id, forumTopicId) { mutableStateOf("") }
+    var searchFilter by rememberSaveable(chat.id, forumTopicId, stateSaver = ChatSearchFilterSaver) { mutableStateOf(ChatSearchFilter()) }
+    var searchResults by remember(chat.id, forumTopicId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    var searchNextId by remember(chat.id, forumTopicId) { mutableLongStateOf(0L) }
+    var searchTotalCount by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
+    var searchGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
+    var searchBusy by remember(chat.id, forumTopicId) { mutableStateOf(false) }
+    var searchError by remember(chat.id, forumTopicId) { mutableStateOf<String?>(null) }
+    var searchMatchSession by remember(chat.id, forumTopicId) { mutableStateOf(ChatSearchMatchSession()) }
+    var searchMatchGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
+    fun closeSearch(clearMatchSession: Boolean = true) {
         searching = false; searchQuery = ""; searchFilter = ChatSearchFilter()
         searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchGeneration++
         searchBusy = false; searchError = null
+        if (clearMatchSession) {
+            searchMatchGeneration++
+            searchMatchSession = ChatSearchMatchSession()
+            cancelActiveJump()
+        }
     }
     var sending by remember { mutableStateOf(false) }
     var sendOptionsOpen by remember(chat.id) { mutableStateOf(false) }
@@ -688,7 +708,7 @@ fun ChatScreen(
     // Sender picker is built from the loaded history; no extra TDLib member request is needed in the search bar.
     val searchSenders = remember(messages) { chatSearchSenders(messages) }
     // Album grouping reads only the messages, so a pending video note does not regroup the whole loaded history.
-    val albumItems = remember(messages) { groupTelegramMediaAlbums(messages) }
+    val albumItems = remember(messages) { groupTelegramMediaAlbums(messages.filterNot(::isBgWaveSignalMessage)) }
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
     val rawMessageItems = remember(albumItems, pendingVideoNotes) {
         pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + albumItems
@@ -806,6 +826,8 @@ fun ChatScreen(
     }
     val window = LocalWindowInfo.current
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }
+    val bubbleBounds = remember(chat.id) { HashMap<Long, Rect>() }
+    var actionAnchorBounds by remember(chat.id) { mutableStateOf<Rect?>(null) }
     val actionMessage = messages.firstOrNull { it.id == actionsId }
     // An album's reactions sit on one of its messages, so the picker and the chips act on that message.
     val reactionOwner = actionMessage?.let { target -> messageListItems.firstOrNull { item -> item.messages.any { it.id == target.id } }?.messages?.let(::reactionMessage) }
@@ -817,7 +839,7 @@ fun ChatScreen(
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
     val editLimit = if (editMessage?.media == null) limits.text else limits.caption
-    fun closeActions() { actionsId = null; reactionPickerOpen = false; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
+    fun closeActions() { actionsId = null; actionAnchorBounds = null; reactionPickerOpen = false; deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     fun enterSelection(message: ChatMessage? = null) {
         closeActions()
         selectionMode = true
@@ -842,13 +864,14 @@ fun ChatScreen(
         selectionDeleteBusy = false
         selectionDeleteError = null
     }
-    // A long press opens message actions and its reaction picker directly.
-    // Multi-select remains a deliberate action within MessageActionsBar.
+    // A long press opens the anchored contextual popover directly.
+    // Multi-select remains a deliberate action within the menu.
     fun openActionsOnLongPress(messageId: Long) {
-        if (selectionMode) return
+        if (selectionMode || actionsId == messageId) return
         // Remember the same anchor used by SelectionActionBar's single-message More action.
         // Entering Select from the action menu must not lose the original message context.
         selectionAnchorId = messageId
+        actionAnchorBounds = bubbleBounds[messageId]?.takeIf { !it.isEmpty }
         actionsId = messageId
         reactionPickerOpen = false
     }
@@ -1074,12 +1097,14 @@ fun ChatScreen(
     LaunchedEffect(actionMessage) {
         if (actionMessage == null) { deleting = false; deleteError = null; capabilities = null; capabilitiesError = null; pinConfirm = false }
     }
-    LaunchedEffect(actionsId, capabilitiesAttempt) {
+    LaunchedEffect(chat.id, actionsId, capabilitiesAttempt) {
         val id = actionsId ?: return@LaunchedEffect
         capabilities = null; capabilitiesError = null
         val result = conversation.messageCapabilities(chat.id, id)
-        capabilities = result.getOrNull()
-        capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
+        if (actionsId == id) {
+            capabilities = result.getOrNull()
+            capabilitiesError = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_actions_load_failed)
+        }
     }
     fun setPinned(message: ChatMessage, pinned: Boolean) {
         pinConfirm = false
@@ -1121,12 +1146,12 @@ fun ChatScreen(
         val kind = (currentMessages.firstOrNull { it.id == id } ?: mediaWindow.messages.firstOrNull { it.id == id })?.media?.kind
         viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
-    BackHandler(enabled = !threadOpen && (stickerPanelOpen || searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || selectionMode)) {
+    BackHandler(enabled = !threadOpen && (stickerPanelOpen || searching || searchMatchSession.isActive || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || selectionMode)) {
         when {
             selectionDeleteOpen -> { selectionDeleteOpen = false; selectionDeleteError = null }
             selectionForwardOpen -> { selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
             selectionMode -> exitSelection()
-            searching -> closeSearch()
+            searching || searchMatchSession.isActive -> closeSearch()
             deleting -> { deleting = false; deleteError = null }
             actionMessage != null -> closeActions()
             editMessage != null -> closeEdit()
@@ -1135,7 +1160,7 @@ fun ChatScreen(
         }
     }
     BackHandler(enabled = openStickerSetId != null) { openStickerSetId = null }
-    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching && openStickerSetId == null && !stickerPanelOpen, onBack = onBack)
+    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching && !searchMatchSession.isActive && openStickerSetId == null && !stickerPanelOpen, onBack = onBack)
     BackHandler(enabled = !threadOpen && (videoNote.active || audioNote.active)) {
         videoNote.stopForRecovery()
         audioNote.stopForRecovery()
@@ -1332,19 +1357,103 @@ fun ChatScreen(
             if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) searchBusy = false
         }
     }
-    fun openSearchResult(message: ChatMessage) {
-        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == message.id } }
-        closeSearch()
-        if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = message.id }
-        else { contextChatId = chat.id; contextMessageId = message.id }
-    }
     fun jumpToMessage(messageId: Long, failure: Int) {
+        cancelActiveJump()
+        val generation = jumpGeneration
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
-        if (index >= 0) { scope.launch { try { listState.animateScrollToItem(index); highlighted = messageId } finally { settleFocusedOpening() } }; return }
+        if (index >= 0) {
+            jumpScrollJob = scope.launch {
+                try {
+                    listState.animateScrollToItem(index)
+                    if (generation == jumpGeneration) highlighted = messageId
+                } finally {
+                    settleFocusedOpening()
+                    if (generation == jumpGeneration) jumpScrollJob = null
+                }
+            }
+            return
+        }
+        jumpLoadJob = scope.launch {
+            try {
+                (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, messageId) else conversation.loadMessagesAround(chat.id, messageId))
+                    .onSuccess { applied ->
+                        if (generation != jumpGeneration) return@onSuccess
+                        if (applied) pendingJumpId = messageId else settleFocusedOpening()
+                    }
+                    .onFailure {
+                        if (generation != jumpGeneration) return@onFailure
+                        error = it.userMessage(context, failure)
+                        settleFocusedOpening()
+                    }
+            } finally {
+                if (generation == jumpGeneration) jumpLoadJob = null
+            }
+        }
+    }
+    fun openSearchResult(message: ChatMessage) {
+        val snapshot = searchResults
+        val index = snapshot.indexOfFirst { it.id == message.id }.coerceAtLeast(0)
+        val total = searchTotalCount
+        val nextId = searchNextId
+        val querySnapshot = searchQuery
+        val filterSnapshot = searchFilter
+        closeSearch(clearMatchSession = false)
+        searchMatchGeneration++
+        searchMatchSession = ChatSearchMatchSession(
+            query = querySnapshot,
+            filter = filterSnapshot,
+            results = snapshot,
+            index = index,
+            totalCount = total,
+            nextFromMessageId = nextId
+        )
+        jumpToMessage(message.id, R.string.err_chat_history_load_failed)
+    }
+    fun reopenSearchFromMatches() {
+        val session = searchMatchSession
+        cancelActiveJump()
+        searchMatchGeneration++
+        searchQuery = session.query
+        searchFilter = session.filter
+        searchMatchSession = ChatSearchMatchSession()
+        searching = true
+    }
+    fun stepNewerSearchMatch() {
+        val next = searchMatchSession.stepNewer()
+        if (next == searchMatchSession) return
+        searchMatchSession = next
+        next.currentMessageId?.let { jumpToMessage(it, R.string.err_chat_history_load_failed) }
+    }
+    fun stepOlderSearchMatch() {
+        val session = searchMatchSession
+        if (!session.canStepOlder) return
+        if (session.index < session.results.lastIndex) {
+            val next = session.stepOlderLoaded()
+            searchMatchSession = next
+            next.currentMessageId?.let { jumpToMessage(it, R.string.err_chat_history_load_failed) }
+            return
+        }
+        val needle = session.query.trim()
+        val cursor = session.nextFromMessageId
+        if (cursor == 0L) return
+        val generation = ++searchMatchGeneration
+        searchMatchSession = session.copy(busy = true)
         scope.launch {
-            (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, messageId) else conversation.loadMessagesAround(chat.id, messageId))
-                .onSuccess { applied -> if (applied) pendingJumpId = messageId else settleFocusedOpening() }
-                .onFailure { error = it.userMessage(context, failure); settleFocusedOpening() }
+            (if (forumTopicId > 0L) conversation.searchForumTopicMessages(chat.id, forumTopicId, needle, cursor, session.filter)
+            else conversation.searchMessages(chat.id, needle, cursor, session.filter))
+                .onSuccess { page ->
+                    if (generation != searchMatchGeneration || !searchMatchSession.isActive) return@onSuccess
+                    val updated = searchMatchSession.appendPage(page.messages, page.nextFromMessageId)
+                    searchMatchSession = updated
+                    if (updated.index != session.index) {
+                        updated.currentMessageId?.let { jumpToMessage(it, R.string.err_chat_history_load_failed) }
+                    }
+                }
+                .onFailure { failure ->
+                    if (generation != searchMatchGeneration || !searchMatchSession.isActive) return@onFailure
+                    searchMatchSession = searchMatchSession.copy(busy = false)
+                    error = failure.userMessage(context, R.string.chat_search_failed)
+                }
         }
     }
     fun jumpToPinned(message: ChatMessage) = jumpToMessage(message.id, R.string.chat_pinned_failed)
@@ -1596,56 +1705,11 @@ fun ChatScreen(
             canCopy = selectionCanCopy,
             canSave = selectionCanSave,
             onClose = ::exitSelection,
-            onMore = singleActionTarget?.let { id -> { exitSelection(); actionsId = id } },
+            onMore = singleActionTarget?.let { id -> { exitSelection(); actionAnchorBounds = bubbleBounds[id]; actionsId = id } },
             onForward = { forwardAsCopy = false; selectionForwardOpen = true; selectionError = null },
             onDelete = ::requestSelectionDelete,
             onCopy = ::copySelection,
             onSave = ::saveSelection
-        ) else if (actionMessage != null) MessageActionsBar(
-            capabilities = capabilities?.let { caps ->
-                // TDLib already forbids this; keep a local guard so a stale capability response cannot expose view-once.
-                if (actionMessage.isViewOnce) caps.copy(canForward = false, canCopy = false, canGetLink = false, canEdit = false) else caps
-            },
-            error = capabilitiesError, hasText = actionMessage.text.isNotBlank(), isMedia = actionMessage.media != null,
-            canPin = canTogglePin(capabilities?.canPin == true), isPinned = actionMessage.isPinned,
-            onClose = ::closeActions, onRetry = { capabilitiesAttempt++ },
-            onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
-            onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
-            onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
-            onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
-            onTogglePin = {
-                if (chat.isChannel && !actionMessage.isPinned) pinConfirm = true
-                else setPinned(actionMessage, !actionMessage.isPinned)
-            },
-            onCopyLink = {
-                val target = actionMessage
-                scope.launch {
-                    conversation.messageLink(chat.id, target.id, inMessageThread = forumTopicId > 0L)
-                        .onSuccess {
-                            clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.message_link), it))
-                            Toast.makeText(context, context.getString(R.string.message_link_copied), Toast.LENGTH_SHORT).show()
-                        }
-                        .onFailure { error = it.userMessage(context, R.string.err_message_link_unavailable) }
-                    closeActions()
-                }
-            },
-            onReactions = if (reactionOwner != null && reactionOptions.isNotEmpty()) { { reactionPickerOpen = true } } else null,
-            onCopyEntity = if (actionMessage.isViewOnce || chat.hasProtectedContent) null else copyableMessageLinks(actionMessage.text, actionMessage.entities)
-                .takeIf { it.isNotEmpty() }
-                ?.let { values -> { copyLinks = values; closeActions() } },
-            onForward = { forwardAsCopy = false; forwardId = actionMessage.id; closeActions() },
-            onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() },
-            onSelect = { enterSelection(actionMessage) },
-            onTranslate = if (actionMessage.mediaAlbumId == 0L && actionMessage.sendState == MessageSendState.Sent &&
-                TranslationPolicy.canTranslate(chat.isSecret, actionMessage.text.isNotBlank())) {
-                { translationPickerId = actionMessage.id; closeActions() }
-            } else null,
-            onReport = if (!actionMessage.isOutgoing && !chat.isSecret) {
-                { reportMessageId = actionMessage.id; closeActions() }
-            } else null,
-            onAddToPlaylist = if (chat.hasProtectedContent) null else playlistTrackOf(actionMessage, accountId, { id -> observeFile(id).value }, context.getString(R.string.media_kind_audio))?.let { track -> { playlistTrack = track; closeActions() } },
-            onPlayNext = queueActionItem(actionMessage, chat.hasProtectedContent)?.let { item -> { enqueueMusic(item, atEnd = false); closeActions() } },
-            onEnqueue = queueActionItem(actionMessage, chat.hasProtectedContent)?.let { item -> { enqueueMusic(item, atEnd = true); closeActions() } }
         ) else if (searching) ChatSearchBar(
             query = searchQuery,
             onQueryChange = { searchQuery = it },
@@ -1678,7 +1742,7 @@ fun ChatScreen(
         // Keep playback accessible below the chat header, not between messages and the composer.
         // The input/IME and reply controls should remain adjacent to the message list.
         // In the split layout the player already lives under the list on the left, so the chat has no strip of its own.
-        if (!windowLayout.twoPane) NowPlayingBar()
+        if (!windowLayout.twoPane) NowPlayingBar(compact = true)
         // The target picker lives above the message list so the action bar can close before selection.
         val translationTargetMessage = translationPickerId?.let { id -> messages.firstOrNull { it.id == id } }
         if (translationTargetMessage != null && TranslationPolicy.canTranslate(chat.isSecret, translationTargetMessage.text.isNotBlank())) {
@@ -1699,6 +1763,75 @@ fun ChatScreen(
                     }
                 },
                 onDismiss = { reportMessageId = null }
+            )
+        }
+        if (actionMessage != null && !deleting && !reactionPickerOpen && !pinConfirm) {
+            val chosenReactions = reactionOwner?.reactions
+                ?.filter { it.isChosen && !it.isPaid }
+                ?.mapTo(hashSetOf()) { it.option }
+                .orEmpty()
+            MessageContextPopover(
+                anchorBounds = actionAnchorBounds,
+                isOutgoing = actionMessage.isOutgoing,
+                capabilities = capabilities?.let { caps ->
+                    // TDLib already forbids this; keep a local guard so a stale capability response cannot expose view-once.
+                    if (actionMessage.isViewOnce) caps.copy(canForward = false, canCopy = false, canGetLink = false, canEdit = false) else caps
+                },
+                error = capabilitiesError,
+                hasText = actionMessage.text.isNotBlank(),
+                isMedia = actionMessage.media != null,
+                canPin = canTogglePin(capabilities?.canPin == true),
+                isPinned = actionMessage.isPinned,
+                reactionOptions = reactionOptions,
+                chosenReactions = chosenReactions,
+                observeCustomEmoji = conversation::observeCustomEmoji,
+                observeFile = observeFile,
+                onDownloadFile = onDownloadFile,
+                onQuickReaction = if (reactionOwner != null) {
+                    { option ->
+                        setReaction(reactionOwner.id, option, addToRecent = true)
+                        closeActions()
+                    }
+                } else null,
+                onClose = ::closeActions,
+                onRetry = { capabilitiesAttempt++ },
+                onReply = { updateDraft { it.copy(replyToMessageId = actionMessage.id) }; replyFocusRequest++; closeActions() },
+                onCopy = { clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), actionMessage.text)); closeActions() },
+                onEdit = { editId = actionMessage.id; editText = actionMessage.text; closeActions() },
+                onDelete = { deleteEveryone = capabilities?.canDeleteForSelf == false; deleting = true },
+                onTogglePin = {
+                    if (chat.isChannel && !actionMessage.isPinned) pinConfirm = true
+                    else setPinned(actionMessage, !actionMessage.isPinned)
+                },
+                onCopyLink = {
+                    val target = actionMessage
+                    scope.launch {
+                        conversation.messageLink(chat.id, target.id, inMessageThread = forumTopicId > 0L)
+                            .onSuccess {
+                                clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.message_link), it))
+                                Toast.makeText(context, context.getString(R.string.message_link_copied), Toast.LENGTH_SHORT).show()
+                            }
+                            .onFailure { error = it.userMessage(context, R.string.err_message_link_unavailable) }
+                        closeActions()
+                    }
+                },
+                onReactions = if (reactionOwner != null && reactionOptions.isNotEmpty()) { { reactionPickerOpen = true } } else null,
+                onCopyEntity = if (actionMessage.isViewOnce || chat.hasProtectedContent) null else copyableMessageLinks(actionMessage.text, actionMessage.entities)
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { values -> { copyLinks = values; closeActions() } },
+                onForward = { forwardAsCopy = false; forwardId = actionMessage.id; closeActions() },
+                onForwardCopy = { forwardCopyConfirmId = actionMessage.id; closeActions() },
+                onSelect = { enterSelection(actionMessage) },
+                onTranslate = if (actionMessage.mediaAlbumId == 0L && actionMessage.sendState == MessageSendState.Sent &&
+                    TranslationPolicy.canTranslate(chat.isSecret, actionMessage.text.isNotBlank())) {
+                    { translationPickerId = actionMessage.id; closeActions() }
+                } else null,
+                onReport = if (!actionMessage.isOutgoing && !chat.isSecret) {
+                    { reportMessageId = actionMessage.id; closeActions() }
+                } else null,
+                onAddToPlaylist = if (chat.hasProtectedContent) null else playlistTrackOf(actionMessage, accountId, { id -> observeFile(id).value }, context.getString(R.string.media_kind_audio))?.let { track -> { playlistTrack = track; closeActions() } },
+                onPlayNext = queueActionItem(actionMessage, chat.hasProtectedContent)?.let { item -> { enqueueMusic(item, atEnd = false); closeActions() } },
+                onEnqueue = queueActionItem(actionMessage, chat.hasProtectedContent)?.let { item -> { enqueueMusic(item, atEnd = true); closeActions() } }
             )
         }
         reactionOwner?.takeIf { !deleting && reactionPickerOpen }?.let { owner ->
@@ -1757,6 +1890,11 @@ fun ChatScreen(
                             limiter = effectLimiter
                         ) {
                             Column(Modifier.fillMaxWidth()) {
+                                DisposableEffect(listItem.key) {
+                                    onDispose {
+                                        listItem.messages.forEach { bubbleBounds.remove(it.id) }
+                                    }
+                                }
                                 val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
                                     ?: listItem.messages.firstOrNull()
                                 val albumComments = commentsPost?.takeIf { showsChannelComments(chat.isChannel, it.isChannelPost, linkedDiscussionChatId) }
@@ -1764,7 +1902,15 @@ fun ChatScreen(
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                     highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
                                     onOpen = { selectedMediaId = it }, onActions = ::openActionsOnLongPress, onReplyClick = ::jump,
-                                    onMediaBounds = { rect -> listItem.messages.forEach { mediaOrigins[it.id] = rect } }, onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                    onMediaBounds = { rect ->
+                                        listItem.messages.forEach {
+                                            mediaOrigins[it.id] = rect
+                                            bubbleBounds[it.id] = rect
+                                        }
+                                        if (actionsId != null && listItem.messages.any { it.id == actionsId }) {
+                                            actionAnchorBounds = rect
+                                        }
+                                    }, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                     onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
                                     selectionMode = selectionMode,
                                     selected = listItem.messages.all { it.id in selectionIds },
@@ -1786,8 +1932,10 @@ fun ChatScreen(
                     val diceAnimationId = rememberDiceAnimationId(message.id, history.recentReplacements)
                     val launch = launchTargets[message.id]
                     val launchModifier = if (launch != null) Modifier.graphicsLayer { alpha = 0f } else Modifier
-                    val bubblePosition: ((Rect) -> Unit)? = launch?.let { target ->
-                        { rect ->
+                    val bubblePosition: (Rect) -> Unit = { rect ->
+                        bubbleBounds[message.id] = rect
+                        if (actionsId == message.id) actionAnchorBounds = rect
+                        launch?.let { target ->
                             val fieldTop = composerFieldBounds?.top ?: Float.MAX_VALUE
                             val screenTop = launchOverlayBounds?.top ?: 0f
                             // Ignore prefetched or offscreen rows: the overlay must land on a bubble the user can see.
@@ -1807,6 +1955,9 @@ fun ChatScreen(
                             limiter = effectLimiter
                         ) {
                         Column(Modifier.fillMaxWidth()) {
+                            DisposableEffect(message.id) {
+                                onDispose { bubbleBounds.remove(message.id) }
+                            }
                             val translationLanguage = translationLanguages[message.id]
                             val translationState = translationLanguage?.let { translationStates[message.id to it] }
                             val media = message.media
@@ -2035,6 +2186,15 @@ fun ChatScreen(
                 }
             }
         )
+        if (!searching && !selectionMode && !deleting && searchMatchSession.isActive) {
+            ChatSearchMatchBar(
+                session = searchMatchSession,
+                onReopenSearch = ::reopenSearchFromMatches,
+                onStepOlder = ::stepOlderSearchMatch,
+                onStepNewer = ::stepNewerSearchMatch,
+                onClose = { closeSearch() }
+            )
+        }
         // Keep presence above the entire composer, including any staged attachment tray.
         // Never place it between attachment previews and the caption/keyboard.
         key(chat.id) {
@@ -2081,14 +2241,17 @@ fun ChatScreen(
                 onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )
-            if (replyId != null) Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).chatChromeBackground(palette.surface).padding(start = 18.dp, end = 6.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        }
+        // The reply strip lives inside the field container, above the text, as one composer unit.
+        val replyHeader: (@Composable () -> Unit)? = if (replyId == null) null else ({
+            Row(Modifier.fillMaxWidth().motionEntrance(MotionToken.BannerChange, 8.dp).padding(start = 12.dp, end = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).clip(styledShape(12.dp)).then(if (chatGlass) Modifier.background(palette.surface.copy(alpha = 0.35f)) else Modifier).border(1.dp, palette.accent.copy(alpha = 0.45f), styledShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
                     Text(stringResource(R.string.chat_reply_label) + " · " + (replyTarget?.senderName?.ifBlank { if (replyTarget.isOutgoing) stringResource(R.string.chat_you) else chat.title } ?: stringResource(R.string.chat_message)), color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Text(replyTarget?.summary() ?: stringResource(R.string.chat_message_unavailable), color = palette.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
                 }
                 IconButton(enabled = !sending, onClick = ::clearReply) { Icon(Icons.Rounded.Close, stringResource(R.string.chat_cancel_reply_description), tint = palette.textSecondary) }
             }
-        }
+        })
         val editing = editMessage != null
         val fieldText = if (editing) editText else draft
         val fieldEntities = if (editing) editEntities else draftEntities
@@ -2170,6 +2333,7 @@ fun ChatScreen(
                 modifier = Modifier.fillMaxWidth().onFocusChanged { if (it.isFocused && stickerPanelOpen) stickerPanelOpen = false }.onGloballyPositioned { if (composerFieldBounds != it.boundsInWindow()) composerFieldBounds = it.boundsInWindow() },
                 focusRequest = replyFocusRequest, cursor = composerCursor,
                 // One entry to Emoji / Stickers / GIF, inside the input and before Record/Send.
+                header = if (editing) null else replyHeader,
                 trailingAction = if (!editing) {
                     {
                         StickerPanelEntryButton(
@@ -2325,11 +2489,11 @@ fun ChatScreen(
         }
         if (liveViewed?.media != null && liveViewed.isViewOnce) retainedViewOnce = liveViewed
     }
-    val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id) } }
-    val historyPages = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id) } } }
+    val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } }
+    val historyPages = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } } }
     // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
     val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
-        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id) } })
+        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } })
     val viewOnceGate = rememberViewOnceStealthGate(chat.id)
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(chat.id, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)) }
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(chat.id, viewOnceAsked.id) { selectedMediaId = null }
@@ -2860,7 +3024,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val special = message.special
     // Expired media owns its card; unknown content still gets the explicit fallback, never an empty bubble.
     val renderedSpecial = resolvedSpecialContent(message)
-    val showText = hasText && special !is MessageSpecialContent.Contact
+    // A BG Wave invitation is drawn as a card; its hidden service link is never shown as text or as a page preview.
+    val isWave = remember(message.id, message.text, message.entities) { BgWaveLink.find(message.text, message.entities) != null }
+    val showText = hasText && special !is MessageSpecialContent.Contact && !isWave
     val circle = message.media?.kind == MediaKind.VideoNote
     // Стикер лежит без пузыря: ни цвета, ни ширины фото.
     val stickerMedia = message.media?.takeIf { it.kind == MediaKind.Sticker }
@@ -3012,7 +3178,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 )
                             }
                             if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
-                            MessageMusicLinkCard(message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards)
+                            if (isWave) BgWaveMessageCard(message)
+                            else MessageMusicLinkCard(message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards)
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="music_radio_dislike">Je n\'aime pas</string>
+    <string name="music_radio_disliked">Morceau passé, la radio ne le reprendra pas</string>
+    <string name="music_radio_dislike_undo">Annuler</string>
+</resources>

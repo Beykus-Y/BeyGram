@@ -147,4 +147,5 @@
     <string name="composer_quality_short_balanced_audio">96 kbps</string>
     <string name="composer_attachments_clear_action">Quitar todos los adjuntos</string>
     <string name="composer_menu_chat_unavailable">Envía o quita primero los adjuntos preparados.</string>
+    <string name="composer_quality_all_title">Calidad para todos</string>
 </resources>

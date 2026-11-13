@@ -21,11 +21,16 @@ import androidx.compose.ui.window.*
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
 import com.beykus.beygram.ui.design.DesignSystem
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.SurfaceTreatment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
 
 /**
  * Material 3 composes the message field and its actions as tonal surfaces, so the field reads apart from the composer
@@ -37,7 +42,8 @@ internal val DesignSystem.composerTonal: Boolean get() = surfaces.treatment == S
 internal fun FormattingTextField(value: String, entities: List<MessageTextEntity>, onChange: (String) -> Unit,
     onEntitiesChange: (List<MessageTextEntity>) -> Unit, placeholder: String, locked: Boolean, isError: Boolean, modifier: Modifier,
     focusRequest: Int = 0, cursor: ComposerCursor? = null,
-    trailingAction: (@Composable () -> Unit)? = null) {
+    trailingAction: (@Composable () -> Unit)? = null,
+    header: (@Composable () -> Unit)? = null) {
     var field by remember { mutableStateOf(TextFieldValue(value)) }
     // Text set from outside keeps the cursor an outside edit chose (see [ComposerCursor]); otherwise it goes to the end.
     val current = if (field.text == value) field else TextFieldValue(value, cursor?.selectionFor(value) ?: TextRange(value.length))
@@ -60,32 +66,58 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
         keyboard?.show()
     }
     SelectionMenuProvider(modifier) {
-        TextField(current, { next ->
-            // Sending locks the text, not the field: a disabled field loses focus and hides the keyboard.
-            if (locked) return@TextField
-            // Moving the cursor or the selection also fires this callback; only a real text change is a change.
-            if (next.text != current.text) {
-                onEntitiesChange(adjustTextEntities(value, next.text, entities))
-                onChange(next.text)
-            }
-            field = next
-            cursor?.update(next.text, next.selection)
-        }, modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 40.dp).focusRequester(focusRequester).appendTextContextMenuComponents {
+        val container = composerFieldContainer(design)
+        val fieldShape = androidx.compose.foundation.shape.RoundedCornerShape(design.shapes.composer)
+        // BasicTextField, not TextField: the Material field is never shorter than 56 dp, and the composer is 48 dp.
+        BasicTextField(
+            value = current,
+            onValueChange = { next ->
+                // Sending locks the text, not the field: a disabled field loses focus and hides the keyboard.
+                if (!locked) {
+                    // Moving the cursor or the selection also fires this callback; only a real text change is a change.
+                    if (next.text != current.text) {
+                        onEntitiesChange(adjustTextEntities(value, next.text, entities))
+                        onChange(next.text)
+                    }
+                    field = next
+                    cursor?.update(next.text, next.selection)
+                }
+            },
+            modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = ComposerButtonSize).focusRequester(focusRequester).appendTextContextMenuComponents {
                 if (!current.selection.collapsed) item(FormatSelectionKey, formatLabel) {
                     range = current.selection
                     close()
                     format = true
                 }
-            }, isError = isError, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            placeholder = { Text(placeholder, color = palette.textSecondary) },
-            trailingIcon = trailingAction, maxLines = 5,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(design.shapes.composer), colors = composerFieldColors(design),
+            },
+            textStyle = TextStyle(color = palette.textPrimary, fontSize = 16.sp, lineHeight = 24.sp),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            cursorBrush = SolidColor(palette.accent),
+            maxLines = 5,
             visualTransformation = VisualTransformation { text ->
                 TransformedText(buildAnnotatedString {
                     append(text)
                     validTextEntities(text.text, entities).forEach { addStyle(entitySpan(it.kind, palette.accentInk, palette.textSecondary), it.offset, it.offset + it.length) }
                 }, OffsetMapping.Identity)
-            })
+            },
+            decorationBox = { inner ->
+                // The field's own container: one 48 dp row for one line of text, growing up to five lines.
+                // The trailing action (stickers, counter) sits inside it, pinned to the bottom line.
+                Column(
+                    Modifier.fillMaxWidth().clip(fieldShape).background(container)
+                        .border(if (isError) 1.dp else 0.dp, if (isError) palette.danger else Color.Transparent, fieldShape)
+                ) {
+                    header?.invoke()
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                        Box(Modifier.weight(1f).padding(start = 16.dp, top = 12.dp, bottom = 12.dp)) {
+                            if (current.text.isEmpty()) Text(placeholder, color = palette.textSecondary, fontSize = 16.sp, lineHeight = 24.sp)
+                            inner()
+                        }
+                        trailingAction?.invoke()
+                    }
+                }
+            }
+        )
     }
     if (format) AlertDialog(onDismissRequest = { format = false }, title = { Text(stringResource(R.string.chat_format)) }, text = {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
@@ -116,21 +148,5 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
 
 /** The field fill: the BeyGram field tone, or the Material 3 container ramp when the style is tonal. */
 @Composable
-private fun composerFieldColors(design: DesignSystem): TextFieldColors {
-    if (!design.composerTonal) return beyGramFilledTextFieldColors()
-    val palette = beyGramPalette()
-    val container = MaterialTheme.colorScheme.surfaceContainerHigh
-    return TextFieldDefaults.colors(
-        focusedContainerColor = container,
-        unfocusedContainerColor = container,
-        disabledContainerColor = container,
-        errorContainerColor = container,
-        focusedIndicatorColor = Color.Transparent,
-        unfocusedIndicatorColor = Color.Transparent,
-        disabledIndicatorColor = Color.Transparent,
-        errorIndicatorColor = Color.Transparent,
-        cursorColor = palette.accent,
-        focusedTextColor = palette.textPrimary,
-        unfocusedTextColor = palette.textPrimary
-    )
-}
+private fun composerFieldContainer(design: DesignSystem): Color =
+    if (design.composerTonal) MaterialTheme.colorScheme.surfaceContainerHigh else beyGramPalette().surface2

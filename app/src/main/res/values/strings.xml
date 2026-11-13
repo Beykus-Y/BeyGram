@@ -202,6 +202,9 @@
     <string name="chat_reply_to_message">Ответ на сообщение</string>
     <string name="chat_search_description">Поиск в чате</string>
     <string name="chat_search_failed">Не удалось выполнить поиск</string>
+    <string name="chat_search_match_position">%1$d из %2$d</string>
+    <string name="chat_search_previous_match">Предыдущее совпадение</string>
+    <string name="chat_search_next_match">Следующее совпадение</string>
     <string name="chat_send_later">Отложить отправку</string>
     <string name="chat_send_now">Отправить сейчас</string>
     <string name="chat_send_options">Параметры отправки</string>
@@ -1275,6 +1278,7 @@
     <string name="recorder_delete">Удалить</string>
     <string name="recorder_send">Отправить</string>
     <string name="recorder_cancel">Отмена</string>
+    <string name="recorder_discard">Удалить запись</string>
     <string name="voice_recorder_permission_granted_retry">Доступ разрешён. Удерживайте кнопку ещё раз, чтобы начать запись.</string>
     <string name="chat_retry_send">Повторить</string>
     <string name="chat_retry_send_failed">Не удалось повторить отправку</string>

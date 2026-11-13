@@ -5,7 +5,11 @@ import com.beykus.beygram.ui.design.PanelFloor
 import com.beykus.beygram.ui.design.signatureChrome
 import com.beykus.beygram.ui.design.HairlineEdge
 import com.beykus.beygram.ui.design.GlassPanel
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.togetherWith
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
@@ -89,6 +93,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
+import com.beykus.beygram.media.bgwave.BgWaveHub
+import com.beykus.beygram.media.bgwave.BgWavePhase
+import com.beykus.beygram.media.bgwave.BgWaveRole
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
@@ -155,7 +164,9 @@ fun NowPlayingBar(
     /** True above the floating navigation capsule: the bar takes the capsule's margins, corners and material. */
     floatingDock: Boolean = false,
     /** True at the foot of the slim rail of a short window: a round cover with a progress ring replaces the bar. */
-    railCover: Boolean = false
+    railCover: Boolean = false,
+    /** Compact vertical density used inside an open chat so the bar yields more space to messages. */
+    compact: Boolean = false
 ) {
     val providedOpenEqualizer = LocalOpenEqualizer.current
     val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
@@ -171,6 +182,10 @@ fun NowPlayingBar(
     var fullPlayerOpen by rememberSaveable { mutableStateOf(false) }
     val enterSpec = rememberMotionSpec(MotionToken.SheetEnter)
     val exitSpec = rememberMotionSpec(MotionToken.SheetExit)
+    val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
+    // A listener in a live wave gets this bar when no track is playing; a track in the player always wins the slot.
+    val wave by BgWaveHub.controller.state.collectAsStateWithLifecycle()
+    val waveListening = wave?.role == BgWaveRole.Listener && wave?.phase == BgWavePhase.Live
 
     LaunchedEffect(Unit) {
         MusicPlayerLauncher.openRequests.collect {
@@ -187,36 +202,66 @@ fun NowPlayingBar(
         AnimatedVisibility(visible = mini != null && shouldShowMiniPlayer(true, hideWhenImeVisible, keyboardVisible)) {
             if (shown != null) RailMiniPlayerCover(shown, onOpen = { fullPlayerOpen = true })
         }
-    } else AnimatedVisibility(
-        visible = shouldShowMiniPlayer(mini != null, hideWhenImeVisible, keyboardVisible),
-        // The bar only slides and fades. Instant specs (Off, reduced motion) skip both, so it appears on its first frame.
-        enter = if (enterSpec.isInstant) EnterTransition.None else
-            enterSpec.fadeEnter() + slideInVertically(enterSpec.animationSpec()) { (it / 2 * enterSpec.intensity).roundToInt() },
-        exit = if (hiddenForIme || exitSpec.isInstant) ExitTransition.None else
-            exitSpec.fadeExit() + slideOutVertically(exitSpec.animationSpec()) { (it / 2 * exitSpec.intensity).roundToInt() },
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        val shown = mini ?: lastMini
-        if (shown != null) {
-            MiniPlayerBar(
-                ui = shown,
-                bottomInset = bottomInset,
-                floatingDock = floatingDock,
-                onOpen = { fullPlayerOpen = true },
-                // A long press is a shortcut to the library for people who never found it in the menus.
-                onLongOpen = if (shown.isMusic) openMyMusic else null
-            )
+    } else {
+        val slot = resolveNowPlayingBarSlot(
+            hasItem = mini != null,
+            undoAvailable = undoAvailable,
+            hideWhenImeVisible = hideWhenImeVisible,
+            keyboardVisible = keyboardVisible,
+            waveListening = waveListening
+        )
+        AnimatedContent(
+            targetState = slot,
+            transitionSpec = {
+                val instant = hiddenForIme || enterSpec.isInstant || exitSpec.isInstant
+                when {
+                    instant -> (EnterTransition.None togetherWith ExitTransition.None)
+                        .using(SizeTransform(clip = true) { _, _ -> snap() })
+                    initialState != NowPlayingBarSlot.Hidden && targetState != NowPlayingBarSlot.Hidden ->
+                        // Mini-player <-> Undo swaps in place with a synchronized fade and size transform,
+                        // never stacking two panels vertically or sliding one out while the other snaps in.
+                        (enterSpec.fadeEnter() togetherWith exitSpec.fadeExit())
+                            .using(SizeTransform(clip = true) { _, _ -> enterSpec.animationSpec() })
+                    targetState == NowPlayingBarSlot.Hidden ->
+                        (EnterTransition.None togetherWith
+                            (exitSpec.fadeExit() + slideOutVertically(exitSpec.animationSpec()) { (it / 2 * exitSpec.intensity).roundToInt() }))
+                            .using(SizeTransform(clip = true) { _, _ -> exitSpec.animationSpec() })
+                    else ->
+                        ((enterSpec.fadeEnter() + slideInVertically(enterSpec.animationSpec()) { (it / 2 * enterSpec.intensity).roundToInt() })
+                            togetherWith ExitTransition.None)
+                            .using(SizeTransform(clip = true) { _, _ -> enterSpec.animationSpec() })
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = "nowPlayingBarSlot"
+        ) { activeSlot ->
+            when (activeSlot) {
+                NowPlayingBarSlot.Hidden -> Box(Modifier.fillMaxWidth())
+                NowPlayingBarSlot.MiniPlayer -> {
+                    val shown = mini ?: lastMini
+                    if (mini == null && waveListening) {
+                        WaveListenerBar(bottomInset = bottomInset, floatingDock = floatingDock, compact = compact)
+                    } else if (shown != null) {
+                        MiniPlayerBar(
+                            ui = shown,
+                            bottomInset = bottomInset,
+                            floatingDock = floatingDock,
+                            compact = compact,
+                            onOpen = { fullPlayerOpen = true },
+                            // A long press is a shortcut to the library for people who never found it in the menus.
+                            onLongOpen = if (shown.isMusic) openMyMusic else null
+                        )
+                    } else {
+                        Box(Modifier.fillMaxWidth())
+                    }
+                }
+                NowPlayingBarSlot.UndoClose -> UndoCloseBar(
+                    bottomInset = bottomInset,
+                    floatingDock = floatingDock,
+                    compact = compact
+                )
+            }
         }
-    }
-
-    val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
-    AnimatedVisibility(
-        visible = !railCover && mini == null && undoAvailable,
-        enter = EnterTransition.None,
-        exit = ExitTransition.None,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        UndoCloseBar(bottomInset = bottomInset, floatingDock = floatingDock)
     }
 
     if (fullPlayerOpen) {
@@ -234,7 +279,7 @@ fun NowPlayingBar(
 }
 
 @Composable
-private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, onOpen: () -> Unit, onLongOpen: (() -> Unit)? = null) {
+private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: Boolean, compact: Boolean, onOpen: () -> Unit, onLongOpen: (() -> Unit)? = null) {
     // Music takes its tint from the cover, or from the theme accent without one. Voice and circles keep the theme.
     val cover = rememberCoverTokens(
         artworkPath = ui.artworkPath,
@@ -249,9 +294,9 @@ private fun MiniPlayerBar(ui: MiniPlayerUi, bottomInset: Boolean, floatingDock: 
     val artworkTokens = if (inkOnly) cover.tokens else null
     CompositionLocalProvider(LocalBeyGramTokens provides chromeTokens) {
         if (floatingDock) {
-            MiniDockCard { MiniPlayerBarContent(ui, bottomInset, floatingDock = true, onOpen = onOpen, onLongOpen = onLongOpen, artworkTokens = artworkTokens) }
+            MiniDockCard { MiniPlayerBarContent(ui, bottomInset, floatingDock = true, compact = compact, onOpen = onOpen, onLongOpen = onLongOpen, artworkTokens = artworkTokens) }
         } else {
-            MiniPlayerBarContent(ui, bottomInset, floatingDock = false, onOpen = onOpen, onLongOpen = onLongOpen, artworkTokens = artworkTokens)
+            MiniPlayerBarContent(ui, bottomInset, floatingDock = false, compact = compact, onOpen = onOpen, onLongOpen = onLongOpen, artworkTokens = artworkTokens)
         }
     }
 }
@@ -298,10 +343,31 @@ private fun MiniDockCard(content: @Composable () -> Unit) {
 }
 
 @Composable
+private fun miniPlayerChromeModifier(bottomInset: Boolean, floatingDock: Boolean): Modifier {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    return Modifier
+        .fillMaxWidth()
+        .then(
+            if (floatingDock || com.beykus.beygram.ui.screens.chat.LocalChatChromeOnGlass.current) Modifier else when (design.components.topBar) {
+                TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
+                TopBarVariant.Glass -> Modifier.background(design.surfaces.panelFill(palette.surface, PanelFloor.Player))
+                TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
+                TopBarVariant.Flat -> Modifier.background(palette.surface)
+            }
+        )
+        .then(
+            if (bottomInset) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+            else Modifier
+        )
+}
+
+@Composable
 private fun MiniPlayerBarContent(
     ui: MiniPlayerUi,
     bottomInset: Boolean,
     floatingDock: Boolean,
+    compact: Boolean,
     onOpen: () -> Unit,
     onLongOpen: (() -> Unit)? = null,
     artworkTokens: com.beykus.beygram.ui.theme.BeyGramTokens? = null
@@ -314,34 +380,27 @@ private fun MiniPlayerBarContent(
     val subtitle = miniSubtitle(ui)
     // Above a rounded dock the top edge is clipped by the corners, so the track is inset by the radius to stay visible.
     val progressInset = if (floatingDock) navigationSpecFor(design).dockRadius else 0.dp
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .then(
-                if (floatingDock || com.beykus.beygram.ui.screens.chat.LocalChatChromeOnGlass.current) Modifier else when (design.components.topBar) {
-                    TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
-                    TopBarVariant.Glass -> Modifier.background(design.surfaces.panelFill(palette.surface, PanelFloor.Player))
-                    TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
-                    TopBarVariant.Flat -> Modifier.background(palette.surface)
-                }
-            )
-            .then(
-                if (bottomInset) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                else Modifier
-            )
-    ) {
+    val rowMinHeight = if (compact) 48.dp else 56.dp
+    val artworkSize = if (compact) 32.dp else 42.dp
+    val artworkRadius = if (compact) 8.dp else 10.dp
+    val artworkSymbol = if (compact) 16.dp else 20.dp
+    val titleSize = if (compact) 13.sp else 14.sp
+    val subtitleSize = if (compact) 11.sp else 12.sp
+    val iconModifier = if (compact) Modifier.size(20.dp) else Modifier
+    val buttonModifier = if (compact) Modifier.size(width = 44.dp, height = 48.dp) else Modifier
+    Column(miniPlayerChromeModifier(bottomInset = bottomInset, floatingDock = floatingDock)) {
         // On a pinned bar the track is the top edge. In a floating capsule it runs along the bottom instead, so it does
         // not compete with the glass rim on the top edge and is not cut by the rounded corners.
         if (!floatingDock) WithCoverTint(artworkTokens) { MiniPlayerProgress() }
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 8.dp, end = 2.dp),
+            Modifier.fillMaxWidth().heightIn(min = rowMinHeight).padding(start = 8.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 Modifier
                     .weight(1f)
-                    .heightIn(min = 48.dp)
-                    .clip(styledShape(12.dp))
+                    .heightIn(min = if (compact) 44.dp else 48.dp)
+                    .clip(styledShape(if (compact) 10.dp else 12.dp))
                     .miniPlayerSwipe(
                         onPrevious = { PlaybackEngine.previous() },
                         onNext = { PlaybackEngine.next() }
@@ -353,7 +412,7 @@ private fun MiniPlayerBarContent(
                         onLongClick = onLongOpen,
                         onClick = onOpen
                     )
-                    .padding(start = 2.dp, end = 6.dp),
+                    .padding(start = 2.dp, end = if (compact) 4.dp else 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 WithCoverTint(artworkTokens) {
@@ -361,15 +420,15 @@ private fun MiniPlayerBarContent(
                     TrackArtwork(
                         artworkPath = ui.artworkPath,
                         audioPath = ui.audioPath,
-                        modifier = Modifier.size(42.dp),
+                        modifier = Modifier.size(artworkSize),
                         background = artPalette.accentSoft,
                         tint = artPalette.accentInk,
-                        symbolSize = 20.dp,
-                        cornerRadius = 10.dp,
+                        symbolSize = artworkSymbol,
+                        cornerRadius = artworkRadius,
                         border = artPalette.divider.copy(alpha = 0.55f)
                     )
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
                 Column(Modifier.weight(1f)) {
                     Crossfade(
                         targetState = MiniPlayerText(ui.title, subtitle),
@@ -380,7 +439,7 @@ private fun MiniPlayerBarContent(
                             Text(
                                 text.title,
                                 color = palette.textPrimary,
-                                fontSize = 14.sp,
+                                fontSize = titleSize,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -389,7 +448,7 @@ private fun MiniPlayerBarContent(
                                 Text(
                                     text.subtitle,
                                     color = if (ui.failed) palette.danger else palette.textSecondary,
-                                    fontSize = 12.sp,
+                                    fontSize = subtitleSize,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f, fill = false)
@@ -414,8 +473,8 @@ private fun MiniPlayerBarContent(
                 }
             }
             if (ui.canNext) {
-                IconButton(onClick = { PlaybackEngine.next() }) {
-                    Icon(Icons.Rounded.SkipNext, stringResource(R.string.player_next), tint = palette.textSecondary)
+                IconButton(onClick = { PlaybackEngine.next() }, modifier = buttonModifier) {
+                    Icon(Icons.Rounded.SkipNext, stringResource(R.string.player_next), tint = palette.textSecondary, modifier = iconModifier)
                 }
             }
             val playIcon = when {
@@ -431,7 +490,7 @@ private fun MiniPlayerBarContent(
             }
             IconButton(
                 onClick = { PlaybackEngine.togglePlayPause() },
-                modifier = Modifier.semantics { contentDescription = playLabel }
+                modifier = buttonModifier.semantics { contentDescription = playLabel }
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Crossfade(
@@ -439,11 +498,11 @@ private fun MiniPlayerBarContent(
                         animationSpec = playSpec.animationSpec(),
                         label = "miniPlayPause"
                     ) { icon ->
-                        Icon(icon, null, tint = palette.accentInk)
+                        Icon(icon, null, tint = palette.accentInk, modifier = iconModifier)
                     }
                     if (ui.intentPlaying && ui.buffering) {
                         CircularProgressIndicator(
-                            Modifier.size(26.dp),
+                            Modifier.size(if (compact) 22.dp else 26.dp),
                             strokeWidth = 2.dp,
                             color = palette.accent.copy(alpha = 0.55f)
                         )
@@ -451,8 +510,8 @@ private fun MiniPlayerBarContent(
                 }
             }
             // Close is always there, also while music plays; a slip is cheap because «Вернуть» brings the queue back.
-            IconButton(onClick = { PlaybackEngine.close() }) {
-                Icon(Icons.Rounded.Close, stringResource(R.string.player_stop), tint = palette.textSecondary)
+            IconButton(onClick = { PlaybackEngine.close() }, modifier = buttonModifier) {
+                Icon(Icons.Rounded.Close, stringResource(R.string.player_stop), tint = palette.textSecondary, modifier = iconModifier)
             }
         }
         if (floatingDock) WithCoverTint(artworkTokens) { MiniPlayerProgress(Modifier.padding(horizontal = progressInset)) }
@@ -519,21 +578,22 @@ private fun RailMiniPlayerCover(ui: MiniPlayerUi, onOpen: () -> Unit) {
 
 /** Shown for a few seconds after the mini-player was closed: the queue and the place are still there to bring back. */
 @Composable
-private fun UndoCloseBar(bottomInset: Boolean, floatingDock: Boolean) {
+private fun UndoCloseBar(bottomInset: Boolean, floatingDock: Boolean, compact: Boolean) {
     val palette = beyGramPalette()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val minHeight = if (compact) 48.dp else 56.dp
     val row: @Composable () -> Unit = {
         Row(
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 52.dp)
+                .heightIn(min = minHeight)
                 .padding(start = 18.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 stringResource(R.string.player_closed),
                 color = palette.textPrimary,
-                fontSize = 14.sp,
+                fontSize = if (compact) 13.sp else 14.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f)
             )
@@ -546,13 +606,69 @@ private fun UndoCloseBar(bottomInset: Boolean, floatingDock: Boolean) {
             }
         }
     }
-    // The same card as the mini-player and the dock (glass included), so closing does not swap it for a flat strip.
-    Column(
-        Modifier.then(
-            if (bottomInset) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)) else Modifier
-        )
-    ) {
-        if (floatingDock) MiniDockCard(row) else Box(Modifier.fillMaxWidth().background(palette.surface)) { row() }
+    // The same card and chrome treatment as the mini-player and the dock, so closing does not swap it for a mismatched strip.
+    if (floatingDock) {
+        Column(
+            Modifier.then(
+                if (bottomInset) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)) else Modifier
+            )
+        ) {
+            MiniDockCard(row)
+        }
+    } else {
+        Box(miniPlayerChromeModifier(bottomInset = bottomInset, floatingDock = false)) { row() }
+    }
+}
+
+@Composable
+private fun WaveListenerBar(bottomInset: Boolean, floatingDock: Boolean, compact: Boolean) {
+    val palette = beyGramPalette()
+    val scope = rememberCoroutineScope()
+    val minHeight = if (compact) 48.dp else 56.dp
+    val row: @Composable () -> Unit = {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = minHeight)
+                .padding(start = 18.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.bgwave_mini_title),
+                    color = palette.textPrimary,
+                    fontSize = if (compact) 13.sp else 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    stringResource(R.string.bgwave_status_live),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            TextButton(onClick = { scope.launch { BgWaveHub.stop() } }) {
+                Text(
+                    stringResource(R.string.bgwave_action_stop),
+                    color = palette.accent,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+    if (floatingDock) {
+        Column(
+            Modifier.then(
+                if (bottomInset) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)) else Modifier
+            )
+        ) {
+            MiniDockCard(row)
+        }
+    } else {
+        Box(miniPlayerChromeModifier(bottomInset = bottomInset, floatingDock = false)) { row() }
     }
 }
 

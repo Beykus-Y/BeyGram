@@ -18,12 +18,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Pause
+import com.beykus.beygram.playback.PlaybackEngine
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import com.beykus.beygram.ui.screens.music.WaveBackdrop
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -47,8 +53,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
-import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.MusicProviderState
+import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderAlbum
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
@@ -57,8 +63,11 @@ import com.beykus.beygram.data.music.provider.ProviderTrack
 import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.data.yandex.YandexMusicProvider
 import com.beykus.beygram.data.yandex.YandexWave
+import com.beykus.beygram.data.yandex.YandexWaveSettings
+import com.beykus.beygram.data.yandex.YandexWaveSettingsStore
 import com.beykus.beygram.data.yandex.YandexWaveLauncher
 import com.beykus.beygram.data.yandex.YandexWaveFeedback
+import com.beykus.beygram.data.yandex.YandexWaveResume
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.material.icons.rounded.MoreVert
@@ -89,6 +98,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private val WaveCardHeight = 168.dp
 
 /**
  * Yandex Music in the music screens: its tab (likes, playlists, albums) and its search results. DEV only; loaded by
@@ -244,6 +255,9 @@ class YandexMusicHost : ProviderMusicHost {
     }
 
     private var waveStarting by mutableStateOf(false)
+    /** The «Моя волна» settings of the signed-in account; read on sign-in, saved on «Слушать». */
+    private var waveSettings by mutableStateOf(YandexWaveSettings.DEFAULTS)
+    private var waveSettingsOpen by mutableStateOf(false)
     private var waveFailure by mutableStateOf<MusicProviderFailure?>(null)
 
     /**
@@ -259,7 +273,7 @@ class YandexMusicHost : ProviderMusicHost {
         YandexWaveLauncher.start(
             context = context,
             provider = yandex,
-            seeds = listOf(YandexWave.MY_WAVE_SEED),
+            seeds = waveSettings.seeds(YandexWave.MY_WAVE_SEED),
             subtitle = context.getString(R.string.yandex_wave_source_personal),
             startTrack = null,
             isCurrent = { mine == selectionGeneration },
@@ -386,11 +400,53 @@ class YandexMusicHost : ProviderMusicHost {
         }
         if (account.hasSubscription) item(key = "yandex-wave") {
             val context = LocalContext.current
+            val offered by YandexWaveResume.offered.collectAsStateWithLifecycle()
+            val playback by PlaybackEngine.state.collectAsStateWithLifecycle()
+            val waveTitle = stringResource(R.string.yandex_wave_title)
+            // The radio is not a flow, so it is read on each playback change; the state flow drives recomposition.
+            val waveActive = PlaybackEngine.activeRadio?.title == waveTitle && playback.item != null
+            Column(Modifier.fillMaxWidth()) {
+            val uid = (provider.state.value as? MusicProviderState.SignedIn)?.account?.uid.orEmpty()
+            LaunchedEffect(uid) { waveSettings = YandexWaveSettingsStore.load(context, uid) }
             WaveTile(
                 starting = waveStarting,
+                summary = waveSummary(context, waveSettings),
                 failure = waveFailure,
-                onStart = if (onPlay != null) ({ startWave(context, provider) }) else null
+                resume = offered,
+                active = waveActive,
+                playing = waveActive && (playback.playing || playback.intentPlaying),
+                onStart = if (onPlay != null) ({ startWave(context, provider) }) else null,
+                onResume = { YandexWaveResume.resume() },
+                onTogglePlayPause = { PlaybackEngine.togglePlayPause() },
             )
+            TextButton(onClick = { waveSettingsOpen = true }, modifier = Modifier.padding(horizontal = MusicScreenGutter)) {
+                Text(stringResource(R.string.yandex_wave_settings_open))
+            }
+            if (waveSettingsOpen) YandexWaveSettingsSheet(
+                initial = waveSettings,
+                onListen = { chosen ->
+                    waveSettingsOpen = false
+                    if (waveActive) {
+                        // The playing track keeps playing; the upcoming ones change. On failure nothing is saved.
+                        YandexWaveLauncher.changeSeeds(
+                            context = context,
+                            seeds = chosen.seeds(YandexWave.MY_WAVE_SEED),
+                            subtitle = waveSummary(context, chosen),
+                        ) { changed ->
+                            if (changed) {
+                                waveSettings = chosen
+                                YandexWaveSettingsStore.save(context, uid, chosen)
+                            }
+                        }
+                    } else {
+                        waveSettings = chosen
+                        YandexWaveSettingsStore.save(context, uid, chosen)
+                        if (onPlay != null) startWave(context, provider)
+                    }
+                },
+                onDismiss = { waveSettingsOpen = false },
+            )
+            }
         }
         val failure = libraryFailure
         if (failure != null && !libraryLoading) item(key = "yandex-failure") {
@@ -505,51 +561,101 @@ class YandexMusicHost : ProviderMusicHost {
         }
     }
 
+    /** Diversity chips under the wave card. Not verified on device yet: the seed values come from the API docs. */
+    @Composable
+    private fun WaveDiversityRow(selected: YandexWave.Diversity, onSelect: (YandexWave.Diversity) -> Unit) {
+        Row(
+            Modifier.fillMaxWidth()
+                .padding(horizontal = MusicScreenGutter, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val options = listOf(
+                YandexWave.Diversity.DEFAULT to R.string.yandex_wave_diversity_default,
+                YandexWave.Diversity.DISCOVER to R.string.yandex_wave_diversity_discover,
+                YandexWave.Diversity.POPULAR to R.string.yandex_wave_diversity_popular,
+            )
+            options.forEach { (value, label) ->
+                FilterChip(
+                    selected = selected == value,
+                    onClick = { onSelect(value) },
+                    label = { Text(stringResource(label)) },
+                )
+            }
+        }
+    }
+
     /** The «Моя волна» card at the top of the tab: one tap starts an endless stream of recommendations. */
     @Composable
-    private fun WaveTile(starting: Boolean, failure: MusicProviderFailure?, onStart: (() -> Unit)?) {
+    private fun WaveTile(
+        starting: Boolean,
+        summary: String,
+        failure: MusicProviderFailure?,
+        resume: YandexWaveResume.Saved?,
+        active: Boolean,
+        playing: Boolean,
+        onStart: (() -> Unit)?,
+        onResume: () -> Unit,
+        onTogglePlayPause: () -> Unit,
+    ) {
         val palette = beyGramPalette()
         val subtitle = when {
             starting -> stringResource(R.string.yandex_wave_starting)
+            active && playing -> stringResource(R.string.yandex_wave_now_playing)
+            active -> stringResource(R.string.yandex_wave_paused)
+            resume != null -> stringResource(R.string.yandex_wave_resume, resume.track.performer, resume.track.title)
             failure != null -> stringResource(waveFailureText(failure))
-            else -> stringResource(R.string.yandex_wave_subtitle)
+            else -> summary
         }
-        Row(
+        val action: (() -> Unit)? = when {
+            active -> onTogglePlayPause
+            resume != null -> onResume
+            else -> onStart
+        }
+        Box(
             Modifier.fillMaxWidth()
                 .padding(horizontal = MusicScreenGutter)
-                .heightIn(min = 92.dp)
+                .height(WaveCardHeight)
                 .musicCard()
-                .background(Brush.linearGradient(listOf(palette.accentSoft.copy(alpha = 0.55f), palette.accent.copy(alpha = 0.22f))))
+                .background(palette.accentSoft.copy(alpha = 0.35f))
                 .then(
-                    if (onStart != null && !starting) {
+                    if (action != null && !starting) {
                         Modifier.clickable(
                             role = Role.Button,
                             onClickLabel = stringResource(R.string.yandex_wave_play),
-                            onClick = onStart
+                            onClick = action
                         )
                     } else {
                         Modifier
                     }
                 )
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
         ) {
+            WaveBackdrop(
+                color = palette.accent,
+                secondary = palette.accentSoft,
+                modifier = Modifier.matchParentSize(),
+            )
             Box(
-                Modifier.size(56.dp).clip(CircleShape).background(palette.accent),
+                Modifier.align(Alignment.TopEnd).padding(14.dp).size(56.dp).clip(CircleShape).background(palette.accent),
                 contentAlignment = Alignment.Center
             ) {
                 if (starting) {
                     CircularProgressIndicator(Modifier.size(24.dp), color = palette.onAccent, strokeWidth = 2.5.dp)
                 } else {
-                    Icon(Icons.Rounded.Waves, null, tint = palette.onAccent, modifier = Modifier.size(28.dp))
+                    Icon(
+                        if (active && playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        null,
+                        tint = palette.onAccent,
+                        modifier = Modifier.size(32.dp),
+                    )
                 }
             }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
+            Column(
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+            ) {
                 Text(
                     stringResource(R.string.yandex_wave_title),
                     color = palette.textPrimary,
-                    fontSize = 18.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -563,17 +669,9 @@ class YandexMusicHost : ProviderMusicHost {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (onStart != null) {
-                Spacer(Modifier.width(8.dp))
-                Icon(
-                    Icons.Rounded.PlayArrow,
-                    null,
-                    tint = palette.accentInk,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
         }
     }
+
 
     private fun waveFailureText(failure: MusicProviderFailure): Int = when (failure) {
         MusicProviderFailure.Network -> R.string.yandex_error_network

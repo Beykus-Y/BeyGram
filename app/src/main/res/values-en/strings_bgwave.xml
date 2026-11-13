@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgwave_service_label">BeyGram service message</string>
+    <string name="bgwave_card_invite_title">Wave together</string>
+    <string name="bgwave_card_invite_subtitle">Invitation to listen to the wave</string>
+    <string name="bgwave_safe_unsupported_version">This wave version is not supported. Update BeyGram.</string>
+    <string name="bgwave_safe_expired">The invitation has expired.</string>
+    <string name="bgwave_safe_not_yet_valid">The invitation is not valid yet. Check the device time.</string>
+    <string name="bgwave_safe_invalid">The invitation could not be read.</string>
+    <string name="bgwave_safe_unavailable">Wave is not available on this device.</string>
+    <string name="bgwave_status_sent">Invitation sent</string>
+    <string name="bgwave_status_offering">Sending the invitation…</string>
+    <string name="bgwave_status_awaiting">Waiting for an answer…</string>
+    <string name="bgwave_status_connecting">Connecting…</string>
+    <string name="bgwave_status_live">Wave is playing</string>
+    <string name="bgwave_status_reconnecting">Reconnecting…</string>
+    <string name="bgwave_status_failed">Could not connect</string>
+    <string name="bgwave_status_ended">The wave has ended</string>
+    <string name="bgwave_status_declined">You declined the invitation</string>
+    <string name="bgwave_status_cancelled">The invitation was cancelled</string>
+    <string name="bgwave_action_join">Join</string>
+    <string name="bgwave_action_decline">Decline</string>
+    <string name="bgwave_action_stop">Stop</string>
+    <string name="bgwave_action_retry">Retry</string>
+    <string name="bgwave_error_unavailable">Wave is not available on this device.</string>
+    <string name="bgwave_error_send_failed">The message could not be sent. Check the connection and try again.</string>
+    <string name="bgwave_error_no_connection">The direct connection failed. Try again.</string>
+    <string name="bgwave_error_busy">Another wave is already running. Stop it first.</string>
+    <string name="bgwave_error_expired">The invitation has expired.</string>
+    <string name="bgwave_error_rejected">The answer did not match this wave.</string>
+    <string name="bgwave_share_action">Share wave</string>
+    <string name="bgwave_action_stop_wave">Stop wave</string>
+    <string name="bgwave_share_one_person">Pick one person: a wave plays for a single listener.</string>
+    <string name="bgwave_share_sent">Invitation sent</string>
+    <string name="bgwave_share_confirm_title">Send the invitation to the chat “%s”?</string>
+    <string name="bgwave_share_confirm_body">They will see an invitation to listen to what is playing for you now. With a direct connection your IP address may be visible to them. The sound is not saved and plays only while the wave runs.</string>
+    <string name="bgwave_share_confirm_send">Send</string>
+    <string name="bgwave_share_confirm_cancel">Cancel</string>
+    <string name="bgwave_mini_title">Wave</string>
+</resources>

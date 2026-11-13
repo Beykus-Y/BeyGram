@@ -2,9 +2,11 @@ package com.beykus.beygram.ui.accessibility
 
 import android.content.Context
 import android.database.ContentObserver
+import android.hardware.input.InputManager
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.InputDevice
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -81,9 +83,75 @@ private fun readSystemReducedMotion(context: Context): Boolean {
     val scale = runCatching {
         Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
     }.getOrDefault(1f)
-    val touchExploration = runCatching {
+    return isMotionReduced(scale, readTouchExplorationEnabled(context))
+}
+
+private fun readTouchExplorationEnabled(context: Context): Boolean = runCatching {
+    val manager = context.getSystemService(AccessibilityManager::class.java)
+    manager?.isEnabled == true && manager.isTouchExplorationEnabled
+}.getOrDefault(false)
+
+/**
+ * Observes accessibility touch exploration (TalkBack) live so open overlays such as MediaViewer
+ * update navigation buttons and auto-hide immediately when TalkBack is toggled.
+ */
+@Composable
+internal fun rememberTouchExplorationEnabled(): Boolean {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var enabled by remember(context) { mutableStateOf(readTouchExplorationEnabled(context)) }
+
+    LaunchedEffect(context, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            enabled = readTouchExplorationEnabled(context)
+        }
+    }
+
+    DisposableEffect(context) {
+        val refresh = { enabled = readTouchExplorationEnabled(context) }
         val manager = context.getSystemService(AccessibilityManager::class.java)
-        manager?.isEnabled == true && manager.isTouchExplorationEnabled
-    }.getOrDefault(false)
-    return isMotionReduced(scale, touchExploration)
+        val touchListener = AccessibilityManager.TouchExplorationStateChangeListener { refresh() }
+        val accessibilityListener = AccessibilityManager.AccessibilityStateChangeListener { refresh() }
+        manager?.addTouchExplorationStateChangeListener(touchListener)
+        manager?.addAccessibilityStateChangeListener(accessibilityListener)
+        onDispose {
+            manager?.removeTouchExplorationStateChangeListener(touchListener)
+            manager?.removeAccessibilityStateChangeListener(accessibilityListener)
+        }
+    }
+    return enabled
+}
+
+/** Pure check for whether any connected input device reports mouse pointer capability. */
+internal fun hasMouseInputDevice(deviceSources: Iterable<Int>): Boolean =
+    deviceSources.any { sources -> (sources and InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE }
+
+private fun readMousePointerConnected(context: Context): Boolean = runCatching {
+    val inputManager = context.getSystemService(InputManager::class.java) ?: return@runCatching false
+    val sources = inputManager.inputDeviceIds.asIterable().mapNotNull { id ->
+        inputManager.getInputDevice(id)?.takeIf { !it.isVirtual }?.sources
+    }
+    hasMouseInputDevice(sources)
+}.getOrDefault(false)
+
+/**
+ * Observes physical mouse/trackpad devices via [InputManager] so mouse-only devices without a hardware
+ * keyboard still expose assistive viewer controls (side arrows and zoom +/-).
+ */
+@Composable
+internal fun rememberHasMousePointer(): Boolean {
+    val context = LocalContext.current
+    var connected by remember(context) { mutableStateOf(readMousePointerConnected(context)) }
+    DisposableEffect(context) {
+        val inputManager = context.getSystemService(InputManager::class.java)
+        val refresh = { connected = readMousePointerConnected(context) }
+        val listener = object : InputManager.InputDeviceListener {
+            override fun onInputDeviceAdded(deviceId: Int) = refresh()
+            override fun onInputDeviceRemoved(deviceId: Int) = refresh()
+            override fun onInputDeviceChanged(deviceId: Int) = refresh()
+        }
+        inputManager?.registerInputDeviceListener(listener, Handler(Looper.getMainLooper()))
+        onDispose { inputManager?.unregisterInputDeviceListener(listener) }
+    }
+    return connected
 }

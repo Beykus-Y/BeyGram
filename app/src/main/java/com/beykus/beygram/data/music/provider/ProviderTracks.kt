@@ -7,6 +7,8 @@ import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -151,6 +153,39 @@ object ProviderTracks {
     )
 
     /** Puts [track] right after the current track, or starts it when nothing plays. */
+    private const val UNDO_WINDOW_MS = 5_000L
+
+    private val _pendingDislike = MutableStateFlow<ProviderTrack?>(null)
+
+    /** The track just skipped as disliked while its undo offer shows; null when there is none. */
+    val pendingDislike: StateFlow<ProviderTrack?> = _pendingDislike.asStateFlow()
+    private var undoJob: Job? = null
+
+    /**
+     * Skips [track] at once and sends its dislike after [UNDO_WINDOW_MS]. [undoDislike] within that time puts the track
+     * back next in the queue and sends nothing. An earlier dislike still on its way is not cancelled. A failed request is
+     * dropped: it only tunes the source, playback goes on.
+     */
+    fun dislikeWithUndo(context: Context, track: ProviderTrack) {
+        val app = context.applicationContext
+        PlaybackEngine.next()
+        _pendingDislike.value = track
+        undoJob = scope.launch {
+            delay(UNDO_WINDOW_MS)
+            if (_pendingDislike.value?.trackId == track.trackId) _pendingDislike.value = null
+            withContext(Dispatchers.IO) { MusicProviders.yandex(app)?.setDisliked(track.trackId, true) }
+        }
+    }
+
+    /** Puts the disliked track back next in the queue and cancels its dislike, if the undo window is still open. */
+    fun undoDislike(context: Context) {
+        val track = _pendingDislike.value ?: return
+        undoJob?.cancel()
+        undoJob = null
+        _pendingDislike.value = null
+        playNext(context, track)
+    }
+
     fun playNext(context: Context, track: ProviderTrack) {
         if (!track.isAvailable) return
         remember(listOf(track))

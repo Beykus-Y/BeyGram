@@ -35,6 +35,8 @@
 #include "bgmedia/mix/MixSession.hpp"
 #endif
 
+#include "bgwave_session.h"
+
 namespace {
 
 constexpr std::uint32_t kMixSampleRate = 48000;
@@ -298,6 +300,31 @@ Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeUpdate(JNIEnv*, jclass, jl
     host->session->update();
 #else
     (void)handle;
+#endif
+}
+
+
+// Attaches the live BG Wave session as the host PCM tap, or detaches it when sessionHandle is 0.
+// The engine then feeds the session's pipeline from its audio thread; no second pipeline is created.
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeSetWaveTap(JNIEnv*, jclass, jlong handle,
+                                                                 jlong sessionHandle) {
+#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
+    MixHost* host = hostFrom(handle);
+    if (!host) return JNI_FALSE;
+    std::lock_guard lock(host->control);
+    if (sessionHandle == 0) {
+        host->engine.setPcmTap(nullptr);
+        return JNI_TRUE;
+    }
+    auto pipeline = bgWaveSessionPipeline(sessionHandle);
+    if (!pipeline) return JNI_FALSE;
+    host->engine.setPcmTap(pipeline);
+    return JNI_TRUE;
+#else
+    (void)handle;
+    (void)sessionHandle;
+    return JNI_FALSE;
 #endif
 }
 
