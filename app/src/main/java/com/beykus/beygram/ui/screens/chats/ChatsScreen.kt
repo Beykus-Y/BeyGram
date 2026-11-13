@@ -129,6 +129,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.TelegramChatFolders
@@ -241,6 +242,8 @@ fun ChatsScreen(
     /** Runs on an owner that outlives this screen, so leaving the chat list does not cancel the bulk read. */
     onMarkAllRead: (List<ChatPreview>) -> Unit = {},
     onMarkUnread: suspend (ChatPreview) -> Result<Unit>,
+    /** Newest messages for the avatar long-press preview; must read history only and never mark the chat read. */
+    onPeekChat: suspend (ChatPreview) -> Result<List<ChatMessage>> = { Result.success(emptyList()) },
     onArchive: suspend (ChatPreview) -> Boolean,
     onUnarchive: suspend (ChatPreview) -> Boolean = { false },
     onPinChat: suspend (Long, Boolean) -> Result<Unit>,
@@ -317,6 +320,7 @@ fun ChatsScreen(
     val connectionStatus = rememberChatsConnectionStatus(accountId, connectionState)
     var openSwipeChatId by remember { mutableStateOf<Long?>(null) }
     var selectedActions by remember { mutableStateOf<ChatPreview?>(null) }
+    var peekedChat by remember { mutableStateOf<ChatPreview?>(null) }
     var confirmReadAll by remember { mutableStateOf(false) }
     val swipeStore = remember(context) { ChatSwipeSettingsStore(context) }
     var swipePreferences by remember(accountId) { mutableStateOf(swipeStore.load(accountId)) }
@@ -830,6 +834,7 @@ fun ChatsScreen(
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { openChat(chat) },
                         onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); selectedActions = chat },
+                        onAvatarLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); peekedChat = chat },
                         left = actionFor(chat, swipePreferences.left),
                         right = actionFor(chat, swipePreferences.right),
                         onPerformed = onSwipePerformed,
@@ -892,6 +897,7 @@ fun ChatsScreen(
                             onOpenChange = { openSwipeChatId = it },
                             onClick = { openChat(chat) },
                             onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); selectedActions = chat },
+                            onAvatarLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); peekedChat = chat },
                             left = actionFor(chat, swipePreferences.left),
                             right = actionFor(chat, swipePreferences.right),
                             onPerformed = onSwipePerformed,
@@ -1054,6 +1060,15 @@ fun ChatsScreen(
                 }
             },
             delete = { onDeleteChat(selected.id) }
+        )
+    }
+    peekedChat?.let { peek ->
+        ChatPeekSheet(
+            chat = peek,
+            observeFile = observeFile,
+            downloadFile = downloadFile,
+            load = onPeekChat,
+            onClose = { peekedChat = null }
         )
     }
 }
@@ -1703,7 +1718,7 @@ private val TrailingIndicatorGap = 6.dp
 
 @Composable
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    onClick: () -> Unit, onLongClick: (() -> Unit)? = null, highlighted: Boolean = false) {
+    onClick: () -> Unit, onLongClick: (() -> Unit)? = null, onAvatarLongClick: (() -> Unit)? = null, highlighted: Boolean = false) {
     val palette = beyGramPalette()
     val listDensity = LocalChatListDensity.current
     val design = LocalDesignSystem.current
@@ -1745,7 +1760,10 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             .padding(horizontal = (20.dp - main.rowInset).coerceAtLeast(0.dp), vertical = rowPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ChatAvatar(chat, avatarSize, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+        // A long press on the avatar opens the preview; the row keeps its own long press for the actions sheet.
+        val avatarModifier = if (onAvatarLongClick == null) Modifier.clearAndSetSemantics {}
+        else Modifier.clearAndSetSemantics {}.combinedClickable(onClick = onClick, onLongClick = onAvatarLongClick)
+        ChatAvatar(chat, avatarSize, observeFile, downloadFile, avatarModifier)
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

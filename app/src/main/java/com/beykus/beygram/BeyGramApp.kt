@@ -1779,6 +1779,7 @@ private fun BeyGramAppContent(
                 }
             },
             onMarkUnread = { chat -> repository.markChatUnread(chat.id) },
+            onPeekChat = { chat -> repository.peekMessages(chat.id) },
             onArchive = archiveChat,
             onUnarchive = unarchiveChat,
             onPinChat = repository::setChatPinned,

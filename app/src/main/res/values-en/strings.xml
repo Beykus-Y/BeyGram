@@ -871,4 +871,8 @@
     <string name="player_sound">Sound</string>
     <string name="player_share">Share</string>
     <string name="player_sleep_minutes_short">%1$d min</string>
+    <string name="chat_peek_empty">No messages yet</string>
+    <string name="chat_peek_failed">Preview is unavailable right now</string>
+    <string name="chat_peek_hint">The chat stays unread</string>
+    <string name="chat_peek_media">Attachment</string>
 </resources>

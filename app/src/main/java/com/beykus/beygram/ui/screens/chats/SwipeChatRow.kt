@@ -118,6 +118,7 @@ internal fun SwipeChatRow(
     onOpenChange: (Long?) -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    onAvatarLongClick: () -> Unit = {},
     left: ChatSwipeAction,
     right: ChatSwipeAction,
     onPerformed: (ChatPreview, ChatSwipeActionKind) -> Unit = { _, _ -> },
@@ -255,6 +256,7 @@ internal fun SwipeChatRow(
             ChatListItem(chat, observeFile, downloadFile,
                 onClick = { if (swipeOffset < 0f) close() else onClick() },
                 onLongClick = { if (swipeOffset < 0f) close() else onLongClick() },
+                onAvatarLongClick = { if (swipeOffset < 0f) close() else onAvatarLongClick() },
                 highlighted = highlighted)
         }
     }

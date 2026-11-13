@@ -746,6 +746,15 @@ internal class TdConversationActions(
     }
 
     /**
+     * The newest messages for the long-press preview. Only GetChatHistory is sent: no OpenChat and no ViewMessages,
+     * so the chat keeps its unread count. Forum chats or other refusals become an error that the card shows as empty.
+     */
+    suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>> = conversationResult {
+        if (chatId == 0L) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
+        request(peekHistoryRequest(chatId, PEEK_MESSAGE_LIMIT)).messages.orEmpty().filterNotNull().sortedBy { it.id }.map(map)
+    }
+
+    /**
      * Messages around [messageId], newest last. TDLib may return fewer messages, so the target is fetched separately.
      * A read watermark can outlive its message: if the target was deleted, the surrounding page is still usable and is
      * returned instead of failing the whole unread-boundary jump.
@@ -849,6 +858,11 @@ internal class TdConversationActions(
 
 private const val TAG = "BeyGramNet"
 private const val FORUM_TOPIC_PAGE_SIZE = 100
+internal const val PEEK_MESSAGE_LIMIT = 15
+
+/** History request for the preview card: the newest page, read-neutral. Kept apart so a test can pin what it sends. */
+internal fun peekHistoryRequest(chatId: Long, limit: Int): TdApi.GetChatHistory =
+    TdApi.GetChatHistory(chatId, 0L, 0, limit.coerceIn(1, PEEK_MESSAGE_LIMIT), false)
 private const val MAX_FORUM_TOPIC_PAGES = 20
 /** Telegram's shortest live-location window offered by the composer. */
 private const val LIVE_LOCATION_PERIOD_SECONDS = 15 * 60

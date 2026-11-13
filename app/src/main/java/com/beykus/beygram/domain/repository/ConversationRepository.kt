@@ -104,6 +104,8 @@ interface ConversationRepository {
     suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean>
     /** One page of messages newer than [afterMessageId], oldest first; used to walk toward the first unread target. */
     suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>>
+    /** Latest messages of a chat for the long-press preview. Reads history only: the chat is not opened and stays unread. */
+    suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>>
     fun loadLatestMessages(chatId: Long)
     /** [clearDraft] false оставляет черновик чата нетронутым: нужно для текста из других приложений. */
     suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
