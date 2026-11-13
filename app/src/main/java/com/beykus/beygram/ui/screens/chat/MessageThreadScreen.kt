@@ -622,8 +622,8 @@ internal fun MessageThreadScreen(
         val viewedMedia = viewed.media
         if (viewedMedia != null && viewOnceAsked == null) {
             val viewerPages = MediaViewerPolicy.retainViewOncePage(
-                pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, viewed.chatId) } },
-                retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId)
+                pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, viewed.chatId, message.text) } },
+                retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId, viewed.text)
             )
             MediaViewer(
                 pages = viewOnceGate.swipeable(viewerPages, viewed.chatId, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, viewed.chatId)),

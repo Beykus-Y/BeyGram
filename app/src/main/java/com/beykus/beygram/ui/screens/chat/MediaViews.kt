@@ -28,7 +28,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
 import androidx.compose.foundation.background
@@ -43,8 +46,10 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Forward
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
@@ -85,7 +90,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import kotlinx.coroutines.Job
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -877,7 +884,8 @@ internal data class MediaViewerItem(
     val messageId: Long,
     val media: MessageMedia,
     val viewOnce: Boolean = false,
-    val chatId: Long? = null
+    val chatId: Long? = null,
+    val caption: String = ""
 )
 
 /** Фото и видео листаются вместе, и счётчик «N из M» считает их тоже вместе. */
@@ -1035,6 +1043,9 @@ internal fun MediaViewer(
     val palette = beyGramPalette()
     var viewerShown by remember { mutableStateOf(viewerSpec.isInstant) }
     var viewerClosing by remember { mutableStateOf(false) }
+    // Read only inside graphicsLayer so continuous vertical drags never recompose MediaViewer.
+    val dismissFractionState = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(pagerState.settledPage) { dismissFractionState.floatValue = 0f }
     LaunchedEffect(Unit) { viewerShown = true }
     val viewerProgress by animateFloatAsState(if (viewerShown) 1f else 0f, viewerSpec.animationSpec<Float>(), label = "mediaViewerProgress")
     fun requestClose() {
@@ -1047,9 +1058,39 @@ internal fun MediaViewer(
         }
     }
     val hasPrimaryBottomActions = (actions != null && actions.canForward) || exportPath != null
+    val shownCaption = if (!shownHidden) shown.caption.trim() else ""
     val reserveNonStillFooter = !isStillImage && (actions != null || canExport)
-    val zoomControlsBottomPadding = if (isStillImage && hasPrimaryBottomActions && controlsVisible) 76.dp else 16.dp
+    val density = LocalDensity.current
+    var topBarHeightPx by remember { mutableIntStateOf(0) }
+    var bottomOverlayHeightPx by remember { mutableIntStateOf(0) }
+    val zoomControlsBottomPadding = if (isStillImage && controlsVisible && bottomOverlayHeightPx > 0) {
+        with(density) { bottomOverlayHeightPx.toDp() } + 12.dp
+    } else 16.dp
     val hasOverflowActions = (actions != null && (actions.canEdit || actions.canDelete)) || exportPath != null || onShowInChat != null
+    val captionScroll = key(shown.messageId) { rememberScrollState() }
+    LaunchedEffect(captionScroll.isScrollInProgress) {
+        while (captionScroll.isScrollInProgress) {
+            interactionChannel.trySend(Unit)
+            delay(500L)
+        }
+    }
+    val captionBox: @Composable () -> Unit = {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(if (isStillImage) Color(0xB3070B10) else Color(0xCC070B10))
+                .heightIn(max = 120.dp)
+                .verticalScroll(captionScroll)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = shownCaption,
+                color = Color.White,
+                fontSize = 14.sp,
+                lineHeight = 19.sp
+            )
+        }
+    }
     val bottomChromeContent: @Composable () -> Unit = {
         Row(
             Modifier
@@ -1073,38 +1114,49 @@ internal fun MediaViewer(
         // Верхняя панель и нижние действия на фото лежат поверх страницы: тап по картинке или idle их прячет, крестик закрытия остаётся доступным.
         // На видео/аудио нижние действия стоят под страницей, чтобы не перекрывать полосу перемотки плеера.
         val pageSize = LocalWindowInfo.current.containerSize
-        // Read in the draw phase, so the page moves per frame without recomposing the dialog content.
-        Column(Modifier.fillMaxSize().graphicsLayer {
-            val transform = mediaViewerTransform(originBounds, pageSize.width.toFloat(), pageSize.height.toFloat(), (1f - viewerProgress) * viewerSpec.intensity)
-            alpha = viewerProgress
-            scaleX = transform.scale
-            scaleY = transform.scale
-            translationX = transform.offsetX
-            translationY = transform.offsetY
-        }.background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { index -> mediaViewerPageKey(pageIds, index) }) { page ->
-                    // Compose may request an index belonging to the preceding page count during an update.
-                    // Never index the backing list until this page exists in our current snapshot.
-                    currentPages.getOrNull(page)?.let { item ->
-                        MediaViewerPage(item, observeFile, downloadFile, autoDownload, canExport = canExport, active = page == safeSettledPage,
-                            fullFileOnlyWhenActive = fullFileOnlyWhenActive,
-                            revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
-                            onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
-                            onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
-                            showZoomControls = showAssistiveControls && controlsVisible && page == safeSettledPage,
-                            zoomControlsBottomPadding = zoomControlsBottomPadding,
-                            onUserInteraction = { interactionChannel.trySend(Unit) })
+        Box(Modifier.fillMaxSize()) {
+            // Separate backdrop so interactive vertical swipe fades the background without distorting the opening transform.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = viewerProgress * mediaViewerDismissBackdropAlpha(dismissFractionState.floatValue) }
+                    .background(Color(0xFF070B10))
+            )
+            // Read in the draw phase, so the page moves per frame without recomposing the dialog content.
+            Column(Modifier.fillMaxSize().graphicsLayer {
+                val transform = mediaViewerTransform(originBounds, pageSize.width.toFloat(), pageSize.height.toFloat(), (1f - viewerProgress) * viewerSpec.intensity)
+                alpha = viewerProgress
+                scaleX = transform.scale
+                scaleY = transform.scale
+                translationX = transform.offsetX
+                translationY = transform.offsetY
+            }.windowInsetsPadding(WindowInsets.safeDrawing)) {
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { index -> mediaViewerPageKey(pageIds, index) }) { page ->
+                        // Compose may request an index belonging to the preceding page count during an update.
+                        // Never index the backing list until this page exists in our current snapshot.
+                        currentPages.getOrNull(page)?.let { item ->
+                            MediaViewerPage(item, observeFile, downloadFile, autoDownload, canExport = canExport, active = page == safeSettledPage,
+                                fullFileOnlyWhenActive = fullFileOnlyWhenActive,
+                                revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
+                                onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
+                                onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
+                                onDismissProgress = { fraction -> if (page == safeSettledPage && !viewerClosing) dismissFractionState.floatValue = fraction },
+                                showZoomControls = showAssistiveControls && controlsVisible && page == safeSettledPage,
+                                zoomControlsBottomPadding = zoomControlsBottomPadding,
+                                onUserInteraction = { interactionChannel.trySend(Unit) })
+                        }
                     }
-                }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.TopCenter)
-                        .background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent)
-                        .padding(horizontal = 6.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .onSizeChanged { topBarHeightPx = it.height }
+                            .graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
+                            .background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent)
+                            .padding(horizontal = 6.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                     IconButton(
                         onClick = ::requestClose,
                         modifier = if (!controlsVisible) Modifier.background(Color(0x66070B10), CircleShape) else Modifier
@@ -1167,24 +1219,50 @@ internal fun MediaViewer(
                         modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
                     ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
                 }
-                if (isStillImage && hasPrimaryBottomActions) {
+                if (!isStillImage && shownCaption.isNotEmpty()) {
+                    // Video/audio player controls occupy the bottom of the frame, so place non-still captions under the top bar.
                     androidx.compose.animation.AnimatedVisibility(
                         visible = controlsVisible,
                         enter = chromeSpec.fadeEnter(),
                         exit = chromeSpec.fadeExit(),
-                        modifier = Modifier.align(Alignment.BottomCenter)
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = with(density) { topBarHeightPx.toDp() })
+                            .graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
                     ) {
-                        bottomChromeContent()
+                        captionBox()
                     }
+                }
+                if (isStillImage && (hasPrimaryBottomActions || shownCaption.isNotEmpty())) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = controlsVisible,
+                        enter = chromeSpec.fadeEnter(),
+                        exit = chromeSpec.fadeExit(),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
+                    ) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .onSizeChanged { bottomOverlayHeightPx = it.height }
+                        ) {
+                            if (shownCaption.isNotEmpty()) captionBox()
+                            if (hasPrimaryBottomActions) bottomChromeContent()
+                        }
+                    }
+                } else {
+                    bottomOverlayHeightPx = 0
                 }
             }
             if (reserveNonStillFooter) {
-                if (controlsVisible) bottomChromeContent()
+                if (controlsVisible) Box(Modifier.graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }) { bottomChromeContent() }
                 else Box(Modifier.fillMaxWidth().heightIn(min = 64.dp))
             }
             externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
             fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).errorAnnouncement()) }
             extraFooter?.invoke()
+            }
         }
     }
 }
@@ -1195,7 +1273,7 @@ private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     autoDownloadFile: (AutoDownloadRequest) -> Unit,
     canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
-    onDismiss: () -> Unit, onToggleControls: () -> Unit, showZoomControls: Boolean, zoomControlsBottomPadding: Dp, onUserInteraction: () -> Unit
+    onDismiss: () -> Unit, onToggleControls: () -> Unit, onDismissProgress: (Float) -> Unit, showZoomControls: Boolean, zoomControlsBottomPadding: Dp, onUserInteraction: () -> Unit
 ) {
     val media = item.media
     val context = LocalContext.current
@@ -1372,8 +1450,8 @@ private fun MediaViewerPage(
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
                 if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
-            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = showZoomControls,
-                zoomControlsBottomPadding = zoomControlsBottomPadding, onUserInteraction = onUserInteraction,
+            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, onDismissProgress = onDismissProgress,
+                showZoomControls = showZoomControls, zoomControlsBottomPadding = zoomControlsBottomPadding, onUserInteraction = onUserInteraction,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) })
@@ -1415,60 +1493,152 @@ private fun ZoomableImage(
     path: String,
     onDismiss: () -> Unit,
     onToggleControls: () -> Unit,
+    onDismissProgress: (Float) -> Unit,
     showZoomControls: Boolean,
     zoomControlsBottomPadding: Dp,
     onUserInteraction: () -> Unit,
     contentDescription: String?
 ) {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val motionSpec = rememberMotionSpec(MotionToken.MediaExpand)
     var scale by remember(path) { mutableFloatStateOf(1f) }
     var offset by remember(path) { mutableStateOf(Offset.Zero) }
-    // Протяжка вниз при масштабе 1 двигает картинку за пальцем; отпущенная дальше четверти высоты закрывает просмотр.
-    var dismissY by remember(path) { mutableFloatStateOf(0f) }
+    var zoomJob by remember(path) { mutableStateOf<Job?>(null) }
+    // Вертикальная протяжка вверх или вниз при масштабе 1 двигает картинку за пальцем синхронно без очереди корутин.
+    var dismissOffsetY by remember(path) { mutableFloatStateOf(0f) }
+    var dismissReturnJob by remember(path) { mutableStateOf<Job?>(null) }
     var size by remember { mutableStateOf(IntSize.Zero) }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     val currentOnToggleControls by rememberUpdatedState(onToggleControls)
+    val currentOnDismissProgress by rememberUpdatedState(onDismissProgress)
     val currentOnUserInteraction by rememberUpdatedState(onUserInteraction)
     val transform = rememberTransformableState { zoom, pan, _ ->
+        zoomJob?.cancel()
+        zoomJob = null
         currentOnUserInteraction()
         scale = (scale * zoom).coerceIn(1f, 5f)
         offset = clampImageOffset(offset + pan, scale, size)
     }
     val dismissDrag = rememberDraggableState { delta ->
-        if (scale <= 1f) {
+        if (scale <= 1.01f) {
+            dismissReturnJob?.cancel()
+            dismissReturnJob = null
             currentOnUserInteraction()
-            dismissY += delta
+            dismissOffsetY += delta
+            currentOnDismissProgress(mediaViewerDismissFraction(dismissOffsetY, size.height.toFloat()))
         }
     }
     // Масштаб, ушедший выше 1 посреди протяжки, отменяет её: сдвиг не должен остаться после возврата к масштабу 1.
-    LaunchedEffect(scale > 1f) { if (scale > 1f) dismissY = 0f }
+    LaunchedEffect(scale > 1.01f) {
+        if (scale > 1.01f && (dismissOffsetY != 0f || dismissReturnJob != null)) {
+            dismissReturnJob?.cancel()
+            dismissReturnJob = null
+            dismissOffsetY = 0f
+            currentOnDismissProgress(0f)
+        }
+    }
+    fun animateZoomTo(targetScale: Float, focalPoint: Offset?) {
+        val nextScale = targetScale.coerceIn(1f, 5f)
+        val startScale = scale
+        val startOffset = offset
+        val center = Offset(size.width / 2f, size.height / 2f)
+        zoomJob?.cancel()
+        if (motionSpec.isInstant) {
+            zoomJob = null
+            val rawOffset = if (focalPoint != null) {
+                offsetAroundPoint(focalPoint, center, startOffset, startScale, nextScale)
+            } else {
+                offsetAroundCenter(startOffset, startScale, nextScale, size)
+            }
+            scale = nextScale
+            offset = clampImageOffset(rawOffset, nextScale, size)
+            return
+        }
+        zoomJob = scope.launch {
+            animate(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMedium
+                )
+            ) { progress, _ ->
+                val interpolatedScale = startScale + (nextScale - startScale) * progress
+                val rawOffset = if (focalPoint != null) {
+                    offsetAroundPoint(focalPoint, center, startOffset, startScale, interpolatedScale)
+                } else {
+                    offsetAroundCenter(startOffset, startScale, interpolatedScale, size)
+                }
+                scale = interpolatedScale
+                offset = clampImageOffset(rawOffset, interpolatedScale, size)
+            }
+            zoomJob = null
+        }
+    }
     // Кнопки масштаба меняют его вокруг центра, как и жест. Нужны тем, кому неудобно сводить два пальца.
     fun zoomTo(target: Float) {
         currentOnUserInteraction()
-        val next = target.coerceIn(1f, 5f)
-        offset = offsetAroundCenter(offset, scale, next, size)
-        scale = next
+        animateZoomTo(target, focalPoint = null)
     }
+    val velocityThresholdPx = remember(density) { with(density) { 800.dp.toPx() } }
+    val minFlingTravelPx = remember(density) { with(density) { 24.dp.toPx() } }
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1f })
-            .draggable(state = dismissDrag, orientation = Orientation.Vertical, enabled = scale <= 1f, onDragStopped = {
-                if (dismissY > size.height / 4f) currentOnDismiss()
-                dismissY = 0f
+        Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1.01f })
+            .draggable(state = dismissDrag, orientation = Orientation.Vertical, enabled = scale <= 1.01f, onDragStopped = { velocity ->
+                if (shouldDismissMediaViewer(dismissOffsetY, velocity, size.height.toFloat(), velocityThresholdPx, minFlingTravelPx)) {
+                    currentOnDismiss()
+                } else if (motionSpec.isInstant) {
+                    dismissReturnJob?.cancel()
+                    dismissReturnJob = null
+                    dismissOffsetY = 0f
+                    currentOnDismissProgress(0f)
+                } else {
+                    dismissReturnJob?.cancel()
+                    val startOffset = dismissOffsetY
+                    dismissReturnJob = scope.launch {
+                        animate(
+                            initialValue = startOffset,
+                            targetValue = 0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ) { value, _ ->
+                            dismissOffsetY = value
+                            currentOnDismissProgress(mediaViewerDismissFraction(value, size.height.toFloat()))
+                        }
+                        dismissReturnJob = null
+                    }
+                }
             })
             .pointerInput(path) {
                 detectTapGestures(
                     onTap = { currentOnToggleControls() },
-                    // Двойной тап приближает к точке касания, поэтому место под пальцем не уезжает. Второй тап возвращает масштаб 1.
+                    // Двойной тап плавно приближает к точке касания, поэтому место под пальцем не уезжает. Второй тап возвращает масштаб 1.
                     onDoubleTap = { point ->
                         currentOnUserInteraction()
-                        val target = if (scale > 1f) 1f else 2.5f
-                        offset = clampImageOffset(offsetAroundPoint(point, Offset(size.width / 2f, size.height / 2f), offset, scale, target), target, size)
-                        scale = target
+                        val target = if (scale > 1.01f) 1f else 2.5f
+                        animateZoomTo(target, focalPoint = point)
                     }
                 )
             }
         ) {
-            LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y + dismissY }, fit = true, maxDimension = 4096,
-                contentDescriptionText = contentDescription)
+            LocalMediaImage(
+                path,
+                Modifier.fillMaxSize().graphicsLayer {
+                    val dragScale = if (scale <= 1.01f) {
+                        mediaViewerDismissScale(mediaViewerDismissFraction(dismissOffsetY, size.height.toFloat()))
+                    } else 1f
+                    scaleX = scale * dragScale
+                    scaleY = scale * dragScale
+                    translationX = offset.x
+                    translationY = offset.y + dismissOffsetY
+                },
+                fit = true,
+                maxDimension = 4096,
+                contentDescriptionText = contentDescription
+            )
         }
         // Кнопки стоят поверх картинки, а не внутри её жестов: тап по кнопке не должен переключать панели или сдвигать фото.
         // Внизу по центру, чтобы на низком окне не наезжать на кнопки листания у краёв.

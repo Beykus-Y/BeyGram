@@ -102,6 +102,8 @@ interface ConversationRepository {
     fun loadOlderMessages(chatId: Long)
     /** Replaces the loaded history with messages around [messageId]; newer messages load on [loadLatestMessages]. False when a newer jump or latest load superseded it. */
     suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean>
+    /** Invalidates any in-flight [loadMessagesAround] or [loadForumTopicMessagesAround] window replacement for this chat or topic. */
+    fun cancelMessageJump(chatId: Long, forumTopicId: Long = 0L) {}
     /** One page of messages newer than [afterMessageId], oldest first; used to walk toward the first unread target. */
     suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>>
     /** Latest messages of a chat for the long-press preview. Reads history only: the chat is not opened and stays unread. */

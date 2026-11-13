@@ -44,8 +44,15 @@ object BgWaveHub {
         if (controller.state.value?.accountId == accountId) controller.reset(nowSeconds())
     }
 
-    private suspend fun send(accountId: String, chatId: Long, link: String): Result<Unit> =
-        senders[accountId]?.invoke(chatId, link) ?: Result.failure(IllegalStateException("no sender"))
+    private suspend fun send(accountId: String, chatId: Long, link: String): Result<Unit> {
+        val result = senders[accountId]?.invoke(chatId, link) ?: Result.failure(IllegalStateException("no sender"))
+        if (result.isFailure) {
+            BgWaveLog.w("send.failed", result.exceptionOrNull(), "reason" to "telegram-send")
+        } else {
+            BgWaveLog.i("send.ok")
+        }
+        return result
+    }
 
     /** Host: starts a wave and sends the invitation to [chatId]. The result is read from [BgWaveController.state]. */
     suspend fun share(accountId: String, chatId: Long, peerId: Long) {
@@ -62,6 +69,7 @@ object BgWaveHub {
         val now = nowSeconds()
         val link = controller.join(sidHex, now) ?: return
         val state = controller.state.value ?: return
+        BgWaveLog.i("listener.join", "sid" to BgWaveLog.sid(sidHex))
         val sent = send(state.accountId, state.chatId, link).isSuccess
         if (sent) ensureTicker() else controller.answerSendFailed(sidHex, nowSeconds())
     }
