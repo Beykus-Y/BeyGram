@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.music.yandex
 
+import android.content.Context
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -59,14 +60,14 @@ internal fun YandexWave.Diversity.labelRes(): Int = when (this) {
 
 /** The one-line summary of the settings on the card; with every group at its default it reads «По вашему вкусу». */
 @Composable
-internal fun waveSummary(settings: YandexWaveSettings): String {
+internal fun waveSummary(context: Context, settings: YandexWaveSettings): String {
     val parts = buildList {
-        if (settings.activity != YandexWaveSettings.Activity.NONE) add(stringResource(settings.activity.labelRes()))
-        if (settings.mood != YandexWaveSettings.Mood.DEFAULT) add(stringResource(settings.mood.labelRes()))
-        if (settings.character != YandexWave.Diversity.DEFAULT) add(stringResource(settings.character.labelRes()))
-        if (settings.language != YandexWaveSettings.Language.DEFAULT) add(stringResource(settings.language.labelRes()))
+        if (settings.activity != YandexWaveSettings.Activity.NONE) add(context.getString(settings.activity.labelRes()))
+        if (settings.mood != YandexWaveSettings.Mood.DEFAULT) add(context.getString(settings.mood.labelRes()))
+        if (settings.character != YandexWave.Diversity.DEFAULT) add(context.getString(settings.character.labelRes()))
+        if (settings.language != YandexWaveSettings.Language.DEFAULT) add(context.getString(settings.language.labelRes()))
     }
-    return if (parts.isEmpty()) stringResource(R.string.yandex_wave_summary_default) else parts.joinToString(" · ")
+    return if (parts.isEmpty()) context.getString(R.string.yandex_wave_summary_default) else parts.joinToString(" · ")
 }
 
 /**
