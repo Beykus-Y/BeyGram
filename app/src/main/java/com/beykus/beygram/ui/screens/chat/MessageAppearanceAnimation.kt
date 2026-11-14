@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -234,6 +235,12 @@ internal fun messageAnimationTransformOrigin(
     )
 }
 
+/** Keeps the original entrance while eligible; a cancelled or absent entrance cannot be restarted. */
+internal fun retainMessageAnimationPlan(
+    retained: MessageAnimationPlan?,
+    requested: MessageAnimationPlan?
+): MessageAnimationPlan? = retained?.takeIf { requested != null }
+
 /**
  * Plays the entrance for one already-present list row. [animate] is a one-shot claim from [MessageArrivalTracker]:
  * recomposition, delivery updates and the temporary-to-server key change never turn it back on. Compose's animation
@@ -249,27 +256,32 @@ internal fun MessageAnimationFrame(
     content: @Composable () -> Unit
 ) {
     val motionEnabled = systemMotionEnabled()
-    val plan = remember(config, animate, outgoing, motionEnabled) {
+    val requestedPlan = remember(config, animate, outgoing, motionEnabled) {
         messageAnimationPlan(config, animate, outgoing, motionEnabled)
     }
-    val play = plan != null
-    val progress = remember { Animatable(if (play) 0f else 1f) }
-    var animating by remember { mutableStateOf(play) }
+    // Freeze the original plan: changing a preset mid-flight must not change its transform
+    // halfway through, and disabling motion must cancel without replaying this arrival.
+    var retainedPlan by remember { mutableStateOf(requestedPlan) }
+    val plan = retainMessageAnimationPlan(retainedPlan, requestedPlan)
+    val progress = remember { Animatable(if (plan != null) 0f else 1f) }
+    if (plan == null && retainedPlan != null) {
+        SideEffect { retainedPlan = null }
+    }
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val origin = remember(outgoing, layoutDirection) {
         messageAnimationTransformOrigin(outgoing, layoutDirection)
     }
-    LaunchedEffect(Unit) {
-        if (!play) return@LaunchedEffect
-        progress.animateTo(1f, plan!!.spec())
-        animating = false
+    LaunchedEffect(plan) {
+        if (plan == null) return@LaunchedEffect
+        progress.animateTo(1f, plan.spec())
+        retainedPlan = null
     }
-    val animated = if (animating) {
+    val animated = if (plan != null) {
         Modifier.graphicsLayer {
             val p = progress.value
             val clamped = p.coerceIn(0f, 1f)
-            alpha = plan!!.alphaFrom + (1f - plan.alphaFrom) * clamped
+            alpha = plan.alphaFrom + (1f - plan.alphaFrom) * clamped
             val scale = plan.scaleFrom + (1f - plan.scaleFrom) * p
             scaleX = scale
             scaleY = scale
