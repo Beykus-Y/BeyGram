@@ -1,6 +1,9 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.lifecycle.viewmodel.initializer
 import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
@@ -94,6 +97,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 internal fun MessageThreadScreen(
+    accountId: String,
     channelChatId: Long,
     channelTitle: String,
     postId: Long,
@@ -287,6 +291,46 @@ internal fun MessageThreadScreen(
     }
 
     val stealthFallback = remember { StealthScheduleFallback() }
+    val sendModel: ChatTextSendViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        key = "chat-text-send-$accountId",
+        factory = androidx.lifecycle.viewmodel.viewModelFactory {
+            initializer { ChatTextSendViewModel(context.applicationContext as android.app.Application, accountId) }
+        }
+    )
+    val sendKey = TextSendScopeKey(accountId, thread?.discussionChatId ?: 0L, thread?.threadId ?: 0L)
+    val pending by remember(sendModel, sendKey) { sendModel.queue.observe(sendKey) }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    fun dispatchComment(attemptId: Long? = null, consent: Boolean = false) {
+        val current = thread ?: return
+        val execute: suspend (TextSendAttempt) -> Result<Unit> = { attempt ->
+            conversation.sendThreadReply(attempt.scope.chatId, attempt.scope.forumTopicId, attempt.text,
+                attempt.entities, attempt.replyToMessageId, attempt.options.sendNowConsent).map { sent ->
+                if (sent != null) {
+                    val history = conversation.observeChatHistory(current.discussionChatId).value
+                    messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history,
+                        current.discussionChatId, current.threadId)
+                    thread = current.copy(replyCount = current.replyCount + 1)
+                } else showStealthScheduledNotice(context)
+                Unit
+            }
+        }
+        val failure: (TextSendAttempt, Throwable) -> Unit = { attempt, error ->
+            if (!stealthFallback.offer(error) { dispatchComment(attempt.attemptId, true) }) {
+                sendError = error.userMessage(context, R.string.thread_comments_send_failed)
+            }
+        }
+        val format: (Throwable) -> String = { it.userMessage(context, R.string.thread_comments_send_failed) }
+        if (attemptId != null) {
+            sendModel.queue.retry(sendKey, attemptId, sendNowConsent = consent,
+                execute = execute, onFailure = failure, formatError = format)
+        } else {
+            sendModel.queue.enqueue(sendKey, text, entities, replyTarget?.id ?: replyTargetId.takeIf { it > 0L },
+                null, com.beykus.beygram.domain.model.MessageSendOptions(sendNowConsent = consent),
+                conversation.observeChatHistory(current.discussionChatId).value.liveArrivalSequence,
+                java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date()),
+                execute = execute, onFailure = failure, formatError = format)
+        }
+    }
     fun retryComment(chatId: Long, messageId: Long, sendNowConsent: Boolean) {
         scope.launch {
             conversation.retryMessages(chatId, listOf(messageId), sendNowConsent).onFailure { failure ->
@@ -298,45 +342,18 @@ internal fun MessageThreadScreen(
     }
     fun send(sendNowConsent: Boolean = false) {
         val current = thread ?: return
-        if (!current.canReply || sending || text.isBlank()) return
+        if (!current.canReply || text.isBlank()) return
         if (text.codePointCount(0, text.length) > messageLimits.text) {
             sendError = context.getString(R.string.chat_truncated_notice, messageLimits.text)
             return
         }
-        val outgoingText = text
-        val outgoingEntities = entities
-        val replyTo = replyTarget?.id ?: replyTargetId.takeIf { it > 0L }
-        sending = true
+        dispatchComment(consent = sendNowConsent)
+        text = ""
+        entities = emptyList()
+        replyTarget = null
+        replyTargetId = 0L
+        onDraftChange("", emptyList(), 0L)
         sendError = null
-        scope.launch {
-            try {
-                conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo, sendNowConsent)
-                    .onSuccess { sent ->
-                        if (sent != null) {
-                            // TDLib may already have confirmed this comment, so the snapshot must not bring its temporary copy back.
-                            val history = conversation.observeChatHistory(current.discussionChatId).value
-                            messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history, current.discussionChatId, current.threadId)
-                            thread = current.copy(replyCount = current.replyCount + 1)
-                        } else {
-                            // Stealth mode put the comment into Telegram's scheduled queue; it appears when the server publishes it.
-                            showStealthScheduledNotice(context)
-                        }
-                        text = ""
-                        entities = emptyList()
-                        replyTarget = null
-                        replyTargetId = 0L
-                        onDraftChange("", emptyList(), 0L)
-                        scope.launch { listState.animateScrollToItem(0) }
-                    }
-                    .onFailure { failure ->
-                        if (!stealthFallback.offer(failure) { send(sendNowConsent = true) }) {
-                            sendError = failure.userMessage(context, R.string.thread_comments_send_failed)
-                        }
-                    }
-            } finally {
-                sending = false
-            }
-        }
     }
 
     val commentsCount = thread?.replyCount?.takeIf { it > 0 } ?: post?.replyCount ?: 0
@@ -398,7 +415,7 @@ internal fun MessageThreadScreen(
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                items(messages.asReversed(), key = { it.id }) { message ->
+                items(pending.asReversed().map { it.toChatMessage() } + messages.asReversed(), key = { it.id }) { message ->
                     ThreadCommentRow(
                         message = message,
                         observeFile = observeFile,
@@ -406,7 +423,7 @@ internal fun MessageThreadScreen(
                         onOpenProfile = onOpenProfile,
                         onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
                         onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
-                        onRetry = { retryComment(message.chatId, message.id, sendNowConsent = false) },
+                        onRetry = { if (message.id < 0L && pending.any { it.attemptId == -message.id }) dispatchComment(-message.id) else retryComment(message.chatId, message.id, sendNowConsent = false) },
                         onActions = { reactionTarget = message.chatId to message },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {
@@ -556,7 +573,7 @@ internal fun MessageThreadScreen(
                             onChange = { text = it; onDraftChange(it, entities, replyTarget?.id ?: replyTargetId) },
                             onEntitiesChange = { entities = it; onDraftChange(text, it, replyTarget?.id ?: replyTargetId) },
                             placeholder = stringResource(R.string.thread_reply_placeholder),
-                            locked = sending,
+                            locked = false,
                             isError = false,
                             modifier = Modifier.weight(1f),
                             focusRequest = focusRequest
@@ -566,13 +583,12 @@ internal fun MessageThreadScreen(
                         val tonalSend = LocalDesignSystem.current.composerTonal
                         Box(
                             Modifier.size(40.dp).clip(CircleShape)
-                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank() && !sending) 1f else 0.4f))
-                                .clickable(enabled = text.isNotBlank() && !sending) { send() },
+                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank()) 1f else 0.4f))
+                                .clickable(enabled = text.isNotBlank()) { send() },
                             contentAlignment = Alignment.Center
                         ) {
                             val sendInk = if (tonalSend) palette.accentInk else palette.onAccent
-                            if (sending) CircularProgressIndicator(Modifier.size(20.dp), color = sendInk, strokeWidth = 2.dp)
-                            else Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = sendInk, modifier = Modifier.size(21.dp))
+                            Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = sendInk, modifier = Modifier.size(21.dp))
                         }
                     }
                 }
