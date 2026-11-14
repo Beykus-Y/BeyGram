@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationDirection
@@ -214,6 +217,31 @@ private fun MessageAnimationEasing.toComposeEasing() = when (this) {
 }
 
 /**
+ * Anchors scale and rotation transforms to the side of the row where the bubble is aligned,
+ * respecting RTL layout direction so short messages transform around their own edge instead
+ * of the center of the full-width row.
+ */
+internal fun messageAnimationTransformOrigin(
+    outgoing: Boolean,
+    layoutDirection: LayoutDirection
+): TransformOrigin {
+    val isRightSide = when (layoutDirection) {
+        LayoutDirection.Ltr -> outgoing
+        LayoutDirection.Rtl -> !outgoing
+    }
+    return TransformOrigin(
+        pivotFractionX = if (isRightSide) 1f else 0f,
+        pivotFractionY = 1f
+    )
+}
+
+/** Keeps the original entrance while eligible; a cancelled or absent entrance cannot be restarted. */
+internal fun retainMessageAnimationPlan(
+    retained: MessageAnimationPlan?,
+    requested: MessageAnimationPlan?
+): MessageAnimationPlan? = retained?.takeIf { requested != null }
+
+/**
  * Plays the entrance for one already-present list row. [animate] is a one-shot claim from [MessageArrivalTracker]:
  * recomposition, delivery updates and the temporary-to-server key change never turn it back on. Compose's animation
  * clock carries Android's animator duration scale, and [systemMotionEnabled] skips the first-frame offset when the
@@ -228,23 +256,32 @@ internal fun MessageAnimationFrame(
     content: @Composable () -> Unit
 ) {
     val motionEnabled = systemMotionEnabled()
-    val plan = remember(config, animate, outgoing, motionEnabled) {
+    val requestedPlan = remember(config, animate, outgoing, motionEnabled) {
         messageAnimationPlan(config, animate, outgoing, motionEnabled)
     }
-    val play = plan != null
-    val progress = remember { Animatable(if (play) 0f else 1f) }
-    var animating by remember { mutableStateOf(play) }
-    val density = LocalDensity.current
-    LaunchedEffect(Unit) {
-        if (!play) return@LaunchedEffect
-        progress.animateTo(1f, plan!!.spec())
-        animating = false
+    // Freeze the original plan: changing a preset mid-flight must not change its transform
+    // halfway through, and disabling motion must cancel without replaying this arrival.
+    var retainedPlan by remember { mutableStateOf(requestedPlan) }
+    val plan = retainMessageAnimationPlan(retainedPlan, requestedPlan)
+    val progress = remember { Animatable(if (plan != null) 0f else 1f) }
+    if (plan == null && retainedPlan != null) {
+        SideEffect { retainedPlan = null }
     }
-    val animated = if (animating) {
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val origin = remember(outgoing, layoutDirection) {
+        messageAnimationTransformOrigin(outgoing, layoutDirection)
+    }
+    LaunchedEffect(plan) {
+        if (plan == null) return@LaunchedEffect
+        progress.animateTo(1f, plan.spec())
+        retainedPlan = null
+    }
+    val animated = if (plan != null) {
         Modifier.graphicsLayer {
             val p = progress.value
             val clamped = p.coerceIn(0f, 1f)
-            alpha = plan!!.alphaFrom + (1f - plan.alphaFrom) * clamped
+            alpha = plan.alphaFrom + (1f - plan.alphaFrom) * clamped
             val scale = plan.scaleFrom + (1f - plan.scaleFrom) * p
             scaleX = scale
             scaleY = scale
@@ -253,7 +290,7 @@ internal fun MessageAnimationFrame(
             rotationY = plan.rotationYDegrees * (1f - clamped)
             rotationZ = plan.rotationZDegrees * (1f - clamped)
             cameraDistance = 12f * density.density
-            transformOrigin = TransformOrigin.Center
+            transformOrigin = origin
         }
     } else Modifier
     Box(modifier.fillMaxWidth().then(animated)) { content() }
