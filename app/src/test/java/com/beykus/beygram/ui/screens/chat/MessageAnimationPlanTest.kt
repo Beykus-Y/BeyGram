@@ -233,6 +233,35 @@ class MessageAnimationPlanTest {
         assertEquals(110, extreme.durationMillis)
     }
 
+    @Test fun activeEntranceRetainsItsOriginalPlanWhenPresetChanges() {
+        val initial = messageAnimationPlan(direction(MessageAnimationPreset.Pop), outgoing = true)
+        val replacement = messageAnimationPlan(direction(MessageAnimationPreset.Slide), outgoing = true)
+        assertNotNull(initial)
+        assertNotNull(replacement)
+        assertTrue(initial != replacement)
+        assertEquals(initial, retainMessageAnimationPlan(initial, replacement))
+    }
+
+    @Test fun disabledEntranceCannotReplayWhenMotionReturns() {
+        val config = MessageAnimationConfig(sent = direction(MessageAnimationPreset.Pop))
+        val initial = messageAnimationPlan(config, animate = true, outgoing = true, motionEnabled = true)
+        val disabled = messageAnimationPlan(config, animate = true, outgoing = true, motionEnabled = false)
+        assertNotNull(initial)
+        val cancelled = retainMessageAnimationPlan(initial, disabled)
+        assertNull(cancelled)
+        assertNull(retainMessageAnimationPlan(cancelled, initial))
+    }
+
+    @Test fun withdrawnArrivalOrDisabledConfigCancelsEntrance() {
+        val config = MessageAnimationConfig(sent = direction(MessageAnimationPreset.Pop))
+        val initial = messageAnimationPlan(config, animate = true, outgoing = true, motionEnabled = true)
+        assertNotNull(initial)
+        val withdrawn = messageAnimationPlan(config, animate = false, outgoing = true, motionEnabled = true)
+        val disabled = messageAnimationPlan(config.copy(enabled = false), animate = true, outgoing = true, motionEnabled = true)
+        assertNull(retainMessageAnimationPlan(initial, withdrawn))
+        assertNull(retainMessageAnimationPlan(initial, disabled))
+    }
+
     @Test fun transformOriginAnchorsToBubbleSideInLtrAndFlipsInRtl() {
         val ltrOutgoing = messageAnimationTransformOrigin(outgoing = true, layoutDirection = LayoutDirection.Ltr)
         val ltrIncoming = messageAnimationTransformOrigin(outgoing = false, layoutDirection = LayoutDirection.Ltr)
