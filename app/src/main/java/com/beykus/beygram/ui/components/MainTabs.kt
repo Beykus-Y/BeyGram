@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.components
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -293,13 +294,18 @@ internal fun MainTabItem(
         animationSpec = pressSpec.animationSpec(),
         label = "mainTabPress"
     )
-    val tint = when {
+    val targetTint = when {
         // On glass the inactive ink is the primary colour at reduced alpha: it stays readable over bright backdrops.
         !selected -> if (design.style == DesignStyle.LiquidGlass) palette.textPrimary.copy(alpha = 0.72f) else palette.textSecondary
         spec.selectedInk -> palette.textPrimary
         else -> palette.accentInk
     }
-    val labelTint = if (selected && spec.selectedLabelOnSurface) palette.textPrimary else tint
+    val targetLabelTint = if (selected && spec.selectedLabelOnSurface) palette.textPrimary else targetTint
+    // The colour follows the same TabSelect curve as the shared indicator, so the icon and label change together with
+    // the pill instead of flipping a frame before it arrives. Selection semantics stay immediate (see `selectable`).
+    val tintSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
+    val tint by animateColorAsState(targetTint, animationSpec = tintSpec, label = "mainTabTint")
+    val labelTint by animateColorAsState(targetLabelTint, animationSpec = tintSpec, label = "mainTabLabelTint")
     val itemModifier = if (interactive) {
         modifier.selectable(
             selected = selected,
