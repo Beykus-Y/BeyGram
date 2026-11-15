@@ -3029,7 +3029,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Expired media owns its card; unknown content still gets the explicit fallback, never an empty bubble.
     val renderedSpecial = resolvedSpecialContent(message)
     // A BG Wave invitation is drawn as a card; its hidden service link is never shown as text or as a page preview.
-    val isWave = remember(message.id, message.text, message.entities, waveAccountId) { waveAccountId != null && bgWaveStateOf(message) != null }
+    val isWave = remember(message.id, message.text, message.entities, message.isForwarded, message.senderId, waveAccountId) { waveAccountId != null && bgWaveStateOf(message) != null }
     val showText = hasText && special !is MessageSpecialContent.Contact && !isWave
     val circle = message.media?.kind == MediaKind.VideoNote
     // Стикер лежит без пузыря: ни цвета, ни ширины фото.
