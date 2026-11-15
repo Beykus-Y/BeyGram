@@ -117,6 +117,7 @@ internal class TextSendQueue(
     private val attemptsByScope = MutableStateFlow(restored.groupBy { it.scope })
     private val jobs = HashMap<TextSendScopeKey, java.util.ArrayDeque<TextSendJobRequest>>()
     private val lock = Any()
+    private var closed = false
 
     internal val activeWorkerCount: Int get() = synchronized(lock) { jobs.size }
 
@@ -210,6 +211,7 @@ internal class TextSendQueue(
     }
 
     private fun submit(job: TextSendJobRequest): Unit = synchronized(lock) {
+        if (closed) return@synchronized
         val existing = jobs[job.scopeKey]
         if (existing != null) {
             existing.addLast(job)
@@ -238,6 +240,10 @@ internal class TextSendQueue(
         keepLiveOutcomeOnFailure: Boolean = false,
         transform: (Map<TextSendScopeKey, List<TextSendAttempt>>) -> Map<TextSendScopeKey, List<TextSendAttempt>>
     ): Boolean = synchronized(lock) {
+        if (closed) {
+            if (keepLiveOutcomeOnFailure) return@synchronized false
+            throw TextSendStorageException(IllegalStateException("Text send session closed"))
+        }
         val current = attemptsByScope.value
         val next = transform(current)
         if (next == current) return@synchronized false
@@ -266,14 +272,14 @@ internal class TextSendQueue(
         }
         (result.exceptionOrNull() as? CancellationException)?.let { throw it }
         if (result.isSuccess) {
-            updateAttempts(keepLiveOutcomeOnFailure = true) { current ->
+            val committed = updateAttempts(keepLiveOutcomeOnFailure = true) { current ->
                 withoutAttempt(current, job.scopeKey, job.attemptId)
             }
-            job.onSuccess(attempt)
+            if (committed) job.onSuccess(attempt)
         } else {
             val error = result.exceptionOrNull() ?: IllegalStateException("Send failed")
             val message = job.formatError(error)
-            updateAttempts(keepLiveOutcomeOnFailure = true) { current ->
+            val committed = updateAttempts(keepLiveOutcomeOnFailure = true) { current ->
                 val list = current[job.scopeKey].orEmpty()
                 val updated = list.map { item ->
                     if (item.attemptId == job.attemptId) {
@@ -282,13 +288,18 @@ internal class TextSendQueue(
                 }
                 if (updated.isEmpty()) current - job.scopeKey else current + (job.scopeKey to updated)
             }
-            job.onFailure(attempt, error)
+            if (committed) job.onFailure(attempt, error)
         }
     }
 
+    /** Invalidate this instance before deleting the session's durable data. */
     fun close() {
+        synchronized(lock) {
+            closed = true
+            jobs.clear()
+            attemptsByScope.value = emptyMap()
+        }
         workerScope.cancel()
-        synchronized(lock) { jobs.clear() }
     }
 }
 
@@ -323,22 +334,6 @@ internal fun visiblePendingTextAttempts(
         }
     }
     return visible.asReversed()
-}
-
-internal class ChatTextSendViewModel(application: android.app.Application, accountId: String) : androidx.lifecycle.AndroidViewModel(application) {
-    // Process-death recovery is local to this installation. Neither Android cloud
-    // backup nor device transfer may export the plaintext pending message snapshots.
-    val queue = TextSendQueue(
-        store = FileTextSendAttemptStore(java.io.File(application.noBackupFilesDir,
-            "pending-text-sends-" + java.security.MessageDigest.getInstance("SHA-256")
-                .digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) } + ".json")),
-        recoveryError = application.getString(R.string.chat_send_recovery_notice)
-    )
-
-    override fun onCleared() {
-        queue.close()
-        super.onCleared()
-    }
 }
 
 internal suspend fun executeTextSendAttempt(
