@@ -1,6 +1,5 @@
 package com.beykus.beygram.ui.components
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -59,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
@@ -103,12 +103,19 @@ internal const val MainTabSelectionIndicatorTag = "MainTabSelectionIndicator"
  * Where a bottom bar's selection indicator is, in dp. Each [MainTabBar] owns its own holder by default so
  * horizontal tab transitions keep the outgoing bar's indicator anchored to its own tab instead of sliding across it.
  */
-internal class MainTabIndicator {
-    val x = Animatable(0f)
-    var placed by mutableStateOf(false)
+internal class MainTabIndicator(startX: Float? = null) {
+    val x = Animatable(startX ?: 0f)
+    var placed by mutableStateOf(startX != null)
 }
 
 internal val LocalMainTabIndicator = staticCompositionLocalOf<MainTabIndicator?> { null }
+
+/**
+ * The tab a tab switch comes from while the new root slides in, null otherwise and with motion off. A bar or item that
+ * is composed by the switch starts its selection on this tab and travels to its own tab on the same curve as the slide,
+ * instead of appearing already selected. Only the first composition reads it.
+ */
+internal val LocalMainTabTransitionOrigin = staticCompositionLocalOf<MainTab?> { null }
 
 /** Подпись раздела в навигации: нижнем меню телефона или рейке широкого экрана. */
 internal val MainTab.title: String
@@ -294,18 +301,29 @@ internal fun MainTabItem(
         animationSpec = pressSpec.animationSpec(),
         label = "mainTabPress"
     )
-    val targetTint = when {
-        // On glass the inactive ink is the primary colour at reduced alpha: it stays readable over bright backdrops.
-        !selected -> if (design.style == DesignStyle.LiquidGlass) palette.textPrimary.copy(alpha = 0.72f) else palette.textSecondary
-        spec.selectedInk -> palette.textPrimary
-        else -> palette.accentInk
+    // On glass the inactive ink is the primary colour at reduced alpha: it stays readable over bright backdrops.
+    val inactiveTint = if (design.style == DesignStyle.LiquidGlass) palette.textPrimary.copy(alpha = 0.72f) else palette.textSecondary
+    val activeTint = if (spec.selectedInk) palette.textPrimary else palette.accentInk
+    val activeLabelTint = if (spec.selectedLabelOnSurface) palette.textPrimary else activeTint
+    // Selection runs 0 -> 1 on the TabSelect curve, the same one as the shared indicator, so the icon and label change
+    // together with the pill. A bar that a tab switch has just composed starts from the tab it came from, so its colours
+    // travel with the screen. Selection semantics stay immediate (see `selectable`).
+    val handoffOrigin = LocalMainTabTransitionOrigin.current
+    val selection = remember {
+        Animatable(
+            if (handoffOrigin != null) {
+                if (tab == handoffOrigin) 1f else 0f
+            } else {
+                if (selected) 1f else 0f
+            }
+        )
     }
-    val targetLabelTint = if (selected && spec.selectedLabelOnSurface) palette.textPrimary else targetTint
-    // The colour follows the same TabSelect curve as the shared indicator, so the icon and label change together with
-    // the pill instead of flipping a frame before it arrives. Selection semantics stay immediate (see `selectable`).
-    val tintSpec = rememberMotionSpec(MotionToken.TabSelect).animationSpec<Color>()
-    val tint by animateColorAsState(targetTint, animationSpec = tintSpec, label = "mainTabTint")
-    val labelTint by animateColorAsState(targetLabelTint, animationSpec = tintSpec, label = "mainTabLabelTint")
+    val selectionSpec = rememberMotionSpec(MotionToken.TabSelect)
+    LaunchedEffect(selected) {
+        selection.animateTo(if (selected) 1f else 0f, selectionSpec.animationSpec())
+    }
+    val tint = lerp(inactiveTint, activeTint, selection.value)
+    val labelTint = lerp(inactiveTint, activeLabelTint, selection.value)
     val itemModifier = if (interactive) {
         modifier.selectable(
             selected = selected,
@@ -350,8 +368,8 @@ internal fun MainTabItem(
                     .matchParentSize()
                     .clip(indicatorShape)
                     .background(
-                        if (selected && selectionPill && spec.showSelectionPill && !spec.indicatorMark) {
-                            palette.accentSoft.copy(alpha = palette.accentSoft.alpha * spec.indicatorAlpha)
+                        if (selectionPill && spec.showSelectionPill && !spec.indicatorMark) {
+                            palette.accentSoft.copy(alpha = palette.accentSoft.alpha * spec.indicatorAlpha * selection.value)
                         } else {
                             Color.Transparent
                         }
@@ -367,18 +385,19 @@ internal fun MainTabItem(
                 )
             }
             Icon(tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(resolvedIconSize))
-            if (selected && selectionPill && spec.indicatorMark) {
+            if (selectionPill && spec.indicatorMark && (selected || selection.value > 0f)) {
                 // A standalone item (the settings preview, the rail) has no shared indicator and no bar padding above
                 // it, so it draws its own mark inside the icon box, where no parent can clip it.
+                val markColor = palette.textPrimary.copy(alpha = selection.value)
                 if (verticalMark) {
                     Box(
                         Modifier.align(Alignment.CenterStart)
                             .size(width = spec.markHeight, height = spec.markWidth)
                             .clip(RoundedCornerShape(spec.markHeight / 2))
-                            .background(palette.textPrimary)
+                            .background(markColor)
                     )
                 } else {
-                    SelectionMark(spec, palette.textPrimary, Modifier.align(Alignment.TopCenter))
+                    SelectionMark(spec, markColor, Modifier.align(Alignment.TopCenter))
                 }
             }
         }
@@ -551,8 +570,16 @@ private fun NavigationBarContent(
         val tabWidth = availableWidth / tabs.size.coerceAtLeast(1)
         val selectedIndex = tabs.indexOf(selected)
         val targetX = tabWidth * selectedIndex.coerceAtLeast(0) + (tabWidth - spec.pillWidth) / 2
+        // A tab switch hands over the tab it came from: this bar's pill starts there and rides to its own tab with the
+        // screen, instead of appearing on the new tab at once.
+        val originIndex = LocalMainTabTransitionOrigin.current?.let { tabs.indexOf(it) } ?: -1
+        val originX = if (originIndex >= 0 && selectedIndex >= 0 && originIndex != selectedIndex) {
+            (tabWidth * originIndex + (tabWidth - spec.pillWidth) / 2).value
+        } else {
+            null
+        }
         // Each bar keeps its own indicator unless a host explicitly scopes one for in-place tab changes.
-        val indicator = LocalMainTabIndicator.current ?: remember { MainTabIndicator() }
+        val indicator = LocalMainTabIndicator.current ?: remember { MainTabIndicator(originX) }
         LaunchedEffect(targetX.value, indicatorSpec) {
             if (selectedIndex < 0) return@LaunchedEffect
             if (!spec.showSelectionPill) return@LaunchedEffect

@@ -1,9 +1,23 @@
 package com.beykus.beygram.ui.motion
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class NavigationHistoryTest {
+    @Test
+    fun tabTransitionOriginIsSetOnlyForTabSwitches() {
+        val history = NavigationHistory(
+            initial = "Chats",
+            isRoot = { it in listOf("Chats", "Calls", "Contacts", "Settings") },
+            rootIndex = { listOf("Chats", "Calls", "Contacts", "Settings").indexOf(it) }
+        )
+        assertEquals(NavigationMove.Tab, history.visit("Settings"))
+        assertEquals("Chats", history.tabTransitionOrigin)
+        assertEquals(NavigationMove.Push, history.visit("ChatInfo"))
+        assertNull(history.tabTransitionOrigin)
+    }
+
     private val roots = listOf("Chats", "Calls", "Contacts", "Settings")
     private fun history() = NavigationHistory(
         initial = "Chats",

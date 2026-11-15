@@ -109,6 +109,7 @@ import com.beykus.beygram.ui.components.WindowLayout
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.components.MainTabsScaffold
+import com.beykus.beygram.ui.components.LocalMainTabTransitionOrigin
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
@@ -2447,7 +2448,17 @@ GlobalSearchScreen(
             val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)
             val routeTwoPane = windowLayout.twoPane
             val layoutDirection = LocalLayoutDirection.current
-            CompositionLocalProvider(LocalWindowLayout provides windowLayout) {
+            // The tab a tab switch leaves: the incoming bar and its items start their selection there. Motion off is a cut.
+            val tabTransitionMotionInstant = rememberMotionSpec(MotionToken.TabSelect).isInstant
+            val tabTransitionOrigin = if (routeMove == NavigationMove.Tab && !tabTransitionMotionInstant) {
+                routeHistory.tabTransitionOrigin?.let { root -> MainTab.entries.firstOrNull { it.route == root } }
+            } else {
+                null
+            }
+            CompositionLocalProvider(
+                LocalWindowLayout provides windowLayout,
+                LocalMainTabTransitionOrigin provides tabTransitionOrigin
+            ) {
             // Один набор спецификаций на все переходы: длительность и easing берутся из токенов движка.
             val pushSpec = rememberMotionSpec(MotionToken.NavigationPush)
             val popSpec = rememberMotionSpec(MotionToken.NavigationPop)

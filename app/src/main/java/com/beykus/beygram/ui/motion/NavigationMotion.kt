@@ -37,6 +37,10 @@ class NavigationHistory<T>(
     var tabDirection: Int = 1
         private set
 
+    /** The tab root a tab switch comes from, set only while the latest [visit] was a [NavigationMove.Tab]; else null. */
+    var tabTransitionOrigin: T? = null
+        private set
+
     /**
      * Marks the next transition to a root route as an explicit tab switch from [activeTabRoot], even when the
      * current route is a nested screen inside that tab (such as an open chat or search pane in a two-pane layout).
@@ -64,9 +68,11 @@ class NavigationHistory<T>(
             previousIndex >= 0 -> NavigationMove.Pop
             else -> NavigationMove.Push
         }
+        tabTransitionOrigin = null
         if (move == NavigationMove.Tab) {
             val origin = if (isRoot(current)) current else tabOrigin ?: current
             tabDirection = if (rootIndex(target) >= rootIndex(origin)) 1 else -1
+            tabTransitionOrigin = origin
         }
         when {
             isRoot(target) -> {
