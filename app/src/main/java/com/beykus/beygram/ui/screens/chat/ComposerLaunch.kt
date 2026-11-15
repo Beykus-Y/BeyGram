@@ -256,7 +256,7 @@ internal fun ComposerLaunchLayer(
         while ((launch.targetBounds == null || bubbleSize.width == 0) &&
             !composerLaunchShouldGiveUp(total, sinceSend, launch.awaitingSend)
         ) {
-            delay(COMPOSER_LAUNCH_POLL_MS)
+            delay(COMPOSER_LAUNCH_POLL_MS.toLong())
             total += COMPOSER_LAUNCH_POLL_MS
             if (!launch.awaitingSend) sinceSend += COMPOSER_LAUNCH_POLL_MS
         }
