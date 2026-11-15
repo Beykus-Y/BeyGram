@@ -31,7 +31,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -40,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -621,15 +621,10 @@ private fun StarsTopUpConfirmDialog(
     onDismiss: () -> Unit
 ) {
     val palette = beyGramPalette()
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                stringResource(R.string.stars_topup_confirm_title),
-                modifier = Modifier.semantics { heading() }
-            )
-        },
-        text = {
+        title = stringResource(R.string.stars_topup_confirm_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     stringResource(
@@ -664,26 +659,11 @@ private fun StarsTopUpConfirmDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                enabled = !preparing,
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                Text(
-                    if (preparing) stringResource(R.string.stars_topup_preparing)
-                    else stringResource(R.string.stars_topup_continue)
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        confirmText = if (preparing) stringResource(R.string.stars_topup_preparing) else stringResource(R.string.stars_topup_continue),
+        confirmEnabled = !preparing,
+        onConfirm = onConfirm,
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss
     )
 }
 
@@ -695,15 +675,10 @@ private fun StarsTopUpMethodsDialog(
     onDismiss: () -> Unit
 ) {
     val palette = beyGramPalette()
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                stringResource(R.string.stars_topup_methods_title),
-                modifier = Modifier.semantics { heading() }
-            )
-        },
-        text = {
+        title = stringResource(R.string.stars_topup_methods_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     stringResource(
@@ -738,11 +713,8 @@ private fun StarsTopUpMethodsDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        confirmText = stringResource(R.string.common_cancel),
+        onConfirm = onDismiss
     )
 }
 
