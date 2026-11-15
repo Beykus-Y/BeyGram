@@ -1,1 +1,1 @@
-<resources><string name="chat_send_recovery_notice">Отправка прервана перезапуском. Проверьте историю перед повтором: сообщение могло быть доставлено.</string></resources>
+<resources><string name="chat_send_recovery_notice">Отправка прервана перезапуском. Проверьте историю перед повтором: сообщение могло быть доставлено.</string><string name="chat_send_queue_storage_failed">Не удалось прочитать или сохранить очередь сообщений. Проверьте свободное место. Непоставленный в очередь текст остаётся в поле ввода.</string></resources>
