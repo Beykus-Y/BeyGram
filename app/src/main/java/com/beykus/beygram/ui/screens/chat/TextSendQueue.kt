@@ -23,16 +23,16 @@ import com.beykus.beygram.domain.model.MessageSendState
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicLong
 
@@ -77,6 +77,8 @@ internal data class TextSendAttempt(
     )
 }
 
+internal class TextSendStorageException(cause: Exception) : IllegalStateException("Pending text queue storage unavailable", cause)
+
 internal data class TextSendJobRequest(
     val scopeKey: TextSendScopeKey,
     val attemptId: Long,
@@ -97,7 +99,20 @@ internal class TextSendQueue(
     private val store: TextSendAttemptStore? = null,
     recoveryError: String? = null
 ) {
-    private val restored = store?.load().orEmpty().map { if (it.phase == TextSendAttemptPhase.Sending) it.copy(phase = TextSendAttemptPhase.Failed, errorMessage = recoveryError) else it }
+    // Do not replace an unreadable durable snapshot with an empty queue on the next send.
+    private val loaded = try {
+        Result.success(store?.load().orEmpty())
+    } catch (failure: Exception) {
+        Result.failure(failure)
+    }
+    private val readFailure = loaded.exceptionOrNull() as? Exception
+    private val storageProblem = MutableStateFlow(readFailure != null)
+    val storageFailed = storageProblem.asStateFlow()
+    private val restored = loaded.getOrDefault(emptyList()).map {
+        if (it.phase == TextSendAttemptPhase.Sending) it.copy(
+            phase = TextSendAttemptPhase.Failed, errorMessage = recoveryError
+        ) else it
+    }
     private val nextAttemptId = AtomicLong((restored.maxOfOrNull { it.attemptId } ?: 0L) + 1L)
     private val attemptsByScope = MutableStateFlow(restored.groupBy { it.scope })
     private val jobs = HashMap<TextSendScopeKey, java.util.ArrayDeque<TextSendJobRequest>>()
@@ -130,7 +145,7 @@ internal class TextSendQueue(
             attemptId = nextAttemptId.getAndIncrement(),
             scope = scopeKey,
             text = text,
-            entities = entities,
+            entities = entities.toList(),
             replyToMessageId = replyToMessageId,
             replyPreview = replyPreview,
             options = options,
@@ -138,11 +153,10 @@ internal class TextSendQueue(
             timeLabel = timeLabel,
             dismissForceReplyMessageId = dismissForceReplyMessageId
         )
-        attemptsByScope.update { current ->
+        updateAttempts { current ->
             val list = current[scopeKey].orEmpty() + attempt
             current + (scopeKey to list)
         }
-        persist()
         submit(
             TextSendJobRequest(scopeKey, attempt.attemptId, execute, onSuccess, onFailure, formatError)
         )
@@ -159,40 +173,40 @@ internal class TextSendQueue(
         onFailure: (TextSendAttempt, Throwable) -> Unit = { _, _ -> },
         formatError: (Throwable) -> String
     ): Boolean {
-        var found = false
-        synchronized(lock) {
-        attemptsByScope.update { current ->
-            found = false
+        val found = updateAttempts { current ->
             val list = current[scopeKey].orEmpty()
-            val updated = list.map { attempt ->
-                if (attempt.attemptId == attemptId && attempt.phase == TextSendAttemptPhase.Failed) {
-                    found = true
-                    attempt.copy(
-                        phase = TextSendAttemptPhase.Sending,
-                        errorMessage = null,
-                        options = if (sendNowConsent) attempt.options.copy(sendNowConsent = true) else attempt.options,
-                        baselineSequence = baselineSequence ?: attempt.baselineSequence
-                    )
-                } else attempt
+            if (list.none { it.attemptId == attemptId && it.phase == TextSendAttemptPhase.Failed }) {
+                current
+            } else {
+                current + (scopeKey to list.map { attempt ->
+                    if (attempt.attemptId == attemptId && attempt.phase == TextSendAttemptPhase.Failed) {
+                        attempt.copy(
+                            phase = TextSendAttemptPhase.Sending,
+                            errorMessage = null,
+                            options = if (sendNowConsent) attempt.options.copy(sendNowConsent = true) else attempt.options,
+                            baselineSequence = baselineSequence ?: attempt.baselineSequence
+                        )
+                    } else attempt
+                })
             }
-            if (found) current + (scopeKey to updated) else current
-        }
         }
         if (found) {
-            persist()
-            submit(
-                TextSendJobRequest(scopeKey, attemptId, execute, onSuccess, onFailure, formatError)
-            )
+            submit(TextSendJobRequest(scopeKey, attemptId, execute, onSuccess, onFailure, formatError))
         }
         return found
     }
 
     fun discard(scopeKey: TextSendScopeKey, attemptId: Long) {
-        attemptsByScope.update { current ->
-            val list = current[scopeKey].orEmpty().filterNot { it.attemptId == attemptId }
-            if (list.isEmpty()) current - scopeKey else current + (scopeKey to list)
-        }
-        persist()
+        updateAttempts { current -> withoutAttempt(current, scopeKey, attemptId) }
+    }
+
+    private fun withoutAttempt(
+        current: Map<TextSendScopeKey, List<TextSendAttempt>>,
+        scopeKey: TextSendScopeKey,
+        attemptId: Long
+    ): Map<TextSendScopeKey, List<TextSendAttempt>> {
+        val list = current[scopeKey].orEmpty().filterNot { it.attemptId == attemptId }
+        return if (list.isEmpty()) current - scopeKey else current + (scopeKey to list)
     }
 
     private fun submit(job: TextSendJobRequest): Unit = synchronized(lock) {
@@ -215,21 +229,51 @@ internal class TextSendQueue(
         }
     }
 
-    private fun persist() { store?.save(attemptsByScope.value.values.flatten()) }
+    /**
+     * Persist before publishing user actions. Once TDLib has answered, its result cannot be rolled back;
+     * keep the live result even if disk fails, while the durable Sending row remains recoverable with a
+     * possible-delivery warning on restart. Later successful writes reconcile the durable snapshot.
+     */
+    private fun updateAttempts(
+        keepLiveOutcomeOnFailure: Boolean = false,
+        transform: (Map<TextSendScopeKey, List<TextSendAttempt>>) -> Map<TextSendScopeKey, List<TextSendAttempt>>
+    ): Boolean = synchronized(lock) {
+        val current = attemptsByScope.value
+        val next = transform(current)
+        if (next == current) return@synchronized false
+        try {
+            readFailure?.let { throw it }
+            store?.save(next.values.flatten())
+            storageProblem.value = false
+        } catch (failure: Exception) {
+            storageProblem.value = true
+            if (!keepLiveOutcomeOnFailure) throw TextSendStorageException(failure)
+        }
+        attemptsByScope.value = next
+        true
+    }
 
     private suspend fun processJob(job: TextSendJobRequest) {
         val attempt = attemptsByScope.value[job.scopeKey]
             ?.firstOrNull { it.attemptId == job.attemptId }
             ?: return
-        val result = runCatching { job.execute(attempt) }
-            .getOrElse { Result.failure(it) }
+        val result = try {
+            job.execute(attempt)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Result.failure(failure)
+        }
+        (result.exceptionOrNull() as? CancellationException)?.let { throw it }
         if (result.isSuccess) {
-            discard(job.scopeKey, job.attemptId)
+            updateAttempts(keepLiveOutcomeOnFailure = true) { current ->
+                withoutAttempt(current, job.scopeKey, job.attemptId)
+            }
             job.onSuccess(attempt)
         } else {
             val error = result.exceptionOrNull() ?: IllegalStateException("Send failed")
             val message = job.formatError(error)
-            attemptsByScope.update { current ->
+            updateAttempts(keepLiveOutcomeOnFailure = true) { current ->
                 val list = current[job.scopeKey].orEmpty()
                 val updated = list.map { item ->
                     if (item.attemptId == job.attemptId) {
@@ -238,7 +282,6 @@ internal class TextSendQueue(
                 }
                 if (updated.isEmpty()) current - job.scopeKey else current + (job.scopeKey to updated)
             }
-            persist()
             job.onFailure(attempt, error)
         }
     }
