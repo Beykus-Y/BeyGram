@@ -1,9 +1,10 @@
 package com.beykus.beygram.ui.screens.profile
 
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -143,13 +144,17 @@ internal fun ProfilePhotoGallery(
             }
         }
     )
-    if (deleteTarget != null) AlertDialog(
-        onDismissRequest = { if (!deleting) deleteTarget = null },
-        title = { Text(stringResource(R.string.profile_gallery_delete_title)) },
-        text = { Text(stringResource(R.string.profile_gallery_delete_warning)) },
-        confirmButton = {
-            TextButton(enabled = !deleting, onClick = {
-                val id = deleteTarget ?: return@TextButton
+    if (deleteTarget != null) {
+        val deletingBar: @Composable () -> Unit = { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+        BeyGramDialog(
+            onDismissRequest = { if (!deleting) deleteTarget = null },
+            title = stringResource(R.string.profile_gallery_delete_title),
+            message = stringResource(R.string.profile_gallery_delete_warning),
+            content = if (deleting) deletingBar else null,
+            confirmText = stringResource(R.string.common_delete),
+            confirmEnabled = !deleting,
+            onConfirm = {
+                val id = deleteTarget ?: return@BeyGramDialog
                 scope.launch {
                     deleting = true
                     try {
@@ -159,11 +164,10 @@ internal fun ProfilePhotoGallery(
                         )
                     } finally { deleting = false }
                 }
-            }) {
-                if (deleting) CircularProgressIndicator()
-                else Text(stringResource(R.string.common_delete))
-            }
-        },
-        dismissButton = { TextButton(enabled = !deleting, onClick = { deleteTarget = null }) { Text(stringResource(R.string.common_cancel)) } }
-    )
+            },
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !deleting,
+            onDismiss = { deleteTarget = null }
+        )
+    }
 }

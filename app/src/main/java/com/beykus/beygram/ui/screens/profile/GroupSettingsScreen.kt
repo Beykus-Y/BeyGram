@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.runtime.*
@@ -320,33 +321,33 @@ internal fun GroupSettingsScreen(
         }
     }
 
-    if (removingPhoto) AlertDialog(
+    if (removingPhoto) BeyGramDialog(
         onDismissRequest = { if (!photoBusy) removingPhoto = false },
-        title = { Text(stringResource(R.string.group_settings_photo_remove_title)) },
-        text = { Text(stringResource(R.string.group_settings_photo_remove_warning)) },
-        confirmButton = {
-            TextButton(
-                enabled = !photoBusy,
-                onClick = {
-                    scope.launch {
-                        photoBusy = true
-                        photoError = null
-                        repository.removeGroupPhoto(info.chatId)
-                            .onSuccess {
-                                notice = context.getString(R.string.group_settings_photo_removed)
-                                removingPhoto = false
-                                onChanged()
-                            }
-                            .onFailure {
-                                photoError = it.userMessage(context, R.string.group_settings_photo_failed)
-                                removingPhoto = false
-                            }
-                        photoBusy = false
+        title = stringResource(R.string.group_settings_photo_remove_title),
+        message = stringResource(R.string.group_settings_photo_remove_warning),
+        confirmText = stringResource(R.string.group_settings_photo_remove),
+        confirmEnabled = !photoBusy,
+        destructive = true,
+        onConfirm = {
+            scope.launch {
+                photoBusy = true
+                photoError = null
+                repository.removeGroupPhoto(info.chatId)
+                    .onSuccess {
+                        notice = context.getString(R.string.group_settings_photo_removed)
+                        removingPhoto = false
+                        onChanged()
                     }
-                }
-            ) { Text(stringResource(R.string.group_settings_photo_remove), color = palette.danger) }
+                    .onFailure {
+                        photoError = it.userMessage(context, R.string.group_settings_photo_failed)
+                        removingPhoto = false
+                    }
+                photoBusy = false
+            }
         },
-        dismissButton = { TextButton(enabled = !photoBusy, onClick = { removingPhoto = false }) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !photoBusy,
+        onDismiss = { removingPhoto = false }
     )
 }
 
