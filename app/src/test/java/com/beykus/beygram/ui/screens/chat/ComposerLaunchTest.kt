@@ -205,4 +205,14 @@ class ComposerLaunchTest {
         // The launch records the bounded text, while the composer still holds the raw draft; the attempt key ties them.
         assertTrue(shouldHideComposerDraft(false, raw, activeLaunchKey = 7L, launch = attempt))
     }
+
+    @Test fun aPendingSendGivesUpAfterTheBoundedPreSendBudget() {
+        assertFalse(composerLaunchShouldGiveUp(COMPOSER_LAUNCH_PRE_SEND_WAIT_MS - 30, 0, awaitingSend = true))
+        assertTrue(composerLaunchShouldGiveUp(COMPOSER_LAUNCH_PRE_SEND_WAIT_MS, 0, awaitingSend = true))
+    }
+
+    @Test fun aConfirmedSendGivesUpAfterTheShortPostSendBudget() {
+        assertFalse(composerLaunchShouldGiveUp(totalWaitMs = 1_500, sinceSendMs = COMPOSER_LAUNCH_POST_SEND_WAIT_MS - 30, awaitingSend = false))
+        assertTrue(composerLaunchShouldGiveUp(totalWaitMs = 1_500, sinceSendMs = COMPOSER_LAUNCH_POST_SEND_WAIT_MS, awaitingSend = false))
+    }
 }
