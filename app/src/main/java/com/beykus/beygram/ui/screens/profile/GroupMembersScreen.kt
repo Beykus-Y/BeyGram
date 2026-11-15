@@ -13,12 +13,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.runtime.*
@@ -306,11 +306,11 @@ internal fun GroupMembersScreen(
 
     actionsFor?.let { member ->
         val available = groupMemberActions(rights, member)
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (!busy) actionsFor = null },
-            title = { Text(member.name.ifBlank { stringResource(R.string.user_name_unknown) }) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
+            title = member.name.ifBlank { stringResource(R.string.user_name_unknown) },
+            content = {
+                Column {
                     Text(
                         stringResource(member.status.roleLabelRes(member.isAnonymous)),
                         color = palette.textSecondary, fontSize = 13.sp
@@ -350,31 +350,30 @@ internal fun GroupMembersScreen(
                     }
                 }
             },
-            confirmButton = { TextButton(enabled = !busy, onClick = { actionsFor = null }) { Text(stringResource(R.string.common_close)) } }
+            confirmText = stringResource(R.string.common_close),
+            confirmEnabled = !busy,
+            onConfirm = { actionsFor = null }
         )
     }
 
     pending?.let { target ->
-        AlertDialog(
+        val isBan = target.action == GroupMemberAction.Ban
+        val busyBar: @Composable () -> Unit = { LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp), color = palette.accent) }
+        BeyGramDialog(
             onDismissRequest = { if (!busy) pending = null },
-            title = { Text(stringResource(target.action.confirmTitle(target.action == GroupMemberAction.Ban && info.kind == ManagedChatKind.BasicGroup))) },
-            text = {
-                Column {
-                    Text(stringResource(target.action.confirmWarning(target.action == GroupMemberAction.Ban && info.kind == ManagedChatKind.BasicGroup), target.member.name.ifBlank {
-                        stringResource(R.string.user_name_unknown)
-                    }))
-                    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp), color = palette.accent)
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = !busy, onClick = { applyAction(target.action, target.member) }) {
-                    Text(
-                        stringResource(target.action.confirmButton(info.kind)),
-                        color = if (target.action == GroupMemberAction.Ban) palette.danger else palette.accentInk
-                    )
-                }
-            },
-            dismissButton = { TextButton(enabled = !busy, onClick = { pending = null }) { Text(stringResource(R.string.common_cancel)) } }
+            title = stringResource(target.action.confirmTitle(isBan && info.kind == ManagedChatKind.BasicGroup)),
+            message = stringResource(
+                target.action.confirmWarning(isBan && info.kind == ManagedChatKind.BasicGroup),
+                target.member.name.ifBlank { stringResource(R.string.user_name_unknown) }
+            ),
+            content = if (busy) busyBar else null,
+            confirmText = stringResource(target.action.confirmButton(info.kind)),
+            confirmEnabled = !busy,
+            destructive = isBan,
+            onConfirm = { applyAction(target.action, target.member) },
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !busy,
+            onDismiss = { pending = null }
         )
     }
 
@@ -416,11 +415,11 @@ private fun PromoteMemberDialog(
     }
     fun canGrant(selector: (GroupAdministratorRights) -> Boolean): Boolean =
         viewer.isOwner || viewerRights?.let(selector) == true
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(R.string.group_members_promote_title)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+        title = stringResource(R.string.group_members_promote_title),
+        content = {
+            Column {
                 Text(member.name.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
                 if (kind == ManagedChatKind.BasicGroup) {
                     Text(
@@ -468,12 +467,12 @@ private fun PromoteMemberDialog(
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp), color = palette.accent)
             }
         },
-        confirmButton = {
-            TextButton(enabled = !busy, onClick = { onSave(rights) }) {
-                Text(stringResource(if (busy) R.string.common_saving else R.string.common_save))
-            }
-        },
-        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        confirmText = stringResource(if (busy) R.string.common_saving else R.string.common_save),
+        confirmEnabled = !busy,
+        onConfirm = { onSave(rights) },
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !busy,
+        onDismiss = onDismiss
     )
 }
 
