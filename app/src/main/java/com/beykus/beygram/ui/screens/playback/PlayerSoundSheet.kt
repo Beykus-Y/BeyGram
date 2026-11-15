@@ -53,6 +53,7 @@ import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.ui.theme.LocalBeyGramTokens
 import com.beykus.beygram.media.bgbeat.BgBeatSection
@@ -75,7 +76,6 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.StarBorder
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -93,7 +93,6 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -345,15 +344,13 @@ private fun SoundChip(text: String, selected: Boolean, enabled: Boolean, onClick
 
 @Composable
 private fun SleepCustomDialog(onDismiss: () -> Unit, onSet: (Int) -> Unit) {
-    val palette = beyGramPalette()
     var text by remember { mutableStateOf("") }
     val minutes = text.toIntOrNull()
     val valid = minutes != null && minutes in 1..SLEEP_TIMER_MAX_MINUTES
-    androidx.compose.material3.AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        containerColor = palette.surface,
-        title = { Text(stringResource(R.string.player_sleep_custom_title), color = palette.textPrimary) },
-        text = {
+        title = stringResource(R.string.player_sleep_custom_title),
+        content = {
             androidx.compose.material3.OutlinedTextField(
                 value = text,
                 onValueChange = { value -> text = value.filter { it.isDigit() }.take(3) },
@@ -364,16 +361,10 @@ private fun SleepCustomDialog(onDismiss: () -> Unit, onSet: (Int) -> Unit) {
                 )
             )
         },
-        confirmButton = {
-            androidx.compose.material3.TextButton(
-                enabled = valid,
-                onClick = { minutes?.let(onSet) }
-            ) { Text(stringResource(R.string.player_sleep_custom_set), color = palette.accentInk) }
-        },
-        dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.common_cancel), color = palette.textSecondary)
-            }
-        }
+        confirmText = stringResource(R.string.player_sleep_custom_set),
+        confirmEnabled = valid,
+        onConfirm = { minutes?.let(onSet) },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss
     )
 }
