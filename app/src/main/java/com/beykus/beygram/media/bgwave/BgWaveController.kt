@@ -102,6 +102,7 @@ class BgWaveController(
             if (session != null) {
                 val previousPhase = _state.value?.phase
                 if (previousPhase == BgWavePhase.Failed || previousPhase == BgWavePhase.Ended) {
+                    _state.value?.sidHex?.let(::markClosed)
                     closeSession(emitEnd = false, nowSeconds = nowSeconds)
                     _state.value = null
                 } else {
@@ -227,6 +228,7 @@ class BgWaveController(
             if (session != null) {
                 val previousPhase = _state.value?.phase
                 if (previousPhase == BgWavePhase.Failed || previousPhase == BgWavePhase.Ended) {
+                    _state.value?.sidHex?.let(::markClosed)
                     closeSession(emitEnd = false, nowSeconds = nowSeconds)
                     _state.value = null
                 } else {
@@ -362,6 +364,7 @@ class BgWaveController(
     /** Stops only the wave captured by the caller, never a replacement session. */
     internal fun stopIfCurrent(expected: BgWaveSessionState, nowSeconds: Long): String? = synchronized(lock) {
         val current = _state.value ?: return null
+        if (current.sidHex.isEmpty() && current !== expected) return null
         if (current.sidHex != expected.sidHex || current.accountId != expected.accountId ||
             current.chatId != expected.chatId || current.role != expected.role) return null
         stop(nowSeconds)
@@ -595,7 +598,8 @@ class BgWaveController(
             active.handleRemote(uri, nowSeconds)
             return
         }
-        if (current.role != BgWaveRole.Host || current.phase != BgWavePhase.AwaitingAnswer) return
+        if (current.role != BgWaveRole.Host ||
+            (current.phase != BgWavePhase.Offering && current.phase != BgWavePhase.AwaitingAnswer)) return
         if (!active.handleRemote(uri, nowSeconds)) {
             closeSession(emitEnd = false, nowSeconds = nowSeconds)
             _state.value = current.copy(phase = BgWavePhase.Failed, errorKey = BgWaveErrors.REJECTED)
