@@ -19,16 +19,40 @@ case "$abi" in
     *) echo "unsupported Android ABI: $abi" >&2; exit 2 ;;
 esac
 
-if [ -f "$prefix/lib/libssl.a" ] && [ -f "$prefix/lib/libcrypto.a" ]; then
+ndk_path="${ndk//\\//}"
+prefix_path="${prefix//\\//}"
+if command -v cygpath >/dev/null 2>&1; then
+    ndk_path="$(cygpath -u "$ndk_path")"
+    prefix_path="$(cygpath -u "$prefix_path")"
+fi
+
+if [ -f "$prefix_path/lib/libssl.a" ] && [ -f "$prefix_path/lib/libcrypto.a" ]; then
     exit 0
 fi
 
-export ANDROID_NDK_ROOT="$ndk"  # OpenSSL 15-android.conf refuses to configure without it
-toolchain_bin="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+export ANDROID_NDK_ROOT="$ndk_path"  # OpenSSL 15-android.conf refuses to configure without it
+host_os="$(uname -s)"
+host_arch="$(uname -m)"
+case "$host_os:$host_arch" in
+    Linux:*) host_tag="linux-x86_64" ;;
+    Darwin:arm64) host_tag="darwin-arm64" ;;
+    Darwin:*) host_tag="darwin-x86_64" ;;
+    MINGW*:*|MSYS*:*|CYGWIN*:*) host_tag="windows-x86_64" ;;
+    *) host_tag="linux-x86_64" ;;
+esac
+toolchain_bin="$ndk_path/toolchains/llvm/prebuilt/$host_tag/bin"
 if [ ! -d "$toolchain_bin" ]; then
-    echo "NDK toolchain not found at $toolchain_bin" >&2
-    exit 3
+    # Fallback to whichever prebuilt host toolchain exists in this NDK installation.
+    fallback_bin="$(find "$ndk_path/toolchains/llvm/prebuilt" -mindepth 2 -maxdepth 2 -type d -name bin 2>/dev/null | head -n 1 || true)"
+    if [ -n "$fallback_bin" ] && [ -d "$fallback_bin" ]; then
+        toolchain_bin="$fallback_bin"
+    else
+        echo "NDK toolchain not found at $toolchain_bin" >&2
+        exit 3
+    fi
 fi
+
+jobs="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -40,11 +64,11 @@ echo "$OPENSSL_SHA256  $archive" | sha256sum -c -
 tar -xzf "$archive" -C "$work"
 
 src="$work/openssl-$OPENSSL_VERSION"
-mkdir -p "$prefix"
+mkdir -p "$prefix_path"
 cd "$src"
 PATH="$toolchain_bin:$PATH" ./Configure "$target" \
     -D__ANDROID_API__="$ANDROID_API" \
     no-shared no-tests no-apps no-docs \
-    --prefix="$prefix" --openssldir="$prefix/ssl"
-PATH="$toolchain_bin:$PATH" make -j"$(nproc)" build_libs
+    --prefix="$prefix_path" --openssldir="$prefix_path/ssl"
+PATH="$toolchain_bin:$PATH" make -j"$jobs" build_libs
 PATH="$toolchain_bin:$PATH" make install_dev

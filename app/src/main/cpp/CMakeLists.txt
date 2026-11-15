@@ -65,8 +65,8 @@ target_compile_features(bgbeat_jni PRIVATE cxx_std_20)
 target_compile_options(bgbeat_jni PRIVATE -fexceptions -frtti -Wall -Wextra)
 
 if(HAVE_BGMEDIA)
-    # BG Wave peer-to-peer adapters (libopus + libdatachannel). Off until the Android build is verified.
-option(BEYGRAM_WAVE_P2P "Build the BG Wave Opus and WebRTC adapters" ON)
+    # BG Wave peer-to-peer adapters (libopus + libdatachannel).
+    option(BEYGRAM_WAVE_P2P "Build the BG Wave Opus and WebRTC adapters" ON)
 if(BEYGRAM_WAVE_P2P)
     # libdatachannel pulls in plog, whose cmake_minimum_required(VERSION < 3.5) the NDK CMake rejects.
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
@@ -125,6 +125,10 @@ if(NOT TARGET bgmedia_core)
         # Real P2P session layer: BG-Media pipeline + Opus + libdatachannel WebRTC.
         target_compile_definitions(bgbeat_jni PRIVATE BGWAVE_P2P=1)
         target_link_libraries(bgbeat_jni PRIVATE bgmedia_wave_opus bgmedia_wave_webrtc)
+        if(ANDROID)
+            # Keep static OpenSSL symbols private to libbgbeat_jni.so so they cannot collide with libtdjni.so.
+            target_link_options(bgbeat_jni PRIVATE "-Wl,--exclude-libs,libssl.a" "-Wl,--exclude-libs,libcrypto.a")
+        endif()
     endif()
 else()
     target_link_libraries(bgbeat_jni PRIVATE
