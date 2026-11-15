@@ -283,7 +283,14 @@ internal fun visiblePendingTextAttempts(
 }
 
 internal class ChatTextSendViewModel(application: android.app.Application, accountId: String) : androidx.lifecycle.AndroidViewModel(application) {
-    val queue = TextSendQueue(store = FileTextSendAttemptStore(java.io.File(application.filesDir, "pending-text-sends-" + java.security.MessageDigest.getInstance("SHA-256").digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) } + ".json")), recoveryError = application.getString(R.string.chat_send_recovery_notice))
+    // Process-death recovery is local to this installation. Neither Android cloud
+    // backup nor device transfer may export the plaintext pending message snapshots.
+    val queue = TextSendQueue(
+        store = FileTextSendAttemptStore(java.io.File(application.noBackupFilesDir,
+            "pending-text-sends-" + java.security.MessageDigest.getInstance("SHA-256")
+                .digest(accountId.toByteArray()).joinToString("") { "%02x".format(it) } + ".json")),
+        recoveryError = application.getString(R.string.chat_send_recovery_notice)
+    )
 
     override fun onCleared() {
         queue.close()
