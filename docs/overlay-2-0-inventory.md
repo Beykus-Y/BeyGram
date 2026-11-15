@@ -28,10 +28,10 @@
 | ✅ ui/screens/chat/StealthSendGuard.kt · #877 | 2 | 55 104 |
 | ✅ ui/screens/chat/TextSendQueue.kt · #877 | 1 | 500 |
 | ✅ ui/screens/chat/ViewOnceStealthGate.kt · #877 | 1 | 53 |
-| ui/screens/chats/ChatActionsSheet.kt | 1 | 180 |
-| ui/screens/chats/ChatsScreen.kt | 2 | 1043 1101 |
-| ui/screens/chats/FolderManagerScreen.kt | 1 | 279 |
-| ui/screens/chats/MarkReadConfirmation.kt | 1 | 45 |
+| ✅ ui/screens/chats/ChatActionsSheet.kt · #885 | 1 | 180 |
+| ✅ ui/screens/chats/ChatsScreen.kt · #885 | 2 | 1043 1101 |
+| ✅ ui/screens/chats/FolderManagerScreen.kt · #885 | 1 | 279 |
+| ✅ ui/screens/chats/MarkReadConfirmation.kt · #885 | 1 | 45 |
 | ui/screens/chats/NewChatScreen.kt | 1 | 322 |
 | ui/screens/contacts/ContactsScreen.kt | 4 | 432 478 520 561 |
 | ui/screens/diagnostics/DiagnosticsScreen.kt | 1 | 151 |
@@ -108,3 +108,8 @@
 - PremiumScreen, StarsScreen и GiftsScreen: 5 вызовов в 3 файлах. Отмечено ✅ в таблице выше.
 - Группа закрыта после слияния #884: 16 вызовов в 9 файлах (части 1–3).
 - Другие группы в этом PR не трогались.
+
+## Статус группы «список чатов» (#870, PR #885)
+
+- Часть 1: ChatsScreen.kt (подтверждение «прочитать все» и настройки смахивания), ChatActionsSheet.kt (удаление чата), FolderManagerScreen.kt (удаление папки), MarkReadConfirmation.kt (отметка прочитанным, которую отклонил режим скрытности). 5 вызовов в 4 файлах. Отмечено ✅ в таблице выше.
+- Часть 2 (ContactsScreen.kt, NewChatScreen.kt, BeyGramApp.kt) и опция прокрутки содержимого в BeyGramDialog: отдельный PR после слияния части 1.
