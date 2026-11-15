@@ -21,7 +21,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,7 +29,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -139,17 +138,17 @@ fun StorageSettingsScreen(
     }
 
     pendingClear?.let { scope ->
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { pendingClear = null },
-            title = { Text(stringResource(if (scope == ClearScope.All) R.string.storage_clear_all_title else R.string.storage_clear_selected_title)) },
-            text = { Text(stringResource(R.string.storage_clear_text)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingClear = null
-                    model.clear(if (scope == ClearScope.All) usage?.categoriesWithFiles().orEmpty() else model.selected)
-                }) { Text(stringResource(R.string.storage_clear_confirm)) }
+            title = stringResource(if (scope == ClearScope.All) R.string.storage_clear_all_title else R.string.storage_clear_selected_title),
+            message = stringResource(R.string.storage_clear_text),
+            confirmText = stringResource(R.string.storage_clear_confirm),
+            onConfirm = {
+                pendingClear = null
+                model.clear(if (scope == ClearScope.All) usage?.categoriesWithFiles().orEmpty() else model.selected)
             },
-            dismissButton = { TextButton(onClick = { pendingClear = null }) { Text(stringResource(R.string.common_cancel)) } }
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { pendingClear = null }
         )
     }
 }
@@ -356,17 +355,17 @@ private fun ChatMemoryCard(repository: StorageRepository, accountId: String) {
     }
 
     if (confirmClear) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text(stringResource(R.string.chat_memory_clear_title)) },
-            text = { Text(stringResource(R.string.chat_memory_clear_text)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmClear = false
-                    runThenRefresh { repository.clearChatMemory() }
-                }) { Text(stringResource(R.string.storage_clear_confirm)) }
+            title = stringResource(R.string.chat_memory_clear_title),
+            message = stringResource(R.string.chat_memory_clear_text),
+            confirmText = stringResource(R.string.storage_clear_confirm),
+            onConfirm = {
+                confirmClear = false
+                runThenRefresh { repository.clearChatMemory() }
             },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.common_cancel)) } }
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { confirmClear = false }
         )
     }
 }

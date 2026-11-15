@@ -26,8 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Fingerprint
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.RadioButton
 import com.beykus.beygram.ui.components.Switch
@@ -391,11 +390,10 @@ private fun SetupPinDialog(store: AppLockStore, onDone: () -> Unit, onDismiss: (
         }
     }
 
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        icon = { Icon(Icons.Rounded.Lock, contentDescription = null, tint = palette.accent) },
-        title = { Text(stringResource(R.string.app_lock_setup_title)) },
-        text = {
+        title = stringResource(R.string.app_lock_setup_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(stringResource(R.string.app_lock_setup_hint), color = palette.textSecondary)
                 PinField(
@@ -418,16 +416,13 @@ private fun SetupPinDialog(store: AppLockStore, onDone: () -> Unit, onDismiss: (
                 }
             }
         },
-        confirmButton = {
-            TextButton(enabled = !saving && pin.isNotEmpty() && confirmation.isNotEmpty(), onClick = ::save) {
-                Text(stringResource(if (saving) R.string.common_saving else R.string.app_lock_set_pin))
-            }
-        },
-        dismissButton = {
-            TextButton(enabled = !saving, onClick = onDismiss) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        },
+        confirmText = stringResource(if (saving) R.string.common_saving else R.string.app_lock_set_pin),
+        confirmEnabled = !saving && pin.isNotEmpty() && confirmation.isNotEmpty(),
+        onConfirm = ::save,
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !saving,
+        onDismiss = onDismiss,
+        secure = true,
     )
 }
 
@@ -526,11 +521,10 @@ private fun ConfirmIdentityDialog(
         ((lockoutMillis + 999L) / 1_000L).coerceAtLeast(1L),
     ) else errorText
 
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!checking) onDismiss() },
-        icon = { Icon(Icons.Rounded.Fingerprint, contentDescription = null, tint = palette.accent) },
-        title = { Text(title) },
-        text = {
+        title = title,
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(message, color = palette.textSecondary)
                 PinField(
@@ -570,18 +564,12 @@ private fun ConfirmIdentityDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(
-                enabled = !checking && lockoutMillis == 0L && pin.isNotEmpty(),
-                onClick = ::verify,
-            ) {
-                Text(stringResource(if (checking) R.string.app_lock_checking else R.string.app_lock_confirm_action))
-            }
-        },
-        dismissButton = {
-            TextButton(enabled = !checking, onClick = onDismiss) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        },
+        confirmText = stringResource(if (checking) R.string.app_lock_checking else R.string.app_lock_confirm_action),
+        confirmEnabled = !checking && lockoutMillis == 0L && pin.isNotEmpty(),
+        onConfirm = ::verify,
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !checking,
+        onDismiss = onDismiss,
+        secure = true,
     )
 }

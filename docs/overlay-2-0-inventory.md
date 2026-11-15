@@ -56,15 +56,15 @@
 | ui/screens/proxy/ProxyListScreen.kt | 1 | 266 |
 | ui/screens/proxy/ProxyRestoreDialog.kt | 1 | 27 |
 | ui/screens/proxy/SecondaryProxySettingsScreen.kt | 1 | 114 |
-| ui/screens/settings/AccountSecurityScreen.kt | 3 | 845 953 1033 |
-| ui/screens/settings/AccountSwitcherSheet.kt | 4 | 483 511 534 1127 |
-| ui/screens/settings/ActiveSessionsScreen.kt | 1 | 149 |
-| ui/screens/settings/AppLockSettingsScreen.kt | 2 | 394 529 |
-| ui/screens/settings/BlockedSendersScreen.kt | 1 | 217 |
-| ui/screens/settings/PhoneNumberChangeDialog.kt | 1 | 69 |
-| ui/screens/settings/PrivacySettingsScreen.kt | 1 | 493 |
-| ui/screens/settings/StealthSettingsScreen.kt | 1 | 278 |
-| ui/screens/settings/StorageSettingsScreen.kt | 2 | 142 359 |
+| ✅ ui/screens/settings/AccountSecurityScreen.kt · #880 | 3 | 845 953 1033 |
+| ✅ ui/screens/settings/AccountSwitcherSheet.kt · #880 | 4 | 483 511 534 1127 |
+| ✅ ui/screens/settings/ActiveSessionsScreen.kt · #880 | 1 | 149 |
+| ✅ ui/screens/settings/AppLockSettingsScreen.kt · #880 | 2 | 394 529 |
+| ✅ ui/screens/settings/BlockedSendersScreen.kt · #880 | 1 | 217 |
+| ✅ ui/screens/settings/PhoneNumberChangeDialog.kt · #880 | 1 | 69 |
+| ✅ ui/screens/settings/PrivacySettingsScreen.kt · #880 | 1 | 493 |
+| ✅ ui/screens/settings/StealthSettingsScreen.kt · #880 | 1 | 278 |
+| ✅ ui/screens/settings/StorageSettingsScreen.kt · #880 | 2 | 142 359 |
 | ui/screens/settings/VideoMessageSettingsScreen.kt | 10 | 407 418 433 460 496 540 588 603 624 653 |
 | ui/screens/stories/StoryArchiveViewerScreen.kt | 1 | 365 |
 | ui/screens/stories/StoryPublisherScreen.kt | 1 | 923 |
@@ -85,3 +85,9 @@
   использует его, чтобы сохранить FLAG_SECURE.
 
 Группы «список чатов», «настройки», «профили», «музыка» и «истории» в этих PR не трогались.
+
+## Статус группы «настройки и аккаунты» (#870)
+
+- #880 (часть 1): 16 вызовов, 9 файлов. Отмечено ✅ в таблице выше.
+- Осталось: `VideoMessageSettingsScreen.kt`, 10 вызовов (часть 2).
+- Группы «профили», «список чатов», «музыка», «истории» и «оформление» в этих PR не трогались.

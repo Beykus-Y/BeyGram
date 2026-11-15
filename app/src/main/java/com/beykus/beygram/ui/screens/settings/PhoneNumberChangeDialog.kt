@@ -4,10 +4,8 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -66,14 +64,12 @@ internal fun PhoneNumberChangeDialog(
         }
     }
 
-    AlertDialog(
+    val canConfirm = if (pending == null) isPlausiblePhoneNumber(phone) else code.isNotBlank()
+    BeyGramDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(R.string.account_security_phone_dialog_title)) },
-        text = {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+        title = stringResource(R.string.account_security_phone_dialog_title),
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (pending == null) {
                     Text(
                         stringResource(R.string.account_security_phone_dialog_body),
@@ -146,28 +142,17 @@ internal fun PhoneNumberChangeDialog(
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
             }
         },
-        confirmButton = {
-            if (pending == null) {
-                TextButton(
-                    enabled = !busy && isPlausiblePhoneNumber(phone),
-                    onClick = { onRequestCode(phone) }
-                ) {
-                    Text(stringResource(R.string.account_security_phone_send_code), color = palette.accentInk)
-                }
-            } else {
-                TextButton(
-                    enabled = !busy && code.isNotBlank(),
-                    onClick = { onConfirm(code) }
-                ) {
-                    Text(stringResource(R.string.account_security_phone_confirm), color = palette.accentInk)
-                }
-            }
+        confirmText = if (pending == null) {
+            stringResource(R.string.account_security_phone_send_code)
+        } else {
+            stringResource(R.string.account_security_phone_confirm)
         },
-        dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        confirmEnabled = !busy && canConfirm,
+        onConfirm = { if (pending == null) onRequestCode(phone) else onConfirm(code) },
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !busy,
+        onDismiss = onDismiss,
+        secure = true
     )
 }
 

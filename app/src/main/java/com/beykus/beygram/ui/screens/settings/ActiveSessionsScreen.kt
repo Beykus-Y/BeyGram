@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import com.beykus.beygram.ui.components.TextButton
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -146,10 +147,10 @@ fun ActiveSessionsScreen(
 
     if (target != null || confirmAll) {
         val chosen = others.firstOrNull { it.id == target }
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (!busy) closeDialog() },
-            title = { Text(stringResource(if (confirmAll) R.string.feature_terminate_other_sessions else R.string.feature_terminate_session)) },
-            text = {
+            title = stringResource(if (confirmAll) R.string.feature_terminate_other_sessions else R.string.feature_terminate_session),
+            content = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!confirmAll) Text(chosen?.device?.ifBlank { chosen.application } ?: stringResource(R.string.sessions_unknown_device), fontWeight = FontWeight.SemiBold)
                     Text(stringResource(if (confirmAll) R.string.feature_terminate_all_warning else R.string.feature_terminate_warning))
@@ -157,40 +158,40 @@ fun ActiveSessionsScreen(
                     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
             },
-            confirmButton = {
-                TextButton(enabled = !busy, onClick = {
-                    val allOthers = confirmAll
-                    val id = target
-                    if (!allOthers && id == null) return@TextButton
-                    scope.launch {
-                        busy = true
-                        actionError = null
-                        try {
-                            when (val request = awaitSessionRequest(SESSION_ACTION_TIMEOUT_MS) {
-                                if (allOthers) terminateAll() else terminate(requireNotNull(id))
-                            }) {
-                                is SessionAwait.Completed -> request.result.fold(
-                                    { closeDialog(); refresh++ },
-                                    { actionError = it.userMessage(context, R.string.feature_action_failed) }
-                                )
-                                SessionAwait.TimedOut -> {
-                                    // The server may still have accepted a termination. Never
-                                    // silently retry a destructive action without refreshing.
-                                    actionError = context.getString(R.string.sessions_action_timeout)
-                                }
+            confirmText = stringResource(R.string.feature_confirm),
+            confirmEnabled = !busy,
+            destructive = true,
+            onConfirm = {
+                val allOthers = confirmAll
+                val id = target
+                if (allOthers || id != null) scope.launch {
+                    busy = true
+                    actionError = null
+                    try {
+                        when (val request = awaitSessionRequest(SESSION_ACTION_TIMEOUT_MS) {
+                            if (allOthers) terminateAll() else terminate(requireNotNull(id))
+                        }) {
+                            is SessionAwait.Completed -> request.result.fold(
+                                { closeDialog(); refresh++ },
+                                { actionError = it.userMessage(context, R.string.feature_action_failed) }
+                            )
+                            SessionAwait.TimedOut -> {
+                                // The server may still have accepted a termination. Never
+                                // silently retry a destructive action without refreshing.
+                                actionError = context.getString(R.string.sessions_action_timeout)
                             }
-                        } catch (cancelled: CancellationException) { throw cancelled }
-                        catch (failure: Exception) {
-                            actionError = failure.userMessage(context, R.string.feature_action_failed)
-                        } finally {
-                            busy = false
                         }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (failure: Exception) {
+                        actionError = failure.userMessage(context, R.string.feature_action_failed)
+                    } finally {
+                        busy = false
                     }
-                }) { Text(stringResource(R.string.feature_confirm), color = palette.danger) }
+                }
             },
-            dismissButton = {
-                TextButton(enabled = !busy, onClick = ::closeDialog) { Text(stringResource(R.string.common_cancel)) }
-            }
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !busy,
+            onDismiss = ::closeDialog
         )
     }
 }

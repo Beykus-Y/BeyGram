@@ -31,7 +31,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -490,11 +490,11 @@ private fun PrivacyExceptionsDialog(
         picker = null
     }
 
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text(settingTitle(current.setting), color = palette.textPrimary) },
-        text = {
-            Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
+        title = settingTitle(current.setting),
+        content = {
+            Column {
                 if (current.choice != PrivacyRuleChoice.Everyone) {
                     ExceptionSection(
                         title = stringResource(R.string.privacy_exceptions_always_title),
@@ -521,14 +521,12 @@ private fun PrivacyExceptionsDialog(
                 if (saving) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp), color = palette.accent)
             }
         },
-        confirmButton = {
-            TextButton(enabled = !saving, onClick = { onSave(current.copy(always = always, never = never)) }) {
-                Text(stringResource(R.string.common_save), color = palette.accentInk)
-            }
-        },
-        dismissButton = {
-            TextButton(enabled = !saving, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
-        }
+        confirmText = stringResource(R.string.common_save),
+        confirmEnabled = !saving,
+        onConfirm = { onSave(current.copy(always = always, never = never)) },
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !saving,
+        onDismiss = onDismiss
     )
 
     val contactSide = picker

@@ -21,13 +21,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -275,10 +274,10 @@ private fun CustomDelayDialog(initial: Int, onDismiss: () -> Unit, onConfirm: (I
     val palette = beyGramPalette()
     var text by remember { mutableStateOf(initial.toString()) }
     val value = text.trim().toIntOrNull()?.takeIf { it in StealthScheduleDelayRange }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.stealth_schedule_custom)) },
-        text = {
+        title = stringResource(R.string.stealth_schedule_custom),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.stealth_schedule_dialog_hint), color = palette.textSecondary, fontSize = 13.sp)
                 OutlinedTextField(
@@ -297,12 +296,11 @@ private fun CustomDelayDialog(initial: Int, onDismiss: () -> Unit, onConfirm: (I
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = { value?.let(onConfirm) }, enabled = value != null) {
-                Text(stringResource(R.string.common_save), color = if (value != null) palette.accent else palette.textSecondary)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        confirmText = stringResource(R.string.common_save),
+        confirmEnabled = value != null,
+        onConfirm = { value?.let(onConfirm) },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss
     )
 }
 
