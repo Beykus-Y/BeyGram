@@ -157,7 +157,10 @@ class BgWaveController(
     /** The invitation was handed to Telegram (or not). A failed send tears the wave down. */
     fun offerSent(sidHex: String, success: Boolean, nowSeconds: Long): Unit = synchronized(lock) {
         val current = _state.value ?: return
-        if (starting || current.sidHex != sidHex || current.role != BgWaveRole.Host || current.phase != BgWavePhase.Offering) return
+        if (starting || current.sidHex != sidHex || current.role != BgWaveRole.Host) return
+        // TDLib may accept SendMessage locally and fail it later via UpdateMessageSendFailed.
+        if (success && current.phase != BgWavePhase.Offering) return
+        if (!success && current.phase != BgWavePhase.Offering && current.phase != BgWavePhase.AwaitingAnswer) return
         BgWaveLog.i("host.offer.sent", "sid" to BgWaveLog.sid(sidHex), "ok" to success)
         if (success) {
             _state.value = current.copy(phase = BgWavePhase.AwaitingAnswer)
