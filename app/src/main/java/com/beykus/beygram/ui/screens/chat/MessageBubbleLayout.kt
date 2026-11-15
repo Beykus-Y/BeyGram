@@ -2,8 +2,11 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -214,6 +217,7 @@ internal fun useInlineTextMetadata(message: ChatMessage, hasSenderHeader: Boolea
         !hasTranslation
 
 /** Время, статус отправки и кнопка повтора. При [overlay] — белым на тёмной плашке поверх фото. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BubbleMeta(
     message: ChatMessage,
@@ -259,24 +263,7 @@ internal fun BubbleMeta(
     )
     val memoryPrefix = if (memoryLabels.isEmpty()) "" else memoryLabels.joinToString(" · ") + " · "
     Column(modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (message.isOutgoing && failed) {
-                Icon(
-                    Icons.Rounded.ErrorOutline,
-                    contentDescription = stringResource(R.string.chat_status_not_sent),
-                    tint = if (overlay) Color.White else palette.warningText,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(Modifier.width(3.dp))
-            }
-            Text(memoryPrefix + (if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
-                color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = textColor, fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable(onClick = onRetry))
-            if (message.isOutgoing && failed && onShowFailureDetails != null) {
-                Text(" · " + stringResource(R.string.chat_send_failure_details), color = textColor, fontSize = 12.sp,
-                    modifier = Modifier.clickable(onClick = onShowFailureDetails))
-            }
+        val statusIcon = @Composable {
             if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
                 Spacer(Modifier.width(3.dp))
                 Icon(
@@ -291,6 +278,45 @@ internal fun BubbleMeta(
                 Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done,
                     if (isRead) stringResource(R.string.chat_read_description) else stringResource(R.string.chat_sent_description),
                     tint = if (overlay) Color.White else palette.accent, modifier = Modifier.size(16.dp))
+            }
+        }
+        val timeWithIcon = @Composable {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (message.isOutgoing && failed) {
+                    Icon(
+                        Icons.Rounded.ErrorOutline,
+                        contentDescription = stringResource(R.string.chat_status_not_sent),
+                        tint = if (overlay) Color.White else palette.warningText,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(3.dp))
+                }
+                Text(memoryPrefix + (if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
+                    color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                statusIcon()
+            }
+        }
+        if (inline) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                timeWithIcon()
+                if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = textColor, fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable(onClick = onRetry))
+                if (message.isOutgoing && failed && onShowFailureDetails != null) {
+                    Text(" · " + stringResource(R.string.chat_send_failure_details), color = textColor, fontSize = 12.sp,
+                        modifier = Modifier.clickable(onClick = onShowFailureDetails))
+                }
+            }
+        } else {
+            FlowRow(
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Box(Modifier.align(Alignment.CenterVertically)) { timeWithIcon() }
+                if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = textColor, fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.align(Alignment.CenterVertically).clickable(onClick = onRetry))
+                if (message.isOutgoing && failed && onShowFailureDetails != null) {
+                    Text(" · " + stringResource(R.string.chat_send_failure_details), color = textColor, fontSize = 12.sp,
+                        modifier = Modifier.align(Alignment.CenterVertically).clickable(onClick = onShowFailureDetails))
+                }
             }
         }
         // The link has a line of its own, so a long time or label can never squeeze it out at a large font size.

@@ -169,6 +169,20 @@ class ComposerLaunchTest {
         assertNull(findComposerLaunchMessage(history, draft, null, 0L, emptySet()))
     }
 
+    @Test fun launchTargetsHideLocalAttemptUntilTdlibConfirmsWithoutDuplicating() {
+        val pendingLaunch = launch(1L, text = "Hello").apply { localAttemptId = 7L }
+        val emptyHistory = history(emptyList())
+        val localTargets = resolveComposerLaunchTargets(listOf(pendingLaunch), emptyHistory, visibleLocalRowIds = setOf(-7L))
+        assertEquals(pendingLaunch, localTargets[-7L])
+        assertEquals(1, localTargets.size)
+
+        val confirmed = message(900L, text = "Hello", state = MessageSendState.Sent)
+        val confirmedHistory = history(listOf(confirmed), listOf(LiveMessageArrival(1L, 900L)))
+        val tdlibTargets = resolveComposerLaunchTargets(listOf(pendingLaunch), confirmedHistory, visibleLocalRowIds = emptySet())
+        assertEquals(pendingLaunch, tdlibTargets[900L])
+        assertNull(tdlibTargets[-7L])
+    }
+
     @Test fun aNewIdenticalDraftIsNotHiddenByAnAlreadySentLaunch() {
         val finished = launch(key = 1L, text = "OK", awaitingSend = false)
         // The user types "OK" again after the previous send completed, before its launch receives a message id.

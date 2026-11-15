@@ -2951,6 +2951,8 @@ class TdLibTelegramRepository private constructor(
                 // proxy and listener while network is forced OFF.
             }
             is TdApi.AuthorizationStateWaitPhoneNumber -> {
+                runCatching { PendingTextSendSessions.signedOut(appContext, accountId) }
+                    .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
                 if (!isLegacyAccount) secondaryAuthorizationLost = true
                 val restartQr = qrRetryAfterReopen
                 qrRetryAfterReopen = false

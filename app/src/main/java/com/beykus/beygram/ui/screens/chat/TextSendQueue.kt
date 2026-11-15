@@ -106,12 +106,15 @@ internal class TextSendQueue(
 ) {
     private val storageProblem = MutableStateFlow(false)
     val storageFailed = storageProblem.asStateFlow()
+    private val corruptProblem = MutableStateFlow(false)
+    val storageCorrupt = corruptProblem.asStateFlow()
     private val attemptsByScope = MutableStateFlow<Map<TextSendScopeKey, List<TextSendAttempt>>>(emptyMap())
     private val nextAttemptId = AtomicLong(1L)
     private val jobs = HashMap<TextSendScopeKey, java.util.ArrayDeque<TextSendJobRequest>>()
     // The storage monitor is entered on the IO dispatcher. Workers must never wait for it
     // on the UI thread just to poll their in-memory jobs.
     private val lock = Any()
+    private val stateLock = Any()
     private val jobsLock = Any()
     private val composerLock = Any()
     private val composerWrites = MutableStateFlow<Set<TextSendScopeKey>>(emptySet())
@@ -120,6 +123,7 @@ internal class TextSendQueue(
 
     private val initialized = workerScope.async<Unit>(start = CoroutineStart.UNDISPATCHED) {
         withContext(storageDispatcher) {
+            store?.prepare()
             synchronized(lock) {
                 if (!closed) {
                     try {
@@ -128,11 +132,16 @@ internal class TextSendQueue(
                                 phase = TextSendAttemptPhase.Failed, errorMessage = recoveryError
                             ) else it
                         }
-                        nextAttemptId.set((restored.maxOfOrNull { it.attemptId } ?: 0L) + 1L)
-                        attemptsByScope.value = restored.groupBy { it.scope }
+                        synchronized(stateLock) {
+                            if (!closed) {
+                                nextAttemptId.set((restored.maxOfOrNull { it.attemptId } ?: 0L) + 1L)
+                                attemptsByScope.value = restored.groupBy { it.scope }
+                            }
+                        }
                     } catch (failure: Exception) {
                         // An unreadable snapshot must never be replaced by an empty one.
                         readFailure = failure
+                        corruptProblem.value = true
                         storageProblem.value = true
                     }
                 }
@@ -164,6 +173,10 @@ internal class TextSendQueue(
     }
 
     internal val activeWorkerCount: Int get() = synchronized(jobsLock) { jobs.size }
+
+    internal suspend fun awaitInitializedForTests() {
+        ensureInitialized()
+    }
 
     fun observe(scopeKey: TextSendScopeKey): Flow<List<TextSendAttempt>> =
         attemptsByScope.map { it[scopeKey].orEmpty() }.distinctUntilChanged()
@@ -264,6 +277,34 @@ internal class TextSendQueue(
         }
     }
 
+    /**
+     * Moves an unreadable snapshot to private quarantine and resets the queue so the account
+     * can resume sending plain text without silently overwriting the corrupt file.
+     */
+    suspend fun quarantineAndReset() {
+        ensureInitialized()
+        withContext(storageDispatcher) {
+            synchronized(lock) {
+                if (closed) throw TextSendStorageException(IllegalStateException("Text send session closed"))
+                if (readFailure == null) return@synchronized
+                try {
+                    store?.quarantineCorrupt()
+                } catch (failure: Exception) {
+                    storageProblem.value = true
+                    throw TextSendStorageException(failure)
+                }
+                synchronized(stateLock) {
+                    if (closed) throw TextSendStorageException(IllegalStateException("Text send session closed"))
+                    readFailure = null
+                    corruptProblem.value = false
+                    storageProblem.value = false
+                    nextAttemptId.set(1L)
+                    attemptsByScope.value = emptyMap()
+                }
+            }
+        }
+    }
+
     private suspend fun ensureInitialized() {
         if (closed) throw TextSendStorageException(IllegalStateException("Text send session closed"))
         initialized.await()
@@ -327,7 +368,13 @@ internal class TextSendQueue(
             storageProblem.value = true
             if (!keepLiveOutcomeOnFailure) throw TextSendStorageException(failure)
         }
-        attemptsByScope.value = next
+        synchronized(stateLock) {
+            if (closed) {
+                if (keepLiveOutcomeOnFailure) return@synchronized false
+                throw TextSendStorageException(IllegalStateException("Text send session closed"))
+            }
+            attemptsByScope.value = next
+        }
         true
     }
 
@@ -370,7 +417,7 @@ internal class TextSendQueue(
 
     /** Invalidate this instance before deleting the session's durable data. */
     fun close() {
-        synchronized(lock) {
+        synchronized(stateLock) {
             closed = true
             attemptsByScope.value = emptyMap()
         }
@@ -387,10 +434,11 @@ internal class TextSendQueue(
  */
 internal fun visiblePendingTextAttempts(
     attempts: List<TextSendAttempt>,
-    history: ChatHistory
+    history: ChatHistory,
+    initialClaimedIds: Set<Long> = emptySet()
 ): List<TextSendAttempt> {
     if (attempts.isEmpty()) return emptyList()
-    val claimedIds = HashSet<Long>()
+    val claimedIds = HashSet<Long>(initialClaimedIds)
     val visible = ArrayList<TextSendAttempt>(attempts.size)
     for (attempt in attempts) {
         if (attempt.phase == TextSendAttemptPhase.Failed) {

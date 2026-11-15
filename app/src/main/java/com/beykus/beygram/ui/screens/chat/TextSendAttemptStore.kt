@@ -12,8 +12,10 @@ import java.io.File
 import java.io.IOException
 
 internal interface TextSendAttemptStore {
+    suspend fun prepare() {}
     fun load(): List<TextSendAttempt>
     fun save(attempts: List<TextSendAttempt>)
+    fun quarantineCorrupt() {}
 }
 
 /** The format is bounded and versioned; old unversioned snapshots remain readable. */
@@ -77,8 +79,18 @@ internal object TextSendSnapshotCodec {
 }
 
 /** Private app storage: commit the snapshot before the composer may clear its draft. */
-internal class FileTextSendAttemptStore(path: File) : TextSendAttemptStore {
+internal class FileTextSendAttemptStore(
+    path: File,
+    private val quarantineDir: File? = null
+) : TextSendAttemptStore {
     private val file = AtomicFile(path)
+
+    @Synchronized override fun quarantineCorrupt() {
+        val base = file.baseFile
+        val targetDir = quarantineDir ?: base.parentFile?.let { File(it, PendingTextSendFiles.CORRUPT_QUARANTINE) }
+            ?: throw IOException("Could not resolve pending text quarantine directory")
+        PendingTextSendFiles.quarantineCorrupt(base, targetDir)
+    }
 
     @Synchronized override fun save(attempts: List<TextSendAttempt>) {
         val bytes = TextSendSnapshotCodec.encode(attempts)

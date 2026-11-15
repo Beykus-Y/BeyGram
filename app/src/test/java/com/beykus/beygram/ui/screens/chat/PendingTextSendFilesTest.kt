@@ -57,4 +57,24 @@ class PendingTextSendFilesTest {
         assertEquals(3, quarantine.size)
         assertTrue(quarantine.all { it.name.startsWith(second + ".") })
     }
+
+    @Test fun corruptQuarantinePreservesSidecarsAndPurgeRemovesTargetAccountOnly() {
+        val files = folder.newFolder("files")
+        val noBackup = folder.newFolder("no_backup")
+        val corruptDir = File(noBackup, PendingTextSendFiles.CORRUPT_QUARANTINE)
+        val first = PendingTextSendFiles.name("first")
+        val second = PendingTextSendFiles.name("second")
+        for (name in listOf(first, second)) {
+            File(noBackup, name).writeText("broken-$name")
+            File(noBackup, "$name.bak").writeText("bak-$name")
+            PendingTextSendFiles.quarantineCorrupt(File(noBackup, name), corruptDir)
+        }
+        assertEquals(4, corruptDir.listFiles().orEmpty().size)
+
+        PendingTextSendFiles.purge(files, noBackup, "first")
+
+        val remaining = corruptDir.listFiles().orEmpty()
+        assertEquals(2, remaining.size)
+        assertTrue(remaining.all { it.name.startsWith(second + ".") })
+    }
 }

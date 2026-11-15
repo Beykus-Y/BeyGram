@@ -76,6 +76,7 @@ internal class ComposerLaunch(
     val baselineSequence: Long,
     val speed: Float
 ) {
+    var localAttemptId by mutableStateOf<Long?>(null)
     var messageId by mutableStateOf<Long?>(null)
     var message by mutableStateOf<ChatMessage?>(null)
     var targetBounds by mutableStateOf<Rect?>(null)
@@ -132,6 +133,34 @@ internal fun findComposerLaunchMessage(
         .filter { it.id in candidateIds && it.id !in assignedIds }
         .filter { it.isOutgoing && it.text == text && it.reply?.messageId == replyToMessageId }
         .minByOrNull { order[it.id] ?: Int.MAX_VALUE }
+}
+
+internal fun resolveComposerLaunchTargets(
+    launches: List<ComposerLaunch>,
+    history: ChatHistory,
+    visibleLocalRowIds: Set<Long>
+): Map<Long, ComposerLaunch> = buildMap {
+    val assigned = mutableSetOf<Long>()
+    launches.sortedBy { it.key }.forEach { launch ->
+        val existing = launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
+        if (existing != null) {
+            assigned += existing
+            put(existing, launch)
+        } else {
+            val candidate = findComposerLaunchMessage(
+                history, launch.text, launch.replyToMessageId, launch.baselineSequence, assigned
+            )
+            if (candidate != null) {
+                assigned += candidate.id
+                put(candidate.id, launch)
+            } else {
+                val localRowId = launch.localAttemptId?.let { -it }
+                if (localRowId != null && localRowId in visibleLocalRowIds) {
+                    put(localRowId, launch)
+                }
+            }
+        }
+    }
 }
 
 /** Measured start/end geometry for the spatial transition. Kept pure so source/destination math can be tested. */
