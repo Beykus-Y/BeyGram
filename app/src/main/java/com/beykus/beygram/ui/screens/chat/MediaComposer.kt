@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,7 +35,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -51,7 +51,6 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -1313,21 +1312,20 @@ internal fun AttachmentPanel(
     }
     }
     if (discardConfirm) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { discardConfirm = false },
-            title = { Text(stringResource(R.string.composer_attachments_clear_title)) },
-            text = { Text(stringResource(R.string.composer_attachments_clear_message)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    discardConfirm = false
-                    state.discardAll()
-                    focus.clearFocus()
-                    keyboard?.hide()
-                }) { Text(stringResource(R.string.composer_attachments_clear_confirm), color = palette.danger) }
+            title = stringResource(R.string.composer_attachments_clear_title),
+            message = stringResource(R.string.composer_attachments_clear_message),
+            confirmText = stringResource(R.string.composer_attachments_clear_confirm),
+            onConfirm = {
+                discardConfirm = false
+                state.discardAll()
+                focus.clearFocus()
+                keyboard?.hide()
             },
-            dismissButton = {
-                TextButton(onClick = { discardConfirm = false }) { Text(stringResource(R.string.composer_attachments_clear_keep)) }
-            }
+            destructive = true,
+            dismissText = stringResource(R.string.composer_attachments_clear_keep),
+            onDismiss = { discardConfirm = false }
         )
     }
 }

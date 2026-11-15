@@ -10,18 +10,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +37,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.PAID_REACTION_PRESETS
 import com.beykus.beygram.domain.model.PaidReactionAmountBlock
@@ -106,10 +104,10 @@ private fun PaidReactionDialog(sender: PaidReactionSender) {
     val balance = state.balance
     val blocked = paidReactionAmountBlock(state.starCount, balance?.starCount, state.maximum)
     val busy = state.sending
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { sender.dismiss() },
-        title = { Text(stringResource(R.string.paid_reaction_dialog_title)) },
-        text = {
+        title = stringResource(R.string.paid_reaction_dialog_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (balance != null) {
                     Text(
@@ -155,20 +153,11 @@ private fun PaidReactionDialog(sender: PaidReactionSender) {
                 }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = { sender.send() },
-                enabled = balance != null && blocked == null && !busy && !state.uncertain,
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                Text(stringResource(R.string.common_send))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { sender.dismiss() }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(if (state.uncertain) R.string.common_close else R.string.common_cancel))
-            }
-        }
+        confirmText = stringResource(R.string.common_send),
+        onConfirm = { sender.send() },
+        confirmEnabled = balance != null && blocked == null && !busy && !state.uncertain,
+        dismissText = stringResource(if (state.uncertain) R.string.common_close else R.string.common_cancel),
+        onDismiss = { if (!busy) sender.dismiss() }
     )
 }
 

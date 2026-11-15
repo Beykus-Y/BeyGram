@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.widget.Toast
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -14,12 +15,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -285,20 +284,14 @@ private fun PaidContentDialogs(step: PaidContentStep, key: PaidContentKey, owner
 private fun StarsConfirmDialog(step: PaidContentStep.Confirming, actions: PaidContentActions) {
     val price = formatPriceMinorUnits(step.starCount, TELEGRAM_STARS_CURRENCY)
     val balance = formatStarAmount(step.balance.starCount, step.balance.nanostarCount)
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { actions.dismiss(step.key) },
-        title = { Text(stringResource(R.string.paid_content_confirm_title)) },
-        text = { Text(stringResource(R.string.paid_content_confirm_body, price, balance)) },
-        confirmButton = {
-            TextButton(onClick = { actions.confirm(step.key) }) {
-                Text(stringResource(R.string.paid_content_pay, price))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { actions.dismiss(step.key) }) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        title = stringResource(R.string.paid_content_confirm_title),
+        message = stringResource(R.string.paid_content_confirm_body, price, balance),
+        confirmText = stringResource(R.string.paid_content_pay, price),
+        onConfirm = { actions.confirm(step.key) },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { actions.dismiss(step.key) }
     )
 }
 
@@ -306,10 +299,10 @@ private fun StarsConfirmDialog(step: PaidContentStep.Confirming, actions: PaidCo
 @Composable
 private fun ExternalMethodsDialog(step: PaidContentStep.ChoosingExternal, actions: PaidContentActions) {
     val context = LocalContext.current
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { actions.dismiss(step.key) },
-        title = { Text(stringResource(R.string.paid_content_external_title)) },
-        text = {
+        title = stringResource(R.string.paid_content_external_title),
+        content = {
             Column {
                 Text(stringResource(R.string.paid_content_external_body))
                 step.methods.forEach { method ->
@@ -328,12 +321,8 @@ private fun ExternalMethodsDialog(step: PaidContentStep.ChoosingExternal, action
                 }
             }
         },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = { actions.dismiss(step.key) }) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        confirmText = stringResource(R.string.common_cancel),
+        onConfirm = { actions.dismiss(step.key) }
     )
 }
 

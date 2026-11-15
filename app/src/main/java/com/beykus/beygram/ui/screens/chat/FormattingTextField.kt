@@ -1,9 +1,8 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -119,8 +118,8 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
             }
         )
     }
-    if (format) AlertDialog(onDismissRequest = { format = false }, title = { Text(stringResource(R.string.chat_format)) }, text = {
-        Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+    if (format) BeyGramDialog(onDismissRequest = { format = false }, title = stringResource(R.string.chat_format), content = {
+        Column {
             listOf(TextStyleKind.Bold to R.string.chat_format_bold, TextStyleKind.Italic to R.string.chat_format_italic,
                 TextStyleKind.Underline to R.string.chat_format_underline, TextStyleKind.Strike to R.string.chat_format_strike,
                 TextStyleKind.Code to R.string.chat_format_code, TextStyleKind.Pre to R.string.chat_format_pre,
@@ -133,17 +132,26 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
             TextButton(onClick = { format = false; link = "https://"; linkDialog = true }) { Text(stringResource(R.string.chat_format_link)) }
             TextButton(onClick = { onEntitiesChange(applyTextFormat(value, entities, range.min, range.max, null)); format = false }) { Text(stringResource(R.string.chat_format_clear)) }
         }
-    }, confirmButton = { TextButton(onClick = { format = false }) { Text(stringResource(R.string.common_close)) } })
-    if (linkDialog) AlertDialog(onDismissRequest = { linkDialog = false }, title = { Text(stringResource(R.string.chat_format_link)) },
-        text = { TextField(link, { link = it }, singleLine = true, label = { Text(stringResource(R.string.chat_format_link_address)) }) },
-        confirmButton = { TextButton(enabled = safeMessageUrl(link)?.let { it != "https://" } == true, onClick = {
-            val target = safeMessageUrl(link) ?: return@TextButton
-            onEntitiesChange(applyTextFormat(value, entities, range.min, range.max, TextStyleKind.Url).map {
-                if (it.kind == TextStyleKind.Url && it.offset == range.min && it.length == range.max - range.min) it.copy(argument = target) else it
-            })
-            linkDialog = false
-        }) { Text(stringResource(R.string.common_save)) } },
-        dismissButton = { TextButton(onClick = { linkDialog = false }) { Text(stringResource(R.string.common_close)) } })
+    }, confirmText = stringResource(R.string.common_close), onConfirm = { format = false })
+    if (linkDialog) BeyGramDialog(
+        onDismissRequest = { linkDialog = false },
+        title = stringResource(R.string.chat_format_link),
+        content = {
+            TextField(link, { link = it }, singleLine = true, label = { Text(stringResource(R.string.chat_format_link_address)) })
+        },
+        confirmText = stringResource(R.string.common_save),
+        confirmEnabled = safeMessageUrl(link)?.let { it != "https://" } == true,
+        onConfirm = {
+            safeMessageUrl(link)?.let { target ->
+                onEntitiesChange(applyTextFormat(value, entities, range.min, range.max, TextStyleKind.Url).map {
+                    if (it.kind == TextStyleKind.Url && it.offset == range.min && it.length == range.max - range.min) it.copy(argument = target) else it
+                })
+                linkDialog = false
+            }
+        },
+        dismissText = stringResource(R.string.common_close),
+        onDismiss = { linkDialog = false }
+    )
 }
 
 /** The field fill: the BeyGram field tone, or the Material 3 container ramp when the style is tonal. */
