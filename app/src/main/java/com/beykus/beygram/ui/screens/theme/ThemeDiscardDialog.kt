@@ -1,30 +1,21 @@
 package com.beykus.beygram.ui.screens.theme
 
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
-import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.BeyGramDialog
 
 /** Explicitly confirm discarding an unapplied theme draft, for both theme screens and system Back. */
 @Composable
 internal fun ThemeDiscardDialog(onKeepEditing: () -> Unit, onDiscard: () -> Unit) {
-    val palette = beyGramPalette()
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onKeepEditing,
-        title = { Text(stringResource(R.string.theme_discard_title)) },
-        text = { Text(stringResource(R.string.theme_discard_message)) },
-        confirmButton = {
-            TextButton(onClick = onDiscard) {
-                Text(stringResource(R.string.theme_discard_confirm), color = palette.danger)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onKeepEditing) {
-                Text(stringResource(R.string.theme_discard_cancel))
-            }
-        }
+        title = stringResource(R.string.theme_discard_title),
+        message = stringResource(R.string.theme_discard_message),
+        confirmText = stringResource(R.string.theme_discard_confirm),
+        onConfirm = onDiscard,
+        destructive = true,
+        dismissText = stringResource(R.string.theme_discard_cancel),
+        onDismiss = onKeepEditing
     )
 }

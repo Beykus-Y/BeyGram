@@ -34,7 +34,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Reply
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -883,35 +883,31 @@ fun StoryViewerScreen(
     }
 
     if (showDelete) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (!deleting) showDelete = false },
-            title = { Text(stringResource(R.string.stories_delete)) },
-            text = { Text(stringResource(R.string.stories_delete_confirm)) },
-            confirmButton = {
-                TextButton(
-                    enabled = !deleting,
-                    onClick = {
-                        deleting = true
-                        scope.launch {
-                            repository.deleteStory(posterChatId, deleteStoryId)
-                                .onSuccess {
-                                    notice = context.getString(R.string.stories_deleted)
-                                    closeViewer(StoryViewerCloseReason.Deleted)
-                                }
-                                .onFailure {
-                                    deleting = false
-                                    showDelete = false
-                                    notice = it.userMessage(context, R.string.stories_delete_failed)
-                                }
+            title = stringResource(R.string.stories_delete),
+            message = stringResource(R.string.stories_delete_confirm),
+            confirmText = stringResource(R.string.common_delete),
+            onConfirm = {
+                deleting = true
+                scope.launch {
+                    repository.deleteStory(posterChatId, deleteStoryId)
+                        .onSuccess {
+                            notice = context.getString(R.string.stories_deleted)
+                            closeViewer(StoryViewerCloseReason.Deleted)
                         }
-                    }
-                ) { Text(stringResource(R.string.common_delete)) }
-            },
-            dismissButton = {
-                TextButton(enabled = !deleting, onClick = { showDelete = false }) {
-                    Text(stringResource(R.string.common_cancel))
+                        .onFailure {
+                            deleting = false
+                            showDelete = false
+                            notice = it.userMessage(context, R.string.stories_delete_failed)
+                        }
                 }
-            }
+            },
+            confirmEnabled = !deleting,
+            destructive = true,
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { showDelete = false },
+            dismissEnabled = !deleting
         )
     }
 }
@@ -1198,10 +1194,10 @@ private fun StoryReactionGlyph(option: ReactionOption, repository: TelegramRepos
 @Composable
 private fun StoryReplyDialog(sending: Boolean, onDismiss: () -> Unit, onSend: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!sending) onDismiss() },
-        title = { Text(stringResource(R.string.stories_reply_title)) },
-        text = {
+        title = stringResource(R.string.stories_reply_title),
+        content = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
@@ -1211,14 +1207,11 @@ private fun StoryReplyDialog(sending: Boolean, onDismiss: () -> Unit, onSend: (S
                 modifier = Modifier.fillMaxWidth()
             )
         },
-        confirmButton = {
-            TextButton(
-                enabled = text.isNotBlank() && !sending,
-                onClick = { onSend(text) }
-            ) { Text(stringResource(R.string.common_send)) }
-        },
-        dismissButton = {
-            TextButton(enabled = !sending, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
-        }
+        confirmText = stringResource(R.string.common_send),
+        onConfirm = { onSend(text) },
+        confirmEnabled = text.isNotBlank() && !sending,
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss,
+        dismissEnabled = !sending
     )
 }
