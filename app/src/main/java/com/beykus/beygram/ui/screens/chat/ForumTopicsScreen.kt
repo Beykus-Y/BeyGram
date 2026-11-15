@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -224,28 +225,34 @@ fun ForumTopicsScreen(
         }
     }
 
-    if (creating || editing != null) AlertDialog(
+    if (creating || editing != null) BeyGramDialog(
         onDismissRequest = { creating = false; editing = null },
-        title = { Text(stringResource(if (creating) R.string.forum_create else R.string.forum_rename)) },
-        text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true,
-            label = { Text(stringResource(R.string.forum_topic_name)) }, supportingText = { Text("${name.length}/128") }) },
-        confirmButton = {
-            TextButton(enabled = !busy && name.isNotBlank() && name.codePointCount(0, name.length) <= 128, onClick = {
-                if (creating) onCreate(name.trim()) else editing?.let { onRename(it, name.trim()) }
-                creating = false; editing = null
-            }) { Text(stringResource(R.string.common_save)) }
+        title = stringResource(if (creating) R.string.forum_create else R.string.forum_rename),
+        content = {
+            OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true,
+                label = { Text(stringResource(R.string.forum_topic_name)) }, supportingText = { Text("${name.length}/128") })
         },
-        dismissButton = { TextButton(onClick = { creating = false; editing = null }) { Text(stringResource(R.string.common_cancel)) } }
+        confirmText = stringResource(R.string.common_save),
+        confirmEnabled = !busy && name.isNotBlank() && name.codePointCount(0, name.length) <= 128,
+        onConfirm = {
+            if (creating) onCreate(name.trim()) else editing?.let { onRename(it, name.trim()) }
+            creating = false; editing = null
+        },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { creating = false; editing = null }
     )
 
     deleting?.let { topic ->
-        AlertDialog(onDismissRequest = { deleting = null },
-            title = { Text(stringResource(R.string.forum_delete)) },
-            text = { Text(stringResource(R.string.forum_delete_confirm, topic.title)) },
-            confirmButton = { TextButton(enabled = !busy, onClick = { deleting = null; onDelete(topic) }) {
-                Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
-            } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.common_cancel)) } }
+        BeyGramDialog(
+            onDismissRequest = { deleting = null },
+            title = stringResource(R.string.forum_delete),
+            message = stringResource(R.string.forum_delete_confirm, topic.title),
+            confirmText = stringResource(R.string.common_delete),
+            confirmEnabled = !busy,
+            destructive = true,
+            onConfirm = { deleting = null; onDelete(topic) },
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { deleting = null }
         )
     }
 }

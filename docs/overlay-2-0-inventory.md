@@ -6,28 +6,28 @@
 |---|---|---|
 | BeyGramApp.kt | 7 | 1426 1450 1468 1513 3232 3305 3362 |
 | ui/screens/bgmusic/BgMusicPreviewScreen.kt | 2 | 348 385 |
-| ui/screens/chat/BotButtons.kt | 1 | 77 |
-| ui/screens/chat/ChatExportDialog.kt | 6 | 134 253 290 306 335 366 |
-| ui/screens/chat/ChatScreen.kt | 3 | 2338 2802 2881 |
-| ui/screens/chat/ChatSearch.kt | 1 | 197 |
-| ui/screens/chat/ComposerExtras.kt | 3 | 76 222 277 |
-| ui/screens/chat/FormattingTextField.kt | 2 | 122 137 |
-| ui/screens/chat/ForumTopicsScreen.kt | 2 | 227 242 |
-| ui/screens/chat/MediaComposer.kt | 1 | 1316 |
-| ui/screens/chat/MessageActions.kt | 1 | 686 |
-| ui/screens/chat/MessageReportDialog.kt | 1 | 19 |
-| ui/screens/chat/MessageTranslation.kt | 1 | 75 |
-| ui/screens/chat/PaidContentViews.kt | 2 | 288 309 |
-| ui/screens/chat/PaidReactionDialog.kt | 1 | 109 |
-| ui/screens/chat/PinnedMessages.kt | 1 | 154 |
-| ui/screens/chat/RecordingPreviewDialog.kt | 1 | 62 |
-| ui/screens/chat/ScheduledMessages.kt | 2 | 86 374 |
-| ui/screens/chat/SecretChatSettings.kt | 3 | 199 255 379 |
-| ui/screens/chat/SelectionActionBar.kt | 1 | 126 |
-| ui/screens/chat/SpecialMessageViews.kt | 3 | 269 338 415 |
-| ui/screens/chat/StealthSendGuard.kt | 2 | 55 104 |
-| ui/screens/chat/TextSendQueue.kt | 1 | 500 |
-| ui/screens/chat/ViewOnceStealthGate.kt | 1 | 53 |
+| ✅ ui/screens/chat/BotButtons.kt · #877 | 1 | 77 |
+| ✅ ui/screens/chat/ChatExportDialog.kt · PR 3 | 6 | 134 253 290 306 335 366 |
+| ✅ ui/screens/chat/ChatScreen.kt · #877 | 3 | 2338 2802 2881 |
+| ✅ ui/screens/chat/ChatSearch.kt · #877 | 1 | 197 |
+| ✅ ui/screens/chat/ComposerExtras.kt · #878 | 3 | 76 222 277 |
+| ✅ ui/screens/chat/FormattingTextField.kt · #878 | 2 | 122 137 |
+| ✅ ui/screens/chat/ForumTopicsScreen.kt · PR 3 | 2 | 227 242 |
+| ✅ ui/screens/chat/MediaComposer.kt · #878 | 1 | 1316 |
+| ✅ ui/screens/chat/MessageActions.kt · #877 | 1 | 686 |
+| ✅ ui/screens/chat/MessageReportDialog.kt · #877 | 1 | 19 |
+| ✅ ui/screens/chat/MessageTranslation.kt · #877 | 1 | 75 |
+| ✅ ui/screens/chat/PaidContentViews.kt · #878 | 2 | 288 309 |
+| ✅ ui/screens/chat/PaidReactionDialog.kt · #878 | 1 | 109 |
+| ✅ ui/screens/chat/PinnedMessages.kt · #877 | 1 | 154 |
+| ✅ ui/screens/chat/RecordingPreviewDialog.kt · #878 | 1 | 62 |
+| ✅ ui/screens/chat/ScheduledMessages.kt · PR 3 | 2 | 86 374 |
+| ✅ ui/screens/chat/SecretChatSettings.kt · PR 3 | 3 | 199 255 379 |
+| ✅ ui/screens/chat/SelectionActionBar.kt · #877 | 1 | 126 |
+| ✅ ui/screens/chat/SpecialMessageViews.kt · PR 3 | 3 | 269 338 415 |
+| ✅ ui/screens/chat/StealthSendGuard.kt · #877 | 2 | 55 104 |
+| ✅ ui/screens/chat/TextSendQueue.kt · #877 | 1 | 500 |
+| ✅ ui/screens/chat/ViewOnceStealthGate.kt · #877 | 1 | 53 |
 | ui/screens/chats/ChatActionsSheet.kt | 1 | 180 |
 | ui/screens/chats/ChatsScreen.kt | 2 | 1043 1101 |
 | ui/screens/chats/FolderManagerScreen.kt | 1 | 279 |
@@ -73,3 +73,15 @@
 | ui/screens/theme/ThemeDiscardDialog.kt | 1 | 15 |
 
 Итого вызовов: 122, файлов: 68.
+
+## Статус группы «переписка» (#870)
+
+Файлы `ui/screens/chat/` из таблицы выше: 40 вызовов `AlertDialog` переведены на `BeyGramDialog`.
+Отметка ✅ с номером PR стоит у каждого файла.
+
+- #877: 14 вызовов, 11 файлов.
+- #878: 10 вызовов, 6 файлов.
+- PR 3: 16 вызовов, 5 файлов. Базовый `BeyGramDialog` получил параметр `secure`; диалог ключа секретного чата
+  использует его, чтобы сохранить FLAG_SECURE.
+
+Группы «список чатов», «настройки», «профили», «музыка» и «истории» в этих PR не трогались.

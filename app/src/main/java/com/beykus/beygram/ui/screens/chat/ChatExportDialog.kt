@@ -14,13 +14,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
@@ -131,11 +129,11 @@ internal fun ChatExportDialog(
                 val to = toDateSeconds
                 val rangeValid = from == null || to == null || from < to
                 val anyDate = stringResource(R.string.chat_export_any_date)
-                AlertDialog(
+                BeyGramDialog(
                     onDismissRequest = close,
-                    title = { Text(stringResource(R.string.chat_export_title)) },
-                    text = {
-                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                    title = stringResource(R.string.chat_export_title),
+                    content = {
+                        Column {
                             Text(
                                 stringResource(R.string.chat_export_source_account, sourceAccount),
                                 color = palette.textSecondary,
@@ -233,27 +231,21 @@ internal fun ChatExportDialog(
                             }
                         }
                     },
-                    confirmButton = {
-                        TextButton(
-                            enabled = rangeValid,
-                            onClick = {
-                                picker.launch(suggestedExportName(chat.title, format, includeMedia))
-                            }
-                        ) {
-                            Text(stringResource(R.string.chat_export_start), color = palette.accent)
-                        }
+                    confirmText = stringResource(R.string.chat_export_start),
+                    confirmEnabled = rangeValid,
+                    onConfirm = {
+                        picker.launch(suggestedExportName(chat.title, format, includeMedia))
                     },
-                    dismissButton = {
-                        TextButton(onClick = close) { Text(stringResource(R.string.common_cancel)) }
-                    }
+                    dismissText = stringResource(R.string.common_cancel),
+                    onDismiss = close
                 )
             }
         }
         is ChatExportUiState.Running -> ExportProgressDialog(sourceAccount, current, onCancel = model::cancel)
-        is ChatExportUiState.Completed -> AlertDialog(
+        is ChatExportUiState.Completed -> BeyGramDialog(
             onDismissRequest = close,
-            title = { Text(stringResource(R.string.chat_export_completed_title)) },
-            text = {
+            title = stringResource(R.string.chat_export_completed_title),
+            content = {
                 Column {
                     ExportSourceAccount(sourceAccount)
                     Spacer(Modifier.height(10.dp))
@@ -283,14 +275,13 @@ internal fun ChatExportDialog(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = close) { Text(stringResource(R.string.common_close), color = palette.accent) }
-            }
+            confirmText = stringResource(R.string.common_close),
+            onConfirm = close
         )
-        is ChatExportUiState.Failed -> AlertDialog(
+        is ChatExportUiState.Failed -> BeyGramDialog(
             onDismissRequest = close,
-            title = { Text(stringResource(R.string.chat_export_failed_title)) },
-            text = {
+            title = stringResource(R.string.chat_export_failed_title),
+            content = {
                 Column {
                     ExportSourceAccount(sourceAccount)
                     Spacer(Modifier.height(10.dp))
@@ -299,23 +290,21 @@ internal fun ChatExportDialog(
                     Text(stringResource(R.string.chat_export_failed_note), color = palette.textSecondary, fontSize = 13.sp)
                 }
             },
-            confirmButton = {
-                TextButton(onClick = close) { Text(stringResource(R.string.common_close), color = palette.accent) }
-            }
+            confirmText = stringResource(R.string.common_close),
+            onConfirm = close
         )
-        ChatExportUiState.Cancelled -> AlertDialog(
+        ChatExportUiState.Cancelled -> BeyGramDialog(
             onDismissRequest = close,
-            title = { Text(stringResource(R.string.chat_export_cancelled_title)) },
-            text = {
+            title = stringResource(R.string.chat_export_cancelled_title),
+            content = {
                 Column {
                     ExportSourceAccount(sourceAccount)
                     Spacer(Modifier.height(10.dp))
                     Text(stringResource(R.string.chat_export_cancelled_note))
                 }
             },
-            confirmButton = {
-                TextButton(onClick = close) { Text(stringResource(R.string.common_close), color = palette.accent) }
-            }
+            confirmText = stringResource(R.string.common_close),
+            onConfirm = close
         )
     }
 }
@@ -332,10 +321,10 @@ private fun ExportSourceAccount(account: String) {
 @Composable
 private fun ExportBlockedDialog(account: String, reason: Int, onClose: () -> Unit) {
     val palette = beyGramPalette()
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onClose,
-        title = { Text(stringResource(R.string.chat_export_unavailable_title)) },
-        text = {
+        title = stringResource(R.string.chat_export_unavailable_title),
+        content = {
             Column {
                 ExportSourceAccount(account)
                 Spacer(Modifier.height(10.dp))
@@ -344,9 +333,8 @@ private fun ExportBlockedDialog(account: String, reason: Int, onClose: () -> Uni
                 Text(stringResource(R.string.chat_export_blocked_note), color = palette.textSecondary, fontSize = 13.sp)
             }
         },
-        confirmButton = {
-            TextButton(onClick = onClose) { Text(stringResource(R.string.common_close), color = palette.accent) }
-        }
+        confirmText = stringResource(R.string.common_close),
+        onConfirm = onClose
     )
 }
 
@@ -363,10 +351,12 @@ private fun ExportProgressDialog(
     val fraction = if (progress.phase == ChatExportPhase.Messages && total != null && total > 0) {
         (progress.messagesWritten.toFloat() / total).coerceIn(0f, 1f)
     } else null
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = {},
-        title = { Text(stringResource(R.string.chat_export_title)) },
-        text = {
+        dismissOnBackPress = false,
+        dismissOnClickOutside = false,
+        title = stringResource(R.string.chat_export_title),
+        content = {
             Column {
                 ExportSourceAccount(account)
                 Spacer(Modifier.height(14.dp))
@@ -395,11 +385,10 @@ private fun ExportProgressDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onCancel, enabled = !state.cancelling) {
-                Text(stringResource(R.string.chat_export_cancel), color = palette.danger)
-            }
-        }
+        confirmText = stringResource(R.string.chat_export_cancel),
+        confirmEnabled = !state.cancelling,
+        onConfirm = onCancel,
+        destructive = true
     )
 }
 
