@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
@@ -82,7 +83,6 @@ import com.beykus.beygram.ui.motion.rememberMotionSpec
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.roundToInt
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -92,11 +92,11 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -114,7 +114,6 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.motionEntrance
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.width
 
 /** Replaces the chat top bar while a message is selected (long press). */
@@ -683,11 +682,11 @@ private fun ActionIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, de
 @Composable
 internal fun MessageLinkCopyDialog(links: List<String>, onCopy: (String) -> Unit, onDismiss: () -> Unit) {
     val palette = beyGramPalette()
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.message_action_copy_entity)) },
-        text = {
-            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+        title = stringResource(R.string.message_action_copy_entity),
+        content = {
+            Column {
                 links.forEach { value ->
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -709,9 +708,8 @@ internal fun MessageLinkCopyDialog(links: List<String>, onCopy: (String) -> Unit
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close), color = palette.accent) }
-        }
+        confirmText = stringResource(R.string.common_close),
+        onConfirm = onDismiss
     )
 }
 

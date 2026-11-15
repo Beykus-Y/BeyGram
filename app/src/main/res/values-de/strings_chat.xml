@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="chat_bot_copied">Text kopiert</string>
+    <string name="chat_bot_alert_title">Nachricht des Bots</string>
     <string name="chat_bot_failed">Die Bot-Aktion konnte nicht ausgeführt werden</string>
     <string name="chat_bot_hide">Bot-Schaltflächen ausblenden</string>
     <string name="chat_bot_show">Bot-Schaltflächen anzeigen</string>

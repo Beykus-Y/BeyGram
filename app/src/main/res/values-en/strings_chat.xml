@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="chat_bot_copied">Text copied</string>
+    <string name="chat_bot_alert_title">Bot message</string>
     <string name="chat_bot_failed">Could not perform bot action</string>
     <string name="chat_bot_hide">Hide bot buttons</string>
     <string name="chat_bot_show">Show bot buttons</string>

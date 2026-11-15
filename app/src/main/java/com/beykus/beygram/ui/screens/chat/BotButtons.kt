@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -74,9 +75,13 @@ internal fun InlineBotButtons(
             else -> unsupported()
         }
     }
-    if (alert != null) AlertDialog(onDismissRequest = { alert = null }, text = { Text(alert.orEmpty()) }, confirmButton = {
-        TextButton(onClick = { alert = null }) { Text(stringResource(android.R.string.ok)) }
-    })
+    if (alert != null) BeyGramDialog(
+        onDismissRequest = { alert = null },
+        title = stringResource(R.string.chat_bot_alert_title),
+        message = alert.orEmpty(),
+        confirmText = stringResource(android.R.string.ok),
+        onConfirm = { alert = null }
+    )
 }
 
 @Composable

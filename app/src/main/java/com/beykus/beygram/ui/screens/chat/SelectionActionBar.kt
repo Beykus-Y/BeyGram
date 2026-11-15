@@ -21,14 +21,12 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -123,10 +122,10 @@ internal fun SelectionDeleteDialog(
     onConfirm: () -> Unit
 ) {
     val palette = beyGramPalette()
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(R.string.message_selection_delete_title), color = palette.textPrimary, fontWeight = FontWeight.SemiBold) },
-        text = {
+        title = stringResource(R.string.message_selection_delete_title),
+        content = {
             Column {
                 Text(stringResource(R.string.message_selection_count, count), color = palette.textSecondary, fontSize = 14.sp)
                 Spacer(Modifier.height(6.dp))
@@ -147,14 +146,12 @@ internal fun SelectionDeleteDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(enabled = !busy, onClick = onConfirm) {
-                Text(stringResource(R.string.common_delete), color = palette.danger, fontWeight = FontWeight.SemiBold)
-            }
-        },
-        dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
-        }
+        confirmText = stringResource(R.string.common_delete),
+        onConfirm = onConfirm,
+        confirmEnabled = !busy,
+        destructive = true,
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { if (!busy) onDismiss() }
     )
 }
 
