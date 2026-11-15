@@ -549,6 +549,21 @@ fun ChatScreen(
             result
         }
     )
+    fun retryLocalTextAttempt(attemptId: Long, sendNowConsent: Boolean = false) {
+        textSendModel.queue.retry(
+            scopeKey = textSendScopeKey,
+            attemptId = attemptId,
+            sendNowConsent = sendNowConsent,
+            baselineSequence = conversation.observeChatHistory(chat.id).value.liveArrivalSequence,
+            execute = { attempt -> executeTextSendAttempt(conversation, attempt) },
+            onFailure = { attempt, failure ->
+                attachments.stealthFallback.offer(failure) {
+                    retryLocalTextAttempt(attempt.attemptId, sendNowConsent = true)
+                }
+            },
+            formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
+        )
+    }
     fun retryFailedMessages(messageIds: List<Long>, sendNowConsent: Boolean = false) {
         scope.launch {
             val result = conversation.retryMessages(chat.id, messageIds, sendNowConsent)
@@ -1568,14 +1583,7 @@ fun ChatScreen(
                     launch?.awaitingSend = false
                     launch?.let(composerLaunches::remove)
                     attachments.stealthFallback.offer(failure) {
-                        textSendModel.queue.retry(
-                            scopeKey = textSendScopeKey,
-                            attemptId = attempt.attemptId,
-                            sendNowConsent = true,
-                            baselineSequence = history.liveArrivalSequence,
-                            execute = { retryAttempt -> executeTextSendAttempt(conversation, retryAttempt) },
-                            formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
-                        )
+                        retryLocalTextAttempt(attempt.attemptId, sendNowConsent = true)
                     }
                 },
                 formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
@@ -1951,13 +1959,7 @@ fun ChatScreen(
                                     musicLinkCards = !chat.isSecret,
                                     onRetry = {
                                         if (localAttempt != null) {
-                                            textSendModel.queue.retry(
-                                                scopeKey = textSendScopeKey,
-                                                attemptId = localAttempt.attemptId,
-                                                baselineSequence = history.liveArrivalSequence,
-                                                execute = { attempt -> executeTextSendAttempt(conversation, attempt) },
-                                                formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
-                                            )
+                                            retryLocalTextAttempt(localAttempt.attemptId)
                                         } else {
                                             retryFailedMessages(listOf(message.id))
                                         }
@@ -2610,13 +2612,7 @@ fun ChatScreen(
             onRetry = {
                 val attemptId = target.localAttemptId
                 if (attemptId != null) {
-                    textSendModel.queue.retry(
-                        scopeKey = textSendScopeKey,
-                        attemptId = attemptId,
-                        baselineSequence = history.liveArrivalSequence,
-                        execute = { attempt -> executeTextSendAttempt(conversation, attempt) },
-                        formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
-                    )
+                    retryLocalTextAttempt(attemptId)
                 } else {
                     retryFailedMessages(listOf(target.message.id))
                 }
