@@ -206,8 +206,9 @@ private class BeyGramPopoverPosition(
 
 /**
  * The placement rule for a popover, in window pixels. The popover is aligned to the start or end edge of the anchor and
- * opens below it. It opens above the anchor when it does not fit below, the window is wider than the keyboard allows, or
- * the space above is larger. Then it is moved by [shift] and kept inside the window margins.
+ * opens below it. It opens above the anchor only when it does not fit below and there is room above. The bottom limit is
+ * the window height minus the keyboard height and the margin. The result is moved by [shift] and then kept inside the
+ * window margins.
  */
 internal fun popoverOffset(
     anchorBounds: IntRect,
