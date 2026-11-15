@@ -298,6 +298,7 @@ internal fun MessageThreadScreen(
         }
     )
     val sendKey = TextSendScopeKey(accountId, thread?.discussionChatId ?: 0L, thread?.threadId ?: 0L)
+    var failedLocalCommentId by remember(sendKey) { mutableStateOf<Long?>(null) }
     val pending by remember(sendModel, sendKey) { sendModel.queue.observe(sendKey) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
     fun dispatchComment(attemptId: Long? = null, consent: Boolean = false) {
@@ -306,10 +307,16 @@ internal fun MessageThreadScreen(
             conversation.sendThreadReply(attempt.scope.chatId, attempt.scope.forumTopicId, attempt.text,
                 attempt.entities, attempt.replyToMessageId, attempt.options.sendNowConsent).map { sent ->
                 if (sent != null) {
-                    val history = conversation.observeChatHistory(current.discussionChatId).value
-                    messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history,
-                        current.discussionChatId, current.threadId)
-                    thread = current.copy(replyCount = current.replyCount + 1)
+                    // Read the live snapshot after the suspension: several attempts can share
+                    // an enqueue-time snapshot, but each successful comment must count once.
+                    val live = thread
+                    if (live != null && live.discussionChatId == attempt.scope.chatId &&
+                        live.threadId == attempt.scope.forumTopicId) {
+                        val history = conversation.observeChatHistory(live.discussionChatId).value
+                        messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history,
+                            live.discussionChatId, live.threadId)
+                        thread = live.copy(replyCount = live.replyCount + 1)
+                    }
                 } else showStealthScheduledNotice(context)
                 Unit
             }
@@ -416,6 +423,8 @@ internal fun MessageThreadScreen(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 items(pending.asReversed().map { it.toChatMessage() } + messages.asReversed(), key = { it.id }) { message ->
+                    val localAttempt = pending.firstOrNull { -it.attemptId == message.id }
+                    val failedLocal = localAttempt?.takeIf { it.phase == TextSendAttemptPhase.Failed }
                     ThreadCommentRow(
                         message = message,
                         observeFile = observeFile,
@@ -423,8 +432,15 @@ internal fun MessageThreadScreen(
                         onOpenProfile = onOpenProfile,
                         onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
                         onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
-                        onRetry = { if (message.id < 0L && pending.any { it.attemptId == -message.id }) dispatchComment(-message.id) else retryComment(message.chatId, message.id, sendNowConsent = false) },
-                        onActions = { reactionTarget = message.chatId to message },
+                        onRetry = {
+                            if (failedLocal != null) failedLocalCommentId = failedLocal.attemptId
+                            else if (localAttempt == null) retryComment(message.chatId, message.id, sendNowConsent = false)
+                        },
+                        onShowFailureDetails = failedLocal?.let { attempt -> { failedLocalCommentId = attempt.attemptId } },
+                        onActions = {
+                            if (failedLocal != null) failedLocalCommentId = failedLocal.attemptId
+                            else if (localAttempt == null) reactionTarget = message.chatId to message
+                        },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {
                             { target: Long ->
@@ -627,6 +643,17 @@ internal fun MessageThreadScreen(
     }
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(it.chatId, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, it.chatId)) }
     stealthFallback.Dialog()
+    val failedLocalComment = pending.firstOrNull {
+        it.attemptId == failedLocalCommentId && it.phase == TextSendAttemptPhase.Failed
+    }
+    failedLocalComment?.let { attempt ->
+        FailedSendDetailsDialog(
+            target = FailedSendTarget(attempt.toChatMessage(), attempt.attemptId),
+            onDismiss = { failedLocalCommentId = null },
+            onRetry = { dispatchComment(attempt.attemptId) },
+            onDiscard = { sendModel.queue.discard(sendKey, attempt.attemptId) }
+        )
+    }
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(viewOnceAsked.chatId, viewOnceAsked.id) { selectedMediaId = null; selectedMediaChatId = 0L }
     if (viewed != null) {
         val viewedMedia = viewed.media
@@ -677,6 +704,7 @@ private fun ThreadCommentRow(
     onOpenMedia: () -> Unit,
     onPlayed: () -> Unit,
     onRetry: () -> Unit,
+    onShowFailureDetails: (() -> Unit)?,
     onActions: () -> Unit,
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)?,
@@ -725,6 +753,7 @@ private fun ThreadCommentRow(
                 onReaction = { _, option -> onReaction(option) },
                 observeCustomEmoji = observeCustomEmoji,
                 onRetry = onRetry,
+                onShowFailureDetails = onShowFailureDetails,
                 onSenderClick = openSender,
                 onPollVote = { messageId, choices -> onPollVote(message.chatId, messageId, choices) },
                 onPollStop = { messageId -> onPollStop(message.chatId, messageId) },
