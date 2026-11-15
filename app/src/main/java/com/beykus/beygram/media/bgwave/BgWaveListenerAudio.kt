@@ -175,6 +175,18 @@ class BgWaveListenerAudio(
         } finally {
             runCatching { out.stop() }
             out.release()
+            // An unexpected output failure must not leave a dead AudioTrack and its focus request registered.
+            if (current()) {
+                synchronized(this) {
+                    if (current()) {
+                        running = false
+                        track = null
+                        thread = null
+                        abandonFocus()
+                    }
+                }
+                onFocusLost()
+            }
         }
     }
 
