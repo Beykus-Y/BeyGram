@@ -1,16 +1,13 @@
 package com.beykus.beygram.ui.screens.proxy
 
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.vpn.VpnBackend
+import com.beykus.beygram.ui.components.BeyGramDialog
 import kotlinx.coroutines.launch
 
 /**
@@ -24,28 +21,18 @@ internal fun ProxyRestoreDialog(vpnBackend: VpnBackend) {
     val restoreRetrying by vpnBackend.restoreRetrying.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     if (!restoreFailed && !restoreRetrying) return
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = {},
-        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
-        text = {
-            Text(
-                stringResource(
-                    if (restoreRetrying) R.string.proxy_restore_retrying else R.string.proxy_restore_failed_question
-                )
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { scope.launch { vpnBackend.retryRestore() } },
-                enabled = !restoreRetrying
-            ) {
-                Text(stringResource(R.string.proxy_restore_retry))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { scope.launch { vpnBackend.stopProxy() } }) {
-                Text(stringResource(R.string.proxy_restore_turn_off))
-            }
-        }
+        title = stringResource(R.string.proxy_list_title),
+        message = stringResource(
+            if (restoreRetrying) R.string.proxy_restore_retrying else R.string.proxy_restore_failed_question
+        ),
+        confirmText = stringResource(R.string.proxy_restore_retry),
+        onConfirm = { scope.launch { vpnBackend.retryRestore() } },
+        confirmEnabled = !restoreRetrying,
+        dismissText = stringResource(R.string.proxy_restore_turn_off),
+        onDismiss = { scope.launch { vpnBackend.stopProxy() } },
+        dismissOnBackPress = false,
+        dismissOnClickOutside = false
     )
 }

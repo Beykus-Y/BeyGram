@@ -18,7 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -179,19 +179,19 @@ fun ReportProblemScreen(
     }
 
     if (showPreview) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { showPreview = false },
-            title = { Text(stringResource(R.string.report_preview_title)) },
-            text = {
+            title = stringResource(R.string.report_preview_title),
+            content = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(stringResource(R.string.report_preview_note), color = palette.textSecondary, fontSize = 13.sp)
                     Spacer(Modifier.height(8.dp))
                     Text(previewText.orEmpty(), fontSize = 12.sp, lineHeight = 16.sp)
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showPreview = false }) { Text(stringResource(R.string.diagnostics_view_close)) }
-            }
+            scrollableContent = false,
+            confirmText = stringResource(R.string.diagnostics_view_close),
+            onConfirm = { showPreview = false }
         )
     }
 }

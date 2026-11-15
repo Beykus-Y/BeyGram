@@ -12,7 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -357,21 +357,15 @@ private fun TriggerEditorScreen(ruleId: String, initial: TriggerRule?, store: Tr
     }
 
     if (confirmDelete && initial != null) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text(stringResource(R.string.trigger_delete_title)) },
-            text = { Text(stringResource(R.string.trigger_delete_body)) },
-            containerColor = groupSurfaceColor(),
-            titleContentColor = palette.textPrimary,
-            textContentColor = palette.textSecondary,
-            confirmButton = {
-                TextButton(onClick = { store.deleteRule(ruleId); onDismiss() }) {
-                    Text(stringResource(R.string.trigger_editor_delete), color = palette.danger)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_cancel)) }
-            }
+            title = stringResource(R.string.trigger_delete_title),
+            message = stringResource(R.string.trigger_delete_body),
+            confirmText = stringResource(R.string.trigger_editor_delete),
+            onConfirm = { store.deleteRule(ruleId); onDismiss() },
+            destructive = true,
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { confirmDelete = false }
         )
     }
 }

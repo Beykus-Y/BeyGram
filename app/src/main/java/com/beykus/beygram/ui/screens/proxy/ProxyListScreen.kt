@@ -19,7 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -263,15 +263,15 @@ internal fun ProxyListScreen(
         )
     }
     pendingDeletion?.let { proxy ->
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = {
                 if (deletingProxyId == null) {
                     pendingDeletion = null
                     deletionError = null
                 }
             },
-            title = { Text(stringResource(R.string.proxy_list_delete_confirm_title)) },
-            text = {
+            title = stringResource(R.string.proxy_list_delete_confirm_title),
+            content = {
                 Column {
                     Text(stringResource(R.string.proxy_list_delete_confirm_detail, proxy.kind.label, proxy.server, proxy.port))
                     if (proxy.enabled && !mihomoEnabled) {
@@ -282,41 +282,34 @@ internal fun ProxyListScreen(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(
-                    enabled = deletingProxyId == null,
-                    onClick = {
-                        if (deletingProxyId == null) {
-                            deletingProxyId = proxy.id
-                            scope.launch {
-                                repository.removeProxy(proxy.id)
-                                    .onSuccess {
-                                        // Reconcile the last-known-good snapshot before requesting remote state.
-                                        // Refresh may fail even though the deletion succeeded.
-                                        saved = saved.filterNot { it.id == proxy.id }
-                                        latency = latency - proxy.id
-                                        savedLoaded = true
-                                        pendingDeletion = null
-                                        deletionError = null
-                                        reload()
-                                    }
-                                    .onFailure {
-                                        deletionError = it.userMessage(context, R.string.proxy_list_remove_failed)
-                                    }
-                                deletingProxyId = null
+            confirmText = stringResource(if (deletingProxyId != null) R.string.proxy_list_deleting else R.string.common_delete),
+            onConfirm = {
+                if (deletingProxyId == null) {
+                    deletingProxyId = proxy.id
+                    scope.launch {
+                        repository.removeProxy(proxy.id)
+                            .onSuccess {
+                                // Reconcile the last-known-good snapshot before requesting remote state.
+                                // Refresh may fail even though the deletion succeeded.
+                                saved = saved.filterNot { it.id == proxy.id }
+                                latency = latency - proxy.id
+                                savedLoaded = true
+                                pendingDeletion = null
+                                deletionError = null
+                                reload()
                             }
-                        }
+                            .onFailure {
+                                deletionError = it.userMessage(context, R.string.proxy_list_remove_failed)
+                            }
+                        deletingProxyId = null
                     }
-                ) {
-                    Text(stringResource(if (deletingProxyId != null) R.string.proxy_list_deleting else R.string.common_delete))
                 }
             },
-            dismissButton = {
-                TextButton(
-                    enabled = deletingProxyId == null,
-                    onClick = { pendingDeletion = null; deletionError = null }
-                ) { Text(stringResource(R.string.common_cancel)) }
-            }
+            confirmEnabled = deletingProxyId == null,
+            destructive = true,
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { pendingDeletion = null; deletionError = null },
+            dismissEnabled = deletingProxyId == null
         )
     }
 }
