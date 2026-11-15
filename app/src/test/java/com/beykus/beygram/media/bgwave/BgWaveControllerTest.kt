@@ -132,6 +132,62 @@ class BgWaveControllerTest {
         }
     }
 
+    @Test fun wrongAccountCannotPoisonAnswerReplayWindow() {
+        val session = FakeSession(ArrayDeque(listOf(link(1))))
+        val c = controller(session)
+        c.startHosting("a", 7L, 7L, now)
+        c.offerSent(sid, true, now)
+        c.receive(link(2, nonce = 99L), account = "other")
+        c.receive(link(2, nonce = 1L))
+        assertEquals(BgWavePhase.Connecting, c.state.value?.phase)
+        assertEquals(listOf(link(2, nonce = 1L)), session.remote)
+    }
+
+    @Test fun answerCanArriveBeforeTelegramAcknowledgement() {
+        val session = FakeSession(ArrayDeque(listOf(link(1))))
+        val c = controller(session)
+        c.startHosting("a", 7L, 7L, now)
+        c.receive(link(2))
+        c.offerSent(sid, true, now)
+        assertEquals(BgWavePhase.Connecting, c.state.value?.phase)
+        assertEquals(1, session.remote.size)
+    }
+
+    @Test fun stopFailedSessionClosesNativeAndClearsBusy() {
+        val session = FakeSession(ArrayDeque(listOf(link(1))))
+        val c = controller(session)
+        c.startHosting("a", 7L, 7L, now)
+        c.offerSent(sid, true, now)
+        c.receive(link(2))
+        session.state = "P2PFailed"
+        c.poll(now)
+        assertEquals(BgWavePhase.Failed, c.state.value?.phase)
+        c.stop(now)
+        assertTrue(session.closed)
+        assertNull(c.state.value)
+    }
+
+    @Test fun resetOtherAccountPreservesCurrentWave() {
+        val session = FakeSession(ArrayDeque(listOf(link(1))))
+        val c = controller(session)
+        c.startHosting("a", 7L, 7L, now)
+        c.receive(link(1, id = "ffffffffffffffffffffffffffffffff"), account = "b")
+        c.resetAccount("b", now)
+        assertEquals("a", c.state.value?.accountId)
+        assertTrue(c.inviteStates.value.isEmpty())
+        assertFalse(session.closed)
+    }
+
+    @Test fun expiredHostOfferReleasesNativeSession() {
+        val session = FakeSession(ArrayDeque(listOf(link(1))))
+        val c = controller(session)
+        c.startHosting("a", 7L, 7L, now)
+        c.offerSent(sid, true, now)
+        c.poll(now + 301L)
+        assertTrue(session.closed)
+        assertEquals(BgWavePhase.Ended, c.state.value?.phase)
+    }
+
     @Test fun repeatedAnswerIsAReplay() {
         val session = FakeSession(ArrayDeque(listOf(link(1))))
         val c = controller(session)

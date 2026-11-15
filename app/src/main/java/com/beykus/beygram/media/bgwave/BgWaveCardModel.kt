@@ -38,10 +38,16 @@ fun bgWaveCardStateFor(result: BgWaveDecodeResult): BgWaveCardState? = when (res
         else -> BgWaveCardState.SafeText(BgWaveCardKeys.INVALID)
     }
     is BgWaveDecodeResult.Rejected -> when (result.reason) {
-        "NOT_WAVE" -> null
-        "UNSUPPORTED_VERSION" -> BgWaveCardState.SafeText(BgWaveCardKeys.UNSUPPORTED_VERSION)
-        "EXPIRED" -> BgWaveCardState.SafeText(BgWaveCardKeys.EXPIRED)
-        "NOT_YET_VALID" -> BgWaveCardState.SafeText(BgWaveCardKeys.NOT_YET_VALID)
+        "NOT_WAVE",
+        "Unrecognized BG Wave URI origin, scheme, or version",
+        "URI does not match BG Wave v1 scheme" -> null
+        "UNSUPPORTED_VERSION",
+        "Unsupported BG Wave signal version",
+        "Unsupported BG Wave payload version" -> BgWaveCardState.SafeText(BgWaveCardKeys.UNSUPPORTED_VERSION)
+        "EXPIRED",
+        "Signal has expired" -> BgWaveCardState.SafeText(BgWaveCardKeys.EXPIRED)
+        "NOT_YET_VALID",
+        "Signal iat exceeds allowed future clock skew" -> BgWaveCardState.SafeText(BgWaveCardKeys.NOT_YET_VALID)
         "unavailable" -> BgWaveCardState.SafeText(BgWaveCardKeys.UNAVAILABLE)
         else -> BgWaveCardState.SafeText(BgWaveCardKeys.INVALID)
     }

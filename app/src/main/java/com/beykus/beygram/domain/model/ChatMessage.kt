@@ -59,7 +59,9 @@ data class ChatMessage(
     /** What Chat Memory kept for this message: a deletion by the other side and earlier versions. Null when nothing was kept. */
     val memory: ChatMemoryMark? = null,
     /** Failure reason reported by TDLib or local send attempt when [sendState] is [MessageSendState.Failed]. */
-    val sendError: String? = null
+    val sendError: String? = null,
+    /** TDLib forwardInfo must survive mapping so a forwarded service link stays ordinary text. */
+    val isForwarded: Boolean = false
 ) {
     /** View-once media is the per-message "open once" type, not every attachment in a secret chat. */
     val isViewOnce: Boolean get() = selfDestruct is MessageSelfDestruct.Immediately

@@ -17,11 +17,11 @@ import java.io.File
  * [commitStaged] makes it the active one. Until then [isActive] stays false, so the engine still routes everything to ExoPlayer.
  */
 internal class BgMixQueueDriver(private val cacheDir: File) {
-    private var player: BgMixPlayer? = null
+    @Volatile private var player: BgMixPlayer? = null
     private var statusSource: StateFlow<BgMixStatus?>? = null
     /** Native queue id -> index in the queue passed to [start]. */
     private var indexByNativeId: Map<Long, Int> = emptyMap()
-    private var items: List<PlaybackItem> = emptyList()
+    @Volatile private var items: List<PlaybackItem> = emptyList()
     /** First queue index that is not in the native queue yet; equals the queue size once everything joined. */
     private var appendedUntil: Int = 0
     /** Repeat One keeps one track in the native queue, so nothing is appended. */
@@ -38,7 +38,16 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     )
 
     /** Host: attaches the BG Wave session as the tap of the active BG Mix player; false when none is active. */
-    fun attachWaveTap(sessionHandle: Long): Boolean = player?.attachWaveSession(sessionHandle) ?: false
+    fun attachWaveTap(sessionHandle: Long): Boolean {
+        val active = player ?: return false
+        // Native crossfades start before the UI reports the next deck as current. Never attach
+        // a tap to a queue that may mix a private or provider track into an otherwise eligible one.
+        if (sessionHandle != 0L && (items.isEmpty() || items.any { !isWaveCaptureEligible(it) })) {
+            active.attachWaveSession(0L)
+            return false
+        }
+        return active.attachWaveSession(sessionHandle)
+    }
 
     val isActive: Boolean get() = player != null
 

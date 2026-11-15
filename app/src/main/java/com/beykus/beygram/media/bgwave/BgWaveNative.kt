@@ -1,5 +1,7 @@
 package com.beykus.beygram.media.bgwave
 
+import androidx.annotation.Keep
+
 /** Result of decoding a BG Wave link with the BG-Media codec (issue #799). */
 sealed interface BgWaveDecodeResult {
     data class Ok(
@@ -19,6 +21,7 @@ sealed interface BgWaveDecodeResult {
  * Thin wrapper over the BG-Media `WaveSignaling` decoder, loaded from the same library as BG Mix.
  * BeyGram does not implement the wire format itself.
  */
+@Keep
 object BgWaveNative {
     private val loaded: Boolean = try {
         System.loadLibrary("bgbeat_jni")
@@ -65,7 +68,7 @@ internal fun parseDecodeResult(raw: String?): BgWaveDecodeResult {
             issuedAt = parts[3].toLong(),
             expiresAt = parts[4].toLong(),
             caps = parts[5].toLong(),
-            nonce = parts[6].toLong(),
+            nonce = parts[6].toULong().toLong(),
             candidateCount = parts[7].toInt(),
         )
     } catch (e: NumberFormatException) {

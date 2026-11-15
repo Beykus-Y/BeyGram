@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,9 +47,11 @@ import com.beykus.beygram.ui.components.OutlinedButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 /** The wave card state of a message, or null for an ordinary message. Cheap for messages without a wave link. */
 internal fun bgWaveStateOf(message: ChatMessage): Pair<String, BgWaveCardState>? {
+    if (message.isForwarded || (!message.isOutgoing && message.senderId != message.chatId)) return null
     val link = BgWaveLink.find(message.text, message.entities) ?: return null
     // Judged at the time the message was sent, so a card of a wave that is still running does not turn into «expired»
     // five minutes later; the card itself checks the invitation's expiry against the clock.
@@ -103,12 +106,12 @@ private fun statusRes(status: BgWaveCardStatus): Int = when (status) {
  * shown as plain safe text. Nothing here opens the link: «Присоединиться» goes through the wave controller only.
  */
 @Composable
-internal fun BgWaveMessageCard(message: ChatMessage) {
-    val resolved = remember(message.id, message.text, message.entities) { bgWaveStateOf(message) } ?: return
+internal fun BgWaveMessageCard(message: ChatMessage, accountId: String) {
+    val resolved = remember(message.id, message.text, message.entities, message.isForwarded, message.senderId) { bgWaveStateOf(message) } ?: return
     when (val state = resolved.second) {
         is BgWaveCardState.SafeText -> SafeWaveText(state.messageKey)
         is BgWaveCardState.Signal -> Unit
-        is BgWaveCardState.Invite -> WaveCard(message, state)
+        is BgWaveCardState.Invite -> WaveCard(message, state, accountId)
     }
 }
 
@@ -124,12 +127,26 @@ private fun SafeWaveText(messageKey: String) {
 }
 
 @Composable
-private fun WaveCard(message: ChatMessage, invite: BgWaveCardState.Invite) {
+private fun WaveCard(message: ChatMessage, invite: BgWaveCardState.Invite, accountId: String) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     val session by BgWaveHub.controller.state.collectAsStateWithLifecycle()
     val invites by BgWaveHub.controller.inviteStates.collectAsStateWithLifecycle()
-    val view = bgWaveCardView(invite.sidHex, invite.expiresAt, message.isOutgoing, invites[invite.sidHex], session, BgWaveHub.nowSeconds())
+    val now by produceState(BgWaveHub.nowSeconds(), invite.sidHex, invite.expiresAt) {
+        val initial = BgWaveHub.nowSeconds()
+        value = initial
+        if (initial < invite.expiresAt) {
+            // Recheck wall time periodically so a clock adjustment cannot leave an expired card joinable.
+            while (value < invite.expiresAt) {
+                delay(1_000L)
+                value = BgWaveHub.nowSeconds()
+            }
+        }
+    }
+    val ownedInvite = invites[invite.sidHex]?.takeIf { it.accountId == accountId && it.chatId == message.chatId }
+    val view = bgWaveCardView(invite.sidHex, invite.expiresAt, message.isOutgoing, ownedInvite, session, now)
+    val actions = if (session?.sidHex == invite.sidHex &&
+        (session?.accountId != accountId || session?.chatId != message.chatId)) emptyList() else view.actions
     val statusText = stringResource(statusRes(view.status))
     val errorText = errorRes(view.errorKey)?.let { stringResource(it) }
     Column(
@@ -148,9 +165,9 @@ private fun WaveCard(message: ChatMessage, invite: BgWaveCardState.Invite) {
                 if (errorText != null) Text(errorText, color = palette.danger, fontSize = 12.sp)
             }
         }
-        if (view.actions.isNotEmpty()) {
+        if (actions.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (action in view.actions) {
+                for (action in actions) {
                     when (action) {
                         BgWaveCardAction.Join -> Button(onClick = { scope.launch { BgWaveHub.join(invite.sidHex) } }) {
                             Text(stringResource(R.string.bgwave_action_join))

@@ -102,7 +102,6 @@ import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.deeplink.copyableMessageLinks
-import com.beykus.beygram.media.bgwave.BgWaveLink
 import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.domain.search.appendDistinctBy
@@ -758,7 +757,10 @@ fun ChatScreen(
     // Sender picker is built from the loaded history; no extra TDLib member request is needed in the search bar.
     val searchSenders = remember(messages) { chatSearchSenders(messages) }
     // Album grouping reads only the messages, so a pending video note does not regroup the whole loaded history.
-    val albumItems = remember(messages) { groupTelegramMediaAlbums(messages.filterNot(::isBgWaveSignalMessage)) }
+    val waveChat = !chat.isGroup && !chat.isChannel && !chat.isSecret && !chat.isSavedMessages
+    val albumItems = remember(messages, waveChat) {
+        groupTelegramMediaAlbums(if (waveChat) messages.filterNot(::isBgWaveSignalMessage) else messages)
+    }
     val visibleTextAttempts = remember(queuedTextAttempts, history) {
         visiblePendingTextAttempts(queuedTextAttempts, history)
     }
@@ -2128,6 +2130,7 @@ fun ChatScreen(
                                     onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                     onPlayed = { conversation.openMessageContent(chat.id, message.id) },
                                     musicLinkCards = !chat.isSecret,
+                                    waveAccountId = accountId.takeIf { waveChat },
                                     onRetry = {
                                         if (localAttempt != null) {
                                             retryLocalTextAttempt(localAttempt.attemptId)
@@ -3201,6 +3204,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     showSenderHeader: Boolean = true,
     /** Music link cards (Yandex Music) are drawn only where the caller turns them on: the chat list, not secret chats. */
     musicLinkCards: Boolean = false,
+    waveAccountId: String? = null,
     onBubblePositioned: ((Rect) -> Unit)? = null,
     /** Reports the window bounds of a bubble that carries media, so the viewer can open from it. */
     onMediaBounds: ((Rect) -> Unit)? = null,
@@ -3251,7 +3255,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Expired media owns its card; unknown content still gets the explicit fallback, never an empty bubble.
     val renderedSpecial = resolvedSpecialContent(message)
     // A BG Wave invitation is drawn as a card; its hidden service link is never shown as text or as a page preview.
-    val isWave = remember(message.id, message.text, message.entities) { BgWaveLink.find(message.text, message.entities) != null }
+    val isWave = remember(message.id, message.text, message.entities, message.isForwarded, message.senderId, waveAccountId) { waveAccountId != null && bgWaveStateOf(message) != null }
     val showText = hasText && special !is MessageSpecialContent.Contact && !isWave
     val circle = message.media?.kind == MediaKind.VideoNote
     // Стикер лежит без пузыря: ни цвета, ни ширины фото.
@@ -3404,7 +3408,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 )
                             }
                             if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
-                            if (isWave) BgWaveMessageCard(message)
+                            if (isWave && waveAccountId != null) BgWaveMessageCard(message, waveAccountId)
                             else MessageMusicLinkCard(message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards)
                             translation?.let { state ->
                                 TranslationBlock(
