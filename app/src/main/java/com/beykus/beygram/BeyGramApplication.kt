@@ -2,6 +2,7 @@ package com.beykus.beygram
 
 import android.app.Application
 import android.util.Log
+import com.beykus.beygram.ui.screens.chat.PendingTextSendFiles
 import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.music.MusicHistoryRecorder
 import com.beykus.beygram.data.music.MusicLibraries
@@ -39,6 +40,8 @@ class BeyGramApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        runCatching { PendingTextSendFiles.quarantineLegacy(filesDir, noBackupFilesDir) }
+            .onFailure { Log.w("BeyGramAccounts", "Legacy pending text quarantine incomplete") }
         MultiAccountDiagnostics.initialize(this)
         // Stage A of multi-account: metadata-only zero-copy migration. The existing
         // TDLib client continues to use filesDir/tdlib exactly as before. If
