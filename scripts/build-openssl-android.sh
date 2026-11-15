@@ -60,7 +60,15 @@ trap 'rm -rf "$work"' EXIT
 archive="$work/openssl-$OPENSSL_VERSION.tar.gz"
 curl -fsSL --retry 3 -o "$archive" \
     "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz"
-echo "$OPENSSL_SHA256  $archive" | sha256sum -c -
+# macOS ships shasum rather than GNU sha256sum; never skip archive verification.
+if command -v sha256sum >/dev/null 2>&1; then
+    echo "$OPENSSL_SHA256  $archive" | sha256sum -c -
+elif command -v shasum >/dev/null 2>&1; then
+    echo "$OPENSSL_SHA256  $archive" | shasum -a 256 -c -
+else
+    echo "No SHA-256 verification tool found (sha256sum or shasum)" >&2
+    exit 4
+fi
 tar -xzf "$archive" -C "$work"
 
 src="$work/openssl-$OPENSSL_VERSION"
