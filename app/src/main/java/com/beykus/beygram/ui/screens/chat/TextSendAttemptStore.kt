@@ -6,17 +6,22 @@ import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.TextStyleKind
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 
 internal interface TextSendAttemptStore {
     fun load(): List<TextSendAttempt>
     fun save(attempts: List<TextSendAttempt>)
 }
 
-/** Private app storage: commit the snapshot before the composer may clear its draft. */
-internal class FileTextSendAttemptStore(file: File) : TextSendAttemptStore {
-    private val file = AtomicFile(file)
-    @Synchronized override fun save(attempts: List<TextSendAttempt>) {
+/** The format is bounded and versioned; old unversioned snapshots remain readable. */
+internal object TextSendSnapshotCodec {
+    const val MAX_BYTES = 8 * 1024 * 1024
+    private const val VERSION = 1
+
+    fun encode(attempts: List<TextSendAttempt>): ByteArray {
         val rows = JSONArray()
         attempts.forEach { a ->
             val entities = JSONArray()
@@ -30,23 +35,32 @@ internal class FileTextSendAttemptStore(file: File) : TextSendAttemptStore {
                 .put("viewOnce", a.options.viewOnce).put("consent", a.options.sendNowConsent)
                 .put("noPreview", a.options.disableLinkPreview).put("phase", a.phase.name).put("error", a.errorMessage))
         }
-        val output = file.startWrite()
-        try {
-            output.write(rows.toString().toByteArray(Charsets.UTF_8))
-            file.finishWrite(output)
-        } catch (error: Throwable) {
-            file.failWrite(output)
-            throw error
-        }
+        val bytes = JSONObject().put("version", VERSION).put("attempts", rows)
+            .toString().toByteArray(Charsets.UTF_8)
+        require(bytes.size <= MAX_BYTES) { "Pending text snapshot exceeds its size limit" }
+        return bytes
     }
-    @Synchronized override fun load(): List<TextSendAttempt> {
-        val bytes = try { file.openRead().use { it.readBytes() } } catch (_: java.io.FileNotFoundException) { return emptyList() }
-        val rows = JSONArray(String(bytes, Charsets.UTF_8))
+
+    fun decode(bytes: ByteArray): List<TextSendAttempt> {
+        require(bytes.size <= MAX_BYTES) { "Pending text snapshot exceeds its size limit" }
+        val tokener = JSONTokener(String(bytes, Charsets.UTF_8))
+        val rows = when (val root = tokener.nextValue()) {
+            is JSONArray -> root
+            is JSONObject -> {
+                require(root.getInt("version") == VERSION) { "Unsupported pending text snapshot version" }
+                root.getJSONArray("attempts")
+            }
+            else -> throw IOException("Invalid pending text snapshot")
+        }
+        require(tokener.nextClean() == '\u0000') { "Unexpected data after pending text snapshot" }
+        val seen = HashSet<Long>()
         return (0 until rows.length()).map { index ->
             val a = rows.getJSONObject(index)
+            val id = a.getLong("id")
+            require(id > 0 && id < Long.MAX_VALUE && seen.add(id)) { "Invalid pending text attempt id" }
             val entities = a.getJSONArray("entities")
             TextSendAttempt(
-                attemptId = a.getLong("id"), scope = TextSendScopeKey(a.getString("account"), a.getLong("chat"), a.getLong("topic")),
+                attemptId = id, scope = TextSendScopeKey(a.getString("account"), a.getLong("chat"), a.getLong("topic")),
                 text = a.getString("text"), entities = (0 until entities.length()).map { i ->
                     val e = entities.getJSONObject(i)
                     MessageTextEntity(e.getInt("offset"), e.getInt("length"), TextStyleKind.valueOf(e.getString("kind")), e.getString("argument"))
@@ -59,5 +73,47 @@ internal class FileTextSendAttemptStore(file: File) : TextSendAttemptStore {
                 errorMessage = if (a.has("error")) a.getString("error") else null
             )
         }
+    }
+}
+
+/** Private app storage: commit the snapshot before the composer may clear its draft. */
+internal class FileTextSendAttemptStore(path: File) : TextSendAttemptStore {
+    private val file = AtomicFile(path)
+
+    @Synchronized override fun save(attempts: List<TextSendAttempt>) {
+        val bytes = TextSendSnapshotCodec.encode(attempts)
+        val output = file.startWrite()
+        try {
+            output.write(bytes)
+            file.finishWrite(output)
+        } catch (error: Throwable) {
+            file.failWrite(output)
+            throw error
+        }
+    }
+
+    @Synchronized override fun load(): List<TextSendAttempt> {
+        val input = try {
+            file.openRead()
+        } catch (error: java.io.FileNotFoundException) {
+            // A missing snapshot is normal. An existing but unreadable one is not.
+            val base = file.baseFile
+            if (!base.exists() && !File(base.path + ".bak").exists()) return emptyList()
+            throw error
+        }
+        val bytes = input.use {
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val read = it.read(buffer)
+                if (read < 0) break
+                if (output.size() + read > TextSendSnapshotCodec.MAX_BYTES) {
+                    throw IOException("Pending text snapshot exceeds its size limit")
+                }
+                output.write(buffer, 0, read)
+            }
+            output.toByteArray()
+        }
+        return TextSendSnapshotCodec.decode(bytes)
     }
 }
