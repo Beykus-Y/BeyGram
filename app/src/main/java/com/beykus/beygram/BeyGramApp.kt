@@ -902,6 +902,7 @@ private fun BeyGramAppContent(
     // Куда вернуться из раздела нижнего меню и из уведомлений: их открывают из разных мест.
     var tabReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var notificationsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
+    var triggerWordsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Notifications.name) }
     // The story viewer and publisher are full-screen routes; both return to where they were opened.
     var storyReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Chats.name) }
     var storyChatId by rememberSaveable { mutableLongStateOf(0L) }
@@ -942,6 +943,10 @@ private fun BeyGramAppContent(
     val openNotifications: (AppRoute) -> Unit = { returnTo ->
         notificationsReturnRouteName = returnTo.name
         routeName = AppRoute.Notifications.name
+    }
+    val openTriggerWords: (AppRoute) -> Unit = { returnTo ->
+        triggerWordsReturnRouteName = returnTo.name
+        routeName = AppRoute.TriggerWords.name
     }
     // Экраны прокси открываются из нескольких мест: запоминаем, куда вернуться, и какую вкладку показать.
     var proxyReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
@@ -2866,11 +2871,11 @@ GlobalSearchScreen(
                     connectionState = connectionState,
                     onBack = { routeName = notificationsReturnRouteName },
                     onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name },
-                    onTriggers = { routeName = AppRoute.TriggerWords.name }
+                    onTriggers = { openTriggerWords(AppRoute.Notifications) }
                 )
                 AppRoute.TriggerWords -> TriggerWordsScreen(
                     store = TriggerWordsStore.get(context),
-                    onBack = { routeName = AppRoute.Notifications.name },
+                    onBack = { routeName = triggerWordsReturnRouteName },
                     onOpenMentions = { routeName = AppRoute.TriggerMentions.name }
                 )
                 AppRoute.TriggerMentions -> TriggerMentionsScreen(
@@ -2912,6 +2917,7 @@ GlobalSearchScreen(
                         onAppearance = { appearanceDraft = appearance; appearanceReturnRouteName = AppRoute.Settings.name; routeName = AppRoute.Appearance.name },
                         onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
                         onNotifications = { openNotifications(AppRoute.Settings) },
+                        onTriggerWords = { openTriggerWords(AppRoute.Settings) },
                         onStorage = { routeName = AppRoute.StorageSettings.name },
                         onAutoDownload = { routeName = AppRoute.AutoDownloadSettings.name },
                         onProxy = { openProxy(AppRoute.Settings) },
