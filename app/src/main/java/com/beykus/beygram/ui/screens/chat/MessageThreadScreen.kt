@@ -1,6 +1,5 @@
 package com.beykus.beygram.ui.screens.chat
 
-import androidx.lifecycle.viewmodel.initializer
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -291,19 +290,17 @@ internal fun MessageThreadScreen(
     }
 
     val stealthFallback = remember { StealthScheduleFallback() }
-    val sendModel: ChatTextSendViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-        key = "chat-text-send-$accountId",
-        factory = androidx.lifecycle.viewmodel.viewModelFactory {
-            initializer { ChatTextSendViewModel(context.applicationContext as android.app.Application, accountId) }
-        }
-    )
+    val sendGeneration by remember(accountId) { PendingTextSendSessions.generation(accountId) }.collectAsStateWithLifecycle()
+    val sendQueue = remember(context.applicationContext, accountId, sendGeneration) {
+        PendingTextSendSessions.queue(context.applicationContext, accountId)
+    }
     val sendKey = TextSendScopeKey(accountId, thread?.discussionChatId ?: 0L, thread?.threadId ?: 0L)
     var failedLocalCommentId by remember(sendKey) { mutableStateOf<Long?>(null) }
-    val pending by remember(sendModel, sendKey) { sendModel.queue.observe(sendKey) }
+    val pending by remember(sendQueue, sendKey) { sendQueue.observe(sendKey) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val queueStorageFailed by sendModel.queue.storageFailed.collectAsStateWithLifecycle()
+    val queueStorageFailed by sendQueue.storageFailed.collectAsStateWithLifecycle()
     val queueStorageFailureText = stringResource(R.string.chat_send_queue_storage_failed)
-    LaunchedEffect(sendModel, sendKey, queueStorageFailed) {
+    LaunchedEffect(sendQueue, sendKey, queueStorageFailed) {
         if (queueStorageFailed) sendError = queueStorageFailureText
     }
     fun dispatchComment(attemptId: Long? = null, consent: Boolean = false): Boolean {
@@ -334,10 +331,10 @@ internal fun MessageThreadScreen(
         val format: (Throwable) -> String = { it.userMessage(context, R.string.thread_comments_send_failed) }
         return try {
             if (attemptId != null) {
-                sendModel.queue.retry(sendKey, attemptId, sendNowConsent = consent,
+                sendQueue.retry(sendKey, attemptId, sendNowConsent = consent,
                     execute = execute, onFailure = failure, formatError = format)
             } else {
-                sendModel.queue.enqueue(sendKey, text, entities, replyTarget?.id ?: replyTargetId.takeIf { it > 0L },
+                sendQueue.enqueue(sendKey, text, entities, replyTarget?.id ?: replyTargetId.takeIf { it > 0L },
                     null, com.beykus.beygram.domain.model.MessageSendOptions(sendNowConsent = consent),
                     conversation.observeChatHistory(current.discussionChatId).value.liveArrivalSequence,
                     java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date()),
@@ -664,7 +661,7 @@ internal fun MessageThreadScreen(
             onRetry = { dispatchComment(attempt.attemptId) },
             onDiscard = {
                 try {
-                    sendModel.queue.discard(sendKey, attempt.attemptId)
+                    sendQueue.discard(sendKey, attempt.attemptId)
                 } catch (_: TextSendStorageException) {
                     sendError = queueStorageFailureText
                 }
