@@ -3,14 +3,14 @@ package com.beykus.beygram.ui.screens.music
 import android.content.Context
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
-import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.ui.screens.music.yandex.YandexMusicHost
 import com.beykus.beygram.data.music.provider.MusicProviderAccount
 import com.beykus.beygram.data.music.provider.ProviderPlaylist
 import com.beykus.beygram.data.music.provider.ProviderTrack
 
 /**
- * Music-screen UI of an optional music source. Only the DEV build has one, so Stable draws nothing and never
- * references the implementation, which is loaded by class name (see [ProviderMusicHosts]).
+ * Music-screen UI of an optional music source, shared by DEV and Stable.
+ * The source hides its entry points when it is not configured.
  */
 interface ProviderMusicHost {
     /**
@@ -82,9 +82,6 @@ interface ProviderMusicHost {
 }
 
 object ProviderMusicHosts {
-    /** DEV-only host, loaded by name. */
-    private const val YANDEX_HOST_CLASS = "com.beykus.beygram.ui.screens.music.yandex.YandexMusicHost"
-
     @Volatile
     private var yandexHost: ProviderMusicHost? = null
 
@@ -96,14 +93,9 @@ object ProviderMusicHosts {
     fun yandex(): ProviderMusicHost? {
         if (!yandexLoaded) {
             yandexLoaded = true
-            yandexHost = if (BuildConfig.FLAVOR == "dev") loadHost(YANDEX_HOST_CLASS) else null
+            yandexHost = YandexMusicHost()
         }
         return yandexHost
     }
 
-    private fun loadHost(className: String): ProviderMusicHost? = try {
-        Class.forName(className).getDeclaredConstructor().newInstance() as? ProviderMusicHost
-    } catch (e: ClassNotFoundException) {
-        null
-    }
 }

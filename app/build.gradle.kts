@@ -115,6 +115,9 @@ android {
 
         buildConfigField("int", "TELEGRAM_API_ID", telegramApiId)
         buildConfigField("String", "TELEGRAM_API_HASH", telegramApiHash.asBuildConfigString())
+        // Optional Yandex Music source in both release channels; blank values keep it unavailable.
+        buildConfigField("String", "YANDEX_CLIENT_ID", secretProperty("yandexMusicClientId", "").asBuildConfigString())
+        buildConfigField("String", "YANDEX_CLIENT_SECRET", secretProperty("yandexMusicClientSecret", "").asBuildConfigString())
 
         // Публичная конфигурация диагностики (не секреты): адрес сервера отчётов и
         // служебный бот. Пустой DIAGNOSTICS_API_BASE_URL отключает отправку отчётов.
@@ -146,9 +149,6 @@ android {
             // Dev and Stable are often installed side by side. Loopback ports are shared by every app on the
             // device, so each variant needs its own listener port (issue #75).
             buildConfigField("int", "MIHOMO_PROXY_PORT", "17892")
-            // Experimental Yandex Music sign-in exists only in this flavor. Blank values disable it.
-            buildConfigField("String", "YANDEX_CLIENT_ID", secretProperty("yandexMusicClientId", "").asBuildConfigString())
-            buildConfigField("String", "YANDEX_CLIENT_SECRET", secretProperty("yandexMusicClientSecret", "").asBuildConfigString())
         }
         create("prod") {
             dimension = "environment"

@@ -53,7 +53,7 @@ import com.beykus.beygram.ui.screens.settings.SettingsToggle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Settings UI of the Yandex Music source. DEV build only; loaded by name from ProviderSettingsHosts. */
+/** Settings UI of the optional Yandex Music source in both release channels. */
 class YandexSettingsHost : ProviderSettingsHost {
 
     @Composable

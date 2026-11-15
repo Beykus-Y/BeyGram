@@ -125,7 +125,7 @@ internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFI
     private var wiredTo: MusicProvider? = null
 
     /**
-     * Connects Yandex rows to the signed-in provider. The provider exists only in the DEV build, so Stable does nothing
+     * Connects Yandex rows to the signed-in provider. An unconfigured provider is unavailable, so the resolver does nothing
      * here. Calling it again for the same provider does nothing.
      */
     fun ensureConfigured(context: Context) {
