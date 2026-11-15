@@ -37,7 +37,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -48,7 +48,6 @@ import androidx.compose.material3.IconButton
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -421,10 +420,10 @@ internal fun MusicPlaylistScreen(
         },
         onDismiss = { dialog = null }
     )
-    if (dialog == PlaylistDialog.Sort && stored != null) AlertDialog(
+    if (dialog == PlaylistDialog.Sort && stored != null) BeyGramDialog(
         onDismissRequest = { dialog = null },
-        title = { Text(stringResource(R.string.music_sort)) },
-        text = {
+        title = stringResource(R.string.music_sort),
+        content = {
             Column {
                 MusicSortMode.entries.forEach { mode ->
                     SortOption(
@@ -438,22 +437,24 @@ internal fun MusicPlaylistScreen(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.common_close)) } }
+        confirmText = stringResource(R.string.common_close),
+        onConfirm = { dialog = null }
     )
-    if (dialog == PlaylistDialog.Delete && stored != null) AlertDialog(
+    if (dialog == PlaylistDialog.Delete && stored != null) BeyGramDialog(
         onDismissRequest = { dialog = null },
-        title = { Text(stringResource(R.string.music_delete_playlist_title)) },
-        text = { Text(stringResource(R.string.music_delete_playlist_text)) },
-        confirmButton = {
-            TextButton(onClick = {
-                dialog = null
-                scope.launch {
-                    val outcome = repository.deletePlaylist(playlistId)
-                    if (outcome is MusicOutcome.Failed) context.reportMusicOutcome(outcome) else onBack()
-                }
-            }) { Text(stringResource(R.string.common_delete), color = palette.danger) }
+        title = stringResource(R.string.music_delete_playlist_title),
+        message = stringResource(R.string.music_delete_playlist_text),
+        confirmText = stringResource(R.string.common_delete),
+        onConfirm = {
+            dialog = null
+            scope.launch {
+                val outcome = repository.deletePlaylist(playlistId)
+                if (outcome is MusicOutcome.Failed) context.reportMusicOutcome(outcome) else onBack()
+            }
         },
-        dismissButton = { TextButton(onClick = { dialog = null }) { Text(stringResource(R.string.common_cancel)) } }
+        destructive = true,
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { dialog = null }
     )
     // Open while the user looks for a replacement for the unavailable entry held in `replacing`.
     val missing = replacing

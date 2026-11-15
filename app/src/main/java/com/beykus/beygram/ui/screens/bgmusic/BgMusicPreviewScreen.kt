@@ -17,10 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -345,48 +343,32 @@ fun BgMusicPreviewScreen(
         val localId = localCopy?.id
         // Updating needs the saved copy. Without one, the newer file can only be saved as a copy, so "Update" is not offered.
         val canUpdate = newer && localId != null
-        AlertDialog(
+        val saveAsCopy: () -> Unit = {
+            askChoice = false
+            importFile(null)
+        }
+        BeyGramDialog(
             onDismissRequest = { askChoice = false },
-            title = {
-                Text(stringResource(if (newer) R.string.bgmusic_import_newer_title else R.string.bgmusic_import_older_title))
+            title = stringResource(if (newer) R.string.bgmusic_import_newer_title else R.string.bgmusic_import_older_title),
+            message = stringResource(if (newer) R.string.bgmusic_import_newer_text else R.string.bgmusic_import_older_text),
+            confirmText = stringResource(if (canUpdate) R.string.bgmusic_action_update else R.string.bgmusic_action_save_copy),
+            onConfirm = {
+                askChoice = false
+                importFile(if (canUpdate) localId else null)
             },
-            text = {
-                Text(stringResource(if (newer) R.string.bgmusic_import_newer_text else R.string.bgmusic_import_older_text))
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        askChoice = false
-                        importFile(if (canUpdate) localId else null)
-                    },
-                ) {
-                    Text(stringResource(if (canUpdate) R.string.bgmusic_action_update else R.string.bgmusic_action_save_copy))
-                }
-            },
-            dismissButton = {
-                Row {
-                    if (canUpdate) {
-                        TextButton(onClick = {
-                            askChoice = false
-                            importFile(null)
-                        }) {
-                            Text(stringResource(R.string.bgmusic_action_save_copy))
-                        }
-                    }
-                    TextButton(onClick = { askChoice = false }) {
-                        Text(stringResource(R.string.common_cancel))
-                    }
-                }
-            },
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { askChoice = false },
+            neutralText = if (canUpdate) stringResource(R.string.bgmusic_action_save_copy) else null,
+            onNeutral = if (canUpdate) saveAsCopy else null,
         )
     }
 
     if (pickedTrack != null) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { pendingTrack = null },
-            title = { Text(stringResource(R.string.bgmusic_add_picker_title)) },
-            text = {
-                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+            title = stringResource(R.string.bgmusic_add_picker_title),
+            content = {
+                Column(Modifier.fillMaxWidth()) {
                     library.playlists.forEach { target ->
                         Text(
                             if (target.isFavorites) favoritesName else target.title,
@@ -400,11 +382,8 @@ fun BgMusicPreviewScreen(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { pendingTrack = null }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
-            },
+            confirmText = stringResource(R.string.common_cancel),
+            onConfirm = { pendingTrack = null },
         )
     }
 }
