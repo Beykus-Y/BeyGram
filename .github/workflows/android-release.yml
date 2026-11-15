@@ -153,7 +153,7 @@ jobs:
           # code cannot read these secrets.
           TELEGRAM_API_ID: ${{ github.event_name != 'pull_request' && secrets.TELEGRAM_API_ID || '' }}
           TELEGRAM_API_HASH: ${{ github.event_name != 'pull_request' && secrets.TELEGRAM_API_HASH || '' }}
-          # Yandex Music sign-in exists only in the DEV flavor. Same pull-request rule as above.
+          # Optional Yandex Music sign-in in both flavors. Same pull-request rule as above.
           YANDEX_MUSIC_CLIENT_ID: ${{ github.event_name != 'pull_request' && secrets.YANDEX_MUSIC_CLIENT_ID || '' }}
           YANDEX_MUSIC_CLIENT_SECRET: ${{ github.event_name != 'pull_request' && secrets.YANDEX_MUSIC_CLIENT_SECRET || '' }}
         run: |
@@ -169,6 +169,10 @@ jobs:
         # and a failed main build cannot be published.
         run: ./gradlew --no-daemon :app:testDevDebugUnitTest
 
+      - name: Verify Yandex Music in the Stable variant
+        # The shared provider tests must also pass against prod; PR builds use blank OAuth configuration.
+        run: ./gradlew --no-daemon :app:testProdDebugUnitTest --tests 'com.beykus.beygram.data.yandex.*'
+
       - name: Upload unit test reports
         # A failed run keeps the report, so the exact failing assertion can be read after the job ends.
         if: failure()
@@ -178,6 +182,8 @@ jobs:
           path: |
             app/build/reports/tests/testDevDebugUnitTest/
             app/build/test-results/testDevDebugUnitTest/
+            app/build/reports/tests/testProdDebugUnitTest/
+            app/build/test-results/testProdDebugUnitTest/
           if-no-files-found: warn
           retention-days: 14
 

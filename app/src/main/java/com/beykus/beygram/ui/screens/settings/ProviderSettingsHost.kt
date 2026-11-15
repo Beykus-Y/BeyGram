@@ -1,11 +1,11 @@
 package com.beykus.beygram.ui.screens.settings
 
 import androidx.compose.runtime.Composable
-import com.beykus.beygram.BuildConfig
+import com.beykus.beygram.ui.screens.settings.yandex.YandexSettingsHost
 
 /**
- * Settings UI of an optional music source. Only the DEV build has one, so Stable draws nothing and never
- * references the implementation, which is loaded by class name (see [ProviderSettingsHosts]).
+ * Settings UI of an optional music source, shared by DEV and Stable.
+ * The source hides its entry points when it is not configured.
  */
 interface ProviderSettingsHost {
     /** Entries shown in the Experiments screen for this source. */
@@ -18,9 +18,6 @@ interface ProviderSettingsHost {
 }
 
 object ProviderSettingsHosts {
-    /** DEV-only host, loaded by name. */
-    private const val YANDEX_HOST_CLASS = "com.beykus.beygram.ui.screens.settings.yandex.YandexSettingsHost"
-
     @Volatile
     private var yandexHost: ProviderSettingsHost? = null
 
@@ -32,14 +29,9 @@ object ProviderSettingsHosts {
     fun yandex(): ProviderSettingsHost? {
         if (!yandexLoaded) {
             yandexLoaded = true
-            yandexHost = if (BuildConfig.FLAVOR == "dev") loadHost(YANDEX_HOST_CLASS) else null
+            yandexHost = YandexSettingsHost()
         }
         return yandexHost
     }
 
-    private fun loadHost(className: String): ProviderSettingsHost? = try {
-        Class.forName(className).getDeclaredConstructor().newInstance() as? ProviderSettingsHost
-    } catch (e: ClassNotFoundException) {
-        null
-    }
 }

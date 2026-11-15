@@ -102,8 +102,7 @@ import kotlinx.coroutines.withContext
 private val WaveCardHeight = 168.dp
 
 /**
- * Yandex Music in the music screens: its tab (likes, playlists, albums) and its search results. DEV only; loaded by
- * name from [com.beykus.beygram.ui.screens.music.ProviderMusicHosts].
+ * Yandex Music in the music screens: its tab (likes, playlists, albums) and search results in both release channels.
  */
 class YandexMusicHost : ProviderMusicHost {
     /** Requests run here, not in the composition, so a lazy item leaving the screen does not cancel or drop them. */

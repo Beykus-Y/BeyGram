@@ -8,7 +8,7 @@ import com.beykus.beygram.data.music.provider.ProviderWaves
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.ui.screens.music.yandex.YandexLibrarySnapshots
 
-/** Loaded by name from [com.beykus.beygram.data.music.provider.MusicProviders] in the DEV build only. */
+/** Shared optional factory for DEV and Stable; missing configuration disables the provider. */
 class YandexMusicProviderFactory : MusicProviderFactory {
     override fun create(appContext: Context): MusicProvider? {
         if (!YandexConfig.isConfigured) return null

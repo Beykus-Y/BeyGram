@@ -4,7 +4,7 @@ import com.beykus.beygram.BuildConfig
 
 /**
  * Everything that identifies this client to Yandex sits in this one file, so replacing it is a one-place change.
- * DEV flavor only. The OAuth pair is read from secrets.properties (yandexMusicClientId / yandexMusicClientSecret);
+ * Shared by DEV and Stable. The OAuth pair is read from secrets.properties (yandexMusicClientId / yandexMusicClientSecret);
  * when it is blank the provider reports itself unavailable and the sign-in entry stays hidden.
  */
 internal object YandexConfig {

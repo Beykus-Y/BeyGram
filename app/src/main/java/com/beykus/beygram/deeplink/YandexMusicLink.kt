@@ -71,7 +71,7 @@ fun yandexMusicEntityLink(url: String): MessageEntityLink.YandexMusic? =
     yandexMusicTarget(url)?.let { MessageEntityLink.YandexMusic(url.trim(), it) }
 
 /**
- * Whether a tap may open a Yandex Music link inside the app: the DEV build with a signed-in account. Everywhere else
+ * Whether a tap may open a Yandex Music link inside the app: a configured provider with a signed-in account. Everywhere else
  * (Stable, signed out, no provider) the link keeps opening in the browser, as before.
  */
 fun yandexMusicNativeReady(context: Context): Boolean =
