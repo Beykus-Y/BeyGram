@@ -51,6 +51,7 @@ import kotlinx.coroutines.delay
 
 /** The wave card state of a message, or null for an ordinary message. Cheap for messages without a wave link. */
 internal fun bgWaveStateOf(message: ChatMessage): Pair<String, BgWaveCardState>? {
+    if (message.isForwarded || (!message.isOutgoing && message.senderId != message.chatId)) return null
     val link = BgWaveLink.find(message.text, message.entities) ?: return null
     // Judged at the time the message was sent, so a card of a wave that is still running does not turn into «expired»
     // five minutes later; the card itself checks the invitation's expiry against the clock.
@@ -106,7 +107,7 @@ private fun statusRes(status: BgWaveCardStatus): Int = when (status) {
  */
 @Composable
 internal fun BgWaveMessageCard(message: ChatMessage, accountId: String) {
-    val resolved = remember(message.id, message.text, message.entities) { bgWaveStateOf(message) } ?: return
+    val resolved = remember(message.id, message.text, message.entities, message.isForwarded, message.senderId) { bgWaveStateOf(message) } ?: return
     when (val state = resolved.second) {
         is BgWaveCardState.SafeText -> SafeWaveText(state.messageKey)
         is BgWaveCardState.Signal -> Unit
