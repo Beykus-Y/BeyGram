@@ -108,6 +108,7 @@ internal fun MessageThreadScreen(
     initialDraftEntities: List<MessageTextEntity> = emptyList(),
     initialReplyToId: Long = 0L,
     onDraftChange: (String, List<MessageTextEntity>, Long) -> Unit = { _, _, _ -> },
+    onDraftCommitted: (String, List<MessageTextEntity>, Long) -> Unit = { _, _, _ -> },
     onBack: () -> Unit,
     onOpenProfile: (Long) -> Unit,
     /** Repository-backed automatic download for the shared media viewer. */
@@ -131,7 +132,6 @@ internal fun MessageThreadScreen(
     var replyTarget by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
     var replyTargetId by rememberSaveable(channelChatId, postId) { mutableLongStateOf(initialReplyToId) }
     var focusRequest by remember(channelChatId, postId) { mutableIntStateOf(0) }
-    var sending by remember { mutableStateOf(false) }
     var sendError by remember { mutableStateOf<String?>(null) }
     var reactionTarget by remember { mutableStateOf<Pair<Long, ChatMessage>?>(null) }
     var reactionOptions by remember(conversation) { mutableStateOf<List<ReactionOption>>(emptyList()) }
@@ -296,6 +296,15 @@ internal fun MessageThreadScreen(
     }
     val sendKey = TextSendScopeKey(accountId, thread?.discussionChatId ?: 0L, thread?.threadId ?: 0L)
     var failedLocalCommentId by remember(sendKey) { mutableStateOf<Long?>(null) }
+    val writing by remember(sendQueue, sendKey) { sendQueue.composerWriting(sendKey) }
+        .collectAsStateWithLifecycle(initialValue = false)
+    // The parent owns the route draft. A write may complete while this overlay is absent.
+    LaunchedEffect(initialDraftText, initialDraftEntities, initialReplyToId) {
+        text = initialDraftText
+        entities = initialDraftEntities
+        if (replyTargetId != initialReplyToId) replyTarget = null
+        replyTargetId = initialReplyToId
+    }
     val pending by remember(sendQueue, sendKey) { sendQueue.observe(sendKey) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val queueStorageFailed by sendQueue.storageFailed.collectAsStateWithLifecycle()
@@ -303,7 +312,7 @@ internal fun MessageThreadScreen(
     LaunchedEffect(sendQueue, sendKey, queueStorageFailed) {
         if (queueStorageFailed) sendError = queueStorageFailureText
     }
-    fun dispatchComment(attemptId: Long? = null, consent: Boolean = false): Boolean {
+    suspend fun dispatchComment(attemptId: Long? = null, consent: Boolean = false): Boolean {
         val current = thread ?: return false
         val execute: suspend (TextSendAttempt) -> Result<Unit> = { attempt ->
             conversation.sendThreadReply(attempt.scope.chatId, attempt.scope.forumTopicId, attempt.text,
@@ -324,7 +333,7 @@ internal fun MessageThreadScreen(
             }
         }
         val failure: (TextSendAttempt, Throwable) -> Unit = { attempt, error ->
-            if (!stealthFallback.offer(error) { dispatchComment(attempt.attemptId, true) }) {
+            if (!stealthFallback.offer(error) { sendQueue.launchMutation { dispatchComment(attempt.attemptId, true) } }) {
                 sendError = error.userMessage(context, R.string.thread_comments_send_failed)
             }
         }
@@ -357,18 +366,27 @@ internal fun MessageThreadScreen(
     }
     fun send(sendNowConsent: Boolean = false) {
         val current = thread ?: return
-        if (!current.canReply || text.isBlank()) return
+        if (!current.canReply || text.isBlank() || writing) return
         if (text.codePointCount(0, text.length) > messageLimits.text) {
             sendError = context.getString(R.string.chat_truncated_notice, messageLimits.text)
             return
         }
-        if (!dispatchComment(consent = sendNowConsent)) return
-        text = ""
-        entities = emptyList()
-        replyTarget = null
-        replyTargetId = 0L
-        onDraftChange("", emptyList(), 0L)
+        val submittedText = text
+        val submittedEntities = entities.toList()
+        val submittedReply = replyTarget?.id ?: replyTargetId
         sendError = null
+        sendQueue.launchComposerWrite(sendKey) {
+            if (!dispatchComment(consent = sendNowConsent)) return@launchComposerWrite
+            // A later edit must not be erased by the completed IO operation.
+            if (text == submittedText && entities == submittedEntities &&
+                (replyTarget?.id ?: replyTargetId) == submittedReply) {
+                text = ""
+                entities = emptyList()
+                replyTarget = null
+                replyTargetId = 0L
+            }
+            onDraftCommitted(submittedText, submittedEntities, submittedReply)
+        }
     }
 
     val commentsCount = thread?.replyCount?.takeIf { it > 0 } ?: post?.replyCount ?: 0
@@ -607,8 +625,8 @@ internal fun MessageThreadScreen(
                         val tonalSend = LocalDesignSystem.current.composerTonal
                         Box(
                             Modifier.size(40.dp).clip(CircleShape)
-                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank()) 1f else 0.4f))
-                                .clickable(enabled = text.isNotBlank()) { send() },
+                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank() && !writing) 1f else 0.4f))
+                                .clickable(enabled = text.isNotBlank() && !writing) { send() },
                             contentAlignment = Alignment.Center
                         ) {
                             val sendInk = if (tonalSend) palette.accentInk else palette.onAccent
@@ -658,12 +676,14 @@ internal fun MessageThreadScreen(
         FailedSendDetailsDialog(
             target = FailedSendTarget(attempt.toChatMessage(), attempt.attemptId),
             onDismiss = { failedLocalCommentId = null },
-            onRetry = { dispatchComment(attempt.attemptId) },
+            onRetry = { sendQueue.launchMutation { dispatchComment(attempt.attemptId) } },
             onDiscard = {
-                try {
-                    sendQueue.discard(sendKey, attempt.attemptId)
-                } catch (_: TextSendStorageException) {
-                    sendError = queueStorageFailureText
+                sendQueue.launchMutation {
+                    try {
+                        sendQueue.discard(sendKey, attempt.attemptId)
+                    } catch (_: TextSendStorageException) {
+                        sendError = queueStorageFailureText
+                    }
                 }
             }
         )
