@@ -1,9 +1,9 @@
 package com.beykus.beygram.ui.screens.theme
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -81,6 +81,10 @@ import com.beykus.beygram.data.appearance.validMessageAnimationSpringiness
 import com.beykus.beygram.data.settings.ChatAnimationSettings
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionSettings
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -659,10 +663,14 @@ private fun AppearanceTuningCard(
                 )
             }
         }
+        val enterSpec = rememberMotionSpec(MotionToken.SheetEnter)
+        val exitSpec = rememberMotionSpec(MotionToken.SheetExit)
         AnimatedVisibility(
             visible = expanded && hasControls,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
+            enter = if (enterSpec.isInstant) EnterTransition.None else
+                enterSpec.fadeEnter() + expandVertically(enterSpec.animationSpec()),
+            exit = if (exitSpec.isInstant) ExitTransition.None else
+                exitSpec.fadeExit() + shrinkVertically(exitSpec.animationSpec())
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TuningGroup(stringResource(R.string.appearance_animations_group_dynamics)) {
