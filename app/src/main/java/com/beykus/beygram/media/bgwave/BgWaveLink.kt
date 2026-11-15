@@ -31,9 +31,9 @@ object BgWaveLink {
      * written as visible text is ignored: invitations are always sent as hidden service links.
      */
     fun find(text: String, entities: List<MessageTextEntity>): String? =
-        validTextEntities(text, entities)
-            .asSequence()
-            .filter { it.kind == TextStyleKind.Url }
-            .map { it.argument.trim() }
-            .firstOrNull { isWaveLink(it) }
+        validTextEntities(text, entities).singleOrNull()
+            ?.takeIf { entities.size == 1 && text.isNotEmpty() && it.kind == TextStyleKind.Url &&
+                it.offset == 0 && it.length == text.length }
+            ?.argument
+            ?.takeIf(::isWaveLink)
 }
