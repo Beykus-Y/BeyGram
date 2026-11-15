@@ -88,12 +88,12 @@ object BgWaveHub {
             val sid = (BgWaveNative.decodeUri(link, now) as? BgWaveDecodeResult.Ok)?.sidHex
                 ?: return@withContext false
             val current = controller.state.value
-            if (current?.sidHex != sid || current.accountId != accountId ||
+            if (current == null || current.sidHex != sid || current.accountId != accountId ||
                 current.chatId != chatId || current.phase != BgWavePhase.Offering) return@withContext false
             val sent = send(accountId, chatId, link).isSuccess
             controller.offerSent(sid, sent, nowSeconds())
             val latest = controller.state.value
-            if (sent && latest?.sidHex == sid && latest.accountId == accountId &&
+            if (sent && latest != null && latest.sidHex == sid && latest.accountId == accountId &&
                 latest.phase != BgWavePhase.Ended && latest.phase != BgWavePhase.Failed) {
                 ensureTicker()
                 true
