@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +20,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -27,10 +34,13 @@ import androidx.compose.ui.window.DialogProperties
  * BeyGram's own centred dialog for short confirmations and small inputs. Built on the low-level Compose [Dialog]
  * and drawn with [beyGramPalette] colours, so it follows the active theme instead of Material's AlertDialog.
  *
- * - [title], [message] and [content] are slots: callers pass strings from string resources.
- * - [confirm] is the primary action; [dismiss] is optional. Set [destructive] to draw the confirm action in the
- *   danger colour (never make a destructive action the default).
- * - Long content scrolls, so the actions stay reachable with a large system font.
+ * - [title], [message] and [content] are slots: callers pass strings from string resources. Do not put a vertically
+ *   scrolling container (LazyColumn and similar) in [content]; it sits inside the dialog's own scroll area.
+ * - [onConfirm] is the primary action. [onDismiss] is the tap on the dismiss (cancel) button, if [dismissText] is set;
+ *   [onDismissRequest] handles Back, outside taps and any other close.
+ * - Set [destructive] to draw the confirm action in the danger colour. A destructive action is never the default.
+ * - Only title, message and content scroll; the action row stays visible with a large system font.
+ * - Width is capped at 560dp; height at 80% of the window, so tablets and landscape keep a sane size.
  */
 @Composable
 fun BeyGramDialog(
@@ -45,13 +55,16 @@ fun BeyGramDialog(
     onDismiss: (() -> Unit)? = null,
     destructive: Boolean = false,
     confirmEnabled: Boolean = true,
-    dismissOnClickOutside: Boolean = true
+    dismissOnBackPress: Boolean = true,
+    dismissOnClickOutside: Boolean = true,
+    shape: Shape = RoundedCornerShape(24.dp)
 ) {
     val palette = beyGramPalette()
+    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.8f).dp
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(
-            dismissOnBackPress = true,
+            dismissOnBackPress = dismissOnBackPress,
             dismissOnClickOutside = dismissOnClickOutside,
             usePlatformDefaultWidth = false
         )
@@ -59,8 +72,9 @@ fun BeyGramDialog(
         Surface(
             modifier = modifier
                 .padding(horizontal = 24.dp)
-                .heightIn(max = 560.dp),
-            shape = RoundedCornerShape(24.dp),
+                .widthIn(max = 560.dp)
+                .semantics { paneTitle = title },
+            shape = shape,
             color = palette.surface,
             contentColor = palette.textPrimary,
             tonalElevation = 0.dp
@@ -68,25 +82,32 @@ fun BeyGramDialog(
             Column(
                 modifier = Modifier
                     .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 16.dp)
-                    .verticalScroll(rememberScrollState())
+                    .heightIn(max = maxHeight)
             ) {
                 Text(
                     text = title,
+                    modifier = Modifier.semantics { heading() },
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = palette.textPrimary
                 )
-                if (message != null) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = palette.textSecondary
-                    )
-                }
-                if (content != null) {
-                    Spacer(Modifier.height(16.dp))
-                    content()
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    if (message != null) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.textSecondary
+                        )
+                    }
+                    if (content != null) {
+                        Spacer(Modifier.height(16.dp))
+                        content()
+                    }
                 }
                 Spacer(Modifier.height(20.dp))
                 Row(
