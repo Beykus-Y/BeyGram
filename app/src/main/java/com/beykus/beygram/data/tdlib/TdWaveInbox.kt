@@ -10,10 +10,10 @@ import org.drinkless.tdlib.TdApi
 internal fun waveLinkOf(message: TdApi.Message): String? {
     if (message.forwardInfo != null) return null
     val content = message.content as? TdApi.MessageText ?: return null
-    val entities = content.text?.entities ?: return null
-    for (entity in entities) {
-        val url = (entity?.type as? TdApi.TextEntityTypeTextUrl)?.url?.trim() ?: continue
-        if (BgWaveLink.isWaveLink(url)) return url
-    }
-    return null
+    val formatted = content.text ?: return null
+    val entity = formatted.entities?.singleOrNull() ?: return null
+    val text = formatted.text ?: return null
+    if (text.isEmpty() || entity.offset != 0 || entity.length != text.length) return null
+    val url = (entity.type as? TdApi.TextEntityTypeTextUrl)?.url ?: return null
+    return url.takeIf(BgWaveLink::isWaveLink)
 }
