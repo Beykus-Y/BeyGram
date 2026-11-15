@@ -61,4 +61,33 @@ class TextSendCorruptRecoveryTest {
         assertEquals(listOf(sent.attemptId), queue.current(key).map { it.attemptId })
         assertEquals(listOf("after reset"), store.load().map { it.text })
     }
+    @Test fun validLegacyBackupIsStillRecoveredByAtomicFile() {
+        val snapshot = File(folder.newFolder("valid_backup"), "snapshot.json")
+        val backup = File(snapshot.path + ".bak")
+        snapshot.writeText("{interrupted-write")
+        backup.writeText("[]")
+        val store = FileTextSendAttemptStore(snapshot)
+        assertTrue(store.load().isEmpty())
+        assertEquals("[]", snapshot.readText())
+        assertFalse(backup.exists())
+    }
+
+    @Test fun orphanedNewSnapshotIsNotSilentlyDiscarded() {
+        val snapshot = File(folder.newFolder("orphan_new"), "snapshot.json")
+        val pending = File(snapshot.path + ".new")
+        pending.writeText("{interrupted-write")
+        val corruptDir = File(snapshot.parentFile, "quarantine")
+        val store = FileTextSendAttemptStore(snapshot, corruptDir)
+        try {
+            store.load()
+            fail("Expected explicit recovery for uncommitted snapshot")
+        } catch (_: java.io.IOException) {
+            assertEquals("{interrupted-write", pending.readText())
+        }
+        store.quarantineCorrupt()
+        assertFalse(pending.exists())
+        assertEquals("{interrupted-write", corruptDir.listFiles().orEmpty().single().readText())
+        assertTrue(store.load().isEmpty())
+    }
+
 }

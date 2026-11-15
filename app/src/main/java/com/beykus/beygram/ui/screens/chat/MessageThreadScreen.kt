@@ -125,19 +125,19 @@ internal fun MessageThreadScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    var post by remember(channelChatId, postId) { mutableStateOf(initialPost) }
-    var thread by remember(channelChatId, postId) { mutableStateOf<MessageThread?>(null) }
-    var messages by remember(channelChatId, postId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var loading by remember(channelChatId, postId) { mutableStateOf(true) }
-    var errorText by remember(channelChatId, postId) { mutableStateOf<String?>(null) }
-    var pagingError by remember(channelChatId, postId) { mutableStateOf<String?>(null) }
-    var loadingOlder by remember(channelChatId, postId) { mutableStateOf(false) }
-    var hasOlder by remember(channelChatId, postId) { mutableStateOf(false) }
-    var text by rememberSaveable(channelChatId, postId) { mutableStateOf(initialDraftText) }
-    var entities by rememberSaveable(channelChatId, postId) { mutableStateOf(initialDraftEntities) }
-    var replyTarget by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
-    var replyTargetId by rememberSaveable(channelChatId, postId) { mutableLongStateOf(initialReplyToId) }
-    var focusRequest by remember(channelChatId, postId) { mutableIntStateOf(0) }
+    var post by remember(accountId, channelChatId, postId) { mutableStateOf(initialPost) }
+    var thread by remember(accountId, channelChatId, postId) { mutableStateOf<MessageThread?>(null) }
+    var messages by remember(accountId, channelChatId, postId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    var loading by remember(accountId, channelChatId, postId) { mutableStateOf(true) }
+    var errorText by remember(accountId, channelChatId, postId) { mutableStateOf<String?>(null) }
+    var pagingError by remember(accountId, channelChatId, postId) { mutableStateOf<String?>(null) }
+    var loadingOlder by remember(accountId, channelChatId, postId) { mutableStateOf(false) }
+    var hasOlder by remember(accountId, channelChatId, postId) { mutableStateOf(false) }
+    var text by rememberSaveable(accountId, channelChatId, postId) { mutableStateOf(initialDraftText) }
+    var entities by rememberSaveable(accountId, channelChatId, postId) { mutableStateOf(initialDraftEntities) }
+    var replyTarget by remember(accountId, channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
+    var replyTargetId by rememberSaveable(accountId, channelChatId, postId) { mutableLongStateOf(initialReplyToId) }
+    var focusRequest by remember(accountId, channelChatId, postId) { mutableIntStateOf(0) }
     var sendError by remember { mutableStateOf<String?>(null) }
     var reactionTarget by remember { mutableStateOf<Pair<Long, ChatMessage>?>(null) }
     var reactionOptions by remember(conversation) { mutableStateOf<List<ReactionOption>>(emptyList()) }
@@ -150,8 +150,8 @@ internal fun MessageThreadScreen(
     var selectedMediaChatId by remember { mutableStateOf(0L) }
     var stickerSetId by remember { mutableStateOf<Long?>(null) }
     // A view-once message is deleted as soon as it is opened; keep its page for this viewer session.
-    var retainedViewOnce by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
-    var openedViewOnceIds by remember(channelChatId, postId) { mutableStateOf(emptySet<Long>()) }
+    var retainedViewOnce by remember(accountId, channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
+    var openedViewOnceIds by remember(accountId, channelChatId, postId) { mutableStateOf(emptySet<Long>()) }
     val viewOnceGate = rememberViewOnceStealthGate(channelChatId to postId)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val messageLimits by conversation.messageLimits.collectAsStateWithLifecycle()
@@ -319,18 +319,16 @@ internal fun MessageThreadScreen(
     val shouldClearDraft = incomingDraft == emptyDraft &&
         previousIncomingDraft[0] != emptyDraft &&
         currentLocalDraft == previousIncomingDraft[0]
-    var externalClearVersion by remember(accountId, channelChatId, postId) { mutableIntStateOf(0) }
     SideEffect {
-        if (shouldClearDraft) externalClearVersion++
-        previousIncomingDraft[0] = incomingDraft
-    }
-    LaunchedEffect(externalClearVersion) {
-        if (externalClearVersion > 0) {
+        // Recheck the live draft at the commit point: a scheduled effect must never
+        // erase a keystroke that arrived after this composition was calculated.
+        if (shouldClearDraft && Triple(text, entities, replyTarget?.id ?: replyTargetId) == currentLocalDraft) {
             text = ""
             entities = emptyList()
             replyTarget = null
             replyTargetId = 0L
         }
+        previousIncomingDraft[0] = incomingDraft
     }
     val pending by remember(sendQueue, sendKey) { sendQueue.observe(sendKey) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
@@ -354,8 +352,16 @@ internal fun MessageThreadScreen(
         if (queueStorageFailed && !queueStorageCorrupt) sendError = queueStorageFailureText
         else if (!queueStorageFailed && sendError == queueStorageFailureText) sendError = null
     }
-    suspend fun dispatchComment(attemptId: Long? = null, consent: Boolean = false): Boolean {
+    suspend fun dispatchComment(
+        attemptId: Long? = null,
+        consent: Boolean = false,
+        submittedText: String = "",
+        submittedEntities: List<MessageTextEntity> = emptyList(),
+        submittedReplyId: Long? = null
+    ): Boolean {
         val current = thread ?: return false
+        if (current.discussionChatId != sendKey.chatId || current.threadId != sendKey.forumTopicId) return false
+        val baseline = conversation.observeChatHistory(current.discussionChatId).value.liveArrivalSequence
         val execute: suspend (TextSendAttempt) -> Result<Unit> = { attempt ->
             conversation.sendThreadReply(attempt.scope.chatId, attempt.scope.forumTopicId, attempt.text,
                 attempt.entities, attempt.replyToMessageId, attempt.options.sendNowConsent).map { sent ->
@@ -383,12 +389,13 @@ internal fun MessageThreadScreen(
         val format: (Throwable) -> String = { it.userMessage(context, R.string.thread_comments_send_failed) }
         return try {
             if (attemptId != null) {
-                sendQueue.retry(sendKey, attemptId, sendNowConsent = consent,
+                sendQueue.retry(sendKey, attemptId, sendNowConsent = consent, baselineSequence = baseline,
                     execute = execute, onFailure = failure, formatError = format)
             } else {
-                sendQueue.enqueue(sendKey, text, entities, replyTarget?.id ?: replyTargetId.takeIf { it > 0L },
+                if (submittedText.isBlank()) return false
+                sendQueue.enqueue(sendKey, submittedText, submittedEntities, submittedReplyId,
                     null, com.beykus.beygram.domain.model.MessageSendOptions(sendNowConsent = consent),
-                    conversation.observeChatHistory(current.discussionChatId).value.liveArrivalSequence,
+                    baseline,
                     java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date()),
                     execute = execute, onFailure = failure, formatError = format)
                 true
@@ -419,7 +426,12 @@ internal fun MessageThreadScreen(
         val submittedReply = replyTarget?.id ?: replyTargetId
         sendError = null
         sendQueue.launchComposerWrite(sendKey) {
-            if (!dispatchComment(consent = sendNowConsent)) return@launchComposerWrite
+            if (!dispatchComment(
+                    consent = sendNowConsent,
+                    submittedText = submittedText,
+                    submittedEntities = submittedEntities,
+                    submittedReplyId = submittedReply.takeIf { it > 0L }
+                )) return@launchComposerWrite
             // A later edit must not be erased by the completed IO operation.
             if (text == submittedText && entities == submittedEntities &&
                 (replyTarget?.id ?: replyTargetId) == submittedReply) {

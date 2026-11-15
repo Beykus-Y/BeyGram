@@ -151,7 +151,17 @@ internal object PendingTextSendSessions {
         } else {
             val quarantineSnapshot = startupQuarantineJob
             val diskJobSnapshot = entry.diskJob
+            val sessionGeneration = entry.generation.value
             val store = object : TextSendAttemptStore {
+                // The file lock serializes disk mutations with purge. Validate the session
+                // inside it, not only before entering the queue's potentially blocked write.
+                private fun checkSession() {
+                    synchronized(PendingTextSendSessions) {
+                        check(!entry.signedOut && entry.generation.value == sessionGeneration) {
+                            "Pending text session has ended"
+                        }
+                    }
+                }
                 private val corruptDir = File(app.noBackupFilesDir, PendingTextSendFiles.CORRUPT_QUARANTINE)
                 private val delegate = FileTextSendAttemptStore(
                     File(app.noBackupFilesDir, PendingTextSendFiles.name(accountId)),
@@ -162,6 +172,7 @@ internal object PendingTextSendSessions {
                     diskJobSnapshot?.join()
                 }
                 override fun load(): List<TextSendAttempt> = PendingTextSendFiles.withFileLock {
+                    checkSession()
                     val owed = synchronized(PendingTextSendSessions) { entry.purgeOwed }
                     if (owed || PendingTextSendFiles.marker(app.noBackupFilesDir, accountId).exists()) {
                         PendingTextSendFiles.purge(app.filesDir, app.noBackupFilesDir, accountId)
@@ -172,10 +183,19 @@ internal object PendingTextSendSessions {
                     }
                 }
                 override fun save(attempts: List<TextSendAttempt>) = PendingTextSendFiles.withFileLock {
+                    checkSession()
                     delegate.save(attempts)
                 }
                 override fun quarantineCorrupt() = PendingTextSendFiles.withFileLock {
-                    delegate.quarantineCorrupt()
+                    checkSession()
+                    // A cleanup failure is not permission to restore or reset another session's files.
+                    val owed = synchronized(PendingTextSendSessions) { entry.purgeOwed }
+                    if (owed || PendingTextSendFiles.marker(app.noBackupFilesDir, accountId).exists()) {
+                        PendingTextSendFiles.purge(app.filesDir, app.noBackupFilesDir, accountId)
+                        synchronized(PendingTextSendSessions) { entry.purgeOwed = false }
+                    } else {
+                        delegate.quarantineCorrupt()
+                    }
                 }
             }
             TextSendQueue(
