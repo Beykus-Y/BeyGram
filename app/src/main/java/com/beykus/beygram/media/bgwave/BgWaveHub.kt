@@ -7,6 +7,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 /** Hands a wave link to Telegram as a hidden service link in the given chat. */
@@ -57,7 +58,8 @@ object BgWaveHub {
     /** A signed-out or removed account: its sender goes, and a wave that belonged to it ends. */
     fun forgetAccount(accountId: String) {
         senders.remove(accountId)
-        if (controller.state.value?.accountId == accountId) controller.reset(nowSeconds())
+        controller.resetAccount(accountId, nowSeconds())
+        syncAudio(controller.state.value)
     }
 
     private suspend fun send(accountId: String, chatId: Long, link: String): Result<Unit> {
@@ -73,17 +75,24 @@ object BgWaveHub {
     /** Host: starts a wave and sends the invitation to [chatId]. The result is read from [BgWaveController.state]. */
     suspend fun share(accountId: String, chatId: Long, peerId: Long) {
         val now = nowSeconds()
-        val link = controller.startHosting(accountId, chatId, peerId, now) ?: return
+        val link = withContext(Dispatchers.IO) { controller.startHosting(accountId, chatId, peerId, now) } ?: return
         val sid = controller.state.value?.sidHex.orEmpty()
         val sent = send(accountId, chatId, link).isSuccess
         controller.offerSent(sid, sent, nowSeconds())
-        if (sent) ensureTicker()
+        if (sent) {
+            val current = controller.state.value
+            if (current?.sidHex == sid && current.phase != BgWavePhase.Ended && current.phase != BgWavePhase.Failed) {
+                ensureTicker()
+            } else {
+                controller.cancelLink(sid, nowSeconds())?.let { send(accountId, chatId, it) }
+            }
+        } else syncAudio(controller.state.value)
     }
 
     /** Listener: joins the wave of [sidHex] and sends the answer back. */
     suspend fun join(sidHex: String) {
         val now = nowSeconds()
-        val link = controller.join(sidHex, now) ?: return
+        val link = withContext(Dispatchers.IO) { controller.join(sidHex, now) } ?: return
         val state = controller.state.value ?: return
         BgWaveLog.i("listener.join", "sid" to BgWaveLog.sid(sidHex))
         val sent = send(state.accountId, state.chatId, link).isSuccess
@@ -99,17 +108,29 @@ object BgWaveHub {
     /** Either side: stops the running wave and tells the peer. */
     suspend fun stop() {
         val state = controller.state.value ?: return
-        val link = controller.stop(nowSeconds()) ?: return
-        send(state.accountId, state.chatId, link)
+        val link = controller.stop(nowSeconds())
+        syncAudio(controller.state.value)
+        if (link != null) send(state.accountId, state.chatId, link)
     }
 
-    fun retry(): Boolean = controller.retry(nowSeconds())
+    fun retry(): Boolean = controller.retry(nowSeconds()).also { if (it) ensureTicker() }
 
     /**
      * Keeps local audio in step with the wave phase. Host: the BG Mix tap is attached while Live and detached otherwise,
      * re-attached each tick so a new mix player picks it up. Listener: playback starts when Live and stops when not.
      */
-    private fun syncAudio(state: BgWaveSessionState) {
+    @Synchronized
+    private fun syncAudio(state: BgWaveSessionState?) {
+        if (state == null || state.phase != BgWavePhase.Live || state.role != BgWaveRole.Host) {
+            BgWaveHostTap.close()
+            hostTap?.invoke(0L, false)
+            bgMixTapAttached = false
+        }
+        if (state == null || state.phase != BgWavePhase.Live || state.role != BgWaveRole.Listener) {
+            listenerAudio?.stop()
+            listenerAudio = null
+        }
+        if (state == null) return
         val live = state.phase == BgWavePhase.Live
         if (state.role == BgWaveRole.Host) {
             if (live && !BgWaveHostTap.isOpen) BgWaveHostTap.open(controller.openHostTap())
@@ -147,13 +168,25 @@ object BgWaveHub {
     private fun ensureTicker() {
         if (ticker?.isActive == true) return
         ticker = scope.launch {
+            try {
             while (true) {
                 delay(TICK_MILLIS)
-                val state = controller.state.value ?: break
+                val state = controller.state.value
+                if (state == null) {
+                    syncAudio(null)
+                    break
+                }
                 val links = controller.poll(nowSeconds())
                 for (link in links) send(state.accountId, state.chatId, link)
-                controller.state.value?.let { syncAudio(it) }
-                if (controller.state.value?.phase.let { it == BgWavePhase.Ended || it == BgWavePhase.Failed }) break
+                syncAudio(controller.state.value)
+                if (controller.state.value?.phase.let { it == null || it == BgWavePhase.Ended || it == BgWavePhase.Failed }) break
+            }
+            } finally {
+                synchronized(this@BgWaveHub) {
+                    ticker = null
+                    val phase = controller.state.value?.phase
+                    if (phase != null && phase != BgWavePhase.Ended && phase != BgWavePhase.Failed) ensureTicker()
+                }
             }
         }
     }
