@@ -12,11 +12,15 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <exception>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <utility>
 
 #if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA && defined(BGWAVE_P2P) && BGWAVE_P2P
 #include "bgmedia/wave/OpusWaveCodec.hpp"
@@ -42,17 +46,39 @@ struct Session {
     // listener. This thread calls it about every 10 ms for the whole life of the session.
     std::atomic<bool> pumpRunning{false};
     std::thread pump;
+
+    ~Session() {
+        pumpRunning.store(false, std::memory_order_release);
+        if (pump.joinable()) {
+            if (pump.get_id() != std::this_thread::get_id()) {
+                pump.join();
+            } else {
+                pump.detach();
+            }
+        }
+    }
 };
 
-Session* sessionOf(jlong handle) {
-    return reinterpret_cast<Session*>(static_cast<intptr_t>(handle));
+std::mutex sessionsMutex;
+std::unordered_map<std::int64_t, std::shared_ptr<Session>> sessions;
+std::int64_t nextSessionId = 1;
+
+std::shared_ptr<Session> lookupSession(jlong handle) {
+    if (handle <= 0) return nullptr;
+    std::lock_guard<std::mutex> lock(sessionsMutex);
+    auto it = sessions.find(static_cast<std::int64_t>(handle));
+    return it != sessions.end() ? it->second : nullptr;
 }
 
 }  // namespace
 
 std::shared_ptr<WaveAudioPipeline> bgWaveSessionPipeline(std::int64_t sessionHandle) {
-    Session* session = sessionOf(sessionHandle);
-    return session ? session->pipeline : nullptr;
+    try {
+        auto session = lookupSession(static_cast<jlong>(sessionHandle));
+        return session ? session->pipeline : nullptr;
+    } catch (...) {
+        return nullptr;
+    }
 }
 
 namespace {
@@ -66,13 +92,53 @@ std::mutex tapMutex;
 std::map<std::int64_t, std::shared_ptr<HostTap>> hostTaps;
 std::int64_t nextTapId = 1;
 
-std::string toStd(JNIEnv* env, jstring value) {
-    if (!value) return {};
-    const char* chars = env->GetStringUTFChars(value, nullptr);
-    if (!chars) return {};
-    std::string out(chars);
-    env->ReleaseStringUTFChars(value, chars);
+struct FloatArrayGuard {
+    JNIEnv* env;
+    jfloatArray array;
+    jfloat* data;
+    jint mode;
+
+    ~FloatArrayGuard() {
+        if (data) env->ReleaseFloatArrayElements(array, data, mode);
+    }
+};
+
+// Sanitizes arbitrary C++ error/status strings to printable ASCII/whitespace so ART CheckJNI's
+// Modified-UTF-8 check never aborts on 4-byte UTF-8 sequences or invalid bytes.
+jstring newSafeString(JNIEnv* env, const std::string& text) {
+    std::string safe;
+    safe.reserve(text.size());
+    for (unsigned char c : text) {
+        if ((c >= 0x20 && c <= 0x7E) || c == '\t' || c == '\n' || c == '\r') {
+            safe.push_back(static_cast<char>(c));
+        } else {
+            safe.push_back('?');
+        }
+    }
+    jstring out = env->NewStringUTF(safe.c_str());
+    if (!out) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        out = env->NewStringUTF("");
+    }
     return out;
+}
+
+bool toStd(JNIEnv* env, jstring value, std::string& out) {
+    out.clear();
+    if (!value) return false;
+    const char* chars = env->GetStringUTFChars(value, nullptr);
+    if (!chars) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        return false;
+    }
+    try {
+        out.assign(chars);
+    } catch (...) {
+        env->ReleaseStringUTFChars(value, chars);
+        throw;
+    }
+    env->ReleaseStringUTFChars(value, chars);
+    return true;
 }
 #endif
 
@@ -85,43 +151,84 @@ JNIEXPORT jlong JNICALL
 Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeCreate(JNIEnv*, jclass, jint role,
                                                                       jint bitrateBps) {
 #if BGWAVE_SESSION_ENABLED
-    auto* session = new Session();
-    WebRtcTransportConfig transportConfig;
-    transportConfig.role = role == 0 ? WaveRole::Host : WaveRole::Listener;
-    auto transport = std::make_shared<WebRtcWaveTransport>(transportConfig);
-    const auto bitrate = static_cast<std::uint32_t>(bitrateBps > 0 ? bitrateBps : kWaveDefaultBitrateBps);
-    auto codec = std::make_shared<OpusWaveCodec>(bitrate);
-    WavePipelineConfig config;
-    config.role = transportConfig.role;
-    config.targetBitrateBps = bitrate;
-    session->pipeline = std::make_shared<WaveAudioPipeline>(config, codec, transport);
+    try {
+        auto session = std::make_shared<Session>();
+        WebRtcTransportConfig transportConfig;
+        transportConfig.role = role == 0 ? WaveRole::Host : WaveRole::Listener;
+        auto transport = std::make_shared<WebRtcWaveTransport>(transportConfig);
+        const auto bitrate = static_cast<std::uint32_t>(bitrateBps > 0 ? bitrateBps : kWaveDefaultBitrateBps);
+        auto codec = std::make_shared<OpusWaveCodec>(bitrate);
+        WavePipelineConfig config;
+        config.role = transportConfig.role;
+        config.targetBitrateBps = bitrate;
+        session->pipeline = std::make_shared<WaveAudioPipeline>(config, codec, transport);
 
-    WavePipelineCallbacks callbacks;
-    callbacks.onOutboundSignal = [session](const WaveSignalMessage& signal) {
-        std::string error;
-        const std::string uri = encodeWaveUri(signal, &error);
-        std::lock_guard<std::mutex> lock(session->mutex);
-        if (uri.empty()) {
-            session->lastError = "encode:" + error;
-            return;
-        }
-        session->outbound.push_back(uri);
-    };
-    callbacks.onError = [session](const WaveError& error) {
-        std::lock_guard<std::mutex> lock(session->mutex);
-        session->lastError = error.message;
-    };
-    session->pipeline->setCallbacks(std::move(callbacks));
-    session->pumpRunning.store(true, std::memory_order_release);
-    session->pump = std::thread([session]() {
-        const auto origin = std::chrono::steady_clock::now();
-        while (session->pumpRunning.load(std::memory_order_acquire)) {
-            const double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - origin).count();
-            session->pipeline->process(now);
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    });
-    return static_cast<jlong>(reinterpret_cast<intptr_t>(session));
+        std::weak_ptr<Session> weakSession(session);
+        WavePipelineCallbacks callbacks;
+        callbacks.onOutboundSignal = [weakSession](const WaveSignalMessage& signal) {
+            auto s = weakSession.lock();
+            if (!s) return;
+            try {
+                std::string error;
+                const std::string uri = encodeWaveUri(signal, &error);
+                std::lock_guard<std::mutex> lock(s->mutex);
+                if (uri.empty()) {
+                    s->lastError = "encode:" + error;
+                    return;
+                }
+                s->outbound.push_back(uri);
+            } catch (const std::exception& e) {
+                std::lock_guard<std::mutex> lock(s->mutex);
+                s->lastError = std::string("outbound:") + e.what();
+            } catch (...) {
+                std::lock_guard<std::mutex> lock(s->mutex);
+                s->lastError = "outbound:unknown";
+            }
+        };
+        callbacks.onError = [weakSession](const WaveError& error) {
+            auto s = weakSession.lock();
+            if (!s) return;
+            try {
+                std::lock_guard<std::mutex> lock(s->mutex);
+                s->lastError = error.message;
+            } catch (...) {
+            }
+        };
+        session->pipeline->setCallbacks(std::move(callbacks));
+        session->pumpRunning.store(true, std::memory_order_release);
+        session->pump = std::thread([weakSession]() {
+            const auto origin = std::chrono::steady_clock::now();
+            while (true) {
+                auto s = weakSession.lock();
+                if (!s || !s->pumpRunning.load(std::memory_order_acquire)) {
+                    break;
+                }
+                try {
+                    const double now =
+                        std::chrono::duration<double>(std::chrono::steady_clock::now() - origin).count();
+                    if (s->pipeline) {
+                        s->pipeline->process(now);
+                    }
+                } catch (const std::exception& e) {
+                    std::lock_guard<std::mutex> lock(s->mutex);
+                    s->lastError = std::string("pump:") + e.what();
+                } catch (...) {
+                    std::lock_guard<std::mutex> lock(s->mutex);
+                    s->lastError = "pump:unknown";
+                }
+                s.reset();
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        });
+
+        std::lock_guard<std::mutex> lock(sessionsMutex);
+        if (nextSessionId <= 0) nextSessionId = 1;
+        const std::int64_t id = nextSessionId++;
+        sessions.emplace(id, std::move(session));
+        return static_cast<jlong>(id);
+    } catch (...) {
+        return 0;
+    }
 #else
     (void)role;
     (void)bitrateBps;
@@ -132,15 +239,33 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeCreate(JNIEnv*, j
 JNIEXPORT void JNICALL
 Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeDestroy(JNIEnv*, jclass, jlong handle) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    if (!session) return;
-    session->pipeline->stop(false, 0);
-    session->pumpRunning.store(false, std::memory_order_release);
-    if (session->pump.joinable()) session->pump.join();
-    // The mix engine may still hold the pipeline as its PCM tap. Drop the callbacks that point at
-    // this Session before deleting it, so a late render or transport event cannot reach freed memory.
-    session->pipeline->setCallbacks(WavePipelineCallbacks{});
-    delete session;
+    try {
+        std::shared_ptr<Session> session;
+        {
+            if (handle <= 0) return;
+            std::lock_guard<std::mutex> lock(sessionsMutex);
+            auto it = sessions.find(static_cast<std::int64_t>(handle));
+            if (it == sessions.end()) return;
+            session = std::move(it->second);
+            sessions.erase(it);
+        }
+        try {
+            if (session->pipeline) {
+                session->pipeline->stop(false, 0);
+            }
+        } catch (...) {
+        }
+        session->pumpRunning.store(false, std::memory_order_release);
+        if (session->pump.joinable() && session->pump.get_id() != std::this_thread::get_id()) {
+            session->pump.join();
+        }
+        // The mix engine may still hold the pipeline as its PCM tap. Drop the callbacks that point at
+        // this Session before releasing it, so a late render or transport event cannot reach freed memory.
+        if (session->pipeline) {
+            session->pipeline->setCallbacks(WavePipelineCallbacks{});
+        }
+    } catch (...) {
+    }
 #else
     (void)handle;
 #endif
@@ -151,9 +276,13 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeStartOffer(JNIEnv
                                                                           jlong nowSeconds,
                                                                           jlong ttlSeconds) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    if (!session) return JNI_FALSE;
-    return session->pipeline->startOffer(nowSeconds, ttlSeconds) ? JNI_TRUE : JNI_FALSE;
+    try {
+        auto session = lookupSession(handle);
+        if (!session || !session->pipeline) return JNI_FALSE;
+        return session->pipeline->startOffer(nowSeconds, ttlSeconds) ? JNI_TRUE : JNI_FALSE;
+    } catch (...) {
+        return JNI_FALSE;
+    }
 #else
     (void)handle; (void)nowSeconds; (void)ttlSeconds;
     return JNI_FALSE;
@@ -167,30 +296,41 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeHandleRemote(JNIE
                                                                             jlong handle, jstring jUri,
                                                                             jlong nowSeconds) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    if (!session) return JNI_FALSE;
-    const std::string uri = toStd(env, jUri);
-    WaveSignalMessage msg;
-    std::string error;
-    if (!decodeWaveUri(uri, msg, &error)) {
-        std::lock_guard<std::mutex> lock(session->mutex);
-        session->lastError = "decode:" + error;
+    try {
+        auto session = lookupSession(handle);
+        if (!session || !session->pipeline) return JNI_FALSE;
+        std::string uri;
+        if (!toStd(env, jUri, uri)) {
+            std::lock_guard<std::mutex> lock(session->mutex);
+            session->lastError = "decode:invalid_uri_string";
+            return JNI_FALSE;
+        }
+        WaveSignalMessage msg;
+        std::string error;
+        if (!decodeWaveUri(uri, msg, &error)) {
+            std::lock_guard<std::mutex> lock(session->mutex);
+            session->lastError = "decode:" + error;
+            return JNI_FALSE;
+        }
+        bool ok = false;
+        switch (msg.type) {
+        case WaveSignalType::Offer:
+            ok = session->pipeline->acceptOffer(msg, nowSeconds);
+            break;
+        case WaveSignalType::Answer:
+            ok = session->pipeline->acceptAnswer(msg, nowSeconds);
+            break;
+        case WaveSignalType::Cancel:
+        case WaveSignalType::End:
+            ok = session->pipeline->handleRemoteSignal(msg, nowSeconds);
+            break;
+        }
+        return ok ? JNI_TRUE : JNI_FALSE;
+    } catch (const std::exception&) {
+        return JNI_FALSE;
+    } catch (...) {
         return JNI_FALSE;
     }
-    bool ok = false;
-    switch (msg.type) {
-    case WaveSignalType::Offer:
-        ok = session->pipeline->acceptOffer(msg, nowSeconds);
-        break;
-    case WaveSignalType::Answer:
-        ok = session->pipeline->acceptAnswer(msg, nowSeconds);
-        break;
-    case WaveSignalType::Cancel:
-    case WaveSignalType::End:
-        ok = session->pipeline->handleRemoteSignal(msg, nowSeconds);
-        break;
-    }
-    return ok ? JNI_TRUE : JNI_FALSE;
 #else
     (void)env; (void)handle; (void)jUri; (void)nowSeconds;
     return JNI_FALSE;
@@ -202,16 +342,20 @@ JNIEXPORT jstring JNICALL
 Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativePollOutbound(JNIEnv* env, jclass,
                                                                             jlong handle) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    std::string next;
-    if (session) {
-        std::lock_guard<std::mutex> lock(session->mutex);
-        if (!session->outbound.empty()) {
-            next = session->outbound.front();
-            session->outbound.pop_front();
+    try {
+        auto session = lookupSession(handle);
+        std::string next;
+        if (session) {
+            std::lock_guard<std::mutex> lock(session->mutex);
+            if (!session->outbound.empty()) {
+                next = std::move(session->outbound.front());
+                session->outbound.pop_front();
+            }
         }
+        return newSafeString(env, next);
+    } catch (...) {
+        return env->NewStringUTF("");
     }
-    return env->NewStringUTF(next.c_str());
 #else
     (void)handle;
     return env->NewStringUTF("");
@@ -222,16 +366,20 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativePollOutbound(JNIE
 JNIEXPORT jstring JNICALL
 Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeStatus(JNIEnv* env, jclass, jlong handle) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    if (!session) return env->NewStringUTF("Failed|None|no session");
-    std::string lastError;
-    {
-        std::lock_guard<std::mutex> lock(session->mutex);
-        lastError = session->lastError;
+    try {
+        auto session = lookupSession(handle);
+        if (!session || !session->pipeline) return env->NewStringUTF("Failed|None|no session");
+        std::string lastError;
+        {
+            std::lock_guard<std::mutex> lock(session->mutex);
+            lastError = session->lastError;
+        }
+        const std::string text = std::string(toString(session->pipeline->state())) + "|" +
+                                 toString(session->pipeline->route()) + "|" + lastError;
+        return newSafeString(env, text);
+    } catch (...) {
+        return env->NewStringUTF("Failed|None|internal");
     }
-    const std::string text = std::string(toString(session->pipeline->state())) + "|" +
-                             toString(session->pipeline->route()) + "|" + lastError;
-    return env->NewStringUTF(text.c_str());
 #else
     (void)handle;
     return env->NewStringUTF("Failed|None|p2p-not-built");
@@ -242,8 +390,13 @@ JNIEXPORT void JNICALL
 Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeStop(JNIEnv*, jclass, jlong handle,
                                                                     jboolean emitEnd, jlong nowSeconds) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    if (session) session->pipeline->stop(emitEnd == JNI_TRUE, nowSeconds);
+    try {
+        auto session = lookupSession(handle);
+        if (session && session->pipeline) {
+            session->pipeline->stop(emitEnd == JNI_TRUE, nowSeconds);
+        }
+    } catch (...) {
+    }
 #else
     (void)handle; (void)emitEnd; (void)nowSeconds;
 #endif
@@ -252,8 +405,13 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeStop(JNIEnv*, jcl
 JNIEXPORT void JNICALL
 Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeReset(JNIEnv*, jclass, jlong handle) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    if (session) session->pipeline->reset();
+    try {
+        auto session = lookupSession(handle);
+        if (session && session->pipeline) {
+            session->pipeline->reset();
+        }
+    } catch (...) {
+    }
 #else
     (void)handle;
 #endif
@@ -263,8 +421,12 @@ JNIEXPORT jboolean JNICALL
 Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeReconnect(JNIEnv*, jclass, jlong handle,
                                                                          jlong nowSeconds) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    return (session && session->pipeline->reconnect(nowSeconds)) ? JNI_TRUE : JNI_FALSE;
+    try {
+        auto session = lookupSession(handle);
+        return (session && session->pipeline && session->pipeline->reconnect(nowSeconds)) ? JNI_TRUE : JNI_FALSE;
+    } catch (...) {
+        return JNI_FALSE;
+    }
 #else
     (void)handle; (void)nowSeconds;
     return JNI_FALSE;
@@ -275,15 +437,19 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeReconnect(JNIEnv*
 JNIEXPORT jstring JNICALL
 Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeStats(JNIEnv* env, jclass, jlong handle) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    if (!session) return env->NewStringUTF("0|0|0|0|0|0|0");
-    const WaveStats stats = session->pipeline->stats();
-    const std::string text = std::to_string(stats.packetsSent) + "|" +
-                             std::to_string(stats.packetsReceived) + "|" +
-                             std::to_string(stats.packetsLost) + "|" + std::to_string(stats.plcFrames) + "|" +
-                             std::to_string(stats.jitterMs) + "|" + std::to_string(stats.targetBitrateBps) + "|" +
-                             std::to_string(stats.jitterBufferDepthMs);
-    return env->NewStringUTF(text.c_str());
+    try {
+        auto session = lookupSession(handle);
+        if (!session || !session->pipeline) return env->NewStringUTF("0|0|0|0|0|0|0");
+        const WaveStats stats = session->pipeline->stats();
+        const std::string text = std::to_string(stats.packetsSent) + "|" +
+                                 std::to_string(stats.packetsReceived) + "|" +
+                                 std::to_string(stats.packetsLost) + "|" + std::to_string(stats.plcFrames) + "|" +
+                                 std::to_string(stats.jitterMs) + "|" + std::to_string(stats.targetBitrateBps) + "|" +
+                                 std::to_string(stats.jitterBufferDepthMs);
+        return newSafeString(env, text);
+    } catch (...) {
+        return env->NewStringUTF("0|0|0|0|0|0|0");
+    }
 #else
     (void)handle;
     return env->NewStringUTF("0|0|0|0|0|0|0");
@@ -296,15 +462,19 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativePushHostPcm(JNIEn
                                                                            jlong handle, jfloatArray pcm,
                                                                            jint frames, jint sampleRate) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    if (!session || !pcm || frames <= 0) return;
-    const jsize length = env->GetArrayLength(pcm);
-    if (length < frames * 2) return;
-    jfloat* data = env->GetFloatArrayElements(pcm, nullptr);
-    if (!data) return;
-    session->pipeline->pushHostPcm(data, static_cast<std::size_t>(frames),
-                                   static_cast<std::uint32_t>(sampleRate));
-    env->ReleaseFloatArrayElements(pcm, data, JNI_ABORT);
+    try {
+        if (!pcm || frames <= 0 || frames > std::numeric_limits<jint>::max() / 2 || sampleRate <= 0) return;
+        auto session = lookupSession(handle);
+        if (!session || !session->pipeline) return;
+        const jsize length = env->GetArrayLength(pcm);
+        if (length < frames * 2) return;
+        jfloat* data = env->GetFloatArrayElements(pcm, nullptr);
+        if (!data) return;
+        FloatArrayGuard guard{env, pcm, data, JNI_ABORT};
+        session->pipeline->pushHostPcm(data, static_cast<std::size_t>(frames),
+                                       static_cast<std::uint32_t>(sampleRate));
+    } catch (...) {
+    }
 #else
     (void)env; (void)handle; (void)pcm; (void)frames; (void)sampleRate;
 #endif
@@ -316,16 +486,22 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativePullListenerPcm(J
                                                                                jlong handle, jfloatArray out,
                                                                                jint frames, jint sampleRate) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    if (!session || !out || frames <= 0) return 0;
-    const jsize length = env->GetArrayLength(out);
-    if (length < frames * 2) return 0;
-    jfloat* data = env->GetFloatArrayElements(out, nullptr);
-    if (!data) return 0;
-    const std::size_t written = session->pipeline->pullListenerPcm(
-        data, static_cast<std::size_t>(frames), static_cast<std::uint32_t>(sampleRate));
-    env->ReleaseFloatArrayElements(out, data, 0);
-    return static_cast<jint>(written);
+    try {
+        if (!out || frames <= 0 || frames > std::numeric_limits<jint>::max() / 2 || sampleRate <= 0) return 0;
+        auto session = lookupSession(handle);
+        if (!session || !session->pipeline) return 0;
+        const jsize length = env->GetArrayLength(out);
+        if (length < frames * 2) return 0;
+        jfloat* data = env->GetFloatArrayElements(out, nullptr);
+        if (!data) return 0;
+        FloatArrayGuard guard{env, out, data, JNI_ABORT};
+        const std::size_t written = session->pipeline->pullListenerPcm(
+            data, static_cast<std::size_t>(frames), static_cast<std::uint32_t>(sampleRate));
+        guard.mode = 0;
+        return static_cast<jint>(written);
+    } catch (...) {
+        return 0;
+    }
 #else
     (void)env; (void)handle; (void)out; (void)frames; (void)sampleRate;
     return 0;
@@ -336,14 +512,19 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativePullListenerPcm(J
 JNIEXPORT jlong JNICALL
 Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeOpenHostTap(JNIEnv*, jclass, jlong handle) {
 #if BGWAVE_SESSION_ENABLED
-    Session* session = sessionOf(handle);
-    if (!session || !session->pipeline) return 0;
-    auto tap = std::make_shared<HostTap>();
-    tap->pipeline = session->pipeline;
-    std::lock_guard<std::mutex> lock(tapMutex);
-    const std::int64_t id = nextTapId++;
-    hostTaps[id] = tap;
-    return static_cast<jlong>(id);
+    try {
+        auto session = lookupSession(handle);
+        if (!session || !session->pipeline) return 0;
+        auto tap = std::make_shared<HostTap>();
+        tap->pipeline = session->pipeline;
+        std::lock_guard<std::mutex> lock(tapMutex);
+        if (nextTapId <= 0) nextTapId = 1;
+        const std::int64_t id = nextTapId++;
+        hostTaps[id] = std::move(tap);
+        return static_cast<jlong>(id);
+    } catch (...) {
+        return 0;
+    }
 #else
     (void)handle;
     return 0;
@@ -356,19 +537,27 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativePushHostTap(JNIEn
                                                                            jfloatArray pcm, jint frames,
                                                                            jint sampleRate) {
 #if BGWAVE_SESSION_ENABLED
-    std::shared_ptr<HostTap> tap;
-    {
-        std::lock_guard<std::mutex> lock(tapMutex);
-        auto it = hostTaps.find(static_cast<std::int64_t>(tapId));
-        if (it == hostTaps.end()) return JNI_FALSE;
-        tap = it->second;
+    try {
+        if (!pcm || frames <= 0 || frames > std::numeric_limits<jint>::max() / 2 || sampleRate <= 0) {
+            return JNI_FALSE;
+        }
+        std::shared_ptr<HostTap> tap;
+        {
+            std::lock_guard<std::mutex> lock(tapMutex);
+            auto it = hostTaps.find(static_cast<std::int64_t>(tapId));
+            if (it == hostTaps.end()) return JNI_FALSE;
+            tap = it->second;
+        }
+        if (!tap || !tap->pipeline || env->GetArrayLength(pcm) < frames * 2) return JNI_FALSE;
+        jfloat* data = env->GetFloatArrayElements(pcm, nullptr);
+        if (!data) return JNI_FALSE;
+        FloatArrayGuard guard{env, pcm, data, JNI_ABORT};
+        tap->pipeline->pushHostPcm(data, static_cast<std::size_t>(frames),
+                                   static_cast<std::uint32_t>(sampleRate));
+        return JNI_TRUE;
+    } catch (...) {
+        return JNI_FALSE;
     }
-    if (!pcm || frames <= 0 || env->GetArrayLength(pcm) < frames * 2) return JNI_FALSE;
-    jfloat* data = env->GetFloatArrayElements(pcm, nullptr);
-    if (!data) return JNI_FALSE;
-    tap->pipeline->pushHostPcm(data, static_cast<std::size_t>(frames), static_cast<std::uint32_t>(sampleRate));
-    env->ReleaseFloatArrayElements(pcm, data, JNI_ABORT);
-    return JNI_TRUE;
 #else
     (void)env; (void)tapId; (void)pcm; (void)frames; (void)sampleRate;
     return JNI_FALSE;
@@ -378,8 +567,11 @@ Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativePushHostTap(JNIEn
 JNIEXPORT void JNICALL
 Java_com_beykus_beygram_media_bgwave_BgWaveSessionNative_nativeCloseHostTap(JNIEnv*, jclass, jlong tapId) {
 #if BGWAVE_SESSION_ENABLED
-    std::lock_guard<std::mutex> lock(tapMutex);
-    hostTaps.erase(static_cast<std::int64_t>(tapId));
+    try {
+        std::lock_guard<std::mutex> lock(tapMutex);
+        hostTaps.erase(static_cast<std::int64_t>(tapId));
+    } catch (...) {
+    }
 #else
     (void)tapId;
 #endif

@@ -310,17 +310,30 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeSetWaveTap(JNIEnv*, jclass, jlong handle,
                                                                  jlong sessionHandle) {
 #if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
-    MixHost* host = hostFrom(handle);
-    if (!host) return JNI_FALSE;
-    std::lock_guard lock(host->control);
-    if (sessionHandle == 0) {
-        host->engine.setPcmTap(nullptr);
+    try {
+        MixHost* host = hostFrom(handle);
+        if (!host) return JNI_FALSE;
+        std::lock_guard lock(host->control);
+        if (sessionHandle == 0) {
+            host->engine.setPcmTap(nullptr);
+            return JNI_TRUE;
+        }
+#if defined(BGWAVE_P2P) && BGWAVE_P2P
+        auto pipeline = bgWaveSessionPipeline(sessionHandle);
+        if (!pipeline) return JNI_FALSE;
+        host->engine.setPcmTap(pipeline);
         return JNI_TRUE;
+#else
+        (void)sessionHandle;
+        return JNI_FALSE;
+#endif
+    } catch (const std::exception& e) {
+        BGMIX_LOGW("nativeSetWaveTap failed: %s", e.what());
+        return JNI_FALSE;
+    } catch (...) {
+        BGMIX_LOGW("nativeSetWaveTap failed: unknown exception");
+        return JNI_FALSE;
     }
-    auto pipeline = bgWaveSessionPipeline(sessionHandle);
-    if (!pipeline) return JNI_FALSE;
-    host->engine.setPcmTap(pipeline);
-    return JNI_TRUE;
 #else
     (void)handle;
     (void)sessionHandle;

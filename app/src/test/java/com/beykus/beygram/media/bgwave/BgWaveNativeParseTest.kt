@@ -43,4 +43,17 @@ class BgWaveNativeParseTest {
         assertEquals("bg://wave/v1/QlcBAxAhMkNUZXaHmKm6y9zt_g8AAAAAaRU-ygAAAABpFT8GAAAAAAAAAAAAAAADAAAHc2hhLTI1NgAAAAA", BgWaveNativeFixtures.CANCEL_BG_URI)
         assertEquals("https://beygram.beykus.fun/#bgwave-v1.QlcBAxAhMkNUZXaHmKm6y9zt_g8AAAAAaRU-ygAAAABpFT8GAAAAAAAAAAAAAAADAAAHc2hhLTI1NgAAAAA", BgWaveNativeFixtures.CANCEL_HTTPS_URI)
     }
+
+    @Test fun parsesUnsigned64BitNonceWithHighBitSet() {
+        val maxParsed = parseDecodeResult("ok|1|0123456789abcdef0123456789abcdef|1800000000|1800000300|3|18446744073709551615|2")
+        assertEquals(
+            BgWaveDecodeResult.Ok(1, "0123456789abcdef0123456789abcdef", 1800000000L, 1800000300L, 3L, -1L, 2),
+            maxParsed,
+        )
+        val msbParsed = parseDecodeResult("ok|1|0123456789abcdef0123456789abcdef|1800000000|1800000300|3|9223372036854775808|2")
+        assertEquals(
+            BgWaveDecodeResult.Ok(1, "0123456789abcdef0123456789abcdef", 1800000000L, 1800000300L, 3L, Long.MIN_VALUE, 2),
+            msbParsed,
+        )
+    }
 }
