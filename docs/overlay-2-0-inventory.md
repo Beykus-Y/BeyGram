@@ -66,11 +66,11 @@
 | ✅ ui/screens/settings/StealthSettingsScreen.kt · #880 | 1 | 278 |
 | ✅ ui/screens/settings/StorageSettingsScreen.kt · #880 | 2 | 142 359 |
 | ✅ ui/screens/settings/VideoMessageSettingsScreen.kt · #881 | 10 | 407 418 433 460 496 540 588 603 624 653 |
-| ui/screens/stories/StoryArchiveViewerScreen.kt | 1 | 365 |
-| ui/screens/stories/StoryPublisherScreen.kt | 1 | 923 |
-| ui/screens/stories/StoryViewerScreen.kt | 2 | 886 1201 |
-| ui/screens/theme/AppearanceDesign.kt | 1 | 435 |
-| ui/screens/theme/ThemeDiscardDialog.kt | 1 | 15 |
+| ✅ ui/screens/stories/StoryArchiveViewerScreen.kt · #889 | 1 | 365 |
+| ✅ ui/screens/stories/StoryPublisherScreen.kt · #889 | 1 | 923 |
+| ✅ ui/screens/stories/StoryViewerScreen.kt · #889 | 2 | 886 1201 |
+| ✅ ui/screens/theme/AppearanceDesign.kt · #889 | 1 | 435 |
+| ✅ ui/screens/theme/ThemeDiscardDialog.kt · #889 | 1 | 15 |
 
 Итого вызовов: 122, файлов: 68.
 
@@ -131,3 +131,9 @@
 - MusicPlayerSheet.kt (2), PlayerSoundSheet.kt (1), ShareWave.kt (1): 4 вызова в 3 файлах. Отмечено ✅ в таблице выше.
 - BeyGramDialog в этой части не менялся. Подтверждение таймера сна теперь в акцентном цвете, а не в цвете акцентного текста.
 - Группа «музыка» закрыта после слияния #887 и #888: 9 вызовов в 6 файлах (части 1 и 2).
+
+## Статус групп «истории» и «оформление», часть 1 (#870, PR #889)
+
+- StoryPublisherScreen.kt (1), StoryArchiveViewerScreen.kt (1), StoryViewerScreen.kt (2): 4 вызова в 3 файлах. Подтверждение удаления и ответ на историю. Отмечено ✅ в таблице выше.
+- AppearanceDesign.kt (1), ThemeDiscardDialog.kt (1): 2 вызова в 2 файлах. Отмечено ✅ в таблице выше.
+- Часть 2 (proxy, diagnostics, notifications и остаток прямых вызовов): отдельный PR.

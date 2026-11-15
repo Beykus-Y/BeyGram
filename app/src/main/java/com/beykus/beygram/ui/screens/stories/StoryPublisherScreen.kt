@@ -39,7 +39,7 @@ import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -920,29 +920,28 @@ private fun StoryArchiveDialog(
         }
     }
     deleting?.let { story ->
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { deleting = null },
-            title = { Text(stringResource(R.string.stories_delete)) },
-            text = { Text(stringResource(R.string.stories_delete_confirm)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    deleting = null
-                    scope.launch {
-                        repository.deleteStory(story.posterChatId, story.storyId)
-                            .onSuccess {
-                                stories = stories.filterNot { it.storyId == story.storyId }
-                                totalCount = (totalCount - 1).coerceAtLeast(stories.size)
-                                if (nextFromStoryId == story.storyId) {
-                                    nextFromStoryId = stories.lastOrNull()?.storyId ?: 0
-                                }
+            title = stringResource(R.string.stories_delete),
+            message = stringResource(R.string.stories_delete_confirm),
+            confirmText = stringResource(R.string.common_delete),
+            onConfirm = {
+                deleting = null
+                scope.launch {
+                    repository.deleteStory(story.posterChatId, story.storyId)
+                        .onSuccess {
+                            stories = stories.filterNot { it.storyId == story.storyId }
+                            totalCount = (totalCount - 1).coerceAtLeast(stories.size)
+                            if (nextFromStoryId == story.storyId) {
+                                nextFromStoryId = stories.lastOrNull()?.storyId ?: 0
                             }
-                            .onFailure { deleteError = it.userMessage(context, R.string.stories_delete_failed) }
-                    }
-                }) { Text(stringResource(R.string.common_delete)) }
+                        }
+                        .onFailure { deleteError = it.userMessage(context, R.string.stories_delete_failed) }
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.common_cancel)) }
-            }
+            destructive = true,
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { deleting = null }
         )
     }
 }
