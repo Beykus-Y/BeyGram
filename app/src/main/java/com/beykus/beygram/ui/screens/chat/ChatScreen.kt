@@ -1776,7 +1776,12 @@ fun ChatScreen(
                     val latest = listItem.messages.maxByOrNull { it.id }
                     val animateArrival = remember(listItem.key) { animationTracker.claim(listItem.messages.map { it.id }) }
                     val effectMessage = listItem.messages.firstOrNull { it.effectId != 0L }
-                    MessageAnimationFrame(animate = animateArrival, outgoing = latest?.isOutgoing == true, config = messageAnimations) {
+                    MessageAnimationFrame(
+                        animate = animateArrival,
+                        outgoing = latest?.isOutgoing == true,
+                        config = messageAnimations,
+                        sideInset = metrics.sideInset
+                    ) {
                         MessageEffectFrame(
                             effectId = effectMessage?.effectId ?: 0L,
                             messageId = effectMessage?.id ?: latest?.id ?: 0L,
@@ -1841,7 +1846,17 @@ fun ChatScreen(
                             }
                         }
                     }
-                    MessageAnimationFrame(animate = animateArrival && launch == null, outgoing = message.isOutgoing, config = messageAnimations, modifier = launchModifier) {
+                    val isCenteredRow = message.serviceText != null
+                    val isCircleMedia = !isCenteredRow && message.media?.kind == MediaKind.VideoNote
+                    val bubbleSideInset = if (isCenteredRow || isCircleMedia) 0.dp else metrics.sideInset
+                    MessageAnimationFrame(
+                        animate = animateArrival && launch == null,
+                        outgoing = message.isOutgoing,
+                        config = messageAnimations,
+                        modifier = launchModifier,
+                        centered = isCenteredRow,
+                        sideInset = bubbleSideInset
+                    ) {
                         MessageEffectFrame(
                             effectId = message.effectId,
                             messageId = message.id,

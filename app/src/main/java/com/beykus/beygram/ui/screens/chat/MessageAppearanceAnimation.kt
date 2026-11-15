@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
@@ -217,20 +218,29 @@ private fun MessageAnimationEasing.toComposeEasing() = when (this) {
 }
 
 /**
- * Anchors scale and rotation transforms to the side of the row where the bubble is aligned,
- * respecting RTL layout direction so short messages transform around their own edge instead
- * of the center of the full-width row.
+ * Anchors scale and rotation transforms to the bubble's outer bottom corner (or center for centered
+ * service/call chips), respecting RTL layout direction and optional horizontal [sideInsetPx] so short
+ * messages transform around their own outer edge instead of the center or padded border of the row.
  */
 internal fun messageAnimationTransformOrigin(
     outgoing: Boolean,
-    layoutDirection: LayoutDirection
+    layoutDirection: LayoutDirection,
+    centered: Boolean = false,
+    sideInsetPx: Float = 0f,
+    containerWidthPx: Float = 0f
 ): TransformOrigin {
+    if (centered) return TransformOrigin.Center
     val isRightSide = when (layoutDirection) {
         LayoutDirection.Ltr -> outgoing
         LayoutDirection.Rtl -> !outgoing
     }
+    val insetFraction = if (sideInsetPx > 0f && containerWidthPx > sideInsetPx * 2f) {
+        (sideInsetPx / containerWidthPx).coerceIn(0f, 0.5f)
+    } else {
+        0f
+    }
     return TransformOrigin(
-        pivotFractionX = if (isRightSide) 1f else 0f,
+        pivotFractionX = if (isRightSide) 1f - insetFraction else insetFraction,
         pivotFractionY = 1f
     )
 }
@@ -253,6 +263,8 @@ internal fun MessageAnimationFrame(
     outgoing: Boolean,
     config: MessageAnimationConfig,
     modifier: Modifier = Modifier,
+    centered: Boolean = false,
+    sideInset: Dp = 0.dp,
     content: @Composable () -> Unit
 ) {
     val motionEnabled = systemMotionEnabled()
@@ -269,9 +281,7 @@ internal fun MessageAnimationFrame(
     }
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
-    val origin = remember(outgoing, layoutDirection) {
-        messageAnimationTransformOrigin(outgoing, layoutDirection)
-    }
+    val sideInsetPx = with(density) { sideInset.toPx() }
     LaunchedEffect(plan) {
         if (plan == null) return@LaunchedEffect
         progress.animateTo(1f, plan.spec())
@@ -290,7 +300,13 @@ internal fun MessageAnimationFrame(
             rotationY = plan.rotationYDegrees * (1f - clamped)
             rotationZ = plan.rotationZDegrees * (1f - clamped)
             cameraDistance = 12f * density.density
-            transformOrigin = origin
+            transformOrigin = messageAnimationTransformOrigin(
+                outgoing = outgoing,
+                layoutDirection = layoutDirection,
+                centered = centered,
+                sideInsetPx = sideInsetPx,
+                containerWidthPx = size.width
+            )
         }
     } else Modifier
     Box(modifier.fillMaxWidth().then(animated)) { content() }
