@@ -80,12 +80,20 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
             confirm = null
             if (!accepted) return@ForwardChatDialog targets
             sending = true
-            BgWaveHub.share(accountId, target.chatId, target.chatId)
-            sending = false
+            val sent = try {
+                BgWaveHub.share(accountId, target.chatId, target.chatId)
+            } finally {
+                sending = false
+            }
             val state = BgWaveHub.controller.state.value
-            if (state?.phase == BgWavePhase.Failed) {
-                failure = BgWaveErrorTexts.of(context, state.errorKey) ?: failedText
-                BgWaveHub.controller.dismiss()
+            if (!sent) {
+                val ownFailure = state?.takeIf {
+                    it.accountId == accountId && it.chatId == target.chatId && it.phase == BgWavePhase.Failed
+                }
+                failure = if (ownFailure != null) BgWaveErrorTexts.of(context, ownFailure.errorKey) ?: failedText
+                    else if (state != null && state.phase != BgWavePhase.Ended && state.phase != BgWavePhase.Failed)
+                        BgWaveErrorTexts.of(context, BgWaveErrors.BUSY) ?: failedText
+                    else failedText
                 targets
             } else {
                 Toast.makeText(context, R.string.bgwave_share_sent, Toast.LENGTH_SHORT).show()

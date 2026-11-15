@@ -4,9 +4,11 @@ import android.media.AudioManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 /** Hands a wave link to Telegram as a hidden service link in the given chat. */
@@ -34,6 +36,7 @@ object BgWaveHub {
     @Volatile private var listenerAudio: BgWaveListenerAudio? = null
     private var bgMixTapAttached = false
     private var hostTapMissingLogged = false
+    @Volatile private var focusLostSid: String? = null
 
     /**
      * Host: attaches (handle, true) or detaches (0, false) the wave session as the tap of the BG Mix player that is
@@ -57,11 +60,18 @@ object BgWaveHub {
     /** A signed-out or removed account: its sender goes, and a wave that belonged to it ends. */
     fun forgetAccount(accountId: String) {
         senders.remove(accountId)
-        if (controller.state.value?.accountId == accountId) controller.reset(nowSeconds())
+        controller.resetAccount(accountId, nowSeconds())
+        syncAudio()
     }
 
     private suspend fun send(accountId: String, chatId: Long, link: String): Result<Unit> {
-        val result = senders[accountId]?.invoke(chatId, link) ?: Result.failure(IllegalStateException("no sender"))
+        val result = try {
+            senders[accountId]?.invoke(chatId, link) ?: Result.failure(IllegalStateException("no sender"))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
         if (result.isFailure) {
             BgWaveLog.w("send.failed", result.exceptionOrNull(), "reason" to "telegram-send")
         } else {
@@ -70,24 +80,43 @@ object BgWaveHub {
         return result
     }
 
-    /** Host: starts a wave and sends the invitation to [chatId]. The result is read from [BgWaveController.state]. */
-    suspend fun share(accountId: String, chatId: Long, peerId: Long) {
-        val now = nowSeconds()
-        val link = controller.startHosting(accountId, chatId, peerId, now) ?: return
-        val sid = controller.state.value?.sidHex.orEmpty()
-        val sent = send(accountId, chatId, link).isSuccess
-        controller.offerSent(sid, sent, nowSeconds())
-        if (sent) ensureTicker()
-    }
+    /** Host: return true only after this attempt has been handed to Telegram and is still current. */
+    suspend fun share(accountId: String, chatId: Long, peerId: Long): Boolean =
+        withContext(Dispatchers.IO + NonCancellable) {
+            val now = nowSeconds()
+            val link = controller.startHosting(accountId, chatId, peerId, now) ?: return@withContext false
+            val sid = (BgWaveNative.decodeUri(link, now) as? BgWaveDecodeResult.Ok)?.sidHex
+                ?: return@withContext false
+            val current = controller.state.value
+            if (current == null || current.sidHex != sid || current.accountId != accountId ||
+                current.chatId != chatId || current.phase != BgWavePhase.Offering) return@withContext false
+            val sent = send(accountId, chatId, link).isSuccess
+            controller.offerSent(sid, sent, nowSeconds())
+            val latest = controller.state.value
+            if (sent && latest != null && latest.sidHex == sid && latest.accountId == accountId &&
+                latest.phase != BgWavePhase.Ended && latest.phase != BgWavePhase.Failed) {
+                ensureTicker()
+                true
+            } else {
+                syncAudio()
+                if (sent) controller.cancelLink(sid, nowSeconds())?.let { send(accountId, chatId, it) }
+                false
+            }
+        }
 
     /** Listener: joins the wave of [sidHex] and sends the answer back. */
-    suspend fun join(sidHex: String) {
-        val now = nowSeconds()
-        val link = controller.join(sidHex, now) ?: return
-        val state = controller.state.value ?: return
+    suspend fun join(sidHex: String): Unit = withContext(Dispatchers.IO + NonCancellable) {
+        val invite = controller.inviteStates.value[sidHex] ?: return@withContext
+        val link = controller.join(sidHex, nowSeconds()) ?: return@withContext
+        val state = controller.state.value ?: return@withContext
+        if (state.sidHex != sidHex || state.accountId != invite.accountId ||
+            state.chatId != invite.chatId || state.phase != BgWavePhase.Connecting) return@withContext
         BgWaveLog.i("listener.join", "sid" to BgWaveLog.sid(sidHex))
-        val sent = send(state.accountId, state.chatId, link).isSuccess
-        if (sent) ensureTicker() else controller.answerSendFailed(sidHex, nowSeconds())
+        val sent = send(invite.accountId, invite.chatId, link).isSuccess
+        if (sent) ensureTicker() else {
+            controller.answerSendFailed(sidHex, nowSeconds())
+            syncAudio()
+        }
     }
 
     suspend fun decline(sidHex: String) {
@@ -99,17 +128,31 @@ object BgWaveHub {
     /** Either side: stops the running wave and tells the peer. */
     suspend fun stop() {
         val state = controller.state.value ?: return
-        val link = controller.stop(nowSeconds()) ?: return
-        send(state.accountId, state.chatId, link)
+        val link = controller.stopIfCurrent(state, nowSeconds())
+        syncAudio()
+        if (link != null) send(state.accountId, state.chatId, link)
     }
 
-    fun retry(): Boolean = controller.retry(nowSeconds())
+    fun retry(): Boolean = controller.retry(nowSeconds()).also { if (it) ensureTicker() }
 
     /**
      * Keeps local audio in step with the wave phase. Host: the BG Mix tap is attached while Live and detached otherwise,
      * re-attached each tick so a new mix player picks it up. Listener: playback starts when Live and stops when not.
      */
-    private fun syncAudio(state: BgWaveSessionState) {
+    @Synchronized
+    private fun syncAudio() {
+        val state = controller.state.value
+        if (focusLostSid != state?.sidHex) focusLostSid = null
+        if (state == null || state.phase != BgWavePhase.Live || state.role != BgWaveRole.Host) {
+            BgWaveHostTap.close()
+            hostTap?.invoke(0L, false)
+            bgMixTapAttached = false
+        }
+        if (state == null || state.phase != BgWavePhase.Live || state.role != BgWaveRole.Listener) {
+            listenerAudio?.stop()
+            listenerAudio = null
+        }
+        if (state == null) return
         val live = state.phase == BgWavePhase.Live
         if (state.role == BgWaveRole.Host) {
             if (live && !BgWaveHostTap.isOpen) BgWaveHostTap.open(controller.openHostTap())
@@ -130,12 +173,20 @@ object BgWaveHub {
             bgMixTapAttached = attached && live
             return
         }
-        if (live && listenerAudio == null) {
+        if (live && listenerAudio == null && focusLostSid != state.sidHex) {
             val source = controller.activeSession()
             val manager = audioManager
             if (source != null && manager != null) {
-                val output = BgWaveListenerAudio(source, manager) { listenerAudio = null }
+                val output = BgWaveListenerAudio(source, manager) {
+                    focusLostSid = state.sidHex
+                    scope.launch {
+                        val link = controller.stopIfCurrent(state, nowSeconds())
+                        syncAudio()
+                        if (link != null) send(state.accountId, state.chatId, link)
+                    }
+                }
                 if (output.start()) listenerAudio = output
+                else focusLostSid = state.sidHex
             }
         } else if (!live) {
             listenerAudio?.stop()
@@ -147,13 +198,25 @@ object BgWaveHub {
     private fun ensureTicker() {
         if (ticker?.isActive == true) return
         ticker = scope.launch {
+            try {
             while (true) {
                 delay(TICK_MILLIS)
-                val state = controller.state.value ?: break
+                val state = controller.state.value
+                if (state == null) {
+                    syncAudio()
+                    break
+                }
                 val links = controller.poll(nowSeconds())
                 for (link in links) send(state.accountId, state.chatId, link)
-                controller.state.value?.let { syncAudio(it) }
-                if (controller.state.value?.phase.let { it == BgWavePhase.Ended || it == BgWavePhase.Failed }) break
+                syncAudio()
+                if (controller.state.value?.phase.let { it == null || it == BgWavePhase.Ended || it == BgWavePhase.Failed }) break
+            }
+            } finally {
+                synchronized(this@BgWaveHub) {
+                    ticker = null
+                    val phase = controller.state.value?.phase
+                    if (phase != null && phase != BgWavePhase.Ended && phase != BgWavePhase.Failed) ensureTicker()
+                }
             }
         }
     }
