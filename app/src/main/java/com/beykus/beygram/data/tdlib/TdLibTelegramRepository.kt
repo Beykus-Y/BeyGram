@@ -2829,6 +2829,7 @@ class TdLibTelegramRepository private constructor(
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateMessageSendFailed -> {
+                onWaveSendFailed(update.message)
                 videoNoteLossTransport.onSendFailed(update)
                 reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
@@ -3370,6 +3371,22 @@ class TdLibTelegramRepository private constructor(
      * Runs in the update handler, so it only reads cached chat state and hands the text to the store.
      */
     /** A BG Wave link from the peer of a private chat goes to the wave controller; every other message is left alone. */
+    private fun onWaveSendFailed(message: TdApi.Message) {
+        if (!message.isOutgoing) return
+        val link = waveLinkOf(message) ?: return
+        val decoded = com.beykus.beygram.media.bgwave.BgWaveNative.decodeUri(link, message.date.toLong())
+            as? com.beykus.beygram.media.bgwave.BgWaveDecodeResult.Ok ?: return
+        val current = BgWaveHub.controller.state.value ?: return
+        if (current.accountId != accountId || current.chatId != message.chatId || current.sidHex != decoded.sidHex) return
+        val now = BgWaveHub.nowSeconds()
+        when (decoded.type) {
+            com.beykus.beygram.media.bgwave.BgWaveController.TYPE_OFFER ->
+                BgWaveHub.controller.offerSent(decoded.sidHex, false, now)
+            com.beykus.beygram.media.bgwave.BgWaveController.TYPE_ANSWER ->
+                BgWaveHub.controller.answerSendFailed(decoded.sidHex, now)
+        }
+    }
+
     private fun offerToWave(message: TdApi.Message) {
         if (message.isOutgoing) return
         val link = waveLinkOf(message) ?: return
