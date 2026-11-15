@@ -137,4 +137,33 @@ class TextSendRecoveryTest {
         assertTrue(TextSendSnapshotCodec.decode(TextSendSnapshotCodec.encode(emptyList())).isEmpty())
     }
 
+    @Test fun closedSessionCannotPublishLateDeliveryOrAcceptNewSends() = runTest(UnconfinedTestDispatcher()) {
+        val store = MemoryStore()
+        val worker = kotlinx.coroutines.CoroutineScope(
+            backgroundScope.coroutineContext + kotlinx.coroutines.SupervisorJob()
+        )
+        val queue = TextSendQueue(worker, store)
+        val gate = CompletableDeferred<Unit>()
+        var completed = false
+        queue.enqueue(key, "old session", emptyList(), null, null, MessageSendOptions(), 0, "12:00",
+            execute = {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { gate.await() }
+                Result.success(Unit)
+            }, onSuccess = { completed = true }, formatError = { "error" })
+        assertEquals(1, store.rows.size)
+        queue.close()
+        store.rows = emptyList() // Session cleanup has purged the durable snapshot.
+        gate.complete(Unit)
+        assertFalse(completed)
+        assertTrue(store.rows.isEmpty())
+        assertTrue(queue.current(key).isEmpty())
+        try {
+            queue.enqueue(key, "stale callback", emptyList(), null, null, MessageSendOptions(), 0, "12:00",
+                execute = { error("Must not dispatch") }, formatError = { "error" })
+            fail("Closed session accepted a send")
+        } catch (_: TextSendStorageException) {
+            assertTrue(store.rows.isEmpty())
+        }
+    }
+
 }
