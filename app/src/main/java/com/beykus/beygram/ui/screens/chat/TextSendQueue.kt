@@ -24,7 +24,10 @@ import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -34,6 +37,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicLong
 
 /** Isolates queued and failed plain-text send attempts per account, chat, and forum topic. */
@@ -97,29 +101,67 @@ internal data class TextSendJobRequest(
 internal class TextSendQueue(
     private val workerScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
     private val store: TextSendAttemptStore? = null,
-    recoveryError: String? = null
+    recoveryError: String? = null,
+    private val storageDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
-    // Do not replace an unreadable durable snapshot with an empty queue on the next send.
-    private val loaded = try {
-        Result.success(store?.load().orEmpty())
-    } catch (failure: Exception) {
-        Result.failure(failure)
-    }
-    private val readFailure = loaded.exceptionOrNull() as? Exception
-    private val storageProblem = MutableStateFlow(readFailure != null)
+    private val storageProblem = MutableStateFlow(false)
     val storageFailed = storageProblem.asStateFlow()
-    private val restored = loaded.getOrDefault(emptyList()).map {
-        if (it.phase == TextSendAttemptPhase.Sending) it.copy(
-            phase = TextSendAttemptPhase.Failed, errorMessage = recoveryError
-        ) else it
-    }
-    private val nextAttemptId = AtomicLong((restored.maxOfOrNull { it.attemptId } ?: 0L) + 1L)
-    private val attemptsByScope = MutableStateFlow(restored.groupBy { it.scope })
+    private val attemptsByScope = MutableStateFlow<Map<TextSendScopeKey, List<TextSendAttempt>>>(emptyMap())
+    private val nextAttemptId = AtomicLong(1L)
     private val jobs = HashMap<TextSendScopeKey, java.util.ArrayDeque<TextSendJobRequest>>()
+    // The storage monitor is entered on the IO dispatcher. Workers must never wait for it
+    // on the UI thread just to poll their in-memory jobs.
     private val lock = Any()
-    private var closed = false
+    private val jobsLock = Any()
+    private val composerLock = Any()
+    private val composerWrites = MutableStateFlow<Set<TextSendScopeKey>>(emptySet())
+    @Volatile private var closed = false
+    private var readFailure: Exception? = null
 
-    internal val activeWorkerCount: Int get() = synchronized(lock) { jobs.size }
+    private val initialized = workerScope.async(start = CoroutineStart.UNDISPATCHED) {
+        withContext(storageDispatcher) {
+            synchronized(lock) {
+                if (!closed) {
+                    try {
+                        val restored = store?.load().orEmpty().map {
+                            if (it.phase == TextSendAttemptPhase.Sending) it.copy(
+                                phase = TextSendAttemptPhase.Failed, errorMessage = recoveryError
+                            ) else it
+                        }
+                        nextAttemptId.set((restored.maxOfOrNull { it.attemptId } ?: 0L) + 1L)
+                        attemptsByScope.value = restored.groupBy { it.scope }
+                    } catch (failure: Exception) {
+                        // An unreadable snapshot must never be replaced by an empty one.
+                        readFailure = failure
+                        storageProblem.value = true
+                    }
+                }
+            }
+        }
+    }
+
+    fun composerWriting(scopeKey: TextSendScopeKey): Flow<Boolean> =
+        composerWrites.map { scopeKey in it }.distinctUntilChanged()
+
+    /** Only the durable-write phase owns the composer, not the network round trip. */
+    fun launchComposerWrite(scopeKey: TextSendScopeKey, action: suspend () -> Unit) {
+        synchronized(composerLock) {
+            if (closed || scopeKey in composerWrites.value) return
+            composerWrites.value = composerWrites.value + scopeKey
+        }
+        workerScope.launch {
+            try { action() } finally {
+                synchronized(composerLock) { composerWrites.value = composerWrites.value - scopeKey }
+            }
+        }
+    }
+
+    /** A queued UI action may finish after navigation, but never survive session logout. */
+    fun launchMutation(action: suspend () -> Unit) {
+        workerScope.launch { action() }
+    }
+
+    internal val activeWorkerCount: Int get() = synchronized(jobsLock) { jobs.size }
 
     fun observe(scopeKey: TextSendScopeKey): Flow<List<TextSendAttempt>> =
         attemptsByScope.map { it[scopeKey].orEmpty() }.distinctUntilChanged()
@@ -127,7 +169,7 @@ internal class TextSendQueue(
     fun current(scopeKey: TextSendScopeKey): List<TextSendAttempt> =
         attemptsByScope.value[scopeKey].orEmpty()
 
-    fun enqueue(
+    suspend fun enqueue(
         scopeKey: TextSendScopeKey,
         text: String,
         entities: List<MessageTextEntity>,
@@ -142,6 +184,8 @@ internal class TextSendQueue(
         onFailure: (TextSendAttempt, Throwable) -> Unit = { _, _ -> },
         formatError: (Throwable) -> String
     ): TextSendAttempt {
+        ensureInitialized()
+        return withContext(storageDispatcher) { synchronized(lock) {
         val attempt = TextSendAttempt(
             attemptId = nextAttemptId.getAndIncrement(),
             scope = scopeKey,
@@ -161,10 +205,11 @@ internal class TextSendQueue(
         submit(
             TextSendJobRequest(scopeKey, attempt.attemptId, execute, onSuccess, onFailure, formatError)
         )
-        return attempt
+        attempt
+        } }
     }
 
-    fun retry(
+    suspend fun retry(
         scopeKey: TextSendScopeKey,
         attemptId: Long,
         sendNowConsent: Boolean = false,
@@ -174,6 +219,8 @@ internal class TextSendQueue(
         onFailure: (TextSendAttempt, Throwable) -> Unit = { _, _ -> },
         formatError: (Throwable) -> String
     ): Boolean {
+        ensureInitialized()
+        return withContext(storageDispatcher) { synchronized(lock) {
         val found = updateAttempts { current ->
             val list = current[scopeKey].orEmpty()
             if (list.none { it.attemptId == attemptId && it.phase == TextSendAttemptPhase.Failed }) {
@@ -194,11 +241,20 @@ internal class TextSendQueue(
         if (found) {
             submit(TextSendJobRequest(scopeKey, attemptId, execute, onSuccess, onFailure, formatError))
         }
-        return found
+        found
+        } }
     }
 
-    fun discard(scopeKey: TextSendScopeKey, attemptId: Long) {
-        updateAttempts { current -> withoutAttempt(current, scopeKey, attemptId) }
+    suspend fun discard(scopeKey: TextSendScopeKey, attemptId: Long) {
+        ensureInitialized()
+        withContext(storageDispatcher) {
+            updateAttempts { current -> withoutAttempt(current, scopeKey, attemptId) }
+        }
+    }
+
+    private suspend fun ensureInitialized() {
+        if (closed) throw TextSendStorageException(IllegalStateException("Text send session closed"))
+        initialized.await()
     }
 
     private fun withoutAttempt(
@@ -210,7 +266,7 @@ internal class TextSendQueue(
         return if (list.isEmpty()) current - scopeKey else current + (scopeKey to list)
     }
 
-    private fun submit(job: TextSendJobRequest): Unit = synchronized(lock) {
+    private fun submit(job: TextSendJobRequest): Unit = synchronized(jobsLock) {
         if (closed) return@synchronized
         val existing = jobs[job.scopeKey]
         if (existing != null) {
@@ -219,7 +275,7 @@ internal class TextSendQueue(
             jobs[job.scopeKey] = java.util.ArrayDeque<TextSendJobRequest>().apply { addLast(job) }
             workerScope.launch {
                 while (true) {
-                    val next = synchronized(lock) {
+                    val next = synchronized(jobsLock) {
                         val pending = jobs[job.scopeKey]
                         val item = pending?.pollFirst()
                         if (item == null) jobs.remove(job.scopeKey)
@@ -272,21 +328,25 @@ internal class TextSendQueue(
         }
         (result.exceptionOrNull() as? CancellationException)?.let { throw it }
         if (result.isSuccess) {
-            val committed = updateAttempts(keepLiveOutcomeOnFailure = true) { current ->
-                withoutAttempt(current, job.scopeKey, job.attemptId)
+            val committed = withContext(storageDispatcher) {
+                updateAttempts(keepLiveOutcomeOnFailure = true) { current ->
+                    withoutAttempt(current, job.scopeKey, job.attemptId)
+                }
             }
             if (committed) job.onSuccess(attempt)
         } else {
             val error = result.exceptionOrNull() ?: IllegalStateException("Send failed")
             val message = job.formatError(error)
-            val committed = updateAttempts(keepLiveOutcomeOnFailure = true) { current ->
-                val list = current[job.scopeKey].orEmpty()
-                val updated = list.map { item ->
-                    if (item.attemptId == job.attemptId) {
-                        item.copy(phase = TextSendAttemptPhase.Failed, errorMessage = message)
-                    } else item
+            val committed = withContext(storageDispatcher) {
+                updateAttempts(keepLiveOutcomeOnFailure = true) { current ->
+                    val list = current[job.scopeKey].orEmpty()
+                    val updated = list.map { item ->
+                        if (item.attemptId == job.attemptId) {
+                            item.copy(phase = TextSendAttemptPhase.Failed, errorMessage = message)
+                        } else item
+                    }
+                    if (updated.isEmpty()) current - job.scopeKey else current + (job.scopeKey to updated)
                 }
-                if (updated.isEmpty()) current - job.scopeKey else current + (job.scopeKey to updated)
             }
             if (committed) job.onFailure(attempt, error)
         }
@@ -296,9 +356,10 @@ internal class TextSendQueue(
     fun close() {
         synchronized(lock) {
             closed = true
-            jobs.clear()
             attemptsByScope.value = emptyMap()
         }
+        synchronized(jobsLock) { jobs.clear() }
+        synchronized(composerLock) { composerWrites.value = emptySet() }
         workerScope.cancel()
     }
 }
