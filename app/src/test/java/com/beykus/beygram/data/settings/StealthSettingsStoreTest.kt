@@ -293,7 +293,7 @@ class StealthSettingsStoreTest {
         assertEquals(StealthSettings.FailClosed, StealthSettingsStore(storage).current)
     }
 
-    @Test fun aCustomLeadIsKeptAndClampedToOneSecondToAnHour() {
+    @Test fun aCustomLeadIsKeptAndClampedToFifteenSecondsToAnHour() {
         val storage = FakeStealthStorage()
         val store = StealthSettingsStore(storage)
         store.update { it.copy(serverScheduledSend = true, scheduledSendDelaySeconds = 45) }
@@ -301,7 +301,20 @@ class StealthSettingsStoreTest {
         store.update { it.copy(scheduledSendDelaySeconds = 10_000) }
         assertEquals(3600, store.current.scheduledSendDelay)
         store.update { it.copy(scheduledSendDelaySeconds = 0) }
-        assertEquals(1, StealthSettingsStore(storage).current.scheduledSendDelay)
+        assertEquals(15, StealthSettingsStore(storage).current.scheduledSendDelay)
+    }
+
+    @Test fun legacyShortLeadSurvivesReloadAndUnrelatedUpdateUntilUserCorrectsIt() {
+        val storage = FakeStealthStorage()
+        StealthSettingsStore(storage).update { it.copy(serverScheduledSend = true) }
+        storage.stored["scheduled_send_delay"] = 3
+        val reopened = StealthSettingsStore(storage)
+        assertEquals(3, reopened.current.scheduledSendDelay)
+        assertFalse(reopened.current.schedulesOnServer)
+        assertTrue(reopened.update { it.copy(hideTyping = true) })
+        assertEquals(3, StealthSettingsStore(storage).current.scheduledSendDelay)
+        assertTrue(reopened.update { it.copy(scheduledSendDelaySeconds = 30) })
+        assertEquals(30, StealthSettingsStore(storage).current.scheduledSendDelay)
     }
 
     @Test fun onlyLeadsFromFifteenSecondsUseTheServerQueue() {
