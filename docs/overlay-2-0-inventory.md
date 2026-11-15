@@ -41,9 +41,9 @@
 | ✅ ui/screens/music/MusicScreenSupport.kt · #887 | 1 | 368 |
 | ui/screens/notifications/TriggerMentionsScreen.kt | 1 | 59 |
 | ui/screens/notifications/TriggerWordsScreen.kt | 1 | 360 |
-| ui/screens/playback/MusicPlayerSheet.kt | 2 | 809 1616 |
-| ui/screens/playback/PlayerSoundSheet.kt | 1 | 352 |
-| ui/screens/playback/ShareWave.kt | 1 | 106 |
+| ✅ ui/screens/playback/MusicPlayerSheet.kt · #888 | 2 | 809 1616 |
+| ✅ ui/screens/playback/PlayerSoundSheet.kt · #888 | 1 | 352 |
+| ✅ ui/screens/playback/ShareWave.kt · #888 | 1 | 106 |
 | ✅ ui/screens/profile/ChatInfoMenu.kt · #882 | 2 | 52 100 |
 | ✅ ui/screens/profile/GiftsScreen.kt · #884 | 1 | 533 |
 | ✅ ui/screens/profile/GroupInvitesScreen.kt · #883 | 3 | 182 259 415 |
@@ -125,3 +125,9 @@
 - BgMusicPreviewScreen.kt (2), MusicPlaylistScreen.kt (2), MusicScreenSupport.kt (1): 5 вызовов в 3 файлах. Отмечено ✅ в таблице выше.
 - В BeyGramDialog добавлены необязательные параметры neutralText и onNeutral: третье действие слева в ряду кнопок, для выбора «сохранить копию» при импорте BG Mix.
 - Часть 2 (MusicPlayerSheet.kt, PlayerSoundSheet.kt, ShareWave.kt): отдельный PR после слияния части 1.
+
+## Статус группы «музыка», часть 2 (#870, PR #888)
+
+- MusicPlayerSheet.kt (2), PlayerSoundSheet.kt (1), ShareWave.kt (1): 4 вызова в 3 файлах. Отмечено ✅ в таблице выше.
+- BeyGramDialog в этой части не менялся. Подтверждение таймера сна теперь в акцентном цвете, а не в цвете акцентного текста.
+- Группа «музыка» закрыта после слияния #887 и #888: 9 вызовов в 6 файлах (части 1 и 2).
