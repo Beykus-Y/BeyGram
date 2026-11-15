@@ -118,7 +118,7 @@ internal class TextSendQueue(
     @Volatile private var closed = false
     private var readFailure: Exception? = null
 
-    private val initialized = workerScope.async(start = CoroutineStart.UNDISPATCHED) {
+    private val initialized = workerScope.async<Unit>(start = CoroutineStart.UNDISPATCHED) {
         withContext(storageDispatcher) {
             synchronized(lock) {
                 if (!closed) {
@@ -139,6 +139,8 @@ internal class TextSendQueue(
             }
         }
     }
+
+    fun isComposerWriting(scopeKey: TextSendScopeKey): Boolean = scopeKey in composerWrites.value
 
     fun composerWriting(scopeKey: TextSendScopeKey): Flow<Boolean> =
         composerWrites.map { scopeKey in it }.distinctUntilChanged()
@@ -185,28 +187,30 @@ internal class TextSendQueue(
         formatError: (Throwable) -> String
     ): TextSendAttempt {
         ensureInitialized()
-        return withContext(storageDispatcher) { synchronized(lock) {
-        val attempt = TextSendAttempt(
-            attemptId = nextAttemptId.getAndIncrement(),
-            scope = scopeKey,
-            text = text,
-            entities = entities.toList(),
-            replyToMessageId = replyToMessageId,
-            replyPreview = replyPreview,
-            options = options,
-            baselineSequence = baselineSequence,
-            timeLabel = timeLabel,
-            dismissForceReplyMessageId = dismissForceReplyMessageId
-        )
-        updateAttempts { current ->
-            val list = current[scopeKey].orEmpty() + attempt
-            current + (scopeKey to list)
+        return withContext(storageDispatcher) {
+            synchronized(lock) {
+                val attempt = TextSendAttempt(
+                    attemptId = nextAttemptId.getAndIncrement(),
+                    scope = scopeKey,
+                    text = text,
+                    entities = entities.toList(),
+                    replyToMessageId = replyToMessageId,
+                    replyPreview = replyPreview,
+                    options = options,
+                    baselineSequence = baselineSequence,
+                    timeLabel = timeLabel,
+                    dismissForceReplyMessageId = dismissForceReplyMessageId
+                )
+                updateAttempts { current ->
+                    val list = current[scopeKey].orEmpty() + attempt
+                    current + (scopeKey to list)
+                }
+                submit(
+                    TextSendJobRequest(scopeKey, attempt.attemptId, execute, onSuccess, onFailure, formatError)
+                )
+                attempt
+            }
         }
-        submit(
-            TextSendJobRequest(scopeKey, attempt.attemptId, execute, onSuccess, onFailure, formatError)
-        )
-        attempt
-        } }
     }
 
     suspend fun retry(
@@ -220,35 +224,43 @@ internal class TextSendQueue(
         formatError: (Throwable) -> String
     ): Boolean {
         ensureInitialized()
-        return withContext(storageDispatcher) { synchronized(lock) {
-        val found = updateAttempts { current ->
-            val list = current[scopeKey].orEmpty()
-            if (list.none { it.attemptId == attemptId && it.phase == TextSendAttemptPhase.Failed }) {
-                current
-            } else {
-                current + (scopeKey to list.map { attempt ->
-                    if (attempt.attemptId == attemptId && attempt.phase == TextSendAttemptPhase.Failed) {
-                        attempt.copy(
-                            phase = TextSendAttemptPhase.Sending,
-                            errorMessage = null,
-                            options = if (sendNowConsent) attempt.options.copy(sendNowConsent = true) else attempt.options,
-                            baselineSequence = baselineSequence ?: attempt.baselineSequence
-                        )
-                    } else attempt
-                })
+        return withContext(storageDispatcher) {
+            synchronized(lock) {
+                val found = updateAttempts { current ->
+                    val list = current[scopeKey].orEmpty()
+                    if (list.none { it.attemptId == attemptId && it.phase == TextSendAttemptPhase.Failed }) {
+                        current
+                    } else {
+                        current + (scopeKey to list.map { attempt ->
+                            if (attempt.attemptId == attemptId && attempt.phase == TextSendAttemptPhase.Failed) {
+                                attempt.copy(
+                                    phase = TextSendAttemptPhase.Sending,
+                                    errorMessage = null,
+                                    options = if (sendNowConsent) attempt.options.copy(sendNowConsent = true) else attempt.options,
+                                    baselineSequence = baselineSequence ?: attempt.baselineSequence
+                                )
+                            } else attempt
+                        })
+                    }
+                }
+                if (found) {
+                    submit(TextSendJobRequest(scopeKey, attemptId, execute, onSuccess, onFailure, formatError))
+                }
+                found
             }
         }
-        if (found) {
-            submit(TextSendJobRequest(scopeKey, attemptId, execute, onSuccess, onFailure, formatError))
-        }
-        found
-        } }
     }
 
     suspend fun discard(scopeKey: TextSendScopeKey, attemptId: Long) {
         ensureInitialized()
         withContext(storageDispatcher) {
-            updateAttempts { current -> withoutAttempt(current, scopeKey, attemptId) }
+            updateAttempts { current ->
+                // A stale failure dialog can race with Retry. Never remove a durable
+                // Sending row while its accepted retry might already be on the wire.
+                if (current[scopeKey].orEmpty().any {
+                        it.attemptId == attemptId && it.phase == TextSendAttemptPhase.Failed
+                    }) withoutAttempt(current, scopeKey, attemptId) else current
+            }
         }
     }
 
@@ -266,23 +278,27 @@ internal class TextSendQueue(
         return if (list.isEmpty()) current - scopeKey else current + (scopeKey to list)
     }
 
-    private fun submit(job: TextSendJobRequest): Unit = synchronized(jobsLock) {
-        if (closed) return@synchronized
-        val existing = jobs[job.scopeKey]
-        if (existing != null) {
-            existing.addLast(job)
-        } else {
-            jobs[job.scopeKey] = java.util.ArrayDeque<TextSendJobRequest>().apply { addLast(job) }
-            workerScope.launch {
-                while (true) {
-                    val next = synchronized(jobsLock) {
-                        val pending = jobs[job.scopeKey]
-                        val item = pending?.pollFirst()
-                        if (item == null) jobs.remove(job.scopeKey)
-                        item
-                    } ?: break
-                    processJob(next)
-                }
+    private fun submit(job: TextSendJobRequest) {
+        val startWorker = synchronized(jobsLock) {
+            if (closed) return
+            val existing = jobs[job.scopeKey]
+            if (existing != null) {
+                existing.addLast(job)
+                false
+            } else {
+                jobs[job.scopeKey] = java.util.ArrayDeque<TextSendJobRequest>().apply { addLast(job) }
+                true
+            }
+        }
+        if (startWorker) workerScope.launch {
+            while (true) {
+                val next = synchronized(jobsLock) {
+                    val pending = jobs[job.scopeKey]
+                    val item = pending?.pollFirst()
+                    if (item == null) jobs.remove(job.scopeKey)
+                    item
+                } ?: break
+                processJob(next)
             }
         }
     }
