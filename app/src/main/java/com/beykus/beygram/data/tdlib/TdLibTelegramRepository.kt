@@ -3473,6 +3473,7 @@ class TdLibTelegramRepository private constructor(
         time = scheduledAt?.let { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it * 1000L)) } ?: toTimeString(),
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
+        isForwarded = forwardInfo != null,
         sendState = sendingState.toSendState(),
         media = if (secretChat) attachment?.copy(isSecretChat = true) else attachment,
         special = special,
