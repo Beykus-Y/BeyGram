@@ -201,4 +201,20 @@ class TextSendRecoveryTest {
         assertEquals(0, queue.activeWorkerCount)
     }
 
+    @Test fun staleDiscardCannotEraseAnAcceptedRetry() = runTest(UnconfinedTestDispatcher()) {
+        val store = MemoryStore()
+        val queue = TextSendQueue(backgroundScope, store,
+            storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
+        val initial = queue.enqueue(key, "retry", emptyList(), null, null, MessageSendOptions(), 0, "12:00",
+            execute = { Result.failure(IllegalStateException("failed")) }, formatError = { "error" })
+        val gate = CompletableDeferred<Unit>()
+        assertTrue(queue.retry(key, initial.attemptId,
+            execute = { gate.await(); Result.success(Unit) }, formatError = { "error" }))
+        queue.discard(key, initial.attemptId)
+        assertEquals(TextSendAttemptPhase.Sending, store.rows.single().phase)
+        assertEquals(initial.attemptId, queue.current(key).single().attemptId)
+        gate.complete(Unit)
+        assertTrue(store.rows.isEmpty())
+    }
+
 }
