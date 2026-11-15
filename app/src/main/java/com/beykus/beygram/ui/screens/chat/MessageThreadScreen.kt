@@ -301,8 +301,13 @@ internal fun MessageThreadScreen(
     var failedLocalCommentId by remember(sendKey) { mutableStateOf<Long?>(null) }
     val pending by remember(sendModel, sendKey) { sendModel.queue.observe(sendKey) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    fun dispatchComment(attemptId: Long? = null, consent: Boolean = false) {
-        val current = thread ?: return
+    val queueStorageFailed by sendModel.queue.storageFailed.collectAsStateWithLifecycle()
+    val queueStorageFailureText = stringResource(R.string.chat_send_queue_storage_failed)
+    LaunchedEffect(sendModel, sendKey, queueStorageFailed) {
+        if (queueStorageFailed) sendError = queueStorageFailureText
+    }
+    fun dispatchComment(attemptId: Long? = null, consent: Boolean = false): Boolean {
+        val current = thread ?: return false
         val execute: suspend (TextSendAttempt) -> Result<Unit> = { attempt ->
             conversation.sendThreadReply(attempt.scope.chatId, attempt.scope.forumTopicId, attempt.text,
                 attempt.entities, attempt.replyToMessageId, attempt.options.sendNowConsent).map { sent ->
@@ -327,15 +332,21 @@ internal fun MessageThreadScreen(
             }
         }
         val format: (Throwable) -> String = { it.userMessage(context, R.string.thread_comments_send_failed) }
-        if (attemptId != null) {
-            sendModel.queue.retry(sendKey, attemptId, sendNowConsent = consent,
-                execute = execute, onFailure = failure, formatError = format)
-        } else {
-            sendModel.queue.enqueue(sendKey, text, entities, replyTarget?.id ?: replyTargetId.takeIf { it > 0L },
-                null, com.beykus.beygram.domain.model.MessageSendOptions(sendNowConsent = consent),
-                conversation.observeChatHistory(current.discussionChatId).value.liveArrivalSequence,
-                java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date()),
-                execute = execute, onFailure = failure, formatError = format)
+        return try {
+            if (attemptId != null) {
+                sendModel.queue.retry(sendKey, attemptId, sendNowConsent = consent,
+                    execute = execute, onFailure = failure, formatError = format)
+            } else {
+                sendModel.queue.enqueue(sendKey, text, entities, replyTarget?.id ?: replyTargetId.takeIf { it > 0L },
+                    null, com.beykus.beygram.domain.model.MessageSendOptions(sendNowConsent = consent),
+                    conversation.observeChatHistory(current.discussionChatId).value.liveArrivalSequence,
+                    java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date()),
+                    execute = execute, onFailure = failure, formatError = format)
+                true
+            }
+        } catch (_: TextSendStorageException) {
+            sendError = queueStorageFailureText
+            false
         }
     }
     fun retryComment(chatId: Long, messageId: Long, sendNowConsent: Boolean) {
@@ -354,7 +365,7 @@ internal fun MessageThreadScreen(
             sendError = context.getString(R.string.chat_truncated_notice, messageLimits.text)
             return
         }
-        dispatchComment(consent = sendNowConsent)
+        if (!dispatchComment(consent = sendNowConsent)) return
         text = ""
         entities = emptyList()
         replyTarget = null
@@ -651,7 +662,13 @@ internal fun MessageThreadScreen(
             target = FailedSendTarget(attempt.toChatMessage(), attempt.attemptId),
             onDismiss = { failedLocalCommentId = null },
             onRetry = { dispatchComment(attempt.attemptId) },
-            onDiscard = { sendModel.queue.discard(sendKey, attempt.attemptId) }
+            onDiscard = {
+                try {
+                    sendModel.queue.discard(sendKey, attempt.attemptId)
+                } catch (_: TextSendStorageException) {
+                    sendError = queueStorageFailureText
+                }
+            }
         )
     }
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(viewOnceAsked.chatId, viewOnceAsked.id) { selectedMediaId = null; selectedMediaChatId = 0L }
