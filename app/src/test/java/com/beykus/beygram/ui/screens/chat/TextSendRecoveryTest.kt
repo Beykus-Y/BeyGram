@@ -3,6 +3,8 @@ package com.beykus.beygram.ui.screens.chat
 import com.beykus.beygram.domain.model.MessageSendOptions
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
@@ -18,12 +20,12 @@ class TextSendRecoveryTest {
     }
     @Test fun pendingSnapshotsSurviveOwnerLossWithoutAutomaticResend() = runTest(UnconfinedTestDispatcher()) {
         val store = MemoryStore()
-        val queue = TextSendQueue(backgroundScope, store)
+        val queue = TextSendQueue(backgroundScope, store, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         val gate = CompletableDeferred<Unit>()
         for (text in listOf("first", "second")) queue.enqueue(key, text, emptyList(), 10, null,
             MessageSendOptions(disableNotification = true), 0, "12:00", execute = { gate.await(); Result.success(Unit) }, formatError = { "error" })
         assertEquals(listOf("first", "second"), store.rows.map { it.text })
-        val restored = TextSendQueue(backgroundScope, store)
+        val restored = TextSendQueue(backgroundScope, store, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         assertEquals(listOf("first", "second"), restored.current(key).map { it.text })
         assertTrue(restored.current(key).all { it.phase == TextSendAttemptPhase.Failed && it.replyToMessageId == 10L && it.options.disableNotification })
         assertEquals(0, restored.activeWorkerCount)
@@ -31,7 +33,7 @@ class TextSendRecoveryTest {
         assertEquals(0, queue.activeWorkerCount)
     }
     @Test fun doubleRetryOnlyDispatchesOneAttemptAndIdleWorkersAreReleased() = runTest(UnconfinedTestDispatcher()) {
-        val queue = TextSendQueue(backgroundScope)
+        val queue = TextSendQueue(backgroundScope, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         val attempt = queue.enqueue(key, "retry", emptyList(), null, null, MessageSendOptions(), 0, "12:00",
             execute = { Result.failure(IllegalStateException()) }, formatError = { "error" })
         val gate = CompletableDeferred<Unit>()
@@ -45,7 +47,7 @@ class TextSendRecoveryTest {
         assertTrue(queue.current(key).isEmpty())
     }
     @Test fun hundredsOfCompletedChatsDoNotRetainWorkers() = runTest(UnconfinedTestDispatcher()) {
-        val queue = TextSendQueue(backgroundScope)
+        val queue = TextSendQueue(backgroundScope, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         repeat(300) { chat ->
             queue.enqueue(key.copy(chatId = chat.toLong()), "message", emptyList(), null, null,
                 MessageSendOptions(), 0, "12:00", execute = { Result.success(Unit) }, formatError = { "error" })
@@ -58,7 +60,7 @@ class TextSendRecoveryTest {
             override fun load() = emptyList<TextSendAttempt>()
             override fun save(attempts: List<TextSendAttempt>) { throw java.io.IOException("disk full") }
         }
-        val queue = TextSendQueue(backgroundScope, store)
+        val queue = TextSendQueue(backgroundScope, store, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         var dispatched = false
         try {
             queue.enqueue(key, "draft", emptyList(), null, null, MessageSendOptions(), 0, "12:00",
@@ -78,7 +80,7 @@ class TextSendRecoveryTest {
             override fun load(): List<TextSendAttempt> = throw java.io.IOException("corrupt snapshot")
             override fun save(attempts: List<TextSendAttempt>) { writes++ }
         }
-        val queue = TextSendQueue(backgroundScope, store)
+        val queue = TextSendQueue(backgroundScope, store, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         assertTrue(queue.storageFailed.value)
         try {
             queue.enqueue(key, "new draft", emptyList(), null, null, MessageSendOptions(), 0, "12:00",
@@ -100,7 +102,7 @@ class TextSendRecoveryTest {
                 rows = attempts.toList()
             }
         }
-        val queue = TextSendQueue(backgroundScope, store)
+        val queue = TextSendQueue(backgroundScope, store, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         val gate = CompletableDeferred<Unit>()
         val sent = mutableListOf<String>()
         for (text in listOf("first", "second")) queue.enqueue(
@@ -114,7 +116,7 @@ class TextSendRecoveryTest {
         assertTrue(queue.current(key).isEmpty())
         assertEquals(0, queue.activeWorkerCount)
         assertTrue(queue.storageFailed.value)
-        val restored = TextSendQueue(backgroundScope, store, "check history")
+        val restored = TextSendQueue(backgroundScope, store, "check history", storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         assertTrue(restored.current(key).all {
             it.phase == TextSendAttemptPhase.Failed && it.errorMessage == "check history"
         })
@@ -142,7 +144,7 @@ class TextSendRecoveryTest {
         val worker = kotlinx.coroutines.CoroutineScope(
             backgroundScope.coroutineContext + kotlinx.coroutines.SupervisorJob()
         )
-        val queue = TextSendQueue(worker, store)
+        val queue = TextSendQueue(worker, store, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         val gate = CompletableDeferred<Unit>()
         var completed = false
         queue.enqueue(key, "old session", emptyList(), null, null, MessageSendOptions(), 0, "12:00",
@@ -164,6 +166,39 @@ class TextSendRecoveryTest {
         } catch (_: TextSendStorageException) {
             assertTrue(store.rows.isEmpty())
         }
+    }
+
+    @Test fun slowStorageDoesNotPublishOrSendBeforeDurableCommit() = runTest(UnconfinedTestDispatcher()) {
+        val writes = StandardTestDispatcher(testScheduler)
+        val order = mutableListOf<String>()
+        val store = object : TextSendAttemptStore {
+            override fun load(): List<TextSendAttempt> {
+                order += "load"
+                return emptyList()
+            }
+            override fun save(attempts: List<TextSendAttempt>) {
+                order += if (attempts.isEmpty()) "remove" else "persist"
+            }
+        }
+        val queue = TextSendQueue(backgroundScope, store, storageDispatcher = writes)
+        var started = 0
+        var composerReleased = false
+        queue.launchComposerWrite(key) {
+            started++
+            queue.enqueue(key, "first", emptyList(), null, null, MessageSendOptions(), 0, "12:00",
+                execute = { order += "execute"; Result.success(Unit) }, formatError = { "error" })
+            composerReleased = true
+        }
+        queue.launchComposerWrite(key) { started++ }
+        assertTrue(order.isEmpty())
+        assertEquals(1, started)
+        assertFalse(composerReleased)
+        assertTrue(queue.current(key).isEmpty())
+        runCurrent()
+        assertEquals(listOf("load", "persist", "execute", "remove"), order)
+        assertTrue(composerReleased)
+        assertTrue(queue.current(key).isEmpty())
+        assertEquals(0, queue.activeWorkerCount)
     }
 
 }
