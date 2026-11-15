@@ -3,7 +3,6 @@ package com.beykus.beygram.ui.screens.chat
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -14,6 +13,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
@@ -497,10 +497,10 @@ internal fun FailedSendDetailsDialog(
     val clipboard = LocalClipboardManager.current
     val reason = target.message.sendError?.takeIf { it.isNotBlank() }
         ?: stringResource(R.string.err_chat_send_failed)
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.chat_send_failure_title)) },
-        text = {
+        title = stringResource(R.string.chat_send_failure_title),
+        content = {
             Column {
                 Text(reason, color = palette.warningText, fontSize = 14.sp)
                 if (target.message.text.isNotBlank()) {
@@ -512,32 +512,25 @@ internal fun FailedSendDetailsDialog(
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis
                     )
+                    TextButton(onClick = {
+                        clipboard.setText(AnnotatedString(target.message.text))
+                        onDismiss()
+                    }) {
+                        Text(stringResource(R.string.chat_send_failure_copy), color = palette.textPrimary)
+                    }
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = {
-                onDismiss()
-                onRetry()
-            }) {
-                Text(stringResource(R.string.chat_retry_send), color = palette.accent)
-            }
+        confirmText = stringResource(R.string.chat_retry_send),
+        onConfirm = {
+            onDismiss()
+            onRetry()
         },
-        dismissButton = {
-            if (target.message.text.isNotBlank()) {
-                TextButton(onClick = {
-                    clipboard.setText(AnnotatedString(target.message.text))
-                    onDismiss()
-                }) {
-                    Text(stringResource(R.string.chat_send_failure_copy), color = palette.textPrimary)
-                }
-            }
-            TextButton(onClick = {
-                onDismiss()
-                onDiscard()
-            }) {
-                Text(stringResource(R.string.chat_send_failure_discard), color = palette.warningText)
-            }
+        // Copy sits in the body, because the action row holds only one dismiss button: Discard.
+        dismissText = stringResource(R.string.chat_send_failure_discard),
+        onDismiss = {
+            onDismiss()
+            onDiscard()
         }
     )
 }

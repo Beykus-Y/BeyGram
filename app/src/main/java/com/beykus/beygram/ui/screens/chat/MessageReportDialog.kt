@@ -2,8 +2,8 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -16,10 +16,10 @@ import com.beykus.beygram.ui.components.beyGramPalette
 @Composable
 internal fun MessageReportDialog(onSelect: (MessageReportReason) -> Unit, onDismiss: () -> Unit) {
     val palette = beyGramPalette()
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.message_report_title)) },
-        text = {
+        title = stringResource(R.string.message_report_title),
+        content = {
             Column {
                 MessageReportReason.entries.forEach { reason ->
                     TextButton(onClick = { onSelect(reason) }, modifier = Modifier.fillMaxWidth()) {
@@ -28,8 +28,9 @@ internal fun MessageReportDialog(onSelect: (MessageReportReason) -> Unit, onDism
                 }
             }
         },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        // The reasons are the content; Cancel is the only action, so it takes the confirm slot.
+        confirmText = stringResource(R.string.common_cancel),
+        onConfirm = onDismiss
     )
 }
 

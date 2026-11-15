@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.design.panelFill
 import com.beykus.beygram.ui.design.PanelFloor
 import com.beykus.beygram.ui.design.ComposerVariant
@@ -136,8 +137,6 @@ import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.screens.playback.parseShareTimecodeMs
-import com.beykus.beygram.ui.components.beyGramFilledTextFieldColors
-import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlin.math.roundToInt
@@ -2335,16 +2334,14 @@ fun ChatScreen(
             IconButton(onClick = { error = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.warningText) }
         } }
         forwardCopyConfirmId?.let { id ->
-            AlertDialog(
+            BeyGramDialog(
                 onDismissRequest = { forwardCopyConfirmId = null },
-                title = { Text(stringResource(R.string.message_forward_copy_title)) },
-                text = { Text(stringResource(R.string.message_forward_copy_warning)) },
-                confirmButton = {
-                    TextButton(onClick = { forwardCopyConfirmId = null; forwardAsCopy = true; forwardId = id }) {
-                        Text(stringResource(R.string.message_forward_copy_confirm), color = palette.accent)
-                    }
-                },
-                dismissButton = { TextButton(onClick = { forwardCopyConfirmId = null }) { Text(stringResource(R.string.common_cancel)) } }
+                title = stringResource(R.string.message_forward_copy_title),
+                message = stringResource(R.string.message_forward_copy_warning),
+                confirmText = stringResource(R.string.message_forward_copy_confirm),
+                onConfirm = { forwardCopyConfirmId = null; forwardAsCopy = true; forwardId = id },
+                dismissText = stringResource(R.string.common_cancel),
+                onDismiss = { forwardCopyConfirmId = null }
             )
         }
         val deleteRights = selectionDeleteRights
@@ -2799,16 +2796,14 @@ fun ChatScreen(
         },
         onDismiss = { copyLinks = emptyList() }
     )
-    if (pinConfirm && actionMessage != null) AlertDialog(
+    if (pinConfirm && actionMessage != null) BeyGramDialog(
         onDismissRequest = { pinConfirm = false },
-        title = { Text(stringResource(R.string.chat_pin_channel_title)) },
-        text = { Text(stringResource(R.string.chat_pin_channel_message)) },
-        confirmButton = {
-            TextButton(onClick = { actionMessage?.let { setPinned(it, true) } }) {
-                Text(stringResource(R.string.message_action_pin))
-            }
-        },
-        dismissButton = { TextButton(onClick = { pinConfirm = false }) { Text(stringResource(R.string.common_cancel)) } }
+        title = stringResource(R.string.chat_pin_channel_title),
+        message = stringResource(R.string.chat_pin_channel_message),
+        confirmText = stringResource(R.string.message_action_pin),
+        onConfirm = { actionMessage?.let { setPinned(it, true) } },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { pinConfirm = false }
     )
     sendGuard.Dialog()
     attachments.stealthFallback.Dialog()
@@ -2878,18 +2873,14 @@ fun ChatScreen(
         if (botCommandMenuOpen) BotCommandSheet(chat.title, menu, onDismiss = { botCommandMenuOpen = false }, onInsert = ::insertBotCommand)
     }
     pendingWebApp?.let { request ->
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { pendingWebApp = null },
-            title = { Text(stringResource(R.string.chat_webapp_consent_title)) },
-            text = { Text(stringResource(R.string.chat_webapp_consent)) },
-            confirmButton = {
-                TextButton(onClick = { pendingWebApp = null; launchBotWebApp(request) }) {
-                    Text(stringResource(R.string.chat_webapp_open_action))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingWebApp = null }) { Text(stringResource(R.string.common_cancel)) }
-            }
+            title = stringResource(R.string.chat_webapp_consent_title),
+            message = stringResource(R.string.chat_webapp_consent),
+            confirmText = stringResource(R.string.chat_webapp_open_action),
+            onConfirm = { pendingWebApp = null; launchBotWebApp(request) },
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { pendingWebApp = null }
         )
     }
     webAppSession?.let { session ->

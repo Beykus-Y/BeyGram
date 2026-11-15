@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="chat_bot_copied">Texte copié</string>
+    <string name="chat_bot_alert_title">Message du bot</string>
     <string name="chat_bot_failed">Impossible d’effectuer l’action du bot</string>
     <string name="chat_bot_hide">Masquer les boutons du bot</string>
     <string name="chat_bot_show">Afficher les boutons du bot</string>

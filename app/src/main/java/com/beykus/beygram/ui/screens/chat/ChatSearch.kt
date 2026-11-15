@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
@@ -18,23 +17,23 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -194,11 +193,11 @@ private fun ChatSearchFilterDialog(
     val senderLabel = draft.senderId?.let { id -> senders.firstOrNull { it.userId == id }?.name ?: id.toString() }
         ?: stringResource(R.string.search_filter_any_sender)
 
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.search_filters_title)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+        title = stringResource(R.string.search_filters_title),
+        content = {
+            Column {
                 SearchFilterSection(stringResource(R.string.search_filter_sender))
                 Box(Modifier.fillMaxWidth()) {
                     OutlinedButton(
@@ -279,15 +278,11 @@ private fun ChatSearchFilterDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = { onApply(draft) },
-                enabled = draft.hasValidDateRange
-            ) { Text(stringResource(R.string.search_filter_apply), color = palette.accent) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
-        }
+        confirmText = stringResource(R.string.search_filter_apply),
+        onConfirm = { onApply(draft) },
+        confirmEnabled = draft.hasValidDateRange,
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss
     )
 }
 

@@ -1,12 +1,10 @@
 package com.beykus.beygram.ui.screens.chat
 
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.design.panelFill
 import com.beykus.beygram.ui.design.PanelFloor
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.List
 import androidx.compose.material.icons.rounded.PushPin
@@ -151,18 +149,17 @@ internal fun PinnedMessagesBar(
     } else if (failed) {
         TextButton(onClick = { retry++ }) { Text(stringResource(R.string.chat_pinned_retry)) }
     }
-    if (expanded) AlertDialog(
+    if (expanded) BeyGramDialog(
         onDismissRequest = { expanded = false },
-        title = { Text(stringResource(R.string.chat_pinned_title)) },
-        text = {
+        title = stringResource(R.string.chat_pinned_title),
+        content = {
             Column(Modifier.fillMaxWidth()) {
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp).weight(1f, fill = false)) {
-                    items(pins, key = { it.id }) { message ->
-                        Column(Modifier.fillMaxWidth().clickable { expanded = false; onOpen(message) }.padding(vertical = 10.dp)) {
-                            if (message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp)
-                            Text(pinnedPreview(message), maxLines = 3, overflow = TextOverflow.Ellipsis)
-                            Text(message.time, color = palette.textSecondary, fontSize = 12.sp)
-                        }
+                // BeyGramDialog scrolls its own content, and a lazy list cannot sit inside that scroll area.
+                pins.forEach { message ->
+                    Column(Modifier.fillMaxWidth().clickable { expanded = false; onOpen(message) }.padding(vertical = 10.dp)) {
+                        if (message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp)
+                        Text(pinnedPreview(message), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text(message.time, color = palette.textSecondary, fontSize = 12.sp)
                     }
                 }
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -172,7 +169,8 @@ internal fun PinnedMessagesBar(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { expanded = false }) { Text(stringResource(R.string.common_close)) } }
+        confirmText = stringResource(R.string.common_close),
+        onConfirm = { expanded = false }
     )
 }
 

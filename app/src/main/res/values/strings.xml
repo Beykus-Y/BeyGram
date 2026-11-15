@@ -1372,6 +1372,7 @@
     <string name="chat_bot_start">Запустить бота</string>
     <string name="chat_bot_start_failed">Не удалось запустить бота</string>
     <string name="chat_bot_copied">Текст скопирован</string>
+    <string name="chat_bot_alert_title">Сообщение бота</string>
     <string name="chat_bot_failed">Не удалось выполнить действие бота</string>
     <string name="chat_bot_unsupported">Эта кнопка недоступна в BeyGram; откройте её в Telegram</string>
     <string name="chat_bot_hide">Скрыть кнопки бота</string>
