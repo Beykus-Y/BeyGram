@@ -65,7 +65,7 @@
 | ✅ ui/screens/settings/PrivacySettingsScreen.kt · #880 | 1 | 493 |
 | ✅ ui/screens/settings/StealthSettingsScreen.kt · #880 | 1 | 278 |
 | ✅ ui/screens/settings/StorageSettingsScreen.kt · #880 | 2 | 142 359 |
-| ui/screens/settings/VideoMessageSettingsScreen.kt | 10 | 407 418 433 460 496 540 588 603 624 653 |
+| ✅ ui/screens/settings/VideoMessageSettingsScreen.kt · #881 | 10 | 407 418 433 460 496 540 588 603 624 653 |
 | ui/screens/stories/StoryArchiveViewerScreen.kt | 1 | 365 |
 | ui/screens/stories/StoryPublisherScreen.kt | 1 | 923 |
 | ui/screens/stories/StoryViewerScreen.kt | 2 | 886 1201 |
@@ -89,5 +89,6 @@
 ## Статус группы «настройки и аккаунты» (#870)
 
 - #880 (часть 1): 16 вызовов, 9 файлов. Отмечено ✅ в таблице выше.
-- Осталось: `VideoMessageSettingsScreen.kt`, 10 вызовов (часть 2).
+- #881 (часть 2): 10 вызовов, 1 файл (`VideoMessageSettingsScreen.kt`). Отмечено ✅ в таблице выше.
+- Группа закрыта: 26 вызовов в 10 файлах.
 - Группы «профили», «список чатов», «музыка», «истории» и «оформление» в этих PR не трогались.
