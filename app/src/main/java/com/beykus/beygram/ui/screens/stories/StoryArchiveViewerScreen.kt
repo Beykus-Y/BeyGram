@@ -23,7 +23,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -362,39 +362,38 @@ internal fun StoryArchiveViewer(
     }
 
     if (showDelete && story != null) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (!busy) showDelete = false },
-            title = { Text(stringResource(R.string.stories_delete)) },
-            text = { Text(stringResource(R.string.stories_delete_confirm)) },
-            confirmButton = {
-                TextButton(enabled = !busy, onClick = {
-                    showDelete = false
-                    busy = true
-                    error = null
-                    scope.launch {
-                        repository.deleteStory(story.posterChatId, story.storyId)
-                            .onSuccess {
-                                val remaining = stories.filterNot { it.storyId == story.storyId }
-                                busy = false
-                                if (remaining.isEmpty()) {
-                                    onClose()
-                                } else {
-                                    stories = remaining
-                                    index = index.coerceIn(0, remaining.lastIndex)
-                                }
+            title = stringResource(R.string.stories_delete),
+            message = stringResource(R.string.stories_delete_confirm),
+            confirmText = stringResource(R.string.common_delete),
+            onConfirm = {
+                showDelete = false
+                busy = true
+                error = null
+                scope.launch {
+                    repository.deleteStory(story.posterChatId, story.storyId)
+                        .onSuccess {
+                            val remaining = stories.filterNot { it.storyId == story.storyId }
+                            busy = false
+                            if (remaining.isEmpty()) {
+                                onClose()
+                            } else {
+                                stories = remaining
+                                index = index.coerceIn(0, remaining.lastIndex)
                             }
-                            .onFailure {
-                                busy = false
-                                error = it.userMessage(context, R.string.stories_delete_failed)
-                            }
-                    }
-                }) { Text(stringResource(R.string.common_delete)) }
-            },
-            dismissButton = {
-                TextButton(enabled = !busy, onClick = { showDelete = false }) {
-                    Text(stringResource(R.string.common_cancel))
+                        }
+                        .onFailure {
+                            busy = false
+                            error = it.userMessage(context, R.string.stories_delete_failed)
+                        }
                 }
-            }
+            },
+            confirmEnabled = !busy,
+            destructive = true,
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { showDelete = false },
+            dismissEnabled = !busy
         )
     }
 }
