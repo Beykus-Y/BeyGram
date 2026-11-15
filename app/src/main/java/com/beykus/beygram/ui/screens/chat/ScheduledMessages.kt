@@ -21,7 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +30,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,10 +83,10 @@ internal fun SendOptionsDialog(
         val zone = TimeZone.getDefault()
         zone.getDisplayName(zone.inDaylightTime(Date()), TimeZone.SHORT)
     }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.chat_send_options), color = palette.textPrimary, fontWeight = FontWeight.SemiBold) },
-        text = {
+        title = stringResource(R.string.chat_send_options),
+        content = {
             Column(Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.chat_send_options_timezone, timeZone), color = palette.textSecondary, fontSize = 12.sp)
                 SendOption(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.chat_send_now), onClick = onSendNow)
@@ -109,8 +109,8 @@ internal fun SendOptionsDialog(
                 error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp).errorAnnouncement()) }
             }
         },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        confirmText = stringResource(R.string.common_cancel),
+        onConfirm = onDismiss
     )
 }
 
@@ -371,10 +371,10 @@ private fun ScheduledMessageEditDialog(
     var entities by remember(message.id) { mutableStateOf(message.entities) }
     var saving by remember(message.id) { mutableStateOf(false) }
     var error by remember(message.id) { mutableStateOf<String?>(null) }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!saving) onClose() },
-        title = { Text(stringResource(R.string.common_edit), color = palette.textPrimary, fontWeight = FontWeight.SemiBold) },
-        text = {
+        title = stringResource(R.string.common_edit),
+        content = {
             Column(Modifier.fillMaxWidth()) {
                 error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp).errorAnnouncement()) }
                 FormattingTextField(
@@ -389,24 +389,22 @@ private fun ScheduledMessageEditDialog(
                 )
             }
         },
-        confirmButton = {
-            TextButton(
-                enabled = !saving && (text != message.text || entities != message.entities),
-                onClick = {
-                    scope.launch {
-                        saving = true
-                        error = null
-                        try {
-                            val result = conversation.editMessage(chatId, message.id, text, entities)
-                            if (result.isSuccess) onSaved() else error = result.exceptionOrNull().userMessage(context, R.string.chat_scheduled_edit_failed)
-                        } finally {
-                            saving = false
-                        }
-                    }
+        confirmText = stringResource(R.string.common_save),
+        confirmEnabled = !saving && (text != message.text || entities != message.entities),
+        onConfirm = {
+            scope.launch {
+                saving = true
+                error = null
+                try {
+                    val result = conversation.editMessage(chatId, message.id, text, entities)
+                    if (result.isSuccess) onSaved() else error = result.exceptionOrNull().userMessage(context, R.string.chat_scheduled_edit_failed)
+                } finally {
+                    saving = false
                 }
-            ) { Text(stringResource(R.string.common_save)) }
+            }
         },
-        dismissButton = { TextButton(onClick = onClose, enabled = !saving) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { if (!saving) onClose() }
     )
 }
 

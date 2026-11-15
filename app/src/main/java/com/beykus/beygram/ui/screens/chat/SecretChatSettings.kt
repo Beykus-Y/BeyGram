@@ -14,16 +14,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,8 +45,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.SecureFlagPolicy
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.SecretChatDetails
 import com.beykus.beygram.domain.model.SecretChatKey
@@ -196,34 +192,28 @@ internal fun SecretChatSettingsSection(
             else setTtl(seconds)
         }
     )
-    if (closeConfirm) AlertDialog(
+    if (closeConfirm) BeyGramDialog(
         onDismissRequest = { if (!busy) closeConfirm = false },
-        title = { Text(stringResource(R.string.secret_chat_close_title)) },
-        text = { Text(stringResource(R.string.secret_chat_close_message)) },
-        confirmButton = {
-            TextButton(
-                enabled = !busy,
-                onClick = {
-                    if (busy) return@TextButton
-                    scope.launch {
-                        busy = true
-                        error = null
-                        try {
-                            conversation.closeSecretChat(chatId)
-                                .onSuccess { closeConfirm = false; onSecretChatClosed() }
-                                .onFailure { error = it.userMessage(context, R.string.secret_chat_close_failed); closeConfirm = false }
-                        } finally {
-                            busy = false
-                        }
-                    }
+        title = stringResource(R.string.secret_chat_close_title),
+        message = stringResource(R.string.secret_chat_close_message),
+        confirmText = stringResource(R.string.secret_chat_close_confirm),
+        confirmEnabled = !busy,
+        destructive = true,
+        onConfirm = {
+            if (!busy) scope.launch {
+                busy = true
+                error = null
+                try {
+                    conversation.closeSecretChat(chatId)
+                        .onSuccess { closeConfirm = false; onSecretChatClosed() }
+                        .onFailure { error = it.userMessage(context, R.string.secret_chat_close_failed); closeConfirm = false }
+                } finally {
+                    busy = false
                 }
-            ) { Text(stringResource(R.string.secret_chat_close_confirm), color = palette.danger) }
-        },
-        dismissButton = {
-            TextButton(onClick = { closeConfirm = false }, enabled = !busy) {
-                Text(stringResource(R.string.common_cancel))
             }
-        }
+        },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { if (!busy) closeConfirm = false }
     )
     if (keyOpen) details?.let { SecretChatKeyDialog(it, onDismiss = { keyOpen = false }) }
 }
@@ -252,12 +242,12 @@ private fun SecretChatKeyDialog(details: SecretChatDetails, onDismiss: () -> Uni
         copied = true
         Toast.makeText(context, context.getString(R.string.secret_chat_key_copied), Toast.LENGTH_SHORT).show()
     }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
-        title = { Text(stringResource(R.string.secret_chat_key_title)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+        title = stringResource(R.string.secret_chat_key_title),
+        secure = true,
+        content = {
+            Column {
                 if (fingerprint.isBlank()) {
                     Text(
                         stringResource(R.string.secret_chat_key_unavailable),
@@ -308,16 +298,13 @@ private fun SecretChatKeyDialog(details: SecretChatDetails, onDismiss: () -> Uni
                 )
             }
         },
-        confirmButton = {
-            if (fingerprint.isNotBlank()) {
-                TextButton(onClick = { copy() }) {
-                    Text(stringResource(if (copied) R.string.secret_chat_key_copied else R.string.secret_chat_key_copy))
-                }
-            }
+        confirmText = if (fingerprint.isNotBlank()) {
+            stringResource(if (copied) R.string.secret_chat_key_copied else R.string.secret_chat_key_copy)
+        } else {
+            stringResource(R.string.common_close)
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
-        }
+        onConfirm = { if (fingerprint.isNotBlank()) copy() else onDismiss() },
+        dismissText = if (fingerprint.isNotBlank()) stringResource(R.string.common_close) else null
     )
 }
 
@@ -376,10 +363,10 @@ private fun SecretChatTtlDialog(
         hours.toIntOrNull() ?: -1,
         minutes.toIntOrNull() ?: -1
     )
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.secret_chat_ttl_custom_title)) },
-        text = {
+        title = stringResource(R.string.secret_chat_ttl_custom_title),
+        content = {
             Column {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     TtlNumberField(days, { days = it }, stringResource(R.string.secret_chat_ttl_days), Modifier.weight(1f))
@@ -396,14 +383,11 @@ private fun SecretChatTtlDialog(
                 error?.let { Text(it, color = beyGramPalette().danger, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
             }
         },
-        confirmButton = {
-            TextButton(enabled = !busy && seconds != null, onClick = { onSave(seconds) }) {
-                Text(stringResource(R.string.common_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.common_cancel)) }
-        }
+        confirmText = stringResource(R.string.common_save),
+        confirmEnabled = !busy && seconds != null,
+        onConfirm = { onSave(seconds) },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { if (!busy) onDismiss() }
     )
 }
 

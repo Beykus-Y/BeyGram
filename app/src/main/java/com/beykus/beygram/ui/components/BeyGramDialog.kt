@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 
 /**
  * BeyGram's own centred dialog for short confirmations and small inputs. Built on the low-level Compose [Dialog]
@@ -40,6 +41,8 @@ import androidx.compose.ui.window.DialogProperties
  * - Set [destructive] to draw the confirm action in the danger colour. A destructive action is never the default.
  * - Only title, message and content scroll; the action row stays visible with a large system font.
  * - Width is capped at 560dp; height at 80% of the window, so tablets and landscape keep a sane size.
+ * - Set [secure] for sensitive content such as a key or a code: the window gets FLAG_SECURE, so screenshots and screen
+ *   recordings do not show it.
  */
 @Composable
 fun BeyGramDialog(
@@ -56,7 +59,8 @@ fun BeyGramDialog(
     confirmEnabled: Boolean = true,
     dismissOnBackPress: Boolean = true,
     dismissOnClickOutside: Boolean = true,
-    shape: Shape = RoundedCornerShape(24.dp)
+    shape: Shape = RoundedCornerShape(24.dp),
+    secure: Boolean = false
 ) {
     val palette = beyGramPalette()
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.8f).dp
@@ -65,6 +69,7 @@ fun BeyGramDialog(
         properties = DialogProperties(
             dismissOnBackPress = dismissOnBackPress,
             dismissOnClickOutside = dismissOnClickOutside,
+            securePolicy = if (secure) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit,
             usePlatformDefaultWidth = false
         )
     ) {
