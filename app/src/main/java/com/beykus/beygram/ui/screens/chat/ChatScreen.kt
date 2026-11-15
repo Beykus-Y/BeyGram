@@ -1,6 +1,5 @@
 package com.beykus.beygram.ui.screens.chat
 
-import androidx.lifecycle.viewmodel.initializer
 import com.beykus.beygram.ui.design.panelFill
 import com.beykus.beygram.ui.design.PanelFloor
 import com.beykus.beygram.ui.design.ComposerVariant
@@ -309,13 +308,14 @@ fun ChatScreen(
         searchBusy = false; searchError = null
     }
     var sending by remember(accountId, chat.id, forumTopicId) { mutableStateOf(false) }
-    val sendApplication = androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application
-    val textSendModel: ChatTextSendViewModel = viewModel(key = "chat-text-send-$accountId", factory = androidx.lifecycle.viewmodel.viewModelFactory {
-        initializer { ChatTextSendViewModel(sendApplication, accountId) }
-    })
+    val sendApplication = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val textSendGeneration by remember(accountId) { PendingTextSendSessions.generation(accountId) }.collectAsStateWithLifecycle()
+    val textSendQueue = remember(sendApplication, accountId, textSendGeneration) {
+        PendingTextSendSessions.queue(sendApplication, accountId)
+    }
     val textSendScopeKey = remember(accountId, chat.id, forumTopicId) { TextSendScopeKey(accountId, chat.id, forumTopicId) }
-    val queuedTextAttempts by remember(textSendModel, textSendScopeKey) {
-        textSendModel.queue.observe(textSendScopeKey)
+    val queuedTextAttempts by remember(textSendQueue, textSendScopeKey) {
+        textSendQueue.observe(textSendScopeKey)
     }.collectAsStateWithLifecycle(initialValue = emptyList())
     var failedSendTarget by remember(accountId, chat.id, forumTopicId) { mutableStateOf<FailedSendTarget?>(null) }
     var sendOptionsOpen by remember(chat.id) { mutableStateOf(false) }
@@ -355,9 +355,9 @@ fun ChatScreen(
         }
     }
     var error by remember { mutableStateOf<String?>(null) }
-    val queueStorageFailed by textSendModel.queue.storageFailed.collectAsStateWithLifecycle()
+    val queueStorageFailed by textSendQueue.storageFailed.collectAsStateWithLifecycle()
     val queueStorageFailureText = stringResource(R.string.chat_send_queue_storage_failed)
-    LaunchedEffect(textSendModel, chat.id, queueStorageFailed) {
+    LaunchedEffect(textSendQueue, chat.id, queueStorageFailed) {
         if (queueStorageFailed) error = queueStorageFailureText
     }
     var copyLinks by remember(chat.id) { mutableStateOf<List<String>>(emptyList()) }
@@ -556,7 +556,7 @@ fun ChatScreen(
     )
     fun retryLocalTextAttempt(attemptId: Long, sendNowConsent: Boolean = false) {
         try {
-            textSendModel.queue.retry(
+            textSendQueue.retry(
                 scopeKey = textSendScopeKey,
                 attemptId = attemptId,
                 sendNowConsent = sendNowConsent,
@@ -1574,7 +1574,7 @@ fun ChatScreen(
             val baselineSeq = history.liveArrivalSequence
             error = null
             try {
-                textSendModel.queue.enqueue(
+                textSendQueue.enqueue(
                     scopeKey = textSendScopeKey,
                     text = outgoing.text,
                     entities = outgoing.entities,
@@ -2636,7 +2636,7 @@ fun ChatScreen(
                 val attemptId = target.localAttemptId
                 if (attemptId != null) {
                     try {
-                        textSendModel.queue.discard(textSendScopeKey, attemptId)
+                        textSendQueue.discard(textSendScopeKey, attemptId)
                     } catch (_: TextSendStorageException) {
                         error = queueStorageFailureText
                     }
