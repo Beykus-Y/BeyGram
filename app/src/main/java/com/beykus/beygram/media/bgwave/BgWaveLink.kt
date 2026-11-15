@@ -13,7 +13,7 @@ object BgWaveLink {
     const val HTTPS_PREFIX = "https://beygram.beykus.fun/#bgwave-v1."
 
     /** A link longer than this is not a valid invitation; it is dropped before any decoding. */
-    const val MAX_LINK_CHARS = 8192
+    const val MAX_LINK_CHARS = 4096
 
     /** The Telegram-safe https wrapper of [uri]; an https link is returned as is, anything else is refused. */
     fun toHttps(uri: String): String? = when {
