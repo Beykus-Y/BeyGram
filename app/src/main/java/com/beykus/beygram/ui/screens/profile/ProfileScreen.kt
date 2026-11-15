@@ -347,50 +347,43 @@ fun ProfileScreen(
         }
     }
     state.info?.takeIf { secretChatConfirm }?.let { info ->
-        AlertDialog(
-            onDismissRequest = { if (!secretChatBusy) { secretChatConfirm = false; secretChatError = null } },
-            title = { Text(stringResource(R.string.secret_chat_start_title)) },
-            text = {
-                Column {
-                    Text(stringResource(R.string.secret_chat_start_message), color = palette.textSecondary, fontSize = 14.sp)
-                    secretChatError?.let {
-                        Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp).errorAnnouncement())
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !secretChatBusy,
-                    onClick = {
-                        val create = startSecretChat ?: return@TextButton
-                        if (secretChatBusy) return@TextButton
-                        scope.launch {
-                            secretChatBusy = true
-                            secretChatError = null
-                            try {
-                                create(info.id)
-                                    .onSuccess { chatId ->
-                                        secretChatConfirm = false
-                                        onSecretChatOpened(chatId)
-                                    }
-                                    .onFailure {
-                                        secretChatError = it.userMessage(context, R.string.secret_chat_create_failed)
-                                    }
-                            } finally {
-                                secretChatBusy = false
-                            }
-                        }
-                    }
-                ) {
-                    if (secretChatBusy) CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
-                    else Text(stringResource(R.string.secret_chat_start_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(enabled = !secretChatBusy, onClick = { secretChatConfirm = false; secretChatError = null }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
+        // The error and the progress bar sit under the message, inside the dialog's own scroll area.
+        val statusContent: @Composable () -> Unit = {
+            secretChatError?.let {
+                Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp).errorAnnouncement())
             }
+            if (secretChatBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp), color = palette.accent)
+        }
+        BeyGramDialog(
+            onDismissRequest = { if (!secretChatBusy) { secretChatConfirm = false; secretChatError = null } },
+            title = stringResource(R.string.secret_chat_start_title),
+            message = stringResource(R.string.secret_chat_start_message),
+            content = if (secretChatError != null || secretChatBusy) statusContent else null,
+            confirmText = stringResource(R.string.secret_chat_start_confirm),
+            confirmEnabled = !secretChatBusy,
+            onConfirm = {
+                val create = startSecretChat ?: return@BeyGramDialog
+                if (secretChatBusy) return@BeyGramDialog
+                scope.launch {
+                    secretChatBusy = true
+                    secretChatError = null
+                    try {
+                        create(info.id)
+                            .onSuccess { chatId ->
+                                secretChatConfirm = false
+                                onSecretChatOpened(chatId)
+                            }
+                            .onFailure {
+                                secretChatError = it.userMessage(context, R.string.secret_chat_create_failed)
+                            }
+                    } finally {
+                        secretChatBusy = false
+                    }
+                }
+            },
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !secretChatBusy,
+            onDismiss = { secretChatConfirm = false; secretChatError = null }
         )
     }
 }
