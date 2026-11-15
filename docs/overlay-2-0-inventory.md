@@ -1,6 +1,6 @@
 # BeyGram Overlay 2.0: инвентарь AlertDialog (DEV 28eafe81)
 
-Сгенерировано grep по app/**/*.kt. Учитывает строки вызова `AlertDialog(` и импорт `material3.AlertDialog`. Полный аудит alias/полных имён ещё впереди (подзадача миграции).
+Сгенерировано grep по app/**/*.kt. Учитывает строки вызова `AlertDialog(` и импорт `material3.AlertDialog`. Аудит alias и полных имён выполнен в #890: прямых вызовов `AlertDialog` в app/src не осталось, в комментарии `ChatSettingsSheet.kt` и в KDoc `BeyGramDialog.kt` упоминается только имя.
 
 | Файл | Вызовов `AlertDialog(` | Строки |
 |---|---|---|
@@ -34,13 +34,13 @@
 | ✅ ui/screens/chats/MarkReadConfirmation.kt · #885 | 1 | 45 |
 | ✅ ui/screens/chats/NewChatScreen.kt · #886 | 1 | 322 |
 | ✅ ui/screens/contacts/ContactsScreen.kt · #886 | 4 | 432 478 520 561 |
-| ui/screens/diagnostics/DiagnosticsScreen.kt | 1 | 151 |
-| ui/screens/diagnostics/ReportProblemScreen.kt | 1 | 182 |
-| ui/screens/diagnostics/ResourcesScreen.kt | 1 | 119 |
+| ✅ ui/screens/diagnostics/DiagnosticsScreen.kt · #890 | 1 | 151 |
+| ✅ ui/screens/diagnostics/ReportProblemScreen.kt · #890 | 1 | 182 |
+| ✅ ui/screens/diagnostics/ResourcesScreen.kt · #890 | 1 | 119 |
 | ✅ ui/screens/music/MusicPlaylistScreen.kt · #887 | 2 | 424 443 |
 | ✅ ui/screens/music/MusicScreenSupport.kt · #887 | 1 | 368 |
-| ui/screens/notifications/TriggerMentionsScreen.kt | 1 | 59 |
-| ui/screens/notifications/TriggerWordsScreen.kt | 1 | 360 |
+| ✅ ui/screens/notifications/TriggerMentionsScreen.kt · #890 | 1 | 59 |
+| ✅ ui/screens/notifications/TriggerWordsScreen.kt · #890 | 1 | 360 |
 | ✅ ui/screens/playback/MusicPlayerSheet.kt · #888 | 2 | 809 1616 |
 | ✅ ui/screens/playback/PlayerSoundSheet.kt · #888 | 1 | 352 |
 | ✅ ui/screens/playback/ShareWave.kt · #888 | 1 | 106 |
@@ -53,9 +53,9 @@
 | ✅ ui/screens/profile/ProfilePhotoGallery.kt · #882 | 1 | 146 |
 | ✅ ui/screens/profile/ProfileScreen.kt · #882 | 1 | 350 |
 | ✅ ui/screens/profile/StarsScreen.kt · #884 | 2 | 624 698 |
-| ui/screens/proxy/ProxyListScreen.kt | 1 | 266 |
-| ui/screens/proxy/ProxyRestoreDialog.kt | 1 | 27 |
-| ui/screens/proxy/SecondaryProxySettingsScreen.kt | 1 | 114 |
+| ✅ ui/screens/proxy/ProxyListScreen.kt · #890 | 1 | 266 |
+| ✅ ui/screens/proxy/ProxyRestoreDialog.kt · #890 | 1 | 27 |
+| ✅ ui/screens/proxy/SecondaryProxySettingsScreen.kt · #890 | 1 | 114 |
 | ✅ ui/screens/settings/AccountSecurityScreen.kt · #880 | 3 | 845 953 1033 |
 | ✅ ui/screens/settings/AccountSwitcherSheet.kt · #880 | 4 | 483 511 534 1127 |
 | ✅ ui/screens/settings/ActiveSessionsScreen.kt · #880 | 1 | 149 |
@@ -136,4 +136,11 @@
 
 - StoryPublisherScreen.kt (1), StoryArchiveViewerScreen.kt (1), StoryViewerScreen.kt (2): 4 вызова в 3 файлах. Подтверждение удаления и ответ на историю. Отмечено ✅ в таблице выше.
 - AppearanceDesign.kt (1), ThemeDiscardDialog.kt (1): 2 вызова в 2 файлах. Отмечено ✅ в таблице выше.
-- Часть 2 (proxy, diagnostics, notifications и остаток прямых вызовов): отдельный PR.
+- Часть 2 (proxy, diagnostics, notifications и остаток прямых вызовов): см. раздел ниже (PR #890).
+
+## Статус части 2: proxy, diagnostics, notifications (#870, PR #890)
+
+- DiagnosticsScreen.kt, ReportProblemScreen.kt, ResourcesScreen.kt: 3 вызова в 3 файлах. Предпросмотр отчёта и отчёт о ресурсах, `scrollableContent = false`, потому что содержимое уже прокручивается. Отмечено ✅ в таблице выше.
+- TriggerMentionsScreen.kt, TriggerWordsScreen.kt: 2 вызова в 2 файлах. Очистка упоминаний и удаление правила, оба подтверждения `destructive`. Цвета диалога теперь из палитры BeyGramDialog. Отмечено ✅ в таблице выше.
+- ProxyListScreen.kt, ProxyRestoreDialog.kt, SecondaryProxySettingsScreen.kt: 3 вызова в 3 файлах. Отмечено ✅ в таблице выше. У ProxyRestoreDialog появился заголовок `proxy_list_title`, вопрос остался текстом.
+- Итог части 2: 8 вызовов в 8 файлах. Группы «истории», «оформление», «proxy», «diagnostics» и «notifications» закрыты, прямых вызовов `AlertDialog` в коде не осталось.

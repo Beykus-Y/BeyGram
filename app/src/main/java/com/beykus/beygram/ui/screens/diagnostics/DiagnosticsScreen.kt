@@ -26,12 +26,11 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -148,18 +147,18 @@ fun DiagnosticsScreen(
     }
 
     viewingData?.let { text ->
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { viewingData = null },
-            title = { Text(stringResource(R.string.report_preview_title)) },
-            text = {
+            title = stringResource(R.string.report_preview_title),
+            content = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(text, fontSize = 12.sp, lineHeight = 16.sp)
                     Spacer(Modifier.height(8.dp))
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { viewingData = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
-            }
+            scrollableContent = false,
+            confirmText = stringResource(R.string.diagnostics_view_close),
+            onConfirm = { viewingData = null }
         )
     }
 }

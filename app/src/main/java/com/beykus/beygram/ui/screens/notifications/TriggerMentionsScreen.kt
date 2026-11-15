@@ -5,7 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -56,19 +56,18 @@ fun TriggerMentionsScreen(store: TriggerWordsStore, onBack: () -> Unit) {
         }
     }
     if (confirmClear) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text(stringResource(R.string.trigger_mentions_clear_title)) },
-            text = { Text(stringResource(R.string.trigger_mentions_clear_body)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    store.clearMentions()
-                    confirmClear = false
-                }) { Text(stringResource(R.string.trigger_mentions_clear_confirm), color = palette.danger) }
+            title = stringResource(R.string.trigger_mentions_clear_title),
+            message = stringResource(R.string.trigger_mentions_clear_body),
+            confirmText = stringResource(R.string.trigger_mentions_clear_confirm),
+            onConfirm = {
+                store.clearMentions()
+                confirmClear = false
             },
-            dismissButton = {
-                TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.common_cancel)) }
-            }
+            destructive = true,
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { confirmClear = false }
         )
     }
 }
