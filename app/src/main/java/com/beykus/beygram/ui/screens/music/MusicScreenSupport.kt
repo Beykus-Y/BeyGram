@@ -18,11 +18,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -365,10 +365,10 @@ internal fun MusicTextDialog(
     onDismiss: () -> Unit
 ) {
     var text by remember { mutableStateOf(initial) }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
+        title = title,
+        content = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
@@ -378,14 +378,10 @@ internal fun MusicTextDialog(
                 modifier = Modifier.fillMaxWidth()
             )
         },
-        confirmButton = {
-            TextButton(
-                enabled = allowBlank || text.isNotBlank(),
-                onClick = { onConfirm(text.trim()) }
-            ) { Text(confirmText) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
-        }
+        confirmText = confirmText,
+        confirmEnabled = allowBlank || text.isNotBlank(),
+        onConfirm = { onConfirm(text.trim()) },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss
     )
 }

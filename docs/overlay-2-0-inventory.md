@@ -5,7 +5,7 @@
 | Файл | Вызовов `AlertDialog(` | Строки |
 |---|---|---|
 | ✅ BeyGramApp.kt · #886 | 7 | 1426 1450 1468 1513 3232 3305 3362 |
-| ui/screens/bgmusic/BgMusicPreviewScreen.kt | 2 | 348 385 |
+| ✅ ui/screens/bgmusic/BgMusicPreviewScreen.kt · #887 | 2 | 348 385 |
 | ✅ ui/screens/chat/BotButtons.kt · #877 | 1 | 77 |
 | ✅ ui/screens/chat/ChatExportDialog.kt · #879 | 6 | 134 253 290 306 335 366 |
 | ✅ ui/screens/chat/ChatScreen.kt · #877 | 3 | 2338 2802 2881 |
@@ -37,8 +37,8 @@
 | ui/screens/diagnostics/DiagnosticsScreen.kt | 1 | 151 |
 | ui/screens/diagnostics/ReportProblemScreen.kt | 1 | 182 |
 | ui/screens/diagnostics/ResourcesScreen.kt | 1 | 119 |
-| ui/screens/music/MusicPlaylistScreen.kt | 2 | 424 443 |
-| ui/screens/music/MusicScreenSupport.kt | 1 | 368 |
+| ✅ ui/screens/music/MusicPlaylistScreen.kt · #887 | 2 | 424 443 |
+| ✅ ui/screens/music/MusicScreenSupport.kt · #887 | 1 | 368 |
 | ui/screens/notifications/TriggerMentionsScreen.kt | 1 | 59 |
 | ui/screens/notifications/TriggerWordsScreen.kt | 1 | 360 |
 | ui/screens/playback/MusicPlayerSheet.kt | 2 | 809 1616 |
@@ -119,3 +119,9 @@
 - ContactsScreen.kt (добавление, изменение, удаление и отправка контакта), NewChatScreen.kt (предпросмотр приглашения) и BeyGramApp.kt (запросы на отправку из других приложений, пути входа по ссылке, уведомление). 12 вызовов в 3 файлах. Отмечено ✅ в таблице выше.
 - В BeyGramDialog добавлен необязательный параметр scrollableContent (по умолчанию true). Диалог отправки контакта передаёт false, потому что его список уже прокручивается сам.
 - Группа «список чатов» закрыта после слияния #885 и #886: 17 вызовов в 7 файлах (части 1 и 2).
+
+## Статус группы «музыка», часть 1 (#870, PR #887)
+
+- BgMusicPreviewScreen.kt (2), MusicPlaylistScreen.kt (2), MusicScreenSupport.kt (1): 5 вызовов в 3 файлах. Отмечено ✅ в таблице выше.
+- В BeyGramDialog добавлены необязательные параметры neutralText и onNeutral: третье действие слева в ряду кнопок, для выбора «сохранить копию» при импорте BG Mix.
+- Часть 2 (MusicPlayerSheet.kt, PlayerSoundSheet.kt, ShareWave.kt): отдельный PR после слияния части 1.

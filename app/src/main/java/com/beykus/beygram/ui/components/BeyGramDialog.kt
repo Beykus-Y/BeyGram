@@ -47,6 +47,8 @@ import androidx.compose.ui.window.SecureFlagPolicy
  * - Width is capped at 560dp; height at 80% of the window, so tablets and landscape keep a sane size.
  * - Set [secure] for sensitive content such as a key or a code: the window gets FLAG_SECURE, so screenshots and screen
  *   recordings do not show it.
+ * - Set [neutralText] and [onNeutral] for a third action, such as a save-as-copy choice beside the confirm and dismiss
+ *   buttons. It sits at the start of the action row and is never the default.
  */
 @Composable
 fun BeyGramDialog(
@@ -66,7 +68,9 @@ fun BeyGramDialog(
     dismissOnClickOutside: Boolean = true,
     shape: Shape = RoundedCornerShape(24.dp),
     secure: Boolean = false,
-    scrollableContent: Boolean = true
+    scrollableContent: Boolean = true,
+    neutralText: String? = null,
+    onNeutral: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.8f).dp
@@ -126,6 +130,12 @@ fun BeyGramDialog(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (neutralText != null && onNeutral != null) {
+                        TextButton(onClick = onNeutral) {
+                            Text(neutralText, color = palette.textSecondary)
+                        }
+                        Spacer(Modifier.weight(1f))
+                    }
                     if (dismissText != null) {
                         TextButton(onClick = onDismiss ?: onDismissRequest, enabled = dismissEnabled) {
                             Text(dismissText, color = if (dismissEnabled) palette.textSecondary else palette.disabled)
