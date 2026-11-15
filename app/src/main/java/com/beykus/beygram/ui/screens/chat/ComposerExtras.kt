@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,20 +15,14 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -73,11 +68,11 @@ internal fun PollComposerDialog(onDismiss: () -> Unit, onSend: (OutgoingPoll) ->
     var explanation by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<PollDraftProblem?>(null) }
     val questionLength = question.codePointCount(0, question.length)
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.poll_composer_title)) },
-        text = {
-            Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
+        title = stringResource(R.string.poll_composer_title),
+        content = {
+            Column {
                 OutlinedTextField(
                     value = question,
                     onValueChange = { if (it.codePointCount(0, it.length) <= OutgoingPoll.MAX_POLL_QUESTION_LENGTH) question = it },
@@ -166,25 +161,22 @@ internal fun PollComposerDialog(onDismiss: () -> Unit, onSend: (OutgoingPoll) ->
                 error?.let { Text(pollProblemText(it), color = palette.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp)) }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val poll = OutgoingPoll(
-                        question = question,
-                        options = options,
-                        isAnonymous = anonymous,
-                        allowsMultipleAnswers = multiple,
-                        isQuiz = quiz,
-                        correctOptionIndices = if (quiz) correct else emptySet(),
-                        explanation = explanation
-                    )
-                    val problem = poll.problem()
-                    if (problem != null) error = problem else onSend(poll)
-                },
-                modifier = Modifier.defaultMinSize(minHeight = 48.dp)
-            ) { Text(stringResource(R.string.poll_composer_send)) }
+        confirmText = stringResource(R.string.poll_composer_send),
+        onConfirm = {
+            val poll = OutgoingPoll(
+                question = question,
+                options = options,
+                isAnonymous = anonymous,
+                allowsMultipleAnswers = multiple,
+                isQuiz = quiz,
+                correctOptionIndices = if (quiz) correct else emptySet(),
+                explanation = explanation
+            )
+            val problem = poll.problem()
+            if (problem != null) error = problem else onSend(poll)
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss
     )
 }
 
@@ -219,11 +211,11 @@ internal fun ContactPickerDialog(
             it.title.lowercase().contains(needle) || it.phone.contains(needle) || it.subtitle.lowercase().contains(needle)
         }
     }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.contact_picker_title)) },
-        text = {
-            Column(Modifier.heightIn(max = 480.dp)) {
+        title = stringResource(R.string.contact_picker_title),
+        content = {
+            Column {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -243,8 +235,9 @@ internal fun ContactPickerDialog(
                     }
                     shown.isEmpty() -> Text(stringResource(R.string.contact_picker_empty), color = palette.textSecondary,
                         modifier = Modifier.padding(12.dp))
-                    else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
-                        items(shown, key = { it.userId }) { contact ->
+                    else -> Column(Modifier.fillMaxWidth()) {
+                        // A plain Column on purpose: BeyGramDialog scrolls its own content, and a lazy list cannot sit inside that scroll area.
+                        shown.forEach { contact ->
                             Row(
                                 Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(styledShape(10.dp))
                                     .clickable(role = Role.Button) { onPick(contact) }.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -266,7 +259,8 @@ internal fun ContactPickerDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) } }
+        confirmText = stringResource(R.string.common_close),
+        onConfirm = onDismiss
     )
 }
 
@@ -274,10 +268,10 @@ internal fun ContactPickerDialog(
 internal fun DicePickerDialog(onDismiss: () -> Unit, onPick: (String) -> Unit) {
     val palette = beyGramPalette()
     val choices = listOf("🎲", "🎯", "🏀", "⚽", "🎳", "🎰")
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.dice_picker_title)) },
-        text = {
+        title = stringResource(R.string.dice_picker_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 choices.chunked(3).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -295,6 +289,7 @@ internal fun DicePickerDialog(onDismiss: () -> Unit, onPick: (String) -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) } }
+        confirmText = stringResource(R.string.common_close),
+        onConfirm = onDismiss
     )
 }
