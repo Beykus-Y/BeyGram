@@ -20,7 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -214,42 +214,43 @@ fun BlockedSendersScreen(
     }
 
     reportTarget?.let { sender ->
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (!reportsBusy) reportTarget = null },
-            title = { Text(stringResource(R.string.blocked_report_spam)) },
-            text = {
+            title = stringResource(R.string.blocked_report_spam),
+            content = {
                 Column {
                     Text(stringResource(R.string.blocked_report_spam_warning))
                     if (reportsBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp), color = palette.accent)
                 }
             },
-            confirmButton = {
-                TextButton(enabled = !reportsBusy, onClick = {
-                    reportsBusy = true
-                    actionError = null
-                    scope.launch {
-                        try {
-                            reportSpam(sender.senderId).fold(
-                                {
-                                    reportTarget = null
-                                    Toast.makeText(context, R.string.blocked_report_sent, Toast.LENGTH_SHORT).show()
-                                },
-                                { actionError = it.userMessage(context, R.string.blocked_report_failed); reportTarget = null }
-                            )
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (failure: Exception) {
-                            actionError = failure.userMessage(context, R.string.blocked_report_failed)
-                            reportTarget = null
-                        } finally {
-                            reportsBusy = false
-                        }
+            confirmText = stringResource(R.string.feature_confirm),
+            confirmEnabled = !reportsBusy,
+            destructive = true,
+            onConfirm = {
+                reportsBusy = true
+                actionError = null
+                scope.launch {
+                    try {
+                        reportSpam(sender.senderId).fold(
+                            {
+                                reportTarget = null
+                                Toast.makeText(context, R.string.blocked_report_sent, Toast.LENGTH_SHORT).show()
+                            },
+                            { actionError = it.userMessage(context, R.string.blocked_report_failed); reportTarget = null }
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        actionError = failure.userMessage(context, R.string.blocked_report_failed)
+                        reportTarget = null
+                    } finally {
+                        reportsBusy = false
                     }
-                }) { Text(stringResource(R.string.feature_confirm), color = palette.danger) }
+                }
             },
-            dismissButton = {
-                TextButton(enabled = !reportsBusy, onClick = { reportTarget = null }) { Text(stringResource(R.string.common_cancel)) }
-            }
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !reportsBusy,
+            onDismiss = { reportTarget = null }
         )
     }
 }

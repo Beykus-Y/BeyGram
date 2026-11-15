@@ -38,6 +38,7 @@ import androidx.compose.ui.window.SecureFlagPolicy
  *   scrolling container (LazyColumn and similar) in [content]; it sits inside the dialog's own scroll area.
  * - [onConfirm] is the primary action. [onDismiss] is the tap on the dismiss (cancel) button, if [dismissText] is set;
  *   [onDismissRequest] handles Back, outside taps and any other close.
+ * - [dismissEnabled] turns the dismiss button off, for example while a request is still running.
  * - Set [destructive] to draw the confirm action in the danger colour. A destructive action is never the default.
  * - Only title, message and content scroll; the action row stays visible with a large system font.
  * - Width is capped at 560dp; height at 80% of the window, so tablets and landscape keep a sane size.
@@ -55,6 +56,7 @@ fun BeyGramDialog(
     onConfirm: () -> Unit,
     dismissText: String? = null,
     onDismiss: (() -> Unit)? = null,
+    dismissEnabled: Boolean = true,
     destructive: Boolean = false,
     confirmEnabled: Boolean = true,
     dismissOnBackPress: Boolean = true,
@@ -120,8 +122,8 @@ fun BeyGramDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (dismissText != null) {
-                        TextButton(onClick = onDismiss ?: onDismissRequest) {
-                            Text(dismissText, color = palette.textSecondary)
+                        TextButton(onClick = onDismiss ?: onDismissRequest, enabled = dismissEnabled) {
+                            Text(dismissText, color = if (dismissEnabled) palette.textSecondary else palette.disabled)
                         }
                         Spacer(Modifier.width(8.dp))
                     }

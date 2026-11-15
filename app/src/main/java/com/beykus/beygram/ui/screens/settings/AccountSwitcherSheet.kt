@@ -26,7 +26,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -480,82 +480,63 @@ internal fun AccountSwitcherSheet(
     confirmLogoutId?.let { accountId ->
         val title = rows.firstOrNull { it.accountId == accountId }?.title
             ?: stringResource(R.string.secondary_accounts_account_label, 2)
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (busyAccountId == null) confirmLogoutId = null },
-            title = { Text(stringResource(R.string.multi_account_logout_title)) },
-            text = {
+            title = stringResource(R.string.multi_account_logout_title),
+            content = {
                 Column {
                     Text(title, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     Text(stringResource(R.string.multi_account_logout_message))
                 }
             },
-            confirmButton = {
-                TextButton(
-                    enabled = busyAccountId == null,
-                    onClick = {
-                        confirmLogoutId = null
-                        logout(accountId)
-                    }
-                ) { Text(stringResource(R.string.multi_account_logout_confirm)) }
+            confirmText = stringResource(R.string.multi_account_logout_confirm),
+            confirmEnabled = busyAccountId == null,
+            onConfirm = {
+                confirmLogoutId = null
+                logout(accountId)
             },
-            dismissButton = {
-                TextButton(onClick = { confirmLogoutId = null }, enabled = busyAccountId == null) {
-                    Text(stringResource(R.string.multi_account_cancel))
-                }
-            }
+            dismissText = stringResource(R.string.multi_account_cancel),
+            dismissEnabled = busyAccountId == null,
+            onDismiss = { confirmLogoutId = null }
         )
     }
 
     confirmDiscardId?.let { accountId ->
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (busyAccountId == null) confirmDiscardId = null },
-            title = { Text(stringResource(R.string.account_switcher_delete_title)) },
-            text = { Text(stringResource(R.string.account_switcher_delete_message)) },
-            confirmButton = {
-                TextButton(
-                    enabled = busyAccountId == null,
-                    onClick = {
-                        confirmDiscardId = null
-                        discard(accountId)
-                    }
-                ) { Text(stringResource(R.string.account_switcher_delete_confirm)) }
+            title = stringResource(R.string.account_switcher_delete_title),
+            message = stringResource(R.string.account_switcher_delete_message),
+            confirmText = stringResource(R.string.account_switcher_delete_confirm),
+            confirmEnabled = busyAccountId == null,
+            onConfirm = {
+                confirmDiscardId = null
+                discard(accountId)
             },
-            dismissButton = {
-                TextButton(onClick = { confirmDiscardId = null }, enabled = busyAccountId == null) {
-                    Text(stringResource(R.string.multi_account_cancel))
-                }
-            }
+            dismissText = stringResource(R.string.multi_account_cancel),
+            dismissEnabled = busyAccountId == null,
+            onDismiss = { confirmDiscardId = null }
         )
     }
 
     confirmDisconnectId?.let { accountId ->
         val signedIn = rows.firstOrNull { it.accountId == accountId }?.canLogout == true
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (busyAccountId == null) confirmDisconnectId = null },
-            title = { Text(stringResource(R.string.account_switcher_disconnect_title)) },
-            text = {
-                Text(
-                    stringResource(
-                        if (signedIn) R.string.account_switcher_disconnect_message
-                        else R.string.account_switcher_disconnect_unsigned_message
-                    )
-                )
+            title = stringResource(R.string.account_switcher_disconnect_title),
+            message = stringResource(
+                if (signedIn) R.string.account_switcher_disconnect_message
+                else R.string.account_switcher_disconnect_unsigned_message
+            ),
+            confirmText = stringResource(R.string.account_switcher_disconnect_confirm),
+            confirmEnabled = busyAccountId == null,
+            onConfirm = {
+                confirmDisconnectId = null
+                disconnect(accountId)
             },
-            confirmButton = {
-                TextButton(
-                    enabled = busyAccountId == null,
-                    onClick = {
-                        confirmDisconnectId = null
-                        disconnect(accountId)
-                    }
-                ) { Text(stringResource(R.string.account_switcher_disconnect_confirm)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDisconnectId = null }, enabled = busyAccountId == null) {
-                    Text(stringResource(R.string.multi_account_cancel))
-                }
-            }
+            dismissText = stringResource(R.string.multi_account_cancel),
+            dismissEnabled = busyAccountId == null,
+            onDismiss = { confirmDisconnectId = null }
         )
     }
 
@@ -1124,10 +1105,10 @@ private fun AccountRouteDialog(
     onApply: (TdSecondaryRoutePreference) -> Unit
 ) {
     var selected by remember { mutableStateOf(current) }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(R.string.account_switcher_route_title)) },
-        text = {
+        title = stringResource(R.string.account_switcher_route_title),
+        content = {
             Column {
                 if (accountTitle != null) {
                     Text(accountTitle, fontWeight = FontWeight.SemiBold)
@@ -1158,16 +1139,12 @@ private fun AccountRouteDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(enabled = !busy, onClick = { onApply(selected) }) {
-                Text(stringResource(R.string.account_switcher_route_apply))
-            }
-        },
-        dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) {
-                Text(stringResource(R.string.multi_account_cancel))
-            }
-        }
+        confirmText = stringResource(R.string.account_switcher_route_apply),
+        confirmEnabled = !busy,
+        onConfirm = { onApply(selected) },
+        dismissText = stringResource(R.string.multi_account_cancel),
+        dismissEnabled = !busy,
+        onDismiss = onDismiss
     )
 }
 
