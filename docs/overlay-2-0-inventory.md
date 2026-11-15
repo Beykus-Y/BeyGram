@@ -46,8 +46,8 @@
 | ui/screens/playback/ShareWave.kt | 1 | 106 |
 | ✅ ui/screens/profile/ChatInfoMenu.kt · #882 | 2 | 52 100 |
 | ui/screens/profile/GiftsScreen.kt | 1 | 533 |
-| ui/screens/profile/GroupInvitesScreen.kt | 3 | 182 259 415 |
-| ui/screens/profile/GroupMembersScreen.kt | 3 | 309 358 419 |
+| ✅ ui/screens/profile/GroupInvitesScreen.kt · #883 | 3 | 182 259 415 |
+| ✅ ui/screens/profile/GroupMembersScreen.kt · #883 | 3 | 309 358 419 |
 | ✅ ui/screens/profile/GroupSettingsScreen.kt · #882 | 1 | 323 |
 | ui/screens/profile/PremiumScreen.kt | 2 | 895 1065 |
 | ✅ ui/screens/profile/ProfilePhotoGallery.kt · #882 | 1 | 146 |
@@ -97,3 +97,8 @@
 
 - #882 (часть 1): ProfileScreen, ChatInfoMenu, ProfilePhotoGallery, GroupSettingsScreen. 5 вызовов в 4 файлах. Отмечено ✅ в таблице выше.
 - Осталось: GroupMembersScreen и GroupInvitesScreen (часть 2); PremiumScreen, StarsScreen и GiftsScreen (часть 3).
+
+## Статус группы «профили и группы», часть 2 (#870, PR #883)
+
+- GroupMembersScreen и GroupInvitesScreen: 6 вызовов в 2 файлах. Отмечено ✅ в таблице выше.
+- Осталось: PremiumScreen, StarsScreen и GiftsScreen (часть 3).
