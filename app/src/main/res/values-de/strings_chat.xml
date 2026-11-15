@@ -259,4 +259,9 @@
     <string name="err_chat_export_protected_chat">Export nicht erlaubt: Der Chat schützt seinen Inhalt vor dem Speichern</string>
     <string name="err_chat_export_date_range">Prüfe den Zeitraum des Chat-Exports</string>
     <string name="message_action_react">Reaktion hinzufügen</string>
+    <string name="chat_status_waiting_network">wartet auf Netzwerk</string>
+    <string name="chat_send_failure_details">Details</string>
+    <string name="chat_send_failure_title">Nachricht konnte nicht gesendet werden</string>
+    <string name="chat_send_failure_discard">Löschen</string>
+    <string name="chat_send_failure_copy">Text kopieren</string>
 </resources>

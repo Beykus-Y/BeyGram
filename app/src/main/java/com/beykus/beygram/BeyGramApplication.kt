@@ -2,6 +2,7 @@ package com.beykus.beygram
 
 import android.app.Application
 import android.util.Log
+import com.beykus.beygram.ui.screens.chat.PendingTextSendSessions
 import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import com.beykus.beygram.data.music.MusicHistoryRecorder
@@ -40,6 +41,7 @@ class BeyGramApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        PendingTextSendSessions.scheduleStartupQuarantine(this)
         MultiAccountDiagnostics.initialize(this)
         BgWaveHub.attachAudioManager(getSystemService(android.media.AudioManager::class.java))
         // Stage A of multi-account: metadata-only zero-copy migration. The existing

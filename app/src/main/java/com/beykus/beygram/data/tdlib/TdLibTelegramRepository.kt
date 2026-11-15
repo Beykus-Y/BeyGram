@@ -83,6 +83,7 @@ import com.beykus.beygram.data.media.AutoDownloadTdlibMapping
 import com.beykus.beygram.data.media.TrafficUsageStore
 import com.beykus.beygram.data.media.currentAutoDownloadNetwork
 import com.beykus.beygram.data.delayed.DelayedSendQueue
+import com.beykus.beygram.ui.screens.chat.PendingTextSendSessions
 import com.beykus.beygram.data.media.decideAutoDownload
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.data.chatmemory.ChatMemoryChatFacts
@@ -2956,6 +2957,8 @@ class TdLibTelegramRepository private constructor(
                 // proxy and listener while network is forced OFF.
             }
             is TdApi.AuthorizationStateWaitPhoneNumber -> {
+                runCatching { PendingTextSendSessions.signedOut(appContext, accountId) }
+                    .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
                 if (!isLegacyAccount) secondaryAuthorizationLost = true
                 val restartQr = qrRetryAfterReopen
                 qrRetryAfterReopen = false
@@ -2996,6 +2999,8 @@ class TdLibTelegramRepository private constructor(
             }
             is TdApi.AuthorizationStateReady -> {
                 registerWaveSender()
+                runCatching { PendingTextSendSessions.authorized(appContext, accountId) }
+                    .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
                 clearQrLoginState()
                 secondaryAuthorizationLost = false
                 _authState.value = AuthState.Ready
@@ -3041,6 +3046,8 @@ class TdLibTelegramRepository private constructor(
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
+                runCatching { PendingTextSendSessions.signedOut(appContext, accountId) }
+                    .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
                 if (!isLegacyAccount) secondaryAuthorizationLost = true
                 autoDownloads.clear()
                 cancelledAutoDownloads.clear()
@@ -3492,6 +3499,7 @@ class TdLibTelegramRepository private constructor(
         dateSeconds = date.toLong(),
         isForwarded = forwardInfo != null,
         sendState = sendingState.toSendState(),
+        sendError = (sendingState as? TdApi.MessageSendingStateFailed)?.error?.message?.takeIf { it.isNotBlank() },
         media = if (secretChat) attachment?.copy(isSecretChat = true) else attachment,
         special = special,
         mediaAlbumId = mediaAlbumId,

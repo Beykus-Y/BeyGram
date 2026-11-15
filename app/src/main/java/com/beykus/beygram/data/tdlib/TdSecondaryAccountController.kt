@@ -596,6 +596,7 @@ internal class TdSecondaryAccountController private constructor(
         // Creating the queue can also create the account's stealth store, so this runs before the stealth store is released below.
         DelayedSendQueue.forAccount(app, accountId).clear()
         DelayedSendQueue.releaseAccount(accountId)
+        com.beykus.beygram.ui.screens.chat.PendingTextSendSessions.signedOutAndPurge(app, accountId)
         DelayedSendSettingsStore.releaseAccount(accountId)
         com.beykus.beygram.data.archive.ArchiveSettingsStore.releaseAccount(accountId)
         StealthSettingsStore.releaseAccount(accountId)

@@ -9,6 +9,8 @@ import android.content.ClipData
 import com.beykus.beygram.ui.design.styledShape
 import android.content.ClipboardManager
 import android.widget.Toast
+import java.text.DateFormat
+import java.util.Date
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -325,7 +327,20 @@ fun ChatScreen(
             cancelActiveJump()
         }
     }
-    var sending by remember { mutableStateOf(false) }
+    var sending by remember(accountId, chat.id, forumTopicId) { mutableStateOf(false) }
+    val sendApplication = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val textSendGeneration by remember(accountId) { PendingTextSendSessions.generation(accountId) }.collectAsStateWithLifecycle()
+    val textSendQueue = remember(sendApplication, accountId, textSendGeneration) {
+        PendingTextSendSessions.queue(sendApplication, accountId)
+    }
+    val textSendScopeKey = remember(accountId, chat.id, forumTopicId) { TextSendScopeKey(accountId, chat.id, forumTopicId) }
+    val textQueueWriting by remember(textSendQueue, textSendScopeKey) {
+        textSendQueue.composerWriting(textSendScopeKey)
+    }.collectAsStateWithLifecycle(initialValue = false)
+    val queuedTextAttempts by remember(textSendQueue, textSendScopeKey) {
+        textSendQueue.observe(textSendScopeKey)
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+    var failedSendTarget by remember(accountId, chat.id, forumTopicId) { mutableStateOf<FailedSendTarget?>(null) }
     var sendOptionsOpen by remember(chat.id) { mutableStateOf(false) }
     // A sticker long-pressed in the picker waits for the explicit send-options choice (silent/scheduled).
     var pendingSticker by remember(chat.id) { mutableStateOf<OutgoingMedia?>(null) }
@@ -363,6 +378,13 @@ fun ChatScreen(
         }
     }
     var error by remember { mutableStateOf<String?>(null) }
+    val queueStorageFailed by textSendQueue.storageFailed.collectAsStateWithLifecycle()
+    val queueStorageCorrupt by textSendQueue.storageCorrupt.collectAsStateWithLifecycle()
+    val queueStorageFailureText = stringResource(R.string.chat_send_queue_storage_failed)
+    LaunchedEffect(textSendQueue, chat.id, queueStorageFailed, queueStorageCorrupt) {
+        if (queueStorageFailed && !queueStorageCorrupt) error = queueStorageFailureText
+        else if (!queueStorageFailed && error == queueStorageFailureText) error = null
+    }
     var copyLinks by remember(chat.id) { mutableStateOf<List<String>>(emptyList()) }
     // The audio message whose More menu asked to save it to a playlist. Clearing it closes the sheet.
     var playlistTrack by remember(accountId) { mutableStateOf<PlaylistTrack?>(null) }
@@ -557,6 +579,32 @@ fun ChatScreen(
             result
         }
     )
+    fun retryLocalTextAttempt(attemptId: Long, sendNowConsent: Boolean = false) {
+        textSendQueue.launchMutation {
+            try {
+                val baseline = if (forumTopicId > 0L) {
+                    conversation.observeForumTopicHistory(chat.id, forumTopicId).value.liveArrivalSequence
+                } else {
+                    conversation.observeChatHistory(chat.id).value.liveArrivalSequence
+                }
+                textSendQueue.retry(
+                    scopeKey = textSendScopeKey,
+                    attemptId = attemptId,
+                    sendNowConsent = sendNowConsent,
+                    baselineSequence = baseline,
+                    execute = { attempt -> executeTextSendAttempt(conversation, attempt) },
+                    onFailure = { attempt, failure ->
+                        attachments.stealthFallback.offer(failure) {
+                            retryLocalTextAttempt(attempt.attemptId, sendNowConsent = true)
+                        }
+                    },
+                    formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
+                )
+            } catch (_: TextSendStorageException) {
+                error = queueStorageFailureText
+            }
+        }
+    }
     fun retryFailedMessages(messageIds: List<Long>, sendNowConsent: Boolean = false) {
         scope.launch {
             val result = conversation.retryMessages(chat.id, messageIds, sendNowConsent)
@@ -713,9 +761,17 @@ fun ChatScreen(
     val albumItems = remember(messages, waveChat) {
         groupTelegramMediaAlbums(if (waveChat) messages.filterNot(::isBgWaveSignalMessage) else messages)
     }
+    val visibleTextAttempts = remember(queuedTextAttempts, history) {
+        visiblePendingTextAttempts(queuedTextAttempts, history)
+    }
+    val localTextAttemptIds = remember(visibleTextAttempts) {
+        visibleTextAttempts.associateBy { -it.attemptId }
+    }
     // Кружки в обработке стоят в списке первыми (внизу ленты), чтобы индексы прокрутки и дат учитывали их тоже.
-    val rawMessageItems = remember(albumItems, pendingVideoNotes) {
-        pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } + albumItems
+    val rawMessageItems = remember(albumItems, pendingVideoNotes, visibleTextAttempts) {
+        pendingVideoNotes.map { ChatMessageListItem("pending-video:${it.sessionName}", emptyList(), pendingVideoNote = it) } +
+            visibleTextAttempts.map { ChatMessageListItem("pending-text:${it.attemptId}", listOf(it.toChatMessage())) } +
+            albumItems
     }
     val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
         scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
@@ -729,11 +785,33 @@ fun ChatScreen(
     val currentMessages by rememberUpdatedState(messages)
     // Live insertions are claimed before the lazy list composes its rows, so only genuinely new messages animate once.
     val animationTracker = remember(chat.id, forumTopicId) { MessageArrivalTracker() }
-    remember(history) { animationTracker.observe(history) }
     // Decorative effects are capped per chat, so a burst of arrivals cannot stack several Lottie overlays.
     val effectLimiter = remember(chat.id, forumTopicId) { MessageEffectPlaybackLimiter() }
     // Composer Launch is a spatial overlay; the real row stays hidden until the overlay lands on it.
-    val composerLaunches = remember(chat.id, forumTopicId) { mutableStateListOf<ComposerLaunch>() }
+    val composerLaunches = remember(accountId, chat.id, forumTopicId) { mutableStateListOf<ComposerLaunch>() }
+    val completedLocalLaunches = remember(accountId, chat.id, forumTopicId) { mutableListOf<Triple<String, Long?, Long>>() }
+    remember(history) {
+        animationTracker.observe(history)
+        if (completedLocalLaunches.isNotEmpty()) {
+            val claimed = HashSet<Long>()
+            val iterator = completedLocalLaunches.iterator()
+            while (iterator.hasNext()) {
+                val (launchText, launchReply, launchBaseline) = iterator.next()
+                val match = findComposerLaunchMessage(
+                    history = history,
+                    text = launchText,
+                    replyToMessageId = launchReply,
+                    baselineSequence = launchBaseline,
+                    assignedIds = claimed
+                )
+                if (match != null) {
+                    claimed += resolveMessageIdThroughReplacements(match.id, history.recentReplacements)
+                    animationTracker.claim(listOf(match.id))
+                    iterator.remove()
+                }
+            }
+        }
+    }
     var composerFieldBounds by remember { mutableStateOf<Rect?>(null) }
     val composerCursor = remember(chat.id) { ComposerCursor() }
     var launchOverlayBounds by remember { mutableStateOf<Rect?>(null) }
@@ -747,12 +825,18 @@ fun ChatScreen(
         launch = composerLaunches.firstOrNull { it.key == composerDraftLaunchKey }
     )
     // Follow sends across the temporary-to-server id replacement and cancel transitions for failed messages.
-    LaunchedEffect(composerLaunches.toList(), history.messages, history.liveArrivals, history.recentReplacements) {
+    LaunchedEffect(composerLaunches.toList(), history.messages, history.liveArrivals, history.recentReplacements, queuedTextAttempts) {
         if (composerLaunches.isEmpty()) return@LaunchedEffect
         val assigned = composerLaunches.mapNotNull { launch ->
             launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
         }.toMutableSet()
         composerLaunches.sortedBy { it.key }.toList().forEach { launch ->
+            val localId = launch.localAttemptId
+            if (localId != null && queuedTextAttempts.any { it.attemptId == localId && it.phase == TextSendAttemptPhase.Failed }) {
+                composerLaunches.remove(launch)
+                if (composerDraftLaunchKey == launch.key) composerDraftLaunchKey = null
+                return@forEach
+            }
             val existing = launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
             if (existing != null) {
                 val current = messages.firstOrNull { it.id == existing }
@@ -778,24 +862,7 @@ fun ChatScreen(
         }
     }
     // Resolve the same assignment synchronously for this list frame, so a new outgoing row is hidden before the effect runs.
-    val launchTargets = buildMap<Long, ComposerLaunch> {
-        val assigned = mutableSetOf<Long>()
-        composerLaunches.sortedBy { it.key }.forEach { launch ->
-            val existing = launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
-            if (existing != null) {
-                assigned += existing
-                put(existing, launch)
-            } else {
-                val candidate = findComposerLaunchMessage(
-                    history, launch.text, launch.replyToMessageId, launch.baselineSequence, assigned
-                )
-                if (candidate != null) {
-                    assigned += candidate.id
-                    put(candidate.id, launch)
-                }
-            }
-        }
-    }
+    val launchTargets = resolveComposerLaunchTargets(composerLaunches, history, localTextAttemptIds.keys)
     val newest = messages.lastOrNull()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     // A batch collected while the app was away is not a burst of entrances; keep the tracker paused through the first resume frames.
@@ -1570,7 +1637,7 @@ fun ChatScreen(
      * the choice applies to this send only and is not kept for the next one.
      */
     fun sendCurrentDraft(options: MessageSendOptions) {
-        if (secretChatClosed || editId != null || inlineSending) return
+        if (secretChatClosed || editId != null || inlineSending || textSendQueue.isComposerWriting(textSendScopeKey)) return
         pendingSticker?.let { sticker ->
             pendingSticker = null
             attachments.sendStickerWithOptions(sticker, options)
@@ -1603,30 +1670,89 @@ fun ChatScreen(
             }
             DelayedSendRoute.SendNow -> Unit
         }
-        // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
-        val launch = if (effectiveOptions.scheduledAtSeconds == null && !stealthScheduled && messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch && outgoing.text.isNotBlank()) {
-            composerFieldBounds?.let { source ->
-                composerLaunchCounter += 1
-                ComposerLaunch(
-                    key = composerLaunchCounter,
-                    text = outgoing.text,
-                    entities = outgoing.entities,
-                    replyToMessageId = replyId,
-                    sourceBounds = source,
-                    baselineSequence = history.liveArrivalSequence,
-                    speed = outgoingAnimation.tuning.speed
-                ).also {
-                    composerDraftLaunchKey = it.key
-                    composerLaunches += it
-                    while (composerLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) composerLaunches.removeAt(0)
-                }
+        if (effectiveOptions.scheduledAtSeconds == null && !stealthScheduled) {
+            if (outgoing.text.isBlank()) return
+            val replySnapshot = replyId
+            val replyPreviewSnapshot = replySnapshot?.let { id ->
+                val target = messages.firstOrNull { it.id == id }
+                MessageReply(
+                    chatId = chat.id,
+                    messageId = id,
+                    text = target?.text?.takeIf { it.isNotBlank() }?.let { com.beykus.beygram.domain.UiText.Raw(it) }
+                        ?: com.beykus.beygram.domain.UiText.Res(R.string.chat_message),
+                    senderName = target?.senderName?.ifBlank {
+                        if (target.isOutgoing) context.getString(R.string.chat_you) else chat.title
+                    } ?: ""
+                )
             }
-        } else null
-        // A stealth lead too short for the server is waited out by the repository and outlives this screen, so the draft is
-        // taken now: a later success must not clear text typed meanwhile. A failure puts it back if the composer is still empty.
-        val stealthWaitsLocally = stealthHolds && !stealthScheduled && !effectiveOptions.sendNowConsent
+            val forceReplyId = botKeyboard?.takeIf { it.forceReply }?.messageId
+            val launch = if (messageAnimations.enabled && outgoingAnimation.preset == MessageAnimationPreset.ComposerLaunch) {
+                composerFieldBounds?.let { source ->
+                    composerLaunchCounter += 1
+                    ComposerLaunch(
+                        key = composerLaunchCounter,
+                        text = outgoing.text,
+                        entities = outgoing.entities,
+                        replyToMessageId = replySnapshot,
+                        sourceBounds = source,
+                        baselineSequence = history.liveArrivalSequence,
+                        speed = outgoingAnimation.tuning.speed
+                    ).also {
+                        composerLaunches += it
+                        while (composerLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) composerLaunches.removeAt(0)
+                    }
+                }
+            } else null
+            val timeLabel = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())
+            val baselineSeq = history.liveArrivalSequence
+            error = null
+            val submittedDraft = composerDraft
+            if (launch != null) composerDraftLaunchKey = launch.key
+            textSendQueue.launchComposerWrite(textSendScopeKey) {
+                try {
+                    val attempt = textSendQueue.enqueue(
+                        scopeKey = textSendScopeKey,
+                        text = outgoing.text,
+                        entities = outgoing.entities,
+                        replyToMessageId = replySnapshot,
+                        replyPreview = replyPreviewSnapshot,
+                        options = effectiveOptions,
+                        baselineSequence = baselineSeq,
+                        timeLabel = timeLabel,
+                        dismissForceReplyMessageId = forceReplyId,
+                        execute = { attempt -> executeTextSendAttempt(conversation, attempt) },
+                        onSuccess = {
+                            launch?.awaitingSend = false
+                        },
+                        onFailure = { attempt, failure ->
+                            launch?.awaitingSend = false
+                            launch?.let(composerLaunches::remove)
+                            if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                            attachments.stealthFallback.offer(failure) {
+                                retryLocalTextAttempt(attempt.attemptId, sendNowConsent = true)
+                            }
+                        },
+                        formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
+                    )
+                    launch?.localAttemptId = attempt.attemptId
+                    launch?.message = attempt.toChatMessage()
+                    launch?.awaitingSend = false
+                } catch (_: TextSendStorageException) {
+                    launch?.awaitingSend = false
+                    launch?.let(composerLaunches::remove)
+                    if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+                    error = queueStorageFailureText
+                    return@launchComposerWrite
+                }
+                updateDraft { current -> if (current == submittedDraft) MessageDraft() else current }
+                if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
+            }
+            return
+        }
+        // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
+        val launch: ComposerLaunch? = null
+        val stealthWaitsLocally = false
         val submitted = composerDraft
-        if (stealthWaitsLocally) updateDraft { MessageDraft() }
         sending = true; error = null
         scope.launch {
             var delivered = false
@@ -1988,12 +2114,35 @@ fun ChatScreen(
                                 ?.failure
                             if (message.isCallEvent && message.serviceText != null) CallMessageChip(message.serviceText, message.time)
                             else if (message.serviceText != null) ServiceMessageChip(message.serviceText, message.serviceUserId, onServiceUser)
-                            else MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
-                                highlighted = message.id == highlighted || message.id == actionsId, onOpen = { selectedMediaId = message.id }, onActions = { openActionsOnLongPress(message.id) }, onReplyClick = ::jump, onReply = if (swipeReplyAllowed) ::swipeReply else null,
-                                onPlayed = { conversation.openMessageContent(chat.id, message.id) },
-                                musicLinkCards = !chat.isSecret,
-                                waveAccountId = accountId.takeIf { waveChat },
-                                onRetry = { retryFailedMessages(listOf(message.id)) }, onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, ::requestBotWebApp, onOpenEntity = onOpenMessageEntity) },
+                            else {
+                                val localAttempt = localTextAttemptIds[message.id]
+                                MessageBubble(message, observeFile, onDownloadFile, isRead = message.isOutgoing && message.sendState == MessageSendState.Sent && message.id <= history.lastReadOutboxMessageId,
+                                    highlighted = message.id == highlighted || message.id == actionsId,
+                                    onOpen = { selectedMediaId = message.id },
+                                    onActions = {
+                                        if (localAttempt != null) {
+                                            if (localAttempt.phase == TextSendAttemptPhase.Failed) failedSendTarget = FailedSendTarget(message, localAttempt.attemptId)
+                                        } else {
+                                            openActionsOnLongPress(message.id)
+                                        }
+                                    },
+                                    onReplyClick = ::jump,
+                                    onReply = if (swipeReplyAllowed) ::swipeReply else null,
+                                    onPlayed = { conversation.openMessageContent(chat.id, message.id) },
+                                    musicLinkCards = !chat.isSecret,
+                                    waveAccountId = accountId.takeIf { waveChat },
+                                    onRetry = {
+                                        if (localAttempt != null) {
+                                            retryLocalTextAttempt(localAttempt.attemptId)
+                                        } else {
+                                            retryFailedMessages(listOf(message.id))
+                                        }
+                                    },
+                                    connectionState = connectionState,
+                                    onShowFailureDetails = if (message.isOutgoing && message.sendState == MessageSendState.Failed) {
+                                        { failedSendTarget = FailedSendTarget(message, localAttempt?.attemptId) }
+                                    } else null,
+                                    onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, ::requestBotWebApp, onOpenEntity = onOpenMessageEntity) },
                                 onBubblePositioned = bubblePosition,
                                 onMediaBounds = { rect -> mediaOrigins[message.id] = rect },
                                 translation = translationState,
@@ -2095,6 +2244,7 @@ fun ChatScreen(
                                 showSenderHeader = senderHeaderByKey[listItem.key] == true,
                                 paidContent = rememberPaidContentActions(conversation),
                                 onOpenMessageEntity = onOpenMessageEntity)
+                            }
                         }
                         }
                     }
@@ -2162,6 +2312,24 @@ fun ChatScreen(
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
         ChatChromeHost(chatGlass, GlassEdge.TopHairline, chatBackdrop, { bottomChromePx = it }) {
+        if (queueStorageCorrupt) Row(
+            Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(stringResource(R.string.chat_send_queue_corrupt_notice), color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = {
+                textSendQueue.launchMutation {
+                    try {
+                        textSendQueue.quarantineAndReset()
+                        if (error == queueStorageFailureText) error = null
+                    } catch (_: TextSendStorageException) {
+                        error = queueStorageFailureText
+                    }
+                }
+            }) {
+                Text(stringResource(R.string.chat_send_queue_reset_action), color = palette.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
         error?.let { failure -> Row(Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(failure, color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
             IconButton(onClick = { error = null }) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = palette.warningText) }
@@ -2284,7 +2452,7 @@ fun ChatScreen(
         val displayedFieldEntities = if (hidingComposerForLaunch && !editing) emptyList() else fieldEntities
         val fieldLimit = when { editing -> editLimit; attachments.active && attachments.extra == null -> limits.caption; else -> limits.text }
         val overLimit = fieldText.codePointCount(0, fieldText.length) > fieldLimit
-        val busy = sending || inlineSending || editBusy || attachments.sending
+        val busy = sending || inlineSending || editBusy || attachments.sending || textQueueWriting
         val canSend = !busy && when {
             editing -> fieldText != editMessage?.text && (editMessage?.media != null || fieldText.isNotBlank())
             attachments.active -> attachments.canSend
@@ -2455,6 +2623,12 @@ fun ChatScreen(
         chatId = chat.id,
         overlayBounds = launchOverlayBounds,
         onFinished = {
+            if (it.messageId == null && it.localAttemptId != null) {
+                completedLocalLaunches += Triple(it.text, it.replyToMessageId, it.baselineSequence)
+                while (completedLocalLaunches.size > MAX_ACTIVE_COMPOSER_LAUNCHES) {
+                    completedLocalLaunches.removeAt(0)
+                }
+            }
             composerLaunches.remove(it)
             if (composerDraftLaunchKey == it.key) composerDraftLaunchKey = null
         },
@@ -2638,6 +2812,36 @@ fun ChatScreen(
     )
     sendGuard.Dialog()
     attachments.stealthFallback.Dialog()
+    failedSendTarget?.let { target ->
+        FailedSendDetailsDialog(
+            target = target,
+            onDismiss = { failedSendTarget = null },
+            onRetry = {
+                val attemptId = target.localAttemptId
+                if (attemptId != null) {
+                    retryLocalTextAttempt(attemptId)
+                } else {
+                    retryFailedMessages(listOf(target.message.id))
+                }
+            },
+            onDiscard = {
+                val attemptId = target.localAttemptId
+                if (attemptId != null) {
+                    textSendQueue.launchMutation {
+                        try {
+                            textSendQueue.discard(textSendScopeKey, attemptId)
+                        } catch (_: TextSendStorageException) {
+                            error = queueStorageFailureText
+                        }
+                    }
+                } else {
+                    scope.launch {
+                        conversation.deleteMessages(chat.id, listOf(target.message.id), DeleteMessageScope.ForSelf)
+                    }
+                }
+            }
+        )
+    }
     if (sendOptionsOpen) SendOptionsDialog(
         canSchedule = !chat.isSecret,
         onDismiss = { sendOptionsOpen = false; pendingSticker = null },
@@ -3033,7 +3237,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
     paidContent: PaidContentActions? = null,
     /** Loads the earlier texts that Chat Memory kept for this message; without it a bubble shows no versions link. */
-    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null
+    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null,
+    connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
+    onShowFailureDetails: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -3222,7 +3428,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                 meta = {
                     if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
                         overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta,
-                        onShowVersions = if (onLoadVersions != null) openVersions else null)
+                        onShowVersions = if (onLoadVersions != null) openVersions else null,
+                        connectionState = connectionState, onShowFailureDetails = onShowFailureDetails)
                 },
                 footer = {
                     // Inline keyboards and reactions must stack, never paint over one another.

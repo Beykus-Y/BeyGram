@@ -259,4 +259,9 @@
         <item quantity="other">Quedan aproximadamente %1$d minutos</item>
     </plurals>
     <string name="message_action_react">Añadir reacción</string>
+    <string name="chat_status_waiting_network">esperando red</string>
+    <string name="chat_send_failure_details">Detalles</string>
+    <string name="chat_send_failure_title">No se pudo enviar el mensaje</string>
+    <string name="chat_send_failure_discard">Eliminar</string>
+    <string name="chat_send_failure_copy">Copiar texto</string>
 </resources>
