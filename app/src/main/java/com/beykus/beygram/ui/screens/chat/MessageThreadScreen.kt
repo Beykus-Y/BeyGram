@@ -366,7 +366,7 @@ internal fun MessageThreadScreen(
     }
     fun send(sendNowConsent: Boolean = false) {
         val current = thread ?: return
-        if (!current.canReply || text.isBlank() || writing) return
+        if (!current.canReply || text.isBlank() || sendQueue.isComposerWriting(sendKey)) return
         if (text.codePointCount(0, text.length) > messageLimits.text) {
             sendError = context.getString(R.string.chat_truncated_notice, messageLimits.text)
             return
