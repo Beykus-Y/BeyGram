@@ -21,7 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.FilterChip
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.RadioButton
@@ -403,76 +403,85 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
     // Results from asynchronous checks remain available upon returning to the center,
     // but must never open dialogs on top of the everyday recording-settings page.
     if (diagnosticsPage) {
-    cameraSurvey?.let { report ->
-        AlertDialog(
-            onDismissRequest = { cameraSurvey = null },
-            title = { Text(stringResource(R.string.loss_camera_survey_title)) },
-            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(report, fontSize = 12.sp, lineHeight = 17.sp)
-            } },
-            confirmButton = { TextButton(onClick = { cameraSurvey = null }) { Text(stringResource(R.string.diagnostics_view_close)) } },
-            dismissButton = { DiagnosticsReportActions("BeyGram Camera2 survey", report) }
-        )
-    }
-    if (showHighSpeed) {
-        AlertDialog(
-            onDismissRequest = { showHighSpeed = false },
-            title = { Text(stringResource(R.string.diag_center_i_title)) },
-            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                if (highSpeedBusy) Text(stringResource(R.string.hs_running), fontSize = 13.sp)
-                else Text(highSpeedReport ?: stringResource(R.string.diag_full_report_not_run), fontSize = 12.sp, lineHeight = 17.sp)
-            } },
-            confirmButton = { TextButton(onClick = { showHighSpeed = false }) { Text(stringResource(R.string.diagnostics_view_close)) } },
-            dismissButton = { if (!highSpeedBusy && !highSpeedReport.isNullOrBlank()) DiagnosticsReportActions("BeyGram high-speed check", highSpeedReport.orEmpty()) }
-        )
-    }
-    if (showFullReport) {
-        val fullText = remember(fullJson, compactFull, latestSurvey, fpsCheck.report, lossState.report, highSpeedReport, reports) {
-            if (fullJson) buildFullJson(compactFull) else buildFullReport(compactFull)
-        }
-        AlertDialog(
-            onDismissRequest = { showFullReport = false },
-            title = { Text(stringResource(R.string.diag_full_report_title)) },
-            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(selected = compactFull, onClick = { compactFull = true },
-                        label = { Text(stringResource(R.string.settings_video_diagnostics_compact)) })
-                    FilterChip(selected = !compactFull, onClick = { compactFull = false },
-                        label = { Text(stringResource(R.string.settings_video_diagnostics_full)) })
-                    FilterChip(selected = !fullJson, onClick = { fullJson = false },
-                        label = { Text(stringResource(R.string.settings_video_diagnostics_txt)) })
-                    FilterChip(selected = fullJson, onClick = { fullJson = true },
-                        label = { Text(stringResource(R.string.settings_video_diagnostics_json)) })
-                }
-                Text(fullText, fontSize = 12.sp, lineHeight = 17.sp)
-            } },
-            confirmButton = { TextButton(onClick = { showFullReport = false }) { Text(stringResource(R.string.diagnostics_view_close)) } },
-            dismissButton = {
-                DiagnosticsReportActions(
-                    "BeyGram full diagnostics", fullText,
-                    mimeType = if (fullJson) "application/json" else "text/plain",
-                    extension = if (fullJson) "json" else "txt"
-                )
-            }
-        )
-    }
-    if (showFullDiagnostics) {
-        AlertDialog(
-            onDismissRequest = { showFullDiagnostics = false },
-            title = { Text(stringResource(R.string.diag_center_g_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.diag_full_plan), fontSize = 13.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FilterChip(!fullExtended, onClick = { fullExtended = false }, label = { Text(stringResource(R.string.diag_full_quick)) })
-                        FilterChip(fullExtended, onClick = { fullExtended = true }, label = { Text(stringResource(R.string.diag_full_extended)) })
+        cameraSurvey?.let { report ->
+            BeyGramDialog(
+                onDismissRequest = { cameraSurvey = null },
+                title = stringResource(R.string.loss_camera_survey_title),
+                content = {
+                    Column {
+                        Text(report, fontSize = 12.sp, lineHeight = 17.sp)
+                        DiagnosticsReportActions("BeyGram Camera2 survey", report)
                     }
-                    Text(stringResource(if (fullExtended) R.string.diag_full_extended_cost else R.string.diag_full_quick_cost), fontSize = 13.sp)
-                    Text(stringResource(R.string.diag_full_consent), fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
+                },
+                confirmText = stringResource(R.string.diagnostics_view_close),
+                onConfirm = { cameraSurvey = null }
+            )
+        }
+        if (showHighSpeed) {
+            BeyGramDialog(
+                onDismissRequest = { showHighSpeed = false },
+                title = stringResource(R.string.diag_center_i_title),
+                content = {
+                    Column {
+                        if (highSpeedBusy) Text(stringResource(R.string.hs_running), fontSize = 13.sp)
+                        else Text(highSpeedReport ?: stringResource(R.string.diag_full_report_not_run), fontSize = 12.sp, lineHeight = 17.sp)
+                        if (!highSpeedBusy && !highSpeedReport.isNullOrBlank()) {
+                            DiagnosticsReportActions("BeyGram high-speed check", highSpeedReport.orEmpty())
+                        }
+                    }
+                },
+                confirmText = stringResource(R.string.diagnostics_view_close),
+                onConfirm = { showHighSpeed = false }
+            )
+        }
+        if (showFullReport) {
+            val fullText = remember(fullJson, compactFull, latestSurvey, fpsCheck.report, lossState.report, highSpeedReport, reports) {
+                if (fullJson) buildFullJson(compactFull) else buildFullReport(compactFull)
+            }
+            BeyGramDialog(
+                onDismissRequest = { showFullReport = false },
+                title = stringResource(R.string.diag_full_report_title),
+                content = {
+                    Column {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilterChip(selected = compactFull, onClick = { compactFull = true },
+                                label = { Text(stringResource(R.string.settings_video_diagnostics_compact)) })
+                            FilterChip(selected = !compactFull, onClick = { compactFull = false },
+                                label = { Text(stringResource(R.string.settings_video_diagnostics_full)) })
+                            FilterChip(selected = !fullJson, onClick = { fullJson = false },
+                                label = { Text(stringResource(R.string.settings_video_diagnostics_txt)) })
+                            FilterChip(selected = fullJson, onClick = { fullJson = true },
+                                label = { Text(stringResource(R.string.settings_video_diagnostics_json)) })
+                        }
+                        Text(fullText, fontSize = 12.sp, lineHeight = 17.sp)
+                        DiagnosticsReportActions(
+                            "BeyGram full diagnostics", fullText,
+                            mimeType = if (fullJson) "application/json" else "text/plain",
+                            extension = if (fullJson) "json" else "txt"
+                        )
+                    }
+                },
+                confirmText = stringResource(R.string.diagnostics_view_close),
+                onConfirm = { showFullReport = false }
+            )
+        }
+        if (showFullDiagnostics) {
+            BeyGramDialog(
+                onDismissRequest = { showFullDiagnostics = false },
+                title = stringResource(R.string.diag_center_g_title),
+                content = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.diag_full_plan), fontSize = 13.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilterChip(!fullExtended, onClick = { fullExtended = false }, label = { Text(stringResource(R.string.diag_full_quick)) })
+                            FilterChip(fullExtended, onClick = { fullExtended = true }, label = { Text(stringResource(R.string.diag_full_extended)) })
+                        }
+                        Text(stringResource(if (fullExtended) R.string.diag_full_extended_cost else R.string.diag_full_quick_cost), fontSize = 13.sp)
+                        Text(stringResource(R.string.diag_full_consent), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
+                },
+                confirmText = stringResource(R.string.diag_full_start),
+                onConfirm = {
                     showFullDiagnostics = false
                     fpsCheckScope = if (fullExtended) ProbeScope.ALL else ProbeScope.FRONT
                     scope.launch {
@@ -487,181 +496,180 @@ fun VideoMessageSettingsScreen(store: VideoMessageSettingsStore, repository: Tel
                             cameraPermission.launch(Manifest.permission.CAMERA)
                         }
                     }
-                }) { Text(stringResource(R.string.diag_full_start)) }
-            },
-            dismissButton = { TextButton(onClick = { showFullDiagnostics = false }) { Text(stringResource(R.string.common_cancel)) } }
-        )
-    }
-    if (showFpsCheck) {
-        AlertDialog(
-            onDismissRequest = { showFpsCheck = false },
-            title = { Text(stringResource(R.string.fps_check_title)) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.fps_check_description), fontSize = 13.sp)
-                    if (!fpsCheck.running) {
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(
-                                ProbeScope.FRONT to R.string.fps_check_scope_front,
-                                ProbeScope.BACK to R.string.fps_check_scope_back,
-                                ProbeScope.ALL to R.string.fps_check_scope_all
-                            ).forEach { (value, label) ->
-                                FilterChip(fpsCheckScope == value, onClick = { fpsCheckScope = value }, label = { Text(stringResource(label)) })
+                },
+                dismissText = stringResource(R.string.common_cancel),
+                onDismiss = { showFullDiagnostics = false }
+            )
+        }
+        if (showFpsCheck) {
+            BeyGramDialog(
+                onDismissRequest = { showFpsCheck = false },
+                title = stringResource(R.string.fps_check_title),
+                content = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.fps_check_description), fontSize = 13.sp)
+                        if (!fpsCheck.running) {
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(
+                                    ProbeScope.FRONT to R.string.fps_check_scope_front,
+                                    ProbeScope.BACK to R.string.fps_check_scope_back,
+                                    ProbeScope.ALL to R.string.fps_check_scope_all
+                                ).forEach { (value, label) ->
+                                    FilterChip(fpsCheckScope == value, onClick = { fpsCheckScope = value }, label = { Text(stringResource(label)) })
+                                }
                             }
-                        }
-                    } else {
-                        Text(stringResource(R.string.fps_check_progress, fpsCheck.done, fpsCheck.total), fontWeight = FontWeight.SemiBold)
-                        Text(stringResource(R.string.fps_check_running_hint), fontSize = 13.sp)
-                    }
-                    if (fpsCheck.report.isNotBlank()) {
-                        Text(fpsCheck.report, fontSize = 12.sp, lineHeight = 17.sp)
-                        DiagnosticsReportActions("BeyGram FPS check", fpsCheck.report)
-                    }
-                }
-            },
-            confirmButton = {
-                if (fpsCheck.running) {
-                    TextButton(onClick = { VideoNoteFpsCheck.cancel() }) { Text(stringResource(R.string.common_cancel)) }
-                } else {
-                    TextButton(enabled = !highSpeedBusy, onClick = {
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                            VideoNoteFpsCheck.start(context, fpsCheckScope, settings)
                         } else {
-                            AppLockManager.get(context).expectExternalActivity()
-                            cameraPermission.launch(Manifest.permission.CAMERA)
+                            Text(stringResource(R.string.fps_check_progress, fpsCheck.done, fpsCheck.total), fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.fps_check_running_hint), fontSize = 13.sp)
                         }
-                    }) { Text(stringResource(R.string.fps_check_start)) }
-                }
-            },
-            dismissButton = { TextButton(onClick = { showFpsCheck = false }) { Text(stringResource(R.string.common_close)) } }
-        )
-    }
-    if (showLossPanel && !confirmLossSend && !confirmLossDelete) {
-        AlertDialog(
-            onDismissRequest = { showLossPanel = false },
-            title = { Text(stringResource(R.string.loss_dialog_title)) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.loss_dialog_description), fontSize = 13.sp)
-                    if (!lossState.running && lossState.sentMessageId == null) {
-                        Text(stringResource(R.string.loss_fps_choice), fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            VideoNoteSyntheticSource.SUPPORTED_FPS.forEach { value ->
-                                FilterChip(lossFps == value, onClick = { lossFps = value },
-                                    label = { Text(stringResource(R.string.loss_fps_option, value, value * VideoNoteSyntheticSource.SECONDS)) })
+                        if (fpsCheck.report.isNotBlank()) {
+                            Text(fpsCheck.report, fontSize = 12.sp, lineHeight = 17.sp)
+                            DiagnosticsReportActions("BeyGram FPS check", fpsCheck.report)
+                        }
+                    }
+                },
+                confirmText = stringResource(if (fpsCheck.running) R.string.common_cancel else R.string.fps_check_start),
+                confirmEnabled = fpsCheck.running || !highSpeedBusy,
+                onConfirm = {
+                    if (fpsCheck.running) {
+                        VideoNoteFpsCheck.cancel()
+                    } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        VideoNoteFpsCheck.start(context, fpsCheckScope, settings)
+                    } else {
+                        AppLockManager.get(context).expectExternalActivity()
+                        cameraPermission.launch(Manifest.permission.CAMERA)
+                    }
+                },
+                dismissText = stringResource(R.string.common_close),
+                onDismiss = { showFpsCheck = false }
+            )
+        }
+        if (showLossPanel && !confirmLossSend && !confirmLossDelete) {
+            BeyGramDialog(
+                onDismissRequest = { showLossPanel = false },
+                title = stringResource(R.string.loss_dialog_title),
+                content = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.loss_dialog_description), fontSize = 13.sp)
+                        if (!lossState.running && lossState.sentMessageId == null) {
+                            Text(stringResource(R.string.loss_fps_choice), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                VideoNoteSyntheticSource.SUPPORTED_FPS.forEach { value ->
+                                    FilterChip(lossFps == value, onClick = { lossFps = value },
+                                        label = { Text(stringResource(R.string.loss_fps_option, value, value * VideoNoteSyntheticSource.SECONDS)) })
+                                }
                             }
                         }
-                    }
-                    Text(stringResource(R.string.loss_status, stringResource(lossState.phaseRes)), fontWeight = FontWeight.SemiBold)
-                    if (lossState.running) {
-                        // A send already accepted by Telegram cannot be recalled by
-                        // canceling this screen. Keep the process-owned check running.
-                        Text(stringResource(R.string.loss_running_background), fontSize = 13.sp)
-                    }
-                    if (lossState.report.isNotBlank()) Text(lossState.report, fontSize = 12.sp, lineHeight = 17.sp)
-                    if (lossState.report.isNotBlank()) DiagnosticsReportActions("BeyGram loss diagnostics", lossState.report)
-                    if (lossState.sentMessageId != null && !lossState.running) {
-                        Text(stringResource(R.string.loss_previous_test_hint), fontSize = 13.sp)
-                    }
-                    if (lossState.sentMessageId != null && !lossState.running) {
-                        TextButton(onClick = { confirmLossDelete = true }) {
-                            Text(stringResource(R.string.loss_delete_test))
+                        Text(stringResource(R.string.loss_status, stringResource(lossState.phaseRes)), fontWeight = FontWeight.SemiBold)
+                        if (lossState.running) {
+                            // A send already accepted by Telegram cannot be recalled by
+                            // canceling this screen. Keep the process-owned check running.
+                            Text(stringResource(R.string.loss_running_background), fontSize = 13.sp)
                         }
-                    }
-                    if (lossState.localDirectory != null && !lossState.running) {
-                        TextButton(onClick = { lossDiagnostics.clearLocalFiles() }) {
-                            Text(stringResource(R.string.loss_clear_local))
+                        if (lossState.report.isNotBlank()) Text(lossState.report, fontSize = 12.sp, lineHeight = 17.sp)
+                        if (lossState.report.isNotBlank()) DiagnosticsReportActions("BeyGram loss diagnostics", lossState.report)
+                        if (lossState.sentMessageId != null && !lossState.running) {
+                            Text(stringResource(R.string.loss_previous_test_hint), fontSize = 13.sp)
                         }
+                        if (lossState.sentMessageId != null && !lossState.running) {
+                            TextButton(onClick = { confirmLossDelete = true }) {
+                                Text(stringResource(R.string.loss_delete_test))
+                            }
+                        }
+                        if (lossState.localDirectory != null && !lossState.running) {
+                            TextButton(onClick = { lossDiagnostics.clearLocalFiles() }) {
+                                Text(stringResource(R.string.loss_clear_local))
+                            }
+                        }
+                        lossDeleteError?.let { Text(it, color = palette.danger, fontSize = 12.sp) }
                     }
-                    lossDeleteError?.let { Text(it, color = palette.danger, fontSize = 12.sp) }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { confirmLossSend = true }, enabled = !lossState.running && lossState.sentMessageId == null) {
-                    Text(stringResource(R.string.loss_start_test))
-                }
-            },
-            dismissButton = { TextButton(onClick = { showLossPanel = false }) { Text(stringResource(R.string.common_close)) } }
-        )
-    }
-    if (confirmLossSend) {
-        AlertDialog(
-            onDismissRequest = { confirmLossSend = false },
-            title = { Text(stringResource(R.string.loss_send_confirm_title)) },
-            text = { Text(stringResource(R.string.loss_send_confirm_body)) },
-            confirmButton = {
-                TextButton(onClick = {
+                },
+                confirmText = stringResource(R.string.loss_start_test),
+                confirmEnabled = !lossState.running && lossState.sentMessageId == null,
+                onConfirm = { confirmLossSend = true },
+                dismissText = stringResource(R.string.common_close),
+                onDismiss = { showLossPanel = false }
+            )
+        }
+        if (confirmLossSend) {
+            BeyGramDialog(
+                onDismissRequest = { confirmLossSend = false },
+                title = stringResource(R.string.loss_send_confirm_title),
+                message = stringResource(R.string.loss_send_confirm_body),
+                confirmText = stringResource(R.string.loss_send_confirm_button),
+                onConfirm = {
                     confirmLossSend = false
                     lossDeleteError = null
                     lossDiagnostics.start(lossFps)
-                }) { Text(stringResource(R.string.loss_send_confirm_button)) }
-            },
-            dismissButton = { TextButton(onClick = { confirmLossSend = false }) { Text(stringResource(R.string.common_cancel)) } }
-        )
-    }
-    if (confirmLossDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmLossDelete = false },
-            title = { Text(stringResource(R.string.loss_delete_confirm_title)) },
-            text = { Text(stringResource(R.string.loss_delete_confirm_body)) },
-            confirmButton = {
-                TextButton(onClick = {
+                },
+                dismissText = stringResource(R.string.common_cancel),
+                onDismiss = { confirmLossSend = false }
+            )
+        }
+        if (confirmLossDelete) {
+            BeyGramDialog(
+                onDismissRequest = { confirmLossDelete = false },
+                title = stringResource(R.string.loss_delete_confirm_title),
+                message = stringResource(R.string.loss_delete_confirm_body),
+                confirmText = stringResource(R.string.common_delete),
+                onConfirm = {
                     confirmLossDelete = false
                     scope.launch {
                         lossDiagnostics.deleteTestMessage()
                             .onFailure { lossDeleteError = context.getString(R.string.loss_delete_failed, it.javaClass.simpleName) }
                     }
-                }) { Text(stringResource(R.string.common_delete)) }
-            },
-            dismissButton = { TextButton(onClick = { confirmLossDelete = false }) { Text(stringResource(R.string.common_cancel)) } }
-        )
-    }
-    selectedReport?.let { report ->
-        val reportText = remember(report, compactReport, jsonReport) {
-            if (jsonReport) report.asJson(compactReport)
-            else report.asText(context, { videoNoteStatusText(context, it) }, compactReport)
+                },
+                dismissText = stringResource(R.string.common_cancel),
+                onDismiss = { confirmLossDelete = false }
+            )
         }
-        AlertDialog(
-            onDismissRequest = { selectedReportId = null },
-            title = { Text(stringResource(R.string.settings_video_diagnostics_report)) },
-            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(selected = compactReport, onClick = { compactReport = true },
-                        label = { Text(stringResource(R.string.settings_video_diagnostics_compact)) })
-                    FilterChip(selected = !compactReport, onClick = { compactReport = false },
-                        label = { Text(stringResource(R.string.settings_video_diagnostics_full)) })
-                    FilterChip(selected = !jsonReport, onClick = { jsonReport = false },
-                        label = { Text(stringResource(R.string.settings_video_diagnostics_txt)) })
-                    FilterChip(selected = jsonReport, onClick = { jsonReport = true },
-                        label = { Text(stringResource(R.string.settings_video_diagnostics_json)) })
-                }
-                Text(reportText, fontSize = 12.sp, lineHeight = 17.sp)
-            } },
-            confirmButton = {
-                TextButton(onClick = { selectedReportId = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
-            },
-            dismissButton = {
-                DiagnosticsReportActions(
-                    "BeyGram video diagnostics", reportText,
-                    mimeType = if (jsonReport) "application/json" else "text/plain",
-                    extension = if (jsonReport) "json" else "txt"
-                )
+        selectedReport?.let { report ->
+            val reportText = remember(report, compactReport, jsonReport) {
+                if (jsonReport) report.asJson(compactReport)
+                else report.asText(context, { videoNoteStatusText(context, it) }, compactReport)
             }
-        )
-    }
-    if (confirmClear) {
-        AlertDialog(
-            onDismissRequest = { confirmClear = false },
-            title = { Text(stringResource(R.string.settings_video_diagnostics_clear)) },
-            text = { Text(stringResource(R.string.settings_video_diagnostics_clear_confirm)) },
-            confirmButton = { TextButton(onClick = { diagnostics.clear(); confirmClear = false; selectedReportId = null }) {
-                Text(stringResource(R.string.settings_video_diagnostics_clear))
-            } },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) {
-                Text(stringResource(R.string.settings_video_diagnostics_cancel))
-            } }
-        )
-    }
+            BeyGramDialog(
+                onDismissRequest = { selectedReportId = null },
+                title = stringResource(R.string.settings_video_diagnostics_report),
+                content = {
+                    Column {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilterChip(selected = compactReport, onClick = { compactReport = true },
+                                label = { Text(stringResource(R.string.settings_video_diagnostics_compact)) })
+                            FilterChip(selected = !compactReport, onClick = { compactReport = false },
+                                label = { Text(stringResource(R.string.settings_video_diagnostics_full)) })
+                            FilterChip(selected = !jsonReport, onClick = { jsonReport = false },
+                                label = { Text(stringResource(R.string.settings_video_diagnostics_txt)) })
+                            FilterChip(selected = jsonReport, onClick = { jsonReport = true },
+                                label = { Text(stringResource(R.string.settings_video_diagnostics_json)) })
+                        }
+                        Text(reportText, fontSize = 12.sp, lineHeight = 17.sp)
+                        DiagnosticsReportActions(
+                            "BeyGram video diagnostics", reportText,
+                            mimeType = if (jsonReport) "application/json" else "text/plain",
+                            extension = if (jsonReport) "json" else "txt"
+                        )
+                    }
+                },
+                confirmText = stringResource(R.string.diagnostics_view_close),
+                onConfirm = { selectedReportId = null }
+            )
+        }
+        if (confirmClear) {
+            BeyGramDialog(
+                onDismissRequest = { confirmClear = false },
+                title = stringResource(R.string.settings_video_diagnostics_clear),
+                message = stringResource(R.string.settings_video_diagnostics_clear_confirm),
+                confirmText = stringResource(R.string.settings_video_diagnostics_clear),
+                onConfirm = {
+                    diagnostics.clear()
+                    confirmClear = false
+                    selectedReportId = null
+                },
+                dismissText = stringResource(R.string.settings_video_diagnostics_cancel),
+                onDismiss = { confirmClear = false }
+            )
+        }
     } // diagnostics-page-only dialogs
 }
 
