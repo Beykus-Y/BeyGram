@@ -15,13 +15,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddLink
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.*
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.runtime.*
@@ -179,38 +179,35 @@ internal fun GroupInvitesScreen(
     }
 
     revoking?.let { link ->
-        AlertDialog(
+        val busyBar: @Composable () -> Unit = { LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp), color = palette.accent) }
+        BeyGramDialog(
             onDismissRequest = { if (!revokeBusy) revoking = null },
-            title = { Text(stringResource(R.string.group_invites_revoke_title)) },
-            text = {
-                Column {
-                    Text(stringResource(R.string.group_invites_revoke_warning))
-                    if (revokeBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp), color = palette.accent)
+            title = stringResource(R.string.group_invites_revoke_title),
+            message = stringResource(R.string.group_invites_revoke_warning),
+            content = if (revokeBusy) busyBar else null,
+            confirmText = stringResource(R.string.group_invites_revoke),
+            confirmEnabled = !revokeBusy,
+            destructive = true,
+            onConfirm = {
+                scope.launch {
+                    revokeBusy = true
+                    repository.revokeGroupInviteLink(chatId, link.link)
+                        .onSuccess {
+                            notice = context.getString(R.string.group_invites_revoked)
+                            revoking = null
+                            reload()
+                            onChanged()
+                        }
+                        .onFailure {
+                            error = it.userMessage(context, R.string.err_group_action_failed)
+                            revoking = null
+                        }
+                    revokeBusy = false
                 }
             },
-            confirmButton = {
-                TextButton(
-                    enabled = !revokeBusy,
-                    onClick = {
-                        scope.launch {
-                            revokeBusy = true
-                            repository.revokeGroupInviteLink(chatId, link.link)
-                                .onSuccess {
-                                    notice = context.getString(R.string.group_invites_revoked)
-                                    revoking = null
-                                    reload()
-                                    onChanged()
-                                }
-                                .onFailure {
-                                    error = it.userMessage(context, R.string.err_group_action_failed)
-                                    revoking = null
-                                }
-                            revokeBusy = false
-                        }
-                    }
-                ) { Text(stringResource(R.string.group_invites_revoke), color = palette.danger) }
-            },
-            dismissButton = { TextButton(enabled = !revokeBusy, onClick = { revoking = null }) { Text(stringResource(R.string.common_cancel)) } }
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !revokeBusy,
+            onDismiss = { revoking = null }
         )
     }
 
@@ -256,10 +253,10 @@ private fun GroupSubscriptionRenameDialog(
         else -> null
     }
     val changed = name.trim() != link.name
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(R.string.group_invites_rename_title)) },
-        text = {
+        title = stringResource(R.string.group_invites_rename_title),
+        content = {
             Column {
                 OutlinedTextField(
                     value = name,
@@ -277,13 +274,12 @@ private fun GroupSubscriptionRenameDialog(
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp), color = palette.accent)
             }
         },
-        confirmButton = {
-            TextButton(
-                enabled = !busy && changed && problem == null,
-                onClick = { onSave(name.trim()) }
-            ) { Text(stringResource(if (busy) R.string.common_saving else R.string.common_save)) }
-        },
-        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        confirmText = stringResource(if (busy) R.string.common_saving else R.string.common_save),
+        confirmEnabled = !busy && changed && problem == null,
+        onConfirm = { onSave(name.trim()) },
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !busy,
+        onDismiss = onDismiss
     )
 }
 
@@ -412,11 +408,11 @@ private fun GroupInviteLinkDialog(
         GroupInviteLinkProblem.LimitWithApproval -> stringResource(R.string.err_group_invite_limit_approval)
         null -> null
     }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(if (existing == null) R.string.group_invites_create_title else R.string.group_invites_edit_title)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+        title = stringResource(if (existing == null) R.string.group_invites_create_title else R.string.group_invites_edit_title),
+        content = {
+            Column {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.take(GROUP_INVITE_NAME_MAX_LENGTH + 8) },
@@ -482,13 +478,12 @@ private fun GroupInviteLinkDialog(
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp), color = palette.accent)
             }
         },
-        confirmButton = {
-            TextButton(
-                enabled = !busy && problem == null,
-                onClick = { onSave(draft.normalized()) }
-            ) { Text(stringResource(if (busy) R.string.common_saving else R.string.common_save)) }
-        },
-        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        confirmText = stringResource(if (busy) R.string.common_saving else R.string.common_save),
+        confirmEnabled = !busy && problem == null,
+        onConfirm = { onSave(draft.normalized()) },
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !busy,
+        onDismiss = onDismiss
     )
 }
 

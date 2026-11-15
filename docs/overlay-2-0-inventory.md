@@ -46,8 +46,8 @@
 | ui/screens/playback/ShareWave.kt | 1 | 106 |
 | ui/screens/profile/ChatInfoMenu.kt | 2 | 52 100 |
 | ui/screens/profile/GiftsScreen.kt | 1 | 533 |
-| ui/screens/profile/GroupInvitesScreen.kt | 3 | 182 259 415 |
-| ui/screens/profile/GroupMembersScreen.kt | 3 | 309 358 419 |
+| ✅ ui/screens/profile/GroupInvitesScreen.kt | 3 | 182 259 415 |
+| ✅ ui/screens/profile/GroupMembersScreen.kt | 3 | 309 358 419 |
 | ui/screens/profile/GroupSettingsScreen.kt | 1 | 323 |
 | ui/screens/profile/PremiumScreen.kt | 2 | 895 1065 |
 | ui/screens/profile/ProfilePhotoGallery.kt | 1 | 146 |
@@ -92,3 +92,8 @@
 - #881 (часть 2): 10 вызовов, 1 файл (`VideoMessageSettingsScreen.kt`). Отмечено ✅ в таблице выше.
 - Группа закрыта: 26 вызовов в 10 файлах.
 - Группы «профили», «список чатов», «музыка», «истории» и «оформление» в этих PR не трогались.
+
+## Статус группы «профили и группы», часть 2 (#870)
+
+- GroupMembersScreen и GroupInvitesScreen: 6 вызовов в 2 файлах. Отмечено ✅ в таблице выше.
+- Осталось: PremiumScreen, StarsScreen и GiftsScreen (часть 3).
