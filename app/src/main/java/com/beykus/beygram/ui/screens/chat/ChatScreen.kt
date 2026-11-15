@@ -1509,7 +1509,7 @@ fun ChatScreen(
      * the choice applies to this send only and is not kept for the next one.
      */
     fun sendCurrentDraft(options: MessageSendOptions) {
-        if (secretChatClosed || editId != null || inlineSending || textQueueWriting) return
+        if (secretChatClosed || editId != null || inlineSending || textSendQueue.isComposerWriting(textSendScopeKey)) return
         pendingSticker?.let { sticker ->
             pendingSticker = null
             attachments.sendStickerWithOptions(sticker, options)
