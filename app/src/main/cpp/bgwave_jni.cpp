@@ -14,8 +14,24 @@
 
 namespace {
 
+// Sanitizes arbitrary C++ error strings to printable ASCII so ART CheckJNI's
+// Modified-UTF-8 check never aborts on 4-byte UTF-8 sequences or invalid bytes.
 jstring newAsciiString(JNIEnv* env, const std::string& text) {
-    return env->NewStringUTF(text.c_str());
+    std::string safe;
+    safe.reserve(text.size());
+    for (unsigned char c : text) {
+        if (c >= 0x20 && c <= 0x7E) {
+            safe.push_back(static_cast<char>(c));
+        } else {
+            safe.push_back('?');
+        }
+    }
+    jstring out = env->NewStringUTF(safe.c_str());
+    if (!out) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        out = env->NewStringUTF("");
+    }
+    return out;
 }
 
 }  // namespace
@@ -29,11 +45,21 @@ Java_com_beykus_beygram_media_bgwave_BgWaveNative_nativeDecodeUri(JNIEnv* env, j
 #if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
     if (!jUri) return newAsciiString(env, "err|null");
     const char* chars = env->GetStringUTFChars(jUri, nullptr);
-    if (!chars) return nullptr;
-    const std::string uri(chars);
-    env->ReleaseStringUTFChars(jUri, chars);
+    if (!chars) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        return newAsciiString(env, "err|oom");
+    }
 
     try {
+        std::string uri;
+        try {
+            uri.assign(chars);
+        } catch (...) {
+            env->ReleaseStringUTFChars(jUri, chars);
+            throw;
+        }
+        env->ReleaseStringUTFChars(jUri, chars);
+
         bgmedia::wave::WaveSignalMessage msg;
         std::string error;
         if (!bgmedia::wave::decodeWaveUri(uri, msg, &error)) {
@@ -49,7 +75,9 @@ Java_com_beykus_beygram_media_bgwave_BgWaveNative_nativeDecodeUri(JNIEnv* env, j
                                 std::to_string(msg.signal.candidates.size());
         return newAsciiString(env, out);
     } catch (const std::exception&) {
-        return newAsciiString(env, "err|internal");
+        return env->NewStringUTF("err|internal");
+    } catch (...) {
+        return env->NewStringUTF("err|internal");
     }
 #else
     (void)jUri;
@@ -70,18 +98,29 @@ Java_com_beykus_beygram_media_bgwave_BgWaveNative_nativeEncodeControl(JNIEnv* en
     if (type != 3 && type != 4) return newAsciiString(env, "err|unsupported_type");
     if (!jSidHex) return newAsciiString(env, "err|null_sid");
     const char* hex = env->GetStringUTFChars(jSidHex, nullptr);
-    if (!hex) return nullptr;
-    const std::string sidText(hex);
-    env->ReleaseStringUTFChars(jSidHex, hex);
-    if (sidText.size() != 32) return newAsciiString(env, "err|bad_sid");
+    if (!hex) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        return newAsciiString(env, "err|oom");
+    }
 
     try {
+        std::string sidText;
+        try {
+            sidText.assign(hex);
+        } catch (...) {
+            env->ReleaseStringUTFChars(jSidHex, hex);
+            throw;
+        }
+        env->ReleaseStringUTFChars(jSidHex, hex);
+        if (sidText.size() != 32) return newAsciiString(env, "err|bad_sid");
+
         bgmedia::wave::WaveSignalMessage msg;
         msg.type = type == 3 ? bgmedia::wave::WaveSignalType::Cancel : bgmedia::wave::WaveSignalType::End;
         for (std::size_t i = 0; i < 16; ++i) {
             const auto nibble = [](char c) -> int {
                 if (c >= '0' && c <= '9') return c - '0';
                 if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
                 return -1;
             };
             const int hi = nibble(sidText[2 * i]);
@@ -100,7 +139,9 @@ Java_com_beykus_beygram_media_bgwave_BgWaveNative_nativeEncodeControl(JNIEnv* en
         if (uri.empty()) return newAsciiString(env, "err|" + error);
         return newAsciiString(env, uri);
     } catch (const std::exception&) {
-        return newAsciiString(env, "err|internal");
+        return env->NewStringUTF("err|internal");
+    } catch (...) {
+        return env->NewStringUTF("err|internal");
     }
 #else
     (void)type;
