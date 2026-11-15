@@ -2103,6 +2103,9 @@ private fun BeyGramAppContent(
                     // The channel ChatScreen stays composed under this overlay: closing the thread restores its
                     // exact list position without reopening or reloading the channel.
                     if (commentsOpen) {
+                        val draftAccountId = selectedAccountId
+                        val draftChatId = selectedChatId
+                        val draftPostId = threadPostId
                         MessageThreadScreen(
                             accountId = selectedAccountId,
                             channelChatId = selectedChatId,
@@ -2119,6 +2122,15 @@ private fun BeyGramAppContent(
                                 threadDraftText = text
                                 threadDraftEntities = ArrayList(entities)
                                 threadDraftReplyId = replyId
+                            },
+                            onDraftCommitted = { text, entities, replyId ->
+                                if (selectedAccountId == draftAccountId && selectedChatId == draftChatId &&
+                                    threadPostId == draftPostId && threadDraftText == text &&
+                                    threadDraftEntities == entities && threadDraftReplyId == replyId) {
+                                    threadDraftText = ""
+                                    threadDraftEntities = ArrayList()
+                                    threadDraftReplyId = 0L
+                                }
                             },
                             onBack = { routeName = AppRoute.Chat.name },
                             onOpenProfile = { userId -> openUserProfile(userId, AppRoute.MessageThread) },
