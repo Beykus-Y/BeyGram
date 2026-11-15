@@ -35,12 +35,15 @@ import androidx.compose.ui.window.SecureFlagPolicy
  * and drawn with [beyGramPalette] colours, so it follows the active theme instead of Material's AlertDialog.
  *
  * - [title], [message] and [content] are slots: callers pass strings from string resources. Do not put a vertically
- *   scrolling container (LazyColumn and similar) in [content]; it sits inside the dialog's own scroll area.
+ *   scrolling container (LazyColumn and similar) in [content] unless [scrollableContent] is false; otherwise it sits
+ *   inside the dialog's own scroll area.
  * - [onConfirm] is the primary action. [onDismiss] is the tap on the dismiss (cancel) button, if [dismissText] is set;
  *   [onDismissRequest] handles Back, outside taps and any other close.
  * - [dismissEnabled] turns the dismiss button off, for example while a request is still running.
  * - Set [destructive] to draw the confirm action in the danger colour. A destructive action is never the default.
  * - Only title, message and content scroll; the action row stays visible with a large system font.
+ * - Set [scrollableContent] to false when [content] is a list that scrolls by itself, such as a LazyColumn with a
+ *   bounded height. The dialog then leaves [content] unwrapped, so the two scroll areas do not nest.
  * - Width is capped at 560dp; height at 80% of the window, so tablets and landscape keep a sane size.
  * - Set [secure] for sensitive content such as a key or a code: the window gets FLAG_SECURE, so screenshots and screen
  *   recordings do not show it.
@@ -62,7 +65,8 @@ fun BeyGramDialog(
     dismissOnBackPress: Boolean = true,
     dismissOnClickOutside: Boolean = true,
     shape: Shape = RoundedCornerShape(24.dp),
-    secure: Boolean = false
+    secure: Boolean = false,
+    scrollableContent: Boolean = true
 ) {
     val palette = beyGramPalette()
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.8f).dp
@@ -97,10 +101,11 @@ fun BeyGramDialog(
                     fontWeight = FontWeight.SemiBold,
                     color = palette.textPrimary
                 )
+                val scrollState = rememberScrollState()
                 Column(
                     modifier = Modifier
                         .weight(1f, fill = false)
-                        .verticalScroll(rememberScrollState())
+                        .then(if (scrollableContent) Modifier.verticalScroll(scrollState) else Modifier)
                 ) {
                     if (message != null) {
                         Spacer(Modifier.height(12.dp))

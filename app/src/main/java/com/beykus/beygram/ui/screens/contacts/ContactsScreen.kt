@@ -32,7 +32,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PersonAdd
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -71,6 +70,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
@@ -429,10 +429,10 @@ private fun AddContactDialog(
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val canSave = !saving && firstName.isNotBlank() && phone.count { it.isDigit() } >= 7
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text(stringResource(R.string.contacts_add_dialog_title)) },
-        text = {
+        title = stringResource(R.string.contacts_add_dialog_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(firstName, { firstName = it.take(64) }, label = { Text(stringResource(R.string.contacts_field_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
                 OutlinedTextField(lastName, { lastName = it.take(64) }, label = { Text(stringResource(R.string.contacts_field_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
@@ -440,19 +440,21 @@ private fun AddContactDialog(
                 error?.let { Text(it, color = palette.danger, fontSize = 14.sp) }
             }
         },
-        confirmButton = {
-            TextButton(enabled = canSave, onClick = {
-                scope.launch {
-                    saving = true
-                    error = null
-                    onSubmit(firstName.trim(), lastName.trim(), phone.filter { it.isDigit() || it == '+' })
-                        .onSuccess { onAdded(); onDismiss() }
-                        .onFailure { error = it.userMessage(context, R.string.contacts_add_failed) }
-                    saving = false
-                }
-            }) { Text(if (saving) stringResource(R.string.contacts_adding) else stringResource(R.string.contacts_add)) }
+        confirmText = if (saving) stringResource(R.string.contacts_adding) else stringResource(R.string.contacts_add),
+        confirmEnabled = canSave,
+        onConfirm = {
+            scope.launch {
+                saving = true
+                error = null
+                onSubmit(firstName.trim(), lastName.trim(), phone.filter { it.isDigit() || it == '+' })
+                    .onSuccess { onAdded(); onDismiss() }
+                    .onFailure { error = it.userMessage(context, R.string.contacts_add_failed) }
+                saving = false
+            }
         },
-        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !saving,
+        onDismiss = onDismiss
     )
 }
 
@@ -475,10 +477,10 @@ private fun EditContactDialog(
     val nameValid = firstName.isNotBlank() || lastName.isNotBlank()
     val phoneValid = phone.isBlank() || phone.count { it.isDigit() } >= 7
     val canSave = !saving && nameValid && phoneValid
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text(stringResource(R.string.contacts_edit_title)) },
-        text = {
+        title = stringResource(R.string.contacts_edit_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(firstName, { firstName = it.take(64) }, label = { Text(stringResource(R.string.contacts_field_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
                 OutlinedTextField(lastName, { lastName = it.take(64) }, label = { Text(stringResource(R.string.contacts_field_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
@@ -488,19 +490,21 @@ private fun EditContactDialog(
                 error?.let { Text(it, color = palette.danger, fontSize = 14.sp) }
             }
         },
-        confirmButton = {
-            TextButton(enabled = canSave, onClick = {
-                scope.launch {
-                    saving = true
-                    error = null
-                    onSubmit(contact.userId, firstName.trim(), lastName.trim(), phone.filter { it.isDigit() || it == '+' })
-                        .onSuccess { onSaved(); onDismiss() }
-                        .onFailure { error = it.userMessage(context, R.string.contacts_edit_failed) }
-                    saving = false
-                }
-            }) { Text(if (saving) stringResource(R.string.contacts_saving) else stringResource(R.string.contacts_save)) }
+        confirmText = if (saving) stringResource(R.string.contacts_saving) else stringResource(R.string.contacts_save),
+        confirmEnabled = canSave,
+        onConfirm = {
+            scope.launch {
+                saving = true
+                error = null
+                onSubmit(contact.userId, firstName.trim(), lastName.trim(), phone.filter { it.isDigit() || it == '+' })
+                    .onSuccess { onSaved(); onDismiss() }
+                    .onFailure { error = it.userMessage(context, R.string.contacts_edit_failed) }
+                saving = false
+            }
         },
-        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !saving,
+        onDismiss = onDismiss
     )
 }
 
@@ -517,28 +521,31 @@ private fun DeleteContactDialog(
     var deleting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val displayName = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
-    AlertDialog(
+    val shownError = error
+    val errorContent: @Composable () -> Unit = {
+        Text(shownError.orEmpty(), color = palette.danger, fontSize = 14.sp)
+    }
+    BeyGramDialog(
         onDismissRequest = { if (!deleting) onDismiss() },
-        title = { Text(stringResource(R.string.contacts_delete_title)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.contacts_delete_message, displayName))
-                error?.let { Text(it, color = palette.danger, fontSize = 14.sp) }
+        title = stringResource(R.string.contacts_delete_title),
+        message = stringResource(R.string.contacts_delete_message, displayName),
+        content = if (shownError != null) errorContent else null,
+        confirmText = if (deleting) stringResource(R.string.contacts_deleting) else stringResource(R.string.contacts_delete_confirm),
+        confirmEnabled = !deleting,
+        destructive = true,
+        onConfirm = {
+            scope.launch {
+                deleting = true
+                error = null
+                onDelete(contact.userId)
+                    .onSuccess { onDeleted(); onDismiss() }
+                    .onFailure { error = it.userMessage(context, R.string.contacts_delete_failed) }
+                deleting = false
             }
         },
-        confirmButton = {
-            TextButton(enabled = !deleting, onClick = {
-                scope.launch {
-                    deleting = true
-                    error = null
-                    onDelete(contact.userId)
-                        .onSuccess { onDeleted(); onDismiss() }
-                        .onFailure { error = it.userMessage(context, R.string.contacts_delete_failed) }
-                    deleting = false
-                }
-            }) { Text(if (deleting) stringResource(R.string.contacts_deleting) else stringResource(R.string.contacts_delete_confirm), color = palette.danger) }
-        },
-        dismissButton = { TextButton(enabled = !deleting, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !deleting,
+        onDismiss = onDismiss
     )
 }
 
@@ -558,10 +565,10 @@ private fun ShareContactDialog(
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val displayName = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!sending) onDismiss() },
-        title = { Text(stringResource(R.string.contacts_share_title)) },
-        text = {
+        title = stringResource(R.string.contacts_share_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(displayName, color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
                 if (sending) Text(stringResource(R.string.contacts_share_sending), color = palette.textSecondary, fontSize = 13.sp)
@@ -595,7 +602,9 @@ private fun ShareContactDialog(
                 }
             }
         },
-        confirmButton = {},
-        dismissButton = { TextButton(enabled = !sending, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        confirmText = stringResource(R.string.common_cancel),
+        confirmEnabled = !sending,
+        onConfirm = onDismiss,
+        scrollableContent = false
     )
 }

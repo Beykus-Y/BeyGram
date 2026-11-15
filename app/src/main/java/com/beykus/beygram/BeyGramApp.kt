@@ -111,6 +111,7 @@ import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.components.LocalMainTabTransitionOrigin
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.auth.LoginCodeScreen
 import com.beykus.beygram.ui.screens.auth.LoginPasswordScreen
@@ -1424,21 +1425,17 @@ private fun BeyGramAppContent(
         shareAccountTarget == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
         selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
         shareLegacyFinalLogout && accountRegistryReady && !accountRegistryError) {
-        androidx.compose.material3.AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { /* Keep the incoming URI grant until explicit cancel. */ },
-            title = { Text(stringResource(R.string.multi_share_unavailable_title)) },
-            text = { Text(stringResource(R.string.multi_share_unavailable_note)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    shareLegacyShortcut = false
-                    shareAccountTarget = null
-                }) { Text(stringResource(R.string.multi_share_choose_other)) }
+            title = stringResource(R.string.multi_share_unavailable_title),
+            message = stringResource(R.string.multi_share_unavailable_note),
+            confirmText = stringResource(R.string.multi_share_choose_other),
+            onConfirm = {
+                shareLegacyShortcut = false
+                shareAccountTarget = null
             },
-            dismissButton = {
-                TextButton(onClick = { onIncomingShareHandled(incomingShare.requestId) }) {
-                    Text(stringResource(R.string.common_close))
-                }
-            }
+            dismissText = stringResource(R.string.common_close),
+            onDismiss = { onIncomingShareHandled(incomingShare.requestId) }
         )
     }
     // Starting TDLib with an inactive process can take seconds. This is NOT
@@ -1448,30 +1445,26 @@ private fun BeyGramAppContent(
         selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID &&
         legacyAuthState != AuthState.Ready && !shareLegacyFinalLogout &&
         accountRegistryReady && !accountRegistryError) {
-        androidx.compose.material3.AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { /* Wait for readiness or explicit account choice. */ },
-            title = { Text(stringResource(R.string.multi_share_pick_title)) },
-            text = { Text(stringResource(R.string.multi_share_wait_legacy)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    shareLegacyShortcut = false
-                    shareAccountTarget = null
-                }) { Text(stringResource(R.string.multi_share_choose_other)) }
+            title = stringResource(R.string.multi_share_pick_title),
+            message = stringResource(R.string.multi_share_wait_legacy),
+            confirmText = stringResource(R.string.multi_share_choose_other),
+            onConfirm = {
+                shareLegacyShortcut = false
+                shareAccountTarget = null
             },
-            dismissButton = {
-                TextButton(onClick = { onIncomingShareHandled(incomingShare.requestId) }) {
-                    Text(stringResource(R.string.common_close))
-                }
-            }
+            dismissText = stringResource(R.string.common_close),
+            onDismiss = { onIncomingShareHandled(incomingShare.requestId) }
         )
     }
     if (incomingShare != null && shareAccountTarget == null && accountRegistryReady && !accountRegistryError) {
-        androidx.compose.material3.AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { onIncomingShareHandled(incomingShare.requestId) },
-            title = { Text(stringResource(R.string.multi_share_pick_title)) },
-            text = {
+            title = stringResource(R.string.multi_share_pick_title),
+            message = stringResource(R.string.multi_share_pick_note),
+            content = {
                 Column {
-                    Text(stringResource(R.string.multi_share_pick_note))
                     if (legacyAuthState == AuthState.Ready) {
                         TextButton(onClick = { shareAccountTarget = TdAccountStorageLayout.LEGACY_ACCOUNT_ID
                             if (selectedAccountId != TdAccountStorageLayout.LEGACY_ACCOUNT_ID) chooseAccount(TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
@@ -1495,32 +1488,26 @@ private fun BeyGramAppContent(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    accountSwitcherAddMode = true
-                    accountSwitcherVisible = true
-                }) { Text(stringResource(R.string.account_switcher_add)) }
+            confirmText = stringResource(R.string.account_switcher_add),
+            onConfirm = {
+                accountSwitcherAddMode = true
+                accountSwitcherVisible = true
             },
-            dismissButton = {
-                TextButton(onClick = { onIncomingShareHandled(incomingShare.requestId) }) {
-                    Text(stringResource(R.string.common_close))
-                }
-            }
+            dismissText = stringResource(R.string.common_close),
+            onDismiss = { onIncomingShareHandled(incomingShare.requestId) }
         )
     }
     if (incomingShare != null && shareAccountTarget != null &&
         shareAccountTarget != selectedAccountId && accountRegistryReady && !accountRegistryError) {
         val target = shareAccountTarget!!
-        androidx.compose.material3.AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { shareAccountTarget = null },
-            title = { Text(stringResource(R.string.multi_share_switch_title)) },
-            text = { Text(stringResource(R.string.multi_share_switch_note)) },
-            confirmButton = {
-                TextButton(onClick = { chooseAccount(target) }) { Text(stringResource(R.string.multi_share_switch_action)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { shareAccountTarget = null }) { Text(stringResource(R.string.multi_share_choose_other)) }
-            }
+            title = stringResource(R.string.multi_share_switch_title),
+            message = stringResource(R.string.multi_share_switch_note),
+            confirmText = stringResource(R.string.multi_share_switch_action),
+            onConfirm = { chooseAccount(target) },
+            dismissText = stringResource(R.string.multi_share_choose_other),
+            onDismiss = { shareAccountTarget = null }
         )
     }
     if (incomingShare != null && shareAccountTarget == selectedAccountId &&
@@ -3240,138 +3227,121 @@ GlobalSearchScreen(
         }
     )
     deepLinkInvite?.takeIf { !locked && it.accountId == selectedAccountId }?.let { prompt ->
-        androidx.compose.material3.AlertDialog(
+        BeyGramDialog(
             onDismissRequest = {
                 if (!deepLinkBusy) {
                     deepLinkInvite = null
                     onDeepLinkHandled(prompt.token)
                 }
             },
-            title = { Text(stringResource(R.string.deep_link_invite_title)) },
-            text = {
-                Column {
-                    Text(
-                        stringResource(
-                            R.string.deep_link_invite_message,
-                            prompt.preview.title.ifBlank { context.getString(R.string.deep_link_invite_unknown_chat) }
-                        )
-                    )
-                    if (prompt.preview.memberCount > 0) {
-                        Text(stringResource(R.string.deep_link_invite_members, prompt.preview.memberCount))
-                    }
-                    if (prompt.preview.createsJoinRequest) {
-                        Text(stringResource(R.string.deep_link_invite_request_note))
+            title = stringResource(R.string.deep_link_invite_title),
+            message = listOfNotNull(
+                stringResource(
+                    R.string.deep_link_invite_message,
+                    prompt.preview.title.ifBlank { context.getString(R.string.deep_link_invite_unknown_chat) }
+                ),
+                if (prompt.preview.memberCount > 0) stringResource(R.string.deep_link_invite_members, prompt.preview.memberCount) else null,
+                if (prompt.preview.createsJoinRequest) stringResource(R.string.deep_link_invite_request_note) else null
+            ).joinToString("\n"),
+            confirmText = stringResource(R.string.deep_link_invite_join),
+            confirmEnabled = !deepLinkBusy,
+            onConfirm = {
+                if (deepLinkBusy) return@BeyGramDialog
+                deepLinkBusy = true
+                deepLinkScope.launch {
+                    try {
+                        val result = repository.joinInviteLink(prompt.url)
+                        if (selectedAccountId != prompt.accountId) return@launch
+                        result
+                            .onSuccess { outcome ->
+                                when (outcome) {
+                                    is InviteJoinOutcome.Joined ->
+                                        if (prompt.fromMessage) openLinkedChat(outcome.chatId)
+                                        else openDeepLinkChat(outcome.chatId)
+                                    InviteJoinOutcome.RequestSent ->
+                                        Toast.makeText(
+                                            context,
+                                            R.string.deep_link_join_request_sent,
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                }
+                            }
+                            .onFailure { error ->
+                                noticeError = (error as? UserMessageException)?.text
+                                    ?: UiText.Res(R.string.err_app_open_chat_failed)
+                            }
+                        if (deepLinkInvite?.token == prompt.token) deepLinkInvite = null
+                        onDeepLinkHandled(prompt.token)
+                    } finally {
+                        deepLinkBusy = false
                     }
                 }
             },
-            confirmButton = {
-                TextButton(
-                    enabled = !deepLinkBusy,
-                    onClick = {
-                        if (deepLinkBusy) return@TextButton
-                        deepLinkBusy = true
-                        deepLinkScope.launch {
-                            try {
-                                val result = repository.joinInviteLink(prompt.url)
-                                if (selectedAccountId != prompt.accountId) return@launch
-                                result
-                                    .onSuccess { outcome ->
-                                        when (outcome) {
-                                            is InviteJoinOutcome.Joined ->
-                                                if (prompt.fromMessage) openLinkedChat(outcome.chatId)
-                                                else openDeepLinkChat(outcome.chatId)
-                                            InviteJoinOutcome.RequestSent ->
-                                                Toast.makeText(
-                                                    context,
-                                                    R.string.deep_link_join_request_sent,
-                                                    Toast.LENGTH_LONG
-                                                ).show()
-                                        }
-                                    }
-                                    .onFailure { error ->
-                                        noticeError = (error as? UserMessageException)?.text
-                                            ?: UiText.Res(R.string.err_app_open_chat_failed)
-                                    }
-                                if (deepLinkInvite?.token == prompt.token) deepLinkInvite = null
-                                onDeepLinkHandled(prompt.token)
-                            } finally {
-                                deepLinkBusy = false
-                            }
-                        }
-                    }
-                ) { Text(stringResource(R.string.deep_link_invite_join)) }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !deepLinkBusy,
-                    onClick = {
-                        deepLinkInvite = null
-                        onDeepLinkHandled(prompt.token)
-                    }
-                ) { Text(stringResource(R.string.common_cancel)) }
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !deepLinkBusy,
+            onDismiss = {
+                deepLinkInvite = null
+                onDeepLinkHandled(prompt.token)
             }
         )
     }
     deepLinkProxy?.takeIf { !locked && it.accountId == selectedAccountId }?.let { prompt ->
-        androidx.compose.material3.AlertDialog(
+        BeyGramDialog(
             onDismissRequest = {
                 if (!deepLinkBusy) {
                     deepLinkProxy = null
                     onDeepLinkHandled(prompt.token)
                 }
             },
-            title = { Text(stringResource(R.string.deep_link_proxy_title)) },
-            text = {
-                Column {
-                    Text(
-                        stringResource(
-                            R.string.deep_link_proxy_message,
-                            prompt.draft.server,
-                            prompt.draft.port
-                        )
-                    )
-                    Text(stringResource(R.string.deep_link_proxy_note))
+            title = stringResource(R.string.deep_link_proxy_title),
+            message = listOf(
+                stringResource(
+                    R.string.deep_link_proxy_message,
+                    prompt.draft.server,
+                    prompt.draft.port
+                ),
+                stringResource(R.string.deep_link_proxy_note)
+            ).joinToString("\n"),
+            confirmText = stringResource(R.string.deep_link_proxy_connect),
+            confirmEnabled = !deepLinkBusy,
+            onConfirm = {
+                if (deepLinkBusy) return@BeyGramDialog
+                deepLinkBusy = true
+                deepLinkScope.launch {
+                    try {
+                        // Coordinate with subscription/auto-activation state just like the manual proxy screen.
+                        val result = vpnBackend.selectNonSubscriptionRoute {
+                            repository.addProxy(prompt.draft, enable = true)
+                        }
+                        if (selectedAccountId != prompt.accountId) return@launch
+                        result.onFailure { error ->
+                            noticeError = (error as? UserMessageException)?.text
+                                ?: UiText.Res(R.string.proxy_connect_add_failed)
+                        }
+                        if (deepLinkProxy?.token == prompt.token) deepLinkProxy = null
+                        onDeepLinkHandled(prompt.token)
+                    } finally {
+                        deepLinkBusy = false
+                    }
                 }
             },
-            confirmButton = {
-                TextButton(
-                    enabled = !deepLinkBusy,
-                    onClick = {
-                        if (deepLinkBusy) return@TextButton
-                        deepLinkBusy = true
-                        deepLinkScope.launch {
-                            try {
-                                // Coordinate with subscription/auto-activation state just like the manual proxy screen.
-                                val result = vpnBackend.selectNonSubscriptionRoute {
-                                    repository.addProxy(prompt.draft, enable = true)
-                                }
-                                if (selectedAccountId != prompt.accountId) return@launch
-                                result.onFailure { error ->
-                                    noticeError = (error as? UserMessageException)?.text
-                                        ?: UiText.Res(R.string.proxy_connect_add_failed)
-                                }
-                                if (deepLinkProxy?.token == prompt.token) deepLinkProxy = null
-                                onDeepLinkHandled(prompt.token)
-                            } finally {
-                                deepLinkBusy = false
-                            }
-                        }
-                    }
-                ) { Text(stringResource(R.string.deep_link_proxy_connect)) }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !deepLinkBusy,
-                    onClick = {
-                        deepLinkProxy = null
-                        onDeepLinkHandled(prompt.token)
-                    }
-                ) { Text(stringResource(R.string.common_cancel)) }
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !deepLinkBusy,
+            onDismiss = {
+                deepLinkProxy = null
+                onDeepLinkHandled(prompt.token)
             }
         )
     }
-    if (!locked) noticeError?.let { error -> androidx.compose.material3.AlertDialog(onDismissRequest = { noticeError = null }, title = { androidx.compose.material3.Text(stringResource(R.string.app_notice_title)) },
-        text = { androidx.compose.material3.Text(error.resolve()) }, confirmButton = { com.beykus.beygram.ui.components.TextButton(onClick = { noticeError = null }) { androidx.compose.material3.Text(stringResource(R.string.common_close)) } }) }
+    if (!locked) noticeError?.let { error ->
+        BeyGramDialog(
+            onDismissRequest = { noticeError = null },
+            title = stringResource(R.string.app_notice_title),
+            message = error.resolve(),
+            confirmText = stringResource(R.string.common_close),
+            onConfirm = { noticeError = null }
+        )
+    }
     if (!locked) ProxyRestoreDialog(vpnBackend = vpnBackend)
     if (!locked) MarkReadConfirmationDialog(markReadConfirmation) { request ->
         markAllReadScope.launch {

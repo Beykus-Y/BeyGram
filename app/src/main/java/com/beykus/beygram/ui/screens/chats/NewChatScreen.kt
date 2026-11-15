@@ -36,7 +36,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.GroupAdd
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.AlertDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -73,6 +72,7 @@ import com.beykus.beygram.domain.model.GroupCreationState
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.SecretChatEligibility
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -319,10 +319,10 @@ internal fun NewChatScreen(
         }
     }
     invitePreview?.let { preview ->
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (!inviteJoining) invitePreview = null },
-            title = { Text(preview.title.ifBlank { stringResource(R.string.new_chat_public_invite_title) }) },
-            text = {
+            title = preview.title.ifBlank { stringResource(R.string.new_chat_public_invite_title) },
+            content = {
                 Column {
                     Text(stringResource(R.string.new_chat_public_members, preview.memberCount))
                     Text(
@@ -342,43 +342,38 @@ internal fun NewChatScreen(
                     )
                 }
             },
-            confirmButton = {
-                TextButton(
-                    enabled = !inviteJoining,
-                    onClick = {
-                        if (inviteJoining) return@TextButton
-                        inviteJoining = true
-                        scope.launch {
-                            try {
-                                joinInviteLink(inviteUrl)
-                                    .onSuccess { outcome ->
-                                        invitePreview = null
-                                        when (outcome) {
-                                            is InviteJoinOutcome.Joined -> {
-                                                Toast.makeText(context, context.getString(R.string.new_chat_public_joined), Toast.LENGTH_SHORT).show()
-                                                onChatOpened(outcome.chatId)
-                                            }
-                                            InviteJoinOutcome.RequestSent -> {
-                                                Toast.makeText(context, context.getString(R.string.new_chat_public_request_sent), Toast.LENGTH_LONG).show()
-                                            }
-                                        }
+            confirmText = stringResource(if (preview.createsJoinRequest) R.string.new_chat_public_request else R.string.new_chat_public_join),
+            confirmEnabled = !inviteJoining,
+            onConfirm = {
+                if (inviteJoining) return@BeyGramDialog
+                inviteJoining = true
+                scope.launch {
+                    try {
+                        joinInviteLink(inviteUrl)
+                            .onSuccess { outcome ->
+                                invitePreview = null
+                                when (outcome) {
+                                    is InviteJoinOutcome.Joined -> {
+                                        Toast.makeText(context, context.getString(R.string.new_chat_public_joined), Toast.LENGTH_SHORT).show()
+                                        onChatOpened(outcome.chatId)
                                     }
-                                    .onFailure {
-                                        discoveryError = it.userMessage(context, R.string.new_chat_public_join_failed)
-                                        invitePreview = null
+                                    InviteJoinOutcome.RequestSent -> {
+                                        Toast.makeText(context, context.getString(R.string.new_chat_public_request_sent), Toast.LENGTH_LONG).show()
                                     }
-                            } finally {
-                                inviteJoining = false
+                                }
                             }
-                        }
+                            .onFailure {
+                                discoveryError = it.userMessage(context, R.string.new_chat_public_join_failed)
+                                invitePreview = null
+                            }
+                    } finally {
+                        inviteJoining = false
                     }
-                ) { Text(stringResource(if (preview.createsJoinRequest) R.string.new_chat_public_request else R.string.new_chat_public_join)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { invitePreview = null }, enabled = !inviteJoining) {
-                    Text(stringResource(R.string.common_cancel))
                 }
-            }
+            },
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !inviteJoining,
+            onDismiss = { invitePreview = null }
         )
     }
 }

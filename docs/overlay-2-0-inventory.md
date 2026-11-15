@@ -4,7 +4,7 @@
 
 | Файл | Вызовов `AlertDialog(` | Строки |
 |---|---|---|
-| BeyGramApp.kt | 7 | 1426 1450 1468 1513 3232 3305 3362 |
+| ✅ BeyGramApp.kt · #886 | 7 | 1426 1450 1468 1513 3232 3305 3362 |
 | ui/screens/bgmusic/BgMusicPreviewScreen.kt | 2 | 348 385 |
 | ✅ ui/screens/chat/BotButtons.kt · #877 | 1 | 77 |
 | ✅ ui/screens/chat/ChatExportDialog.kt · #879 | 6 | 134 253 290 306 335 366 |
@@ -32,8 +32,8 @@
 | ✅ ui/screens/chats/ChatsScreen.kt · #885 | 2 | 1043 1101 |
 | ✅ ui/screens/chats/FolderManagerScreen.kt · #885 | 1 | 279 |
 | ✅ ui/screens/chats/MarkReadConfirmation.kt · #885 | 1 | 45 |
-| ui/screens/chats/NewChatScreen.kt | 1 | 322 |
-| ui/screens/contacts/ContactsScreen.kt | 4 | 432 478 520 561 |
+| ✅ ui/screens/chats/NewChatScreen.kt · #886 | 1 | 322 |
+| ✅ ui/screens/contacts/ContactsScreen.kt · #886 | 4 | 432 478 520 561 |
 | ui/screens/diagnostics/DiagnosticsScreen.kt | 1 | 151 |
 | ui/screens/diagnostics/ReportProblemScreen.kt | 1 | 182 |
 | ui/screens/diagnostics/ResourcesScreen.kt | 1 | 119 |
@@ -113,3 +113,9 @@
 
 - Часть 1: ChatsScreen.kt (подтверждение «прочитать все» и настройки смахивания), ChatActionsSheet.kt (удаление чата), FolderManagerScreen.kt (удаление папки), MarkReadConfirmation.kt (отметка прочитанным, которую отклонил режим скрытности). 5 вызовов в 4 файлах. Отмечено ✅ в таблице выше.
 - Часть 2 (ContactsScreen.kt, NewChatScreen.kt, BeyGramApp.kt) и опция прокрутки содержимого в BeyGramDialog: отдельный PR после слияния части 1.
+
+## Статус группы «список чатов», часть 2 (#870, PR #886)
+
+- ContactsScreen.kt (добавление, изменение, удаление и отправка контакта), NewChatScreen.kt (предпросмотр приглашения) и BeyGramApp.kt (запросы на отправку из других приложений, пути входа по ссылке, уведомление). 12 вызовов в 3 файлах. Отмечено ✅ в таблице выше.
+- В BeyGramDialog добавлен необязательный параметр scrollableContent (по умолчанию true). Диалог отправки контакта передаёт false, потому что его список уже прокручивается сам.
+- Группа «список чатов» закрыта после слияния #885 и #886: 17 вызовов в 7 файлах (части 1 и 2).
