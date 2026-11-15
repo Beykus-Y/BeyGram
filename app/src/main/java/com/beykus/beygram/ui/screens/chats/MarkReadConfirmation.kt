@@ -1,8 +1,5 @@
 package com.beykus.beygram.ui.screens.chats
 
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,7 +8,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
-import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.BeyGramDialog
 
 /** A read mark that stealth mode refused. It waits for the user's one-off answer before anything is sent. */
 internal sealed interface MarkReadRequest {
@@ -40,23 +37,18 @@ internal class MarkReadConfirmationState {
 @Composable
 internal fun MarkReadConfirmationDialog(state: MarkReadConfirmationState, onConfirm: (MarkReadRequest) -> Unit) {
     val request = state.request ?: return
-    val palette = beyGramPalette()
     val all = request as? MarkReadRequest.All
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = state::close,
-        title = { Text(stringResource(if (all != null) R.string.chats_read_all_title else R.string.stealth_mark_read_title)) },
-        text = {
-            Text(
-                if (all != null) pluralStringResource(R.plurals.stealth_mark_all_read_text, all.refused, all.refused)
-                else stringResource(R.string.stealth_mark_read_text)
-            )
+        title = stringResource(if (all != null) R.string.chats_read_all_title else R.string.stealth_mark_read_title),
+        message = if (all != null) pluralStringResource(R.plurals.stealth_mark_all_read_text, all.refused, all.refused)
+        else stringResource(R.string.stealth_mark_read_text),
+        confirmText = stringResource(R.string.stealth_mark_read_confirm),
+        onConfirm = {
+            state.close()
+            onConfirm(request)
         },
-        confirmButton = {
-            TextButton(onClick = {
-                state.close()
-                onConfirm(request)
-            }) { Text(stringResource(R.string.stealth_mark_read_confirm), color = palette.accent) }
-        },
-        dismissButton = { TextButton(onClick = state::close) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = state::close
     )
 }

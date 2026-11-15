@@ -11,6 +11,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.snapshotFlow
 import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.LocalWindowLayout
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.core.animateFloatAsState
@@ -71,7 +72,6 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.WifiOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
@@ -1040,17 +1040,17 @@ fun ChatsScreen(
         onChange = changeSwipePreferences,
         onDismiss = { showSwipeSettings = false }
     )
-    if (confirmReadAll) AlertDialog(
+    if (confirmReadAll) BeyGramDialog(
         onDismissRequest = { confirmReadAll = false },
-        title = { Text(stringResource(R.string.chats_read_all_title)) },
-        text = { Text(stringResource(R.string.chats_read_all_warning)) },
-        confirmButton = {
-            TextButton(onClick = {
-                confirmReadAll = false
-                onMarkAllRead(displayedChats.filter { it.unreadCount > 0 || it.isMarkedAsUnread })
-            }) { Text(stringResource(R.string.chats_read_all_confirm), color = palette.accent) }
+        title = stringResource(R.string.chats_read_all_title),
+        message = stringResource(R.string.chats_read_all_warning),
+        confirmText = stringResource(R.string.chats_read_all_confirm),
+        onConfirm = {
+            confirmReadAll = false
+            onMarkAllRead(displayedChats.filter { it.unreadCount > 0 || it.isMarkedAsUnread })
         },
-        dismissButton = { TextButton(onClick = { confirmReadAll = false }) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { confirmReadAll = false }
     )
     selectedActions?.let { selected ->
         ChatActionsSheet(
@@ -1098,10 +1098,10 @@ private fun ChatSwipeSettingsDialog(
 ) {
     var leftOpen by remember { mutableStateOf(false) }
     var rightOpen by remember { mutableStateOf(false) }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.chats_swipe_settings)) },
-        text = {
+        title = stringResource(R.string.chats_swipe_settings),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.chats_swipe_left))
                 Box {
@@ -1139,9 +1139,8 @@ private fun ChatSwipeSettingsDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
-        }
+        confirmText = stringResource(R.string.common_close),
+        onConfirm = onDismiss
     )
 }
 

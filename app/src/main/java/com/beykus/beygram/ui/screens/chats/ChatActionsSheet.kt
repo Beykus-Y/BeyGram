@@ -28,9 +28,9 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.isInArchive
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ActionBubble
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SheetActionRow
-import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.components.sheetSurfaceColor
@@ -177,15 +177,14 @@ internal fun ChatActionsSheet(
         }
         Spacer(Modifier.height(20.dp))
     }
-    if (confirmDelete) AlertDialog(
+    if (confirmDelete) BeyGramDialog(
         onDismissRequest = { confirmDelete = false },
-        title = { Text(stringResource(R.string.feature_delete_chat)) },
-        text = { Text(stringResource(R.string.feature_delete_chat_warning, chat.title)) },
-        confirmButton = {
-            TextButton(onClick = { confirmDelete = false; perform(delete) }) {
-                Text(stringResource(R.string.feature_delete_chat), color = palette.danger)
-            }
-        },
-        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_cancel)) } }
+        title = stringResource(R.string.feature_delete_chat),
+        message = stringResource(R.string.feature_delete_chat_warning, chat.title),
+        confirmText = stringResource(R.string.feature_delete_chat),
+        onConfirm = { confirmDelete = false; perform(delete) },
+        destructive = true,
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { confirmDelete = false }
     )
 }

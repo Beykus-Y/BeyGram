@@ -37,6 +37,7 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.TelegramChatFolders
 import com.beykus.beygram.domain.model.TelegramFolderDraft
 import com.beykus.beygram.domain.model.movedTelegramFolderIds
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.text.userMessage
@@ -276,28 +277,27 @@ internal fun FolderManagerScreen(
 
     if (confirmDelete && draft?.id != null) {
         val id = requireNotNull(draft?.id)
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (!busy) confirmDelete = false },
-            title = { Text(stringResource(R.string.folder_delete)) },
-            text = { Text(stringResource(R.string.folder_delete_confirm)) },
-            confirmButton = {
-                TextButton(enabled = !busy, onClick = {
-                    scope.launch {
-                        busy = true; error = null
-                        try {
-                            deleteFolder(id).fold(
-                                { draft = null; confirmDelete = false },
-                                { error = it.userMessage(context, R.string.feature_action_failed); confirmDelete = false }
-                            )
-                        } finally { busy = false }
-                    }
-                }) { Text(stringResource(R.string.folder_delete), color = palette.danger) }
-            },
-            dismissButton = {
-                TextButton(enabled = !busy, onClick = { confirmDelete = false }) {
-                    Text(stringResource(R.string.common_cancel))
+            title = stringResource(R.string.folder_delete),
+            message = stringResource(R.string.folder_delete_confirm),
+            confirmText = stringResource(R.string.folder_delete),
+            confirmEnabled = !busy,
+            destructive = true,
+            onConfirm = {
+                scope.launch {
+                    busy = true; error = null
+                    try {
+                        deleteFolder(id).fold(
+                            { draft = null; confirmDelete = false },
+                            { error = it.userMessage(context, R.string.feature_action_failed); confirmDelete = false }
+                        )
+                    } finally { busy = false }
                 }
-            }
+            },
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !busy,
+            onDismiss = { confirmDelete = false }
         )
     }
 }
