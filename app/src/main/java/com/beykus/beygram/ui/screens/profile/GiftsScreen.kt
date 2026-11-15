@@ -26,13 +26,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
@@ -530,10 +530,10 @@ fun GiftsScreen(
     if (dialogGift != null && (step is GiftSendStep.Confirming || step is GiftSendStep.Sending)) {
         val textMaxLength = info?.textMaxLength ?: GIFT_TEXT_MAX_LENGTH_DEFAULT
         val textTooLong = validateGiftText(giftText, textMaxLength) == GiftTextValidation.TooLong
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { dismissDialog() },
-            title = { Text(stringResource(R.string.gifts_send_dialog_title)) },
-            text = {
+            title = stringResource(R.string.gifts_send_dialog_title),
+            content = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(dialogGift.emoji.ifBlank { "🎁" }, fontSize = 30.sp)
@@ -594,23 +594,12 @@ fun GiftsScreen(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(
-                    onClick = ::confirmGift,
-                    enabled = !sending && !textTooLong,
-                    modifier = Modifier.heightIn(min = 48.dp)
-                ) {
-                    Text(
-                        if (sending) stringResource(R.string.gifts_sending)
-                        else stringResource(R.string.gifts_send_confirm, formatStarAmount(dialogGift.starCount))
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = ::dismissDialog, enabled = !sending, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(stringResource(R.string.common_cancel))
-                }
-            }
+            confirmText = if (sending) stringResource(R.string.gifts_sending) else stringResource(R.string.gifts_send_confirm, formatStarAmount(dialogGift.starCount)),
+            confirmEnabled = !sending && !textTooLong,
+            onConfirm = ::confirmGift,
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !sending,
+            onDismiss = ::dismissDialog
         )
     }
 }
