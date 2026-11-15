@@ -500,13 +500,13 @@ class TdLibTelegramRepository private constructor(
         autoDownloadNetworkMonitor.start()
     }
     private val serviceMessages = TdServiceMessageMapper(appContext)
-    init {
+    private fun registerWaveSender() {
         BgWaveHub.registerSender(accountId) { chatId, link ->
             val label = appContext.getString(R.string.bgwave_service_label)
             sendMessage(
                 chatId, label, null,
                 listOf(MessageTextEntity(0, label.length, TextStyleKind.Url, link)),
-                0L, false, MessageSendOptions(disableLinkPreview = true),
+                0L, false, MessageSendOptions(disableLinkPreview = true, sendNowConsent = true),
             )
         }
     }
@@ -2829,6 +2829,7 @@ class TdLibTelegramRepository private constructor(
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateMessageSendFailed -> {
+                onWaveSendFailed(update.message)
                 videoNoteLossTransport.onSendFailed(update)
                 reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
@@ -2994,6 +2995,7 @@ class TdLibTelegramRepository private constructor(
                 _authState.value = AuthState.WaitingForPassword(state.passwordHint.orEmpty())
             }
             is TdApi.AuthorizationStateReady -> {
+                registerWaveSender()
                 clearQrLoginState()
                 secondaryAuthorizationLost = false
                 _authState.value = AuthState.Ready
@@ -3089,6 +3091,7 @@ class TdLibTelegramRepository private constructor(
                 BgWaveHub.forgetAccount(accountId)
             }
             is TdApi.AuthorizationStateClosed -> {
+                BgWaveHub.forgetAccount(accountId)
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()
                 networkMonitor.stop()
                 autoDownloadNetworkMonitor.stop()
@@ -3368,16 +3371,47 @@ class TdLibTelegramRepository private constructor(
      * Runs in the update handler, so it only reads cached chat state and hands the text to the store.
      */
     /** A BG Wave link from the peer of a private chat goes to the wave controller; every other message is left alone. */
+    private fun onWaveSendFailed(message: TdApi.Message) {
+        if (!message.isOutgoing) return
+        val link = waveLinkOf(message) ?: return
+        val decoded = com.beykus.beygram.media.bgwave.BgWaveNative.decodeUri(link, message.date.toLong())
+            as? com.beykus.beygram.media.bgwave.BgWaveDecodeResult.Ok ?: return
+        val current = BgWaveHub.controller.state.value ?: return
+        if (current.accountId != accountId || current.chatId != message.chatId || current.sidHex != decoded.sidHex) return
+        val now = BgWaveHub.nowSeconds()
+        when (decoded.type) {
+            com.beykus.beygram.media.bgwave.BgWaveController.TYPE_OFFER ->
+                BgWaveHub.controller.offerSent(decoded.sidHex, false, now)
+            com.beykus.beygram.media.bgwave.BgWaveController.TYPE_ANSWER ->
+                BgWaveHub.controller.answerSendFailed(decoded.sidHex, now)
+        }
+    }
+
     private fun offerToWave(message: TdApi.Message) {
         if (message.isOutgoing) return
         val link = waveLinkOf(message) ?: return
-        val chat = profiles.chat(message.chatId) ?: return
         val sender = message.senderId as? TdApi.MessageSenderUser ?: return
+        if (sender.userId != message.chatId) return
+        val chat = profiles.chat(message.chatId)
+        if (chat != null) {
+            deliverWave(message, link, sender.userId, chat)
+            return
+        }
+        // UpdateNewMessage may precede UpdateNewChat. Resolve rather than discarding the invitation.
+        val authGeneration = secretChatSession
+        client.send(TdApi.GetChat(message.chatId), Client.ResultHandler { result ->
+            if (result is TdApi.Chat && authGeneration == secretChatSession && _authState.value == AuthState.Ready) {
+                deliverWave(message, link, sender.userId, result)
+            }
+        })
+    }
+
+    private fun deliverWave(message: TdApi.Message, link: String, senderId: Long, chat: TdApi.Chat) {
         try {
             BgWaveHub.controller.onMessage(
                 accountId = accountId,
                 chatId = message.chatId,
-                senderId = sender.userId,
+                senderId = senderId,
                 outgoing = false,
                 privateChat = chat.type is TdApi.ChatTypePrivate,
                 uri = link,
@@ -3456,6 +3490,7 @@ class TdLibTelegramRepository private constructor(
         time = scheduledAt?.let { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it * 1000L)) } ?: toTimeString(),
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
+        isForwarded = forwardInfo != null,
         sendState = sendingState.toSendState(),
         media = if (secretChat) attachment?.copy(isSecretChat = true) else attachment,
         special = special,

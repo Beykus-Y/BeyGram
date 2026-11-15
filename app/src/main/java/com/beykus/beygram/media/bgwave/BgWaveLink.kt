@@ -13,27 +13,27 @@ object BgWaveLink {
     const val HTTPS_PREFIX = "https://beygram.beykus.fun/#bgwave-v1."
 
     /** A link longer than this is not a valid invitation; it is dropped before any decoding. */
-    const val MAX_LINK_CHARS = 8192
+    const val MAX_LINK_CHARS = 4096
 
     /** The Telegram-safe https wrapper of [uri]; an https link is returned as is, anything else is refused. */
     fun toHttps(uri: String): String? = when {
         uri.length > MAX_LINK_CHARS -> null
-        uri.startsWith(HTTPS_PREFIX) -> uri
-        uri.startsWith(URI_PREFIX) -> HTTPS_PREFIX + uri.removePrefix(URI_PREFIX)
+        uri.startsWith(HTTPS_PREFIX) && uri.length > HTTPS_PREFIX.length -> uri
+        uri.startsWith(URI_PREFIX) && uri.length > URI_PREFIX.length ->
+            (HTTPS_PREFIX + uri.removePrefix(URI_PREFIX)).takeIf { it.length <= MAX_LINK_CHARS }
         else -> null
     }
 
-    fun isWaveLink(candidate: String): Boolean =
-        candidate.length <= MAX_LINK_CHARS && (candidate.startsWith(HTTPS_PREFIX) || candidate.startsWith(URI_PREFIX))
+    fun isWaveLink(candidate: String): Boolean = toHttps(candidate) != null
 
     /**
      * The first wave link hidden behind a text link of a message, or null for an ordinary message. A link that is only
      * written as visible text is ignored: invitations are always sent as hidden service links.
      */
     fun find(text: String, entities: List<MessageTextEntity>): String? =
-        validTextEntities(text, entities)
-            .asSequence()
-            .filter { it.kind == TextStyleKind.Url }
-            .map { it.argument.trim() }
-            .firstOrNull { isWaveLink(it) }
+        validTextEntities(text, entities).singleOrNull()
+            ?.takeIf { entities.size == 1 && text.isNotEmpty() && it.kind == TextStyleKind.Url &&
+                it.offset == 0 && it.length == text.length }
+            ?.argument
+            ?.takeIf(::isWaveLink)
 }
