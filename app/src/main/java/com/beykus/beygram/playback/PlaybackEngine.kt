@@ -38,6 +38,8 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.media.bgmix.BgMixAudible
 import com.beykus.beygram.media.bgmix.BgMixNative
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
+import com.beykus.beygram.media.bgwave.BgWaveHub
+import com.beykus.beygram.media.bgwave.BgWaveRenderersFactory
 import com.beykus.beygram.media.bgmix.BgMixStatus
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -455,6 +457,7 @@ object PlaybackEngine {
     @OptIn(UnstableApi::class)
     private fun createPlayer(context: Context): Player {
         val created = ExoPlayer.Builder(context.applicationContext)
+            .setRenderersFactory(BgWaveRenderersFactory(context.applicationContext))
             .setMediaSourceFactory(DefaultMediaSourceFactory(PlaybackDataSourceFactory(context.applicationContext)))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
@@ -622,17 +625,19 @@ object PlaybackEngine {
     fun replaceYandexUpcoming(
         context: Context,
         tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>,
+        radio: PlaybackRadio,
         loadMore: suspend () -> List<com.beykus.beygram.data.music.provider.ProviderTrack>,
     ) {
         val playable = tracks.filter { it.isAvailable }
         if (playable.isEmpty() || _state.value.item == null) return
         clearUpcoming()
-        // clearUpcoming drops the loader; this queue gets the new one, so the radio keeps going.
+        // clearUpcoming drops the loader; this queue gets the new one, so the radio keeps going under the same radio.
         queueSource = PlaybackQueueSource(
             accountId = LEGACY_PLAYBACK_ACCOUNT_ID,
             observeFile = { fileId -> MutableStateFlow(MediaFileState(id = fileId)) },
             download = {},
             loadMore = { loadMore().filter { it.isAvailable }.map(::providerPlaybackItem) },
+            radio = radio,
         )
         playable.forEach { track -> enqueue(context, providerPlaybackItem(track), source = null, atEnd = true) }
     }
@@ -1872,7 +1877,10 @@ object PlaybackEngine {
     }
 
     private fun bgMixDriver(context: Context): BgMixQueueDriver =
-        bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }
+        (bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }).also {
+            // Lets a live BG Wave host tap the mix that is playing right now; the hub re-attaches every tick.
+            BgWaveHub.hostTap = { handle, attach -> it.attachWaveTap(if (attach) handle else 0L) }
+        }
 
     /**
      * The item as a complete local file BG Mix can decode, or null while it is not one. The queue snapshot may still

@@ -32,6 +32,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviders
 import com.beykus.beygram.data.music.provider.ProviderLyrics
@@ -152,10 +156,11 @@ private fun ReadyLyrics(lyrics: ProviderLyrics, positionState: State<PlaybackPos
     val active by remember(timed) {
         derivedStateOf { if (timed.isEmpty) -1 else timed.activeIndex(positionState.value.positionMs) }
     }
+    val listMotionInstant = rememberMotionInstant(MotionToken.ListReorder)
     LaunchedEffect(active) {
         if (active >= 0) {
             val viewport = listState.layoutInfo.viewportSize.height
-            listState.animateScrollToItem(active, -(viewport / 3))
+            listState.scrollToItemRespectingMotion(active, -(viewport / 3), motionInstant = listMotionInstant)
         }
     }
     val holder = lyrics.copyrightHolder
@@ -197,9 +202,11 @@ private fun ReadyLyrics(lyrics: ProviderLyrics, positionState: State<PlaybackPos
 
 @Composable
 private fun LyricRow(text: String, highlighted: Boolean) {
+    val colorMotion = rememberMotionSpec(MotionToken.MicroFeedback)
     val color by animateColorAsState(
         targetValue = if (highlighted) MaterialTheme.colorScheme.primary
         else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+        animationSpec = colorMotion.animationSpec(),
         label = "lyricColor"
     )
     if (text.isEmpty()) {

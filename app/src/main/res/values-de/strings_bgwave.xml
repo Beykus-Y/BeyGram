@@ -36,4 +36,5 @@
     <string name="bgwave_share_confirm_body">Die Person sieht eine Einladung, mitzuhören, was bei dir gerade läuft. Bei einer direkten Verbindung kann deine IP-Adresse für sie sichtbar sein. Der Ton wird nicht gespeichert und läuft nur, solange die Welle aktiv ist.</string>
     <string name="bgwave_share_confirm_send">Senden</string>
     <string name="bgwave_share_confirm_cancel">Abbrechen</string>
+    <string name="bgwave_mini_title">Welle</string>
 </resources>

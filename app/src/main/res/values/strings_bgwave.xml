@@ -36,4 +36,5 @@
     <string name="bgwave_share_confirm_body">Собеседник увидит приглашение послушать то, что играет у вас сейчас. При прямом соединении ваш IP-адрес может быть виден собеседнику. Звук не сохраняется и идёт только на время волны.</string>
     <string name="bgwave_share_confirm_send">Отправить</string>
     <string name="bgwave_share_confirm_cancel">Отмена</string>
+    <string name="bgwave_mini_title">Волна</string>
 </resources>

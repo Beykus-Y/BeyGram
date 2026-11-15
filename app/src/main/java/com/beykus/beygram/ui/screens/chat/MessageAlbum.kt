@@ -189,7 +189,7 @@ internal fun MessageAlbumBubble(
             Box(swipe) {
                 BubbleLayout(
                     Modifier.widthIn(max = 292.dp).clip(shape)
-                        .then(if (onMediaBounds != null) Modifier.onGloballyPositioned { onMediaBounds(it.boundsInWindow()) } else Modifier)
+                        .then(if (onMediaBounds != null) Modifier.onGloballyPositioned { it.mediaScreenBounds()?.let(onMediaBounds) } else Modifier)
                         .then(if (selected || highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                         .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (selectionMode) Modifier.combinedClickable(

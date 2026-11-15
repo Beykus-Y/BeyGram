@@ -212,6 +212,9 @@
     <string name="err_chat_export_date_range">Check the chat export date range</string>
     <string name="chat_search_description">Search in chat</string>
     <string name="chat_search_failed">Search failed</string>
+    <string name="chat_search_match_position">%1$d of %2$d</string>
+    <string name="chat_search_previous_match">Previous match</string>
+    <string name="chat_search_next_match">Next match</string>
     <string name="chat_send_later">Schedule message</string>
     <string name="chat_send_now">Send now</string>
     <string name="chat_send_options">Send options</string>

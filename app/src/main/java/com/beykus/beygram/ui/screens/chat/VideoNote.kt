@@ -3,6 +3,8 @@ package com.beykus.beygram.ui.screens.chat
 import android.view.TextureView
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.core.animateDpAsState
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
@@ -170,7 +172,12 @@ internal fun VideoNoteBubble(
         delay(500)
         showControls = false
     }
-    val size by animateDpAsState(targetValue = if (showing) playingSize else IDLE_SIZE, label = "video note size")
+    val expandMotion = rememberMotionSpec(MotionToken.MediaExpand)
+    val size by animateDpAsState(
+        targetValue = if (showing) playingSize else IDLE_SIZE,
+        animationSpec = expandMotion.animationSpec(),
+        label = "video note size"
+    )
     // Секретный кружок во время проигрывания не должен попасть на скриншот или запись экрана.
     val secureWhilePlaying = media.isSecret && showing
     SecureWindowWhileVisible(secureWhilePlaying)

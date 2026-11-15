@@ -13,6 +13,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -48,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
+import com.beykus.beygram.domain.search.appendDistinctBy
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.SharedMediaKind
@@ -477,5 +482,97 @@ private fun highlightMatches(text: String, query: String, color: Color): Annotat
     while (from >= 0) {
         addStyle(SpanStyle(color = color, fontWeight = FontWeight.SemiBold), from, from + query.length)
         from = text.indexOf(query, from + query.length, ignoreCase = true)
+    }
+}
+
+/**
+ * Active match-navigation state kept after tapping a search result in the chat list.
+ * [results] are ordered newest-first (as returned by TDLib), so stepping "older" increments [index]
+ * and stepping "newer" decrements it.
+ */
+internal data class ChatSearchMatchSession(
+    val query: String = "",
+    val filter: ChatSearchFilter = ChatSearchFilter(),
+    val results: List<ChatMessage> = emptyList(),
+    val index: Int = -1,
+    val totalCount: Int = 0,
+    val nextFromMessageId: Long = 0L,
+    val busy: Boolean = false
+) {
+    val isActive: Boolean get() = index in results.indices
+    val currentMessageId: Long? get() = results.getOrNull(index)?.id
+    val totalDisplayCount: Int get() = maxOf(totalCount, results.size)
+    val canStepOlder: Boolean get() = isActive && !busy && (index < results.lastIndex || nextFromMessageId != 0L)
+    val canStepNewer: Boolean get() = isActive && !busy && index > 0
+
+    fun stepNewer(): ChatSearchMatchSession =
+        if (index > 0) copy(index = index - 1) else this
+
+    fun stepOlderLoaded(): ChatSearchMatchSession =
+        if (index in 0 until results.lastIndex) copy(index = index + 1) else this
+
+    fun appendPage(pageMessages: List<ChatMessage>, nextId: Long): ChatSearchMatchSession {
+        val merged = appendDistinctBy(results, pageMessages) { it.id }
+        val nextIndex = if (index < merged.lastIndex) index + 1 else index
+        return copy(results = merged, nextFromMessageId = nextId, index = nextIndex, busy = false)
+    }
+}
+
+@Composable
+internal fun ChatSearchMatchBar(
+    session: ChatSearchMatchSession,
+    onReopenSearch: () -> Unit,
+    onStepOlder: () -> Unit,
+    onStepNewer: () -> Unit,
+    onClose: () -> Unit
+) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .motionEntrance(MotionToken.BannerChange, 8.dp)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(role = Role.Button, onClick = onReopenSearch)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.chat_search_match_position, session.index + 1, session.totalDisplayCount),
+                color = palette.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (session.busy) {
+                Spacer(Modifier.width(8.dp))
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = palette.accent)
+            }
+        }
+        IconButton(onClick = onStepOlder, enabled = session.canStepOlder) {
+            Icon(
+                Icons.Rounded.KeyboardArrowUp,
+                contentDescription = stringResource(R.string.chat_search_previous_match),
+                tint = if (session.canStepOlder) palette.textPrimary else palette.textSecondary.copy(alpha = 0.35f)
+            )
+        }
+        IconButton(onClick = onStepNewer, enabled = session.canStepNewer) {
+            Icon(
+                Icons.Rounded.KeyboardArrowDown,
+                contentDescription = stringResource(R.string.chat_search_next_match),
+                tint = if (session.canStepNewer) palette.textPrimary else palette.textSecondary.copy(alpha = 0.35f)
+            )
+        }
+        IconButton(onClick = onClose) {
+            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_close), tint = palette.textSecondary)
+        }
     }
 }

@@ -103,6 +103,9 @@ import com.beykus.beygram.domain.model.validatePremiumGiftCode
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.accessibility.statusAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.scrollToRespectingMotion
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
@@ -459,6 +462,7 @@ private fun PremiumContent(
 ) {
     val palette = beyGramPalette()
     val scrollState = rememberScrollState()
+    val listMotionInstant = rememberMotionInstant(MotionToken.ListReorder)
     val loadingProgress = stringResource(R.string.premium_loading_progress)
     val staleBody = stringResource(R.string.premium_stale_body)
     val refreshBody = stringResource(R.string.premium_refresh_failed_body)
@@ -470,7 +474,7 @@ private fun PremiumContent(
         checkout is PremiumCheckoutStep.LinkReady ||
         checkout is PremiumCheckoutStep.AwaitingReturn
     LaunchedEffect(notice) {
-        if (notice != null) scrollState.animateScrollTo(0)
+        if (notice != null) scrollState.scrollToRespectingMotion(0, motionInstant = listMotionInstant)
     }
     // A plain scroll container keeps the gift-code workflow and its coroutine composed while
     // the user inspects features and plans; a lazy item would discard both when scrolled away.

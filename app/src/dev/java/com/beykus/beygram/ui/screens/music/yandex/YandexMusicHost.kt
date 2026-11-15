@@ -410,7 +410,7 @@ class YandexMusicHost : ProviderMusicHost {
             LaunchedEffect(uid) { waveSettings = YandexWaveSettingsStore.load(context, uid) }
             WaveTile(
                 starting = waveStarting,
-                summary = waveSummary(waveSettings),
+                summary = waveSummary(context, waveSettings),
                 failure = waveFailure,
                 resume = offered,
                 active = waveActive,
@@ -428,7 +428,11 @@ class YandexMusicHost : ProviderMusicHost {
                     waveSettingsOpen = false
                     if (waveActive) {
                         // The playing track keeps playing; the upcoming ones change. On failure nothing is saved.
-                        YandexWaveLauncher.changeSeeds(context, chosen.seeds(YandexWave.MY_WAVE_SEED)) { changed ->
+                        YandexWaveLauncher.changeSeeds(
+                            context = context,
+                            seeds = chosen.seeds(YandexWave.MY_WAVE_SEED),
+                            subtitle = waveSummary(context, chosen),
+                        ) { changed ->
                             if (changed) {
                                 waveSettings = chosen
                                 YandexWaveSettingsStore.save(context, uid, chosen)

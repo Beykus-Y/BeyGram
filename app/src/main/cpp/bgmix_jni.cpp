@@ -33,10 +33,9 @@
 #include "bgmedia/audio/MiniaudioMixLoader.hpp"
 #include "bgmedia/mix/MixEngine.hpp"
 #include "bgmedia/mix/MixSession.hpp"
-#include "bgmedia/wave/WaveAudioPipeline.hpp"
-#include "bgmedia/wave/WaveCodec.hpp"
-#include "bgmedia/wave/WaveTransport.hpp"
 #endif
+
+#include "bgwave_session.h"
 
 namespace {
 
@@ -111,10 +110,6 @@ struct MixHost {
     std::mutex control;
     bgmedia::mix::MixEngine engine{kMixSampleRate};
     std::unique_ptr<bgmedia::mix::MixSession> session;
-#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
-    // Created on the first wave session; the engine holds it only while the tap is enabled.
-    std::shared_ptr<bgmedia::wave::WaveAudioPipeline> wavePipeline;
-#endif
 
     explicit MixHost(std::filesystem::path cacheDirectory) {
         session = std::make_unique<bgmedia::mix::MixSession>(
@@ -308,49 +303,27 @@ Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeUpdate(JNIEnv*, jclass, jl
 #endif
 }
 
-#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
-// Transport placeholder until the BG-Media WebRTC adapter exists: the host pipeline
-// can tap PCM but never connects, so no audio leaves the device through it.
-class NoWaveTransport final : public bgmedia::wave::IWaveTransport {
-public:
-    void setCallbacks(bgmedia::wave::WaveTransportCallbacks) override {}
-    bool startOffer() override { return false; }
-    bool acceptOffer(const bgmedia::wave::WaveSdpSignal&) override { return false; }
-    bool applyAnswer(const bgmedia::wave::WaveSdpSignal&) override { return false; }
-    bool sendMediaPacket(const bgmedia::wave::WaveMediaPacket&) override { return false; }
-    void close() override {}
-    void poll(double) override {}
-    [[nodiscard]] bgmedia::wave::WaveTransportState state() const noexcept override {
-        return bgmedia::wave::WaveTransportState::Idle;
-    }
-};
-#endif
 
-// Attaches or detaches the BG Wave host tap on the BG Mix engine. Off by default.
+// Attaches the live BG Wave session as the host PCM tap, or detaches it when sessionHandle is 0.
+// The engine then feeds the session's pipeline from its audio thread; no second pipeline is created.
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeSetWaveTap(JNIEnv*, jclass, jlong handle,
-                                                                 jboolean enabled) {
+                                                                 jlong sessionHandle) {
 #if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
     MixHost* host = hostFrom(handle);
     if (!host) return JNI_FALSE;
     std::lock_guard lock(host->control);
-    if (!enabled) {
+    if (sessionHandle == 0) {
         host->engine.setPcmTap(nullptr);
-        host->wavePipeline.reset();
         return JNI_TRUE;
     }
-    if (!host->wavePipeline) {
-        bgmedia::wave::WavePipelineConfig config;
-        config.role = bgmedia::wave::WaveRole::Host;
-        host->wavePipeline = std::make_shared<bgmedia::wave::WaveAudioPipeline>(
-            config, std::make_shared<bgmedia::wave::Pcm16WaveCodec>(),
-            std::make_shared<NoWaveTransport>());
-    }
-    host->engine.setPcmTap(host->wavePipeline);
+    auto pipeline = bgWaveSessionPipeline(sessionHandle);
+    if (!pipeline) return JNI_FALSE;
+    host->engine.setPcmTap(pipeline);
     return JNI_TRUE;
 #else
     (void)handle;
-    (void)enabled;
+    (void)sessionHandle;
     return JNI_FALSE;
 #endif
 }

@@ -93,6 +93,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
+import com.beykus.beygram.media.bgwave.BgWaveHub
+import com.beykus.beygram.media.bgwave.BgWavePhase
+import com.beykus.beygram.media.bgwave.BgWaveRole
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
@@ -163,21 +168,51 @@ fun NowPlayingBar(
     /** Compact vertical density used inside an open chat so the bar yields more space to messages. */
     compact: Boolean = false
 ) {
-    val providedOpenEqualizer = LocalOpenEqualizer.current
-    val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
-    val openMusicSearch = LocalOpenMusicSearch.current
-    val openMyMusic = LocalOpenMyMusic.current
     val mini = rememberMiniPlayerUi()
     // Root and tab bars yield their space to the keyboard; the chat-integrated bar
     // keeps its own composer layout. Playback and the full-player sheet stay alive.
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
+    // A listener in a live wave gets this bar when no track is playing; a track in the player always wins the slot.
+    val wave by BgWaveHub.controller.state.collectAsStateWithLifecycle()
+    val waveListening = wave?.role == BgWaveRole.Listener && wave?.phase == BgWavePhase.Live
+    NowPlayingBarHost(
+        mini = mini,
+        keyboardVisible = keyboardVisible,
+        undoAvailable = undoAvailable,
+        waveListening = waveListening,
+        bottomInset = bottomInset,
+        hideWhenImeVisible = hideWhenImeVisible,
+        onOpenEqualizer = onOpenEqualizer,
+        floatingDock = floatingDock,
+        railCover = railCover,
+        compact = compact
+    )
+}
+
+@Composable
+internal fun NowPlayingBarHost(
+    mini: MiniPlayerUi?,
+    keyboardVisible: Boolean,
+    undoAvailable: Boolean = false,
+    waveListening: Boolean = false,
+    bottomInset: Boolean = false,
+    hideWhenImeVisible: Boolean = bottomInset,
+    onOpenEqualizer: (() -> Unit)? = null,
+    floatingDock: Boolean = false,
+    railCover: Boolean = false,
+    compact: Boolean = false
+) {
+    val providedOpenEqualizer = LocalOpenEqualizer.current
+    val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
+    val openMusicSearch = LocalOpenMusicSearch.current
+    val openMyMusic = LocalOpenMyMusic.current
     val hiddenForIme = hideWhenImeVisible && keyboardVisible
     var lastMini by remember { mutableStateOf(mini) }
     SideEffect { if (mini != null) lastMini = mini }
     var fullPlayerOpen by rememberSaveable { mutableStateOf(false) }
     val enterSpec = rememberMotionSpec(MotionToken.SheetEnter)
     val exitSpec = rememberMotionSpec(MotionToken.SheetExit)
-    val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         MusicPlayerLauncher.openRequests.collect {
@@ -191,7 +226,12 @@ fun NowPlayingBar(
     if (railCover) {
         // The slim rail spends no height on a bar: a tap pauses or resumes, a long press opens the full player.
         val shown = mini ?: lastMini
-        AnimatedVisibility(visible = mini != null && shouldShowMiniPlayer(true, hideWhenImeVisible, keyboardVisible)) {
+        val railInstant = hiddenForIme || enterSpec.isInstant || exitSpec.isInstant
+        AnimatedVisibility(
+            visible = mini != null && shouldShowMiniPlayer(true, hideWhenImeVisible, keyboardVisible),
+            enter = if (railInstant) EnterTransition.None else enterSpec.fadeEnter(),
+            exit = if (railInstant) ExitTransition.None else exitSpec.fadeExit()
+        ) {
             if (shown != null) RailMiniPlayerCover(shown, onOpen = { fullPlayerOpen = true })
         }
     } else {
@@ -199,7 +239,8 @@ fun NowPlayingBar(
             hasItem = mini != null,
             undoAvailable = undoAvailable,
             hideWhenImeVisible = hideWhenImeVisible,
-            keyboardVisible = keyboardVisible
+            keyboardVisible = keyboardVisible,
+            waveListening = waveListening
         )
         AnimatedContent(
             targetState = slot,
@@ -230,7 +271,9 @@ fun NowPlayingBar(
                 NowPlayingBarSlot.Hidden -> Box(Modifier.fillMaxWidth())
                 NowPlayingBarSlot.MiniPlayer -> {
                     val shown = mini ?: lastMini
-                    if (shown != null) {
+                    if (mini == null && waveListening) {
+                        WaveListenerBar(bottomInset = bottomInset, floatingDock = floatingDock, compact = compact)
+                    } else if (shown != null) {
                         MiniPlayerBar(
                             ui = shown,
                             bottomInset = bottomInset,
@@ -596,6 +639,58 @@ private fun UndoCloseBar(bottomInset: Boolean, floatingDock: Boolean, compact: B
         }
     }
     // The same card and chrome treatment as the mini-player and the dock, so closing does not swap it for a mismatched strip.
+    if (floatingDock) {
+        Column(
+            Modifier.then(
+                if (bottomInset) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)) else Modifier
+            )
+        ) {
+            MiniDockCard(row)
+        }
+    } else {
+        Box(miniPlayerChromeModifier(bottomInset = bottomInset, floatingDock = false)) { row() }
+    }
+}
+
+@Composable
+private fun WaveListenerBar(bottomInset: Boolean, floatingDock: Boolean, compact: Boolean) {
+    val palette = beyGramPalette()
+    val scope = rememberCoroutineScope()
+    val minHeight = if (compact) 48.dp else 56.dp
+    val row: @Composable () -> Unit = {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = minHeight)
+                .padding(start = 18.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.bgwave_mini_title),
+                    color = palette.textPrimary,
+                    fontSize = if (compact) 13.sp else 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    stringResource(R.string.bgwave_status_live),
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            TextButton(onClick = { scope.launch { BgWaveHub.stop() } }) {
+                Text(
+                    stringResource(R.string.bgwave_action_stop),
+                    color = palette.accent,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
     if (floatingDock) {
         Column(
             Modifier.then(

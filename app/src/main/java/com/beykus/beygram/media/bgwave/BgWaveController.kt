@@ -13,6 +13,12 @@ interface BgWaveSessionPort : AutoCloseable {
     fun status(): BgWaveSessionStatus
     fun stop(emitEnd: Boolean, nowSeconds: Long)
     fun reconnect(nowSeconds: Long): Boolean
+    /** Native handle for attaching the host PCM tap; 0 when there is no native session. */
+    fun sessionHandle(): Long = 0L
+    /** Listener: pulls decoded interleaved stereo frames for playback. Returns frames written. */
+    fun pullListenerPcm(out: FloatArray, frames: Int, sampleRate: Int): Int = 0
+    /** Host: opens a PCM tap for the render thread; 0 when there is no native session. */
+    fun openHostTap(): Long = 0L
 }
 
 enum class BgWaveRole { Host, Listener }
@@ -101,14 +107,22 @@ class BgWaveController(
             return fail(BgWaveErrors.REJECTED)
         }
         session = created
+        BgWaveLog.i("host.offer.created", "sid" to BgWaveLog.sid(decoded.sidHex))
         _state.value = BgWaveSessionState(BgWaveRole.Host, accountId, chatId, peerId, decoded.sidHex, BgWavePhase.Offering)
         link
     }
+
+    /** Host: opens a PCM tap on the live session, under the controller lock so the session cannot close meanwhile. */
+    fun openHostTap(): Long = synchronized(lock) { session?.openHostTap() ?: 0L }
+
+    /** The live native session, for the audio pump. Read when the wave changes phase, never per frame. */
+    fun activeSession(): BgWaveSessionPort? = synchronized(lock) { session }
 
     /** The invitation was handed to Telegram (or not). A failed send tears the wave down. */
     fun offerSent(sidHex: String, success: Boolean, nowSeconds: Long): Unit = synchronized(lock) {
         val current = _state.value ?: return
         if (current.sidHex != sidHex || current.role != BgWaveRole.Host || current.phase != BgWavePhase.Offering) return
+        BgWaveLog.i("host.offer.sent", "sid" to BgWaveLog.sid(sidHex), "ok" to success)
         if (success) {
             _state.value = current.copy(phase = BgWavePhase.AwaitingAnswer)
         } else {
@@ -130,14 +144,29 @@ class BgWaveController(
         uri: String,
         nowSeconds: Long,
     ): Unit = synchronized(lock) {
-        if (!privateChat || outgoing) return
+        if (!privateChat || outgoing) {
+            BgWaveLog.i("msg.ignored", "reason" to (if (outgoing) "outgoing" else "not-private"))
+            return
+        }
         // In a private chat TDLib's chat id is the peer's user id, so a message must come from the chat's own peer.
         if (senderId != chatId) return
-        val msg = decode(uri, nowSeconds) as? BgWaveDecodeResult.Ok ?: return
+        val decoded = decode(uri, nowSeconds)
+        val msg = decoded as? BgWaveDecodeResult.Ok
+        if (msg == null) {
+            BgWaveLog.w("msg.rejected", null, "reason" to (decoded as? BgWaveDecodeResult.Rejected)?.reason)
+            return
+        }
+        BgWaveLog.i("msg.received", "type" to msg.type, "sid" to BgWaveLog.sid(msg.sidHex))
         if (msg.sidHex in closed) return
         // A signal for a session this device never heard of is dropped, so strangers cannot fill the nonce table.
-        if (msg.type != TYPE_OFFER && !invites.containsKey(msg.sidHex) && _state.value?.sidHex != msg.sidHex) return
-        if (!acceptNonce(msg.sidHex, msg.type, msg.nonce)) return
+        if (msg.type != TYPE_OFFER && !invites.containsKey(msg.sidHex) && _state.value?.sidHex != msg.sidHex) {
+            BgWaveLog.i("msg.unknown-session", "sid" to BgWaveLog.sid(msg.sidHex))
+            return
+        }
+        if (!acceptNonce(msg.sidHex, msg.type, msg.nonce)) {
+            BgWaveLog.w("msg.replay", null, "type" to msg.type, "sid" to BgWaveLog.sid(msg.sidHex))
+            return
+        }
         when (msg.type) {
             TYPE_OFFER -> rememberInvite(accountId, chatId, senderId, uri, msg)
             TYPE_ANSWER -> onAnswer(accountId, chatId, senderId, uri, msg, nowSeconds)
@@ -245,6 +274,19 @@ class BgWaveController(
         if (current.phase != BgWavePhase.Offering && current.phase != BgWavePhase.AwaitingAnswer) {
             val status = active.status()
             val phase = phaseOf(status.state, current.phase)
+            if (phase != current.phase || status.route != current.route) {
+                BgWaveLog.i(
+                    "phase",
+                    "from" to current.phase,
+                    "to" to phase,
+                    "native" to status.state,
+                    "route" to status.route,
+                    "sid" to BgWaveLog.sid(current.sidHex),
+                )
+            }
+            if (phase == BgWavePhase.Failed && current.phase != BgWavePhase.Failed && status.lastError.isNotEmpty()) {
+                BgWaveLog.w("native.error", null, "msg" to status.lastError)
+            }
             _state.value = current.copy(
                 phase = phase,
                 route = status.route,
@@ -323,6 +365,7 @@ class BgWaveController(
     private fun closeSession(emitEnd: Boolean, nowSeconds: Long) {
         val active = session ?: return
         session = null
+        BgWaveLog.i("session.close", "emitEnd" to emitEnd)
         try {
             active.stop(emitEnd, nowSeconds)
         } finally {
@@ -332,6 +375,7 @@ class BgWaveController(
 
     private fun fail(errorKey: String, keepSession: Boolean = false): String? {
         val previous = _state.value
+        BgWaveLog.w("fail", null, "key" to errorKey, "keepSession" to keepSession)
         if (!keepSession || previous == null) {
             _state.value = BgWaveSessionState(
                 role = previous?.role ?: BgWaveRole.Host,

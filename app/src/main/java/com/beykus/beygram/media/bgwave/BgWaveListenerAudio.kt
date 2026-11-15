@@ -5,7 +5,6 @@ import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
-import android.util.Log
 
 /**
  * Plays the decoded BG Wave stream on a listener device.
@@ -15,7 +14,7 @@ import android.util.Log
  * is left to the caller. Every resource is released in [stop], which is safe to call more than once.
  */
 class BgWaveListenerAudio(
-    private val session: BgWaveSession,
+    private val session: BgWaveSessionPort,
     private val audioManager: AudioManager,
     private val onFocusLost: () -> Unit,
 ) {
@@ -25,6 +24,7 @@ class BgWaveListenerAudio(
     @Volatile private var running = false
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        BgWaveLog.i("audio.focus", "change" to change)
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 stop()
@@ -47,6 +47,7 @@ class BgWaveListenerAudio(
             AudioFormat.ENCODING_PCM_FLOAT,
         )
         if (minBytes <= 0) {
+            BgWaveLog.w("audio.start.failed", null, "reason" to "min-buffer")
             abandonFocus()
             return false
         }
@@ -68,6 +69,7 @@ class BgWaveListenerAudio(
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         if (out.state != AudioTrack.STATE_INITIALIZED) {
+            BgWaveLog.w("audio.start.failed", null, "reason" to "track-state")
             out.release()
             abandonFocus()
             return false
@@ -75,6 +77,7 @@ class BgWaveListenerAudio(
         track = out
         running = true
         out.play()
+        BgWaveLog.i("audio.start", "rate" to SAMPLE_RATE)
         thread = Thread({ pumpLoop(out) }, "bgwave-listener-audio").apply {
             isDaemon = true
             start()
@@ -99,7 +102,7 @@ class BgWaveListenerAudio(
             try {
                 it.stop()
             } catch (e: IllegalStateException) {
-                Log.w(TAG, "track stop failed", e)
+                BgWaveLog.w("audio.stop.failed", e)
             }
             it.release()
         }
@@ -109,8 +112,20 @@ class BgWaveListenerAudio(
 
     private fun pumpLoop(out: AudioTrack) {
         val buffer = FloatArray(FRAMES_PER_READ * CHANNELS)
+        var pulledFrames = 0L
+        var underruns = 0L
+        var lastLogNanos = System.nanoTime()
         while (running) {
             val frames = session.pullListenerPcm(buffer, FRAMES_PER_READ, SAMPLE_RATE)
+            pulledFrames += maxOf(frames, 0)
+            if (frames <= 0) underruns++
+            val now = System.nanoTime()
+            if (now - lastLogNanos >= 1_000_000_000L) {
+                BgWaveLog.i("audio.pull", "frames" to pulledFrames, "underruns" to underruns)
+                pulledFrames = 0L
+                underruns = 0L
+                lastLogNanos = now
+            }
             if (frames <= 0) {
                 // No decoded audio yet: write silence so the output clock keeps running.
                 buffer.fill(0f)
@@ -121,7 +136,7 @@ class BgWaveListenerAudio(
             if (frames < FRAMES_PER_READ) buffer.fill(0f, frames * CHANNELS, buffer.size)
             val written = out.write(buffer, 0, buffer.size, AudioTrack.WRITE_BLOCKING)
             if (written < 0) {
-                Log.w(TAG, "audio write failed: $written")
+                BgWaveLog.w("audio.write.failed", null, "code" to written)
                 running = false
             }
         }
@@ -138,6 +153,7 @@ class BgWaveListenerAudio(
             .setOnAudioFocusChangeListener(focusListener)
             .build()
         val granted = audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (!granted) BgWaveLog.w("audio.focus.denied")
         if (granted) focusRequest = request
         return granted
     }
@@ -148,7 +164,6 @@ class BgWaveListenerAudio(
     }
 
     private companion object {
-        const val TAG = "BgWaveListenerAudio"
         const val SAMPLE_RATE = 48_000
         const val CHANNELS = 2
         const val FLOAT_BYTES = 4

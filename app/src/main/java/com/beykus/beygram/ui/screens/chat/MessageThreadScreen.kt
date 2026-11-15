@@ -4,6 +4,9 @@ import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -272,6 +275,7 @@ internal fun MessageThreadScreen(
         }
     }
 
+    val listScrollInstant = rememberMotionInstant(MotionToken.ListReorder)
     fun jump(reply: MessageReply) {
         if (reply.isUnavailable || reply.messageId <= 0L) {
             sendError = context.getString(R.string.chat_reply_original_unavailable)
@@ -281,7 +285,7 @@ internal fun MessageThreadScreen(
         val isPost = (reply.chatId == channelChatId && reply.messageId == postId) ||
             (reply.chatId == thread?.discussionChatId && reply.messageId == thread?.threadId)
         if (isPost) {
-            if (post != null) scope.launch { listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1) }
+            if (post != null) scope.launch { listState.scrollToItemRespectingMotion(listState.layoutInfo.totalItemsCount - 1, motionInstant = listScrollInstant) }
             return
         }
         val index = messages.indexOfFirst { it.id == reply.messageId && it.chatId == reply.chatId }
@@ -289,7 +293,7 @@ internal fun MessageThreadScreen(
             sendError = context.getString(R.string.thread_reply_not_loaded)
             return
         }
-        scope.launch { listState.animateScrollToItem(messages.lastIndex - index) }
+        scope.launch { listState.scrollToItemRespectingMotion(messages.lastIndex - index, motionInstant = listScrollInstant) }
     }
 
     val stealthFallback = remember { StealthScheduleFallback() }
@@ -423,6 +427,7 @@ internal fun MessageThreadScreen(
                 entities = emptyList()
                 replyTarget = null
                 replyTargetId = 0L
+                scope.launch { listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant) }
             }
             onDraftCommitted(submittedText, submittedEntities, submittedReply)
         }
@@ -781,8 +786,8 @@ internal fun MessageThreadScreen(
         val viewedMedia = viewed.media
         if (viewedMedia != null && viewOnceAsked == null) {
             val viewerPages = MediaViewerPolicy.retainViewOncePage(
-                pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, viewed.chatId) } },
-                retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId)
+                pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, viewed.chatId, message.text) } },
+                retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId, viewed.text)
             )
             MediaViewer(
                 pages = viewOnceGate.swipeable(viewerPages, viewed.chatId, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, viewed.chatId)),

@@ -172,6 +172,9 @@
     <string name="chat_reveal_spoiler">Verborgenen Text aufdecken</string>
     <string name="chat_search_description">Im Chat suchen</string>
     <string name="chat_search_failed">Die Suche ist fehlgeschlagen</string>
+    <string name="chat_search_match_position">%1$d von %2$d</string>
+    <string name="chat_search_previous_match">Vorheriger Treffer</string>
+    <string name="chat_search_next_match">Nächster Treffer</string>
     <string name="chat_send_later">Nachricht planen</string>
     <string name="chat_send_now">Jetzt senden</string>
     <string name="chat_send_options">Sendeoptionen</string>

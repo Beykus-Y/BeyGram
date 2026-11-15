@@ -3,6 +3,9 @@ package com.beykus.beygram.playback
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -53,7 +56,10 @@ class PlaybackQueueSource(
  * itself: [title] («Моя волна») and [subtitle] (what it was built from, such as «По вашему вкусу») come ready from
  * the source and replace «Воспроизводится из» in the player header.
  */
-class PlaybackRadio(val title: String, val subtitle: String)
+class PlaybackRadio(val title: String, subtitle: String) {
+    /** Changes when the radio's settings change while it plays; a state, so the player header redraws at once. */
+    var subtitle: String by mutableStateOf(subtitle)
+}
 
 internal data class ResolvedPlaybackSource(val path: String, val growing: GrowingPlaybackSource?)
 

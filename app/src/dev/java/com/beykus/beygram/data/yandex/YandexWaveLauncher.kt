@@ -22,6 +22,10 @@ internal object YandexWaveLauncher {
     @Volatile
     private var active: YandexWaveRouter? = null
 
+    /** The radio of the wave started last: its header caption follows a settings change. */
+    @Volatile
+    private var activeRadio: PlaybackRadio? = null
+
     private fun openSession(provider: YandexMusicProvider, seeds: List<String>, given: Collection<String>) = YandexWaveSession(
         seeds = seeds,
         start = { s, queue -> provider.waveStart(s, queue) },
@@ -30,12 +34,14 @@ internal object YandexWaveLauncher {
     )
 
     /**
-     * Changes the seeds of the radio that plays: the upcoming tracks are replaced, the playing one keeps playing. [onDone]
-     * gets true once the new tracks are queued; false means nothing was changed for the listener.
+     * Changes the seeds of the radio that plays: the upcoming tracks are replaced, the playing one keeps playing. The
+     * header caption becomes [subtitle], and the saved wave keeps the new seeds. [onDone] gets true once the new tracks
+     * are queued; false means nothing was changed for the listener.
      */
-    fun changeSeeds(context: Context, seeds: List<String>, onDone: (Boolean) -> Unit) {
+    fun changeSeeds(context: Context, seeds: List<String>, subtitle: String, onDone: (Boolean) -> Unit) {
         val router = active
-        if (router == null || !PlaybackEngine.currentQueueIsEndless()) {
+        val radio = activeRadio
+        if (router == null || radio == null || !PlaybackEngine.currentQueueIsEndless()) {
             onDone(false)
             return
         }
@@ -49,7 +55,9 @@ internal object YandexWaveLauncher {
                         onDone(false)
                     } else {
                         ProviderTracks.remember(fresh)
-                        PlaybackEngine.replaceYandexUpcoming(app, fresh) { router.more() }
+                        PlaybackEngine.replaceYandexUpcoming(app, fresh, radio) { router.more() }
+                        radio.subtitle = subtitle
+                        YandexWaveResume.settingsChanged(seeds, subtitle)
                         onDone(true)
                     }
                 }
@@ -97,8 +105,9 @@ internal object YandexWaveLauncher {
                         )
                         val router = YandexWaveRouter(session) { s, given -> openSession(provider, s, given) }
                         active = router
+                        activeRadio = radio
                         ProviderArtwork.playTracks(app, leading, 0, { router.more() }, radio, keepPositionMs)
-                        YandexWaveResume.attach(app, session, radio, seeds, subtitle)
+                        YandexWaveResume.attach(app, { router.current }, radio, seeds, subtitle)
                         // After the queue started, so the tracker sees the radio as the player's queue.
                         YandexWaveFeedback.start(provider, { router.current }, radio)
                         onDone(null)

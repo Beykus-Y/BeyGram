@@ -132,6 +132,8 @@ import com.beykus.beygram.ui.motion.motionEntrance
 import com.beykus.beygram.ui.motion.fadeEnter
 import com.beykus.beygram.ui.motion.fadeExit
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.screens.playback.parseShareTimecodeMs
@@ -292,20 +294,39 @@ fun ChatScreen(
     var contextMessageId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
     var highlighted by remember { mutableStateOf<Long?>(null) }
     // A message outside the loaded history is scrolled to once the window around it reaches the list.
-    var pendingJumpId by remember(chat.id) { mutableStateOf<Long?>(null) }
-    var searching by rememberSaveable(chat.id) { mutableStateOf(false) }
-    var searchQuery by rememberSaveable(chat.id) { mutableStateOf("") }
-    var searchFilter by rememberSaveable(chat.id, stateSaver = ChatSearchFilterSaver) { mutableStateOf(ChatSearchFilter()) }
-    var searchResults by remember(chat.id) { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var searchNextId by remember(chat.id) { mutableLongStateOf(0L) }
-    var searchTotalCount by remember(chat.id) { mutableIntStateOf(0) }
-    var searchGeneration by remember(chat.id) { mutableIntStateOf(0) }
-    var searchBusy by remember(chat.id) { mutableStateOf(false) }
-    var searchError by remember(chat.id) { mutableStateOf<String?>(null) }
-    fun closeSearch() {
+    var pendingJumpId by remember(chat.id, forumTopicId) { mutableStateOf<Long?>(null) }
+    var jumpGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
+    var jumpScrollJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
+    var jumpLoadJob by remember(chat.id, forumTopicId) { mutableStateOf<Job?>(null) }
+    fun cancelActiveJump() {
+        jumpGeneration++
+        pendingJumpId = null
+        jumpScrollJob?.cancel()
+        jumpScrollJob = null
+        jumpLoadJob?.cancel()
+        jumpLoadJob = null
+        conversation.cancelMessageJump(chat.id, forumTopicId)
+    }
+    var searching by rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
+    var searchQuery by rememberSaveable(chat.id, forumTopicId) { mutableStateOf("") }
+    var searchFilter by rememberSaveable(chat.id, forumTopicId, stateSaver = ChatSearchFilterSaver) { mutableStateOf(ChatSearchFilter()) }
+    var searchResults by remember(chat.id, forumTopicId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    var searchNextId by remember(chat.id, forumTopicId) { mutableLongStateOf(0L) }
+    var searchTotalCount by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
+    var searchGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
+    var searchBusy by remember(chat.id, forumTopicId) { mutableStateOf(false) }
+    var searchError by remember(chat.id, forumTopicId) { mutableStateOf<String?>(null) }
+    var searchMatchSession by remember(chat.id, forumTopicId) { mutableStateOf(ChatSearchMatchSession()) }
+    var searchMatchGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
+    fun closeSearch(clearMatchSession: Boolean = true) {
         searching = false; searchQuery = ""; searchFilter = ChatSearchFilter()
         searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchGeneration++
         searchBusy = false; searchError = null
+        if (clearMatchSession) {
+            searchMatchGeneration++
+            searchMatchSession = ChatSearchMatchSession()
+            cancelActiveJump()
+        }
     }
     var sending by remember(accountId, chat.id, forumTopicId) { mutableStateOf(false) }
     val sendApplication = androidx.compose.ui.platform.LocalContext.current.applicationContext
@@ -1194,12 +1215,12 @@ fun ChatScreen(
         val kind = (currentMessages.firstOrNull { it.id == id } ?: mediaWindow.messages.firstOrNull { it.id == id })?.media?.kind
         viewerPosition = kind?.let { conversation.mediaPosition(chat.id, id, it).getOrNull() }
     }
-    BackHandler(enabled = !threadOpen && (stickerPanelOpen || searching || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || selectionMode)) {
+    BackHandler(enabled = !threadOpen && (stickerPanelOpen || searching || searchMatchSession.isActive || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || selectionMode)) {
         when {
             selectionDeleteOpen -> { selectionDeleteOpen = false; selectionDeleteError = null }
             selectionForwardOpen -> { selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
             selectionMode -> exitSelection()
-            searching -> closeSearch()
+            searching || searchMatchSession.isActive -> closeSearch()
             deleting -> { deleting = false; deleteError = null }
             actionMessage != null -> closeActions()
             editMessage != null -> closeEdit()
@@ -1208,7 +1229,7 @@ fun ChatScreen(
         }
     }
     BackHandler(enabled = openStickerSetId != null) { openStickerSetId = null }
-    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching && openStickerSetId == null && !stickerPanelOpen, onBack = onBack)
+    BackHandler(enabled = !threadOpen && !selectionMode && actionMessage == null && editMessage == null && !attachments.menuOpen && !attachments.active && !searching && !searchMatchSession.isActive && openStickerSetId == null && !stickerPanelOpen, onBack = onBack)
     BackHandler(enabled = !threadOpen && (videoNote.active || audioNote.active)) {
         videoNote.stopForRecovery()
         audioNote.stopForRecovery()
@@ -1264,9 +1285,10 @@ fun ChatScreen(
             }
         }
     }
+    val listScrollInstant = rememberMotionInstant(MotionToken.ListReorder)
     // Появление кружка в ленте прокручивает к низу, как и исходящее сообщение.
     LaunchedEffect(pendingVideoNotes.firstOrNull()?.sessionName) {
-        if (pendingVideoNotes.isNotEmpty()) listState.animateScrollToItem(0)
+        if (pendingVideoNotes.isNotEmpty()) listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
     }
     LaunchedEffect(chat.id, newest?.id) {
         // A message sent while the chat opens drops the boundary: the list goes to the bottom and the boundary is not placed.
@@ -1276,7 +1298,9 @@ fun ChatScreen(
             if (arrived && newest?.isOutgoing == true) scrollPosition.readBoundaryChecked = true
             else return@LaunchedEffect
         }
-        if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) listState.animateScrollToItem(0)
+        if (!history.hasNewerMessages && messages.isNotEmpty() && (listState.firstVisibleItemIndex < 2 || newest?.isOutgoing == true)) {
+            listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
+        }
     }
     // Открытие с непрочитанными: экран встаёт у разделителя «Непрочитанные», а не у последнего сообщения.
     // Пока граница не зафиксирована, отметки прочтения не отправляются (см. сбор видимых сообщений выше), поэтому она не сдвигается.
@@ -1320,7 +1344,7 @@ fun ChatScreen(
         }
         // A scroll cancelled by the user's touch still settles the opening, or read marks would stay held for the visit.
         try {
-            listState.animateScrollToItem(index)
+            listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant)
             highlighted = target
         } finally {
             settleFocusedOpening()
@@ -1332,7 +1356,7 @@ fun ChatScreen(
     fun jump(reply: MessageReply) {
         if (reply.isUnavailable || reply.messageId <= 0) { error = context.getString(R.string.chat_reply_original_unavailable); return }
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == reply.messageId && it.chatId == reply.chatId } }
-        if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = reply.messageId }
+        if (index >= 0) scope.launch { listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant); highlighted = reply.messageId }
         else { contextChatId = reply.chatId; contextMessageId = reply.messageId }
     }
     // The reply is checked on the server first: a channel, or a chat without reply rights, must not enter reply mode.
@@ -1405,19 +1429,103 @@ fun ChatScreen(
             if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) searchBusy = false
         }
     }
-    fun openSearchResult(message: ChatMessage) {
-        val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == message.id } }
-        closeSearch()
-        if (index >= 0) scope.launch { listState.animateScrollToItem(index); highlighted = message.id }
-        else { contextChatId = chat.id; contextMessageId = message.id }
-    }
     fun jumpToMessage(messageId: Long, failure: Int) {
+        cancelActiveJump()
+        val generation = jumpGeneration
         val index = messageListItems.indexOfFirst { item -> item.messages.any { it.id == messageId } }
-        if (index >= 0) { scope.launch { try { listState.animateScrollToItem(index); highlighted = messageId } finally { settleFocusedOpening() } }; return }
+        if (index >= 0) {
+            jumpScrollJob = scope.launch {
+                try {
+                    listState.scrollToItemRespectingMotion(index, motionInstant = listScrollInstant)
+                    if (generation == jumpGeneration) highlighted = messageId
+                } finally {
+                    settleFocusedOpening()
+                    if (generation == jumpGeneration) jumpScrollJob = null
+                }
+            }
+            return
+        }
+        jumpLoadJob = scope.launch {
+            try {
+                (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, messageId) else conversation.loadMessagesAround(chat.id, messageId))
+                    .onSuccess { applied ->
+                        if (generation != jumpGeneration) return@onSuccess
+                        if (applied) pendingJumpId = messageId else settleFocusedOpening()
+                    }
+                    .onFailure {
+                        if (generation != jumpGeneration) return@onFailure
+                        error = it.userMessage(context, failure)
+                        settleFocusedOpening()
+                    }
+            } finally {
+                if (generation == jumpGeneration) jumpLoadJob = null
+            }
+        }
+    }
+    fun openSearchResult(message: ChatMessage) {
+        val snapshot = searchResults
+        val index = snapshot.indexOfFirst { it.id == message.id }.coerceAtLeast(0)
+        val total = searchTotalCount
+        val nextId = searchNextId
+        val querySnapshot = searchQuery
+        val filterSnapshot = searchFilter
+        closeSearch(clearMatchSession = false)
+        searchMatchGeneration++
+        searchMatchSession = ChatSearchMatchSession(
+            query = querySnapshot,
+            filter = filterSnapshot,
+            results = snapshot,
+            index = index,
+            totalCount = total,
+            nextFromMessageId = nextId
+        )
+        jumpToMessage(message.id, R.string.err_chat_history_load_failed)
+    }
+    fun reopenSearchFromMatches() {
+        val session = searchMatchSession
+        cancelActiveJump()
+        searchMatchGeneration++
+        searchQuery = session.query
+        searchFilter = session.filter
+        searchMatchSession = ChatSearchMatchSession()
+        searching = true
+    }
+    fun stepNewerSearchMatch() {
+        val next = searchMatchSession.stepNewer()
+        if (next == searchMatchSession) return
+        searchMatchSession = next
+        next.currentMessageId?.let { jumpToMessage(it, R.string.err_chat_history_load_failed) }
+    }
+    fun stepOlderSearchMatch() {
+        val session = searchMatchSession
+        if (!session.canStepOlder) return
+        if (session.index < session.results.lastIndex) {
+            val next = session.stepOlderLoaded()
+            searchMatchSession = next
+            next.currentMessageId?.let { jumpToMessage(it, R.string.err_chat_history_load_failed) }
+            return
+        }
+        val needle = session.query.trim()
+        val cursor = session.nextFromMessageId
+        if (cursor == 0L) return
+        val generation = ++searchMatchGeneration
+        searchMatchSession = session.copy(busy = true)
         scope.launch {
-            (if (forumTopicId > 0L) conversation.loadForumTopicMessagesAround(chat.id, forumTopicId, messageId) else conversation.loadMessagesAround(chat.id, messageId))
-                .onSuccess { applied -> if (applied) pendingJumpId = messageId else settleFocusedOpening() }
-                .onFailure { error = it.userMessage(context, failure); settleFocusedOpening() }
+            (if (forumTopicId > 0L) conversation.searchForumTopicMessages(chat.id, forumTopicId, needle, cursor, session.filter)
+            else conversation.searchMessages(chat.id, needle, cursor, session.filter))
+                .onSuccess { page ->
+                    if (generation != searchMatchGeneration || !searchMatchSession.isActive) return@onSuccess
+                    val updated = searchMatchSession.appendPage(page.messages, page.nextFromMessageId)
+                    searchMatchSession = updated
+                    if (updated.index != session.index) {
+                        updated.currentMessageId?.let { jumpToMessage(it, R.string.err_chat_history_load_failed) }
+                    }
+                }
+                .onFailure { failure ->
+                    if (generation != searchMatchGeneration || !searchMatchSession.isActive) return@onFailure
+                    searchMatchSession = searchMatchSession.copy(busy = false)
+                    error = failure.userMessage(context, R.string.chat_search_failed)
+                }
         }
     }
     fun jumpToPinned(message: ChatMessage) = jumpToMessage(message.id, R.string.chat_pinned_failed)
@@ -1464,7 +1572,7 @@ fun ChatScreen(
         if (boundary <= 0L) {
             if (!history.hasOlderMessages && firstUnread >= 0) {
                 val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing }?.id
-                scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
+                scope.launch { listState.scrollToItemRespectingMotion(firstUnread, motionInstant = listScrollInstant); highlighted = target }
             } else if (history.hasOlderMessages) {
                 scope.launch {
                     val items = groupTelegramMediaAlbums(loadOlderUntilBeginning())
@@ -1476,7 +1584,7 @@ fun ChatScreen(
         }
         if (!needsUnreadWindow(readLoaded, firstUnread)) {
             val target = rawMessageItems[firstUnread].messages.firstOrNull { !it.isOutgoing && it.id > unreadBoundary }?.id
-            scope.launch { listState.animateScrollToItem(firstUnread); highlighted = target }
+            scope.launch { listState.scrollToItemRespectingMotion(firstUnread, motionInstant = listScrollInstant); highlighted = target }
             return
         }
         // A zero watermark has no message to anchor GetChatHistory; extend the oldest loaded page instead.
@@ -1902,7 +2010,12 @@ fun ChatScreen(
                     val latest = listItem.messages.maxByOrNull { it.id }
                     val animateArrival = remember(listItem.key) { animationTracker.claim(listItem.messages.map { it.id }) }
                     val effectMessage = listItem.messages.firstOrNull { it.effectId != 0L }
-                    MessageAnimationFrame(animate = animateArrival, outgoing = latest?.isOutgoing == true, config = messageAnimations) {
+                    MessageAnimationFrame(
+                        animate = animateArrival,
+                        outgoing = latest?.isOutgoing == true,
+                        config = messageAnimations,
+                        sideInset = metrics.sideInset
+                    ) {
                         MessageEffectFrame(
                             effectId = effectMessage?.effectId ?: 0L,
                             messageId = effectMessage?.id ?: latest?.id ?: 0L,
@@ -1967,7 +2080,17 @@ fun ChatScreen(
                             }
                         }
                     }
-                    MessageAnimationFrame(animate = animateArrival && launch == null, outgoing = message.isOutgoing, config = messageAnimations, modifier = launchModifier) {
+                    val isCenteredRow = message.serviceText != null
+                    val isCircleMedia = !isCenteredRow && message.media?.kind == MediaKind.VideoNote
+                    val bubbleSideInset = if (isCenteredRow || isCircleMedia) 0.dp else metrics.sideInset
+                    MessageAnimationFrame(
+                        animate = animateArrival && launch == null,
+                        outgoing = message.isOutgoing,
+                        config = messageAnimations,
+                        modifier = launchModifier,
+                        centered = isCenteredRow,
+                        sideInset = bubbleSideInset
+                    ) {
                         MessageEffectFrame(
                             effectId = message.effectId,
                             messageId = message.id,
@@ -2163,8 +2286,8 @@ fun ChatScreen(
                 scope.launch {
                     // Honor Motion Off / system reduced motion for the scroll itself,
                     // not only for the button's entrance and exit.
-                    if (shouldAnimateJumpToLatest(jumpMotion.isInstant, hasNewerMessages)) {
-                        listState.animateScrollToItem(0)
+                    if (shouldAnimateJumpToLatest(listScrollInstant.value, hasNewerMessages)) {
+                        listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant)
                     } else {
                         listState.scrollToItem(0)
                     }
@@ -2251,6 +2374,15 @@ fun ChatScreen(
                 }
             }
         )
+        if (!searching && !selectionMode && !deleting && searchMatchSession.isActive) {
+            ChatSearchMatchBar(
+                session = searchMatchSession,
+                onReopenSearch = ::reopenSearchFromMatches,
+                onStepOlder = ::stepOlderSearchMatch,
+                onStepNewer = ::stepNewerSearchMatch,
+                onClose = { closeSearch() }
+            )
+        }
         // Keep presence above the entire composer, including any staged attachment tray.
         // Never place it between attachment previews and the caption/keyboard.
         key(chat.id) {
@@ -2551,11 +2683,11 @@ fun ChatScreen(
         }
         if (liveViewed?.media != null && liveViewed.isViewOnce) retainedViewOnce = liveViewed
     }
-    val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id) } }
-    val historyPages = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id) } } }
+    val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } }
+    val historyPages = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } } }
     // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
     val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
-        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id) } })
+        ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } })
     val viewOnceGate = rememberViewOnceStealthGate(chat.id)
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(chat.id, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)) }
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(chat.id, viewOnceAsked.id) { selectedMediaId = null }
@@ -3165,7 +3297,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                         .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
-                        .then(if (onMediaBounds != null && message.media != null) Modifier.onGloballyPositioned { onMediaBounds(it.boundsInWindow()) } else Modifier)
+                        .then(if (onMediaBounds != null && message.media != null) Modifier.onGloballyPositioned { it.mediaScreenBounds()?.let(onMediaBounds) } else Modifier)
                         .semantics {
                             if (selectionMode) {
                                 this.selected = selected
