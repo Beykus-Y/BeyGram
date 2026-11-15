@@ -3,7 +3,6 @@ package com.beykus.beygram.ui.screens.profile
 import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.motion.MotionToken
-import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.motion.rememberMotionInstant
 import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import androidx.annotation.StringRes

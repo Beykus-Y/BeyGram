@@ -4,6 +4,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.pager.PagerState
@@ -117,3 +118,10 @@ suspend fun PagerState.scrollToPageRespectingMotion(
 ) = scrollWithMotion(motionInstant,
     snap = { scrollToPage(page) },
     animate = { animateScrollToPage(page) })
+
+suspend fun ScrollState.scrollToRespectingMotion(
+    value: Int,
+    motionInstant: State<Boolean>
+) = scrollWithMotion(motionInstant,
+    snap = { scrollTo(value) },
+    animate = { animateScrollTo(value) })

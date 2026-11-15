@@ -168,24 +168,51 @@ fun NowPlayingBar(
     /** Compact vertical density used inside an open chat so the bar yields more space to messages. */
     compact: Boolean = false
 ) {
-    val providedOpenEqualizer = LocalOpenEqualizer.current
-    val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
-    val openMusicSearch = LocalOpenMusicSearch.current
-    val openMyMusic = LocalOpenMyMusic.current
     val mini = rememberMiniPlayerUi()
     // Root and tab bars yield their space to the keyboard; the chat-integrated bar
     // keeps its own composer layout. Playback and the full-player sheet stay alive.
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
+    // A listener in a live wave gets this bar when no track is playing; a track in the player always wins the slot.
+    val wave by BgWaveHub.controller.state.collectAsStateWithLifecycle()
+    val waveListening = wave?.role == BgWaveRole.Listener && wave?.phase == BgWavePhase.Live
+    NowPlayingBarHost(
+        mini = mini,
+        keyboardVisible = keyboardVisible,
+        undoAvailable = undoAvailable,
+        waveListening = waveListening,
+        bottomInset = bottomInset,
+        hideWhenImeVisible = hideWhenImeVisible,
+        onOpenEqualizer = onOpenEqualizer,
+        floatingDock = floatingDock,
+        railCover = railCover,
+        compact = compact
+    )
+}
+
+@Composable
+internal fun NowPlayingBarHost(
+    mini: MiniPlayerUi?,
+    keyboardVisible: Boolean,
+    undoAvailable: Boolean = false,
+    waveListening: Boolean = false,
+    bottomInset: Boolean = false,
+    hideWhenImeVisible: Boolean = bottomInset,
+    onOpenEqualizer: (() -> Unit)? = null,
+    floatingDock: Boolean = false,
+    railCover: Boolean = false,
+    compact: Boolean = false
+) {
+    val providedOpenEqualizer = LocalOpenEqualizer.current
+    val openEqualizer = onOpenEqualizer ?: providedOpenEqualizer
+    val openMusicSearch = LocalOpenMusicSearch.current
+    val openMyMusic = LocalOpenMyMusic.current
     val hiddenForIme = hideWhenImeVisible && keyboardVisible
     var lastMini by remember { mutableStateOf(mini) }
     SideEffect { if (mini != null) lastMini = mini }
     var fullPlayerOpen by rememberSaveable { mutableStateOf(false) }
     val enterSpec = rememberMotionSpec(MotionToken.SheetEnter)
     val exitSpec = rememberMotionSpec(MotionToken.SheetExit)
-    val undoAvailable by PlaybackEngine.undoClose.collectAsStateWithLifecycle()
-    // A listener in a live wave gets this bar when no track is playing; a track in the player always wins the slot.
-    val wave by BgWaveHub.controller.state.collectAsStateWithLifecycle()
-    val waveListening = wave?.role == BgWaveRole.Listener && wave?.phase == BgWavePhase.Live
 
     LaunchedEffect(Unit) {
         MusicPlayerLauncher.openRequests.collect {

@@ -6,8 +6,6 @@ import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -54,6 +52,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import com.beykus.beygram.ui.components.sheetSurfaceColor
+import com.beykus.beygram.ui.motion.MotionSpec
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.theme.LocalBeyGramTokens
@@ -172,7 +171,6 @@ import com.beykus.beygram.playback.sleepTimerRemainingMinutes
 import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.ui.screens.music.rememberProviderCover
 import com.beykus.beygram.playback.speedLabel
-import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -189,7 +187,6 @@ import com.beykus.beygram.ui.screens.profile.PROFILE_AUDIO_KEY_PREFIX
 import com.beykus.beygram.ui.text.userMessage
 import com.beykus.beygram.ui.screens.music.PlayerProviderTrackMenuItems
 
-private const val TRANSPORT_MOTION_MS = 150
 private const val SEEK_STEP_MS = 5_000L
 private val QUEUE_ROW_HEIGHT = 76.dp
 
@@ -531,7 +528,6 @@ private fun PlayerBody(
     modifier: Modifier = Modifier
 ) {
     val mediaMotion = rememberMotionSpec(MotionToken.MediaExpand)
-    val reduced = mediaMotion.isInstant
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val landscape = maxWidth > maxHeight && maxWidth >= 600.dp
         if (landscape) {
@@ -540,7 +536,7 @@ private fun PlayerBody(
                 Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PlayerArtwork(player, artwork, reduced)
+                PlayerArtwork(player, artwork, mediaMotion)
                 Spacer(Modifier.width(28.dp))
                 Column(
                     Modifier
@@ -553,7 +549,7 @@ private fun PlayerBody(
                 ) {
                     PlayerDetails(
                         player = player,
-                        reduced = reduced,
+                        mediaMotion = mediaMotion,
                         onOpenQueue = onOpenQueue,
                         onOpenEqualizer = onOpenEqualizer,
                         onShowInChat = onShowInChat
@@ -574,11 +570,11 @@ private fun PlayerBody(
                         .padding(top = 4.dp, bottom = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    PlayerArtwork(player, artwork, reduced)
+                    PlayerArtwork(player, artwork, mediaMotion)
                     Spacer(Modifier.height(18.dp))
                     PlayerDetails(
                         player = player,
-                        reduced = reduced,
+                        mediaMotion = mediaMotion,
                         onOpenQueue = onOpenQueue,
                         onOpenEqualizer = onOpenEqualizer,
                         onShowInChat = onShowInChat
@@ -592,7 +588,7 @@ private fun PlayerBody(
 @Composable
 private fun PlayerDetails(
     player: MusicPlayerUi,
-    reduced: Boolean,
+    mediaMotion: MotionSpec,
     onOpenQueue: () -> Unit,
     onOpenEqualizer: (() -> Unit)?,
     onShowInChat: (() -> Unit)?
@@ -607,11 +603,11 @@ private fun PlayerDetails(
         if (duration > 0L) (position.positionMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
     }
 
-    TrackMetadata(player, reduced)
+    TrackMetadata(player, mediaMotion)
     PlayerSeekSection(player)
     if (player.bgMix) BgMixTransitionLine()
     Spacer(Modifier.height(6.dp))
-    TransportControls(player, reduced)
+    TransportControls(player, mediaMotion)
     Spacer(Modifier.height(14.dp))
     BgBeatSection(
         item = player.item,
@@ -628,12 +624,15 @@ private fun PlayerDetails(
 }
 
 @Composable
-private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, reduced: Boolean) {
+private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSpec) {
     val palette = beyGramPalette()
-    val scale = remember(player.item.key) { Animatable(if (reduced) 1f else 0.94f) }
+    val reduced = mediaMotion.isInstant
+    val scale = remember(player.item.key) {
+        Animatable(if (reduced) 1f else 1f - 0.06f * mediaMotion.intensity)
+    }
     LaunchedEffect(player.item.key, reduced) {
         if (reduced) scale.snapTo(1f)
-        else scale.animateTo(1f, tween(durationMillis = 300, easing = FastOutSlowInEasing))
+        else scale.animateTo(1f, mediaMotion.animationSpec())
     }
     Box(
         Modifier
@@ -675,7 +674,7 @@ private data class TrackMetadataUi(
 )
 
 @Composable
-private fun TrackMetadata(player: MusicPlayerUi, reduced: Boolean) {
+private fun TrackMetadata(player: MusicPlayerUi, mediaMotion: MotionSpec) {
     val palette = beyGramPalette()
     val fallbackTitle = stringResource(R.string.media_kind_audio)
     val metadata = remember(
@@ -694,7 +693,7 @@ private fun TrackMetadata(player: MusicPlayerUi, reduced: Boolean) {
     }
     Crossfade(
         targetState = metadata,
-        animationSpec = tween(durationMillis = if (reduced) 0 else 220),
+        animationSpec = mediaMotion.animationSpec(),
         label = "trackMetadata"
     ) { shown ->
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1018,7 +1017,7 @@ private fun PlayerTimeRow(fallbackDurationSeconds: Int, dragFraction: Float?, sm
 }
 
 @Composable
-private fun TransportControls(player: MusicPlayerUi, reduced: Boolean) {
+private fun TransportControls(player: MusicPlayerUi, mediaMotion: MotionSpec) {
     val shuffleState = stringResource(
         if (player.shuffleEnabled) R.string.player_shuffle_on else R.string.player_shuffle_off
     )
@@ -1048,7 +1047,7 @@ private fun TransportControls(player: MusicPlayerUi, reduced: Boolean) {
             enabled = player.canPrevious,
             onClick = { PlaybackEngine.previous() }
         )
-        PlayPauseButton(player, reduced)
+        PlayPauseButton(player, mediaMotion)
         TransportIcon(
             icon = Icons.Rounded.SkipNext,
             label = stringResource(R.string.player_next),
@@ -1119,7 +1118,7 @@ private fun ToggleTransportIcon(
 }
 
 @Composable
-private fun PlayPauseButton(player: MusicPlayerUi, reduced: Boolean) {
+private fun PlayPauseButton(player: MusicPlayerUi, mediaMotion: MotionSpec) {
     val palette = beyGramPalette()
     val icon = when {
         player.failed -> Icons.Rounded.Replay
@@ -1152,7 +1151,7 @@ private fun PlayPauseButton(player: MusicPlayerUi, reduced: Boolean) {
     ) {
         Crossfade(
             targetState = icon,
-            animationSpec = tween(durationMillis = if (reduced) 0 else TRANSPORT_MOTION_MS),
+            animationSpec = mediaMotion.animationSpec(),
             label = "playPause"
         ) { shown ->
             Icon(shown, contentDescription = null, tint = palette.onAccent, modifier = Modifier.size(38.dp))
