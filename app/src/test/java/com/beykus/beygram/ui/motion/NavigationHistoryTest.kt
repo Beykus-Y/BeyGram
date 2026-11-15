@@ -96,4 +96,52 @@ class NavigationHistoryTest {
         // Stack is back at root; pushing Chat again is a Push.
         assertEquals(NavigationMove.Push, history.visit("Chat"))
     }
+
+    @Test
+    fun twoPaneTabSwitchFromNestedRouteResolvesAsTabRelativeToActiveTab() {
+        val history = history()
+        assertEquals(NavigationMove.Push, history.visit("Chat"))
+        assertEquals(NavigationMove.Push, history.visit("ChatInfo"))
+
+        history.prepareTabSwitch("Chats")
+        assertEquals(NavigationMove.Tab, history.visit("Settings"))
+        assertEquals(1, history.tabDirection)
+
+        // Switching back from a nested route inside a later tab uses that active tab's order.
+        assertEquals(NavigationMove.Push, history.visit("SettingsDetail"))
+        history.prepareTabSwitch("Settings")
+        assertEquals(NavigationMove.Tab, history.visit("Calls"))
+        assertEquals(-1, history.tabDirection)
+    }
+
+    @Test
+    fun normalBackFromNestedRouteToTabRootStillProducesPop() {
+        val history = history()
+        assertEquals(NavigationMove.Push, history.visit("Archive"))
+        assertEquals(NavigationMove.Push, history.visit("Chat"))
+        assertEquals(NavigationMove.Pop, history.visit("Archive"))
+        assertEquals(NavigationMove.Pop, history.visit("Chats"))
+
+        // Opening Chat from Contacts and pressing Back without a rail tab switch still pops.
+        assertEquals(NavigationMove.Tab, history.visit("Contacts"))
+        assertEquals(NavigationMove.Push, history.visit("Chat"))
+        assertEquals(NavigationMove.Pop, history.visit("Contacts"))
+    }
+
+    @Test
+    fun prepareTabSwitchDoesNotLeakPastRepeatedOrNonRootVisit() {
+        val history = history()
+        assertEquals(NavigationMove.Push, history.visit("Chat"))
+        history.prepareTabSwitch("Chats")
+        // Visiting the same route clears the pending tab switch.
+        assertEquals(NavigationMove.Push, history.visit("Chat"))
+        // Subsequent normal back to Chats must still be Pop.
+        assertEquals(NavigationMove.Pop, history.visit("Chats"))
+
+        // Visiting a non-root route also clears any pending tab switch.
+        assertEquals(NavigationMove.Push, history.visit("Chat"))
+        history.prepareTabSwitch("Chats")
+        assertEquals(NavigationMove.Push, history.visit("ChatInfo"))
+        assertEquals(NavigationMove.Pop, history.visit("Chats"))
+    }
 }

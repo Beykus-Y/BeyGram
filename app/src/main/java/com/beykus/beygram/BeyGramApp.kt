@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +41,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import android.widget.Toast
@@ -106,8 +108,6 @@ import com.beykus.beygram.ui.components.WindowNavigation
 import com.beykus.beygram.ui.components.WindowLayout
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.usesGlassPanels
-import com.beykus.beygram.ui.components.MainTabIndicator
-import com.beykus.beygram.ui.components.LocalMainTabIndicator
 import com.beykus.beygram.ui.components.MainTabsScaffold
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -120,8 +120,9 @@ import com.beykus.beygram.ui.accessibility.LocalSystemReducedMotion
 import com.beykus.beygram.ui.motion.LocalMotionSettings
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.NavigationHistory
+import com.beykus.beygram.ui.motion.NavigationMove
 import com.beykus.beygram.ui.motion.rememberMotionSpec
-import com.beykus.beygram.ui.motion.routeContentTransform
+import com.beykus.beygram.ui.motion.rememberRouteTransitionSpec
 import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.screens.chat.ChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.ChatScreen
@@ -894,8 +895,6 @@ private fun BeyGramAppContent(
         tabPreferences.save(visibility)
     }
     val tabStateHolder = rememberSaveableStateHolder()
-    // Lives above the route content, so one tab indicator keeps gliding across tab changes.
-    val tabIndicator = remember { MainTabIndicator() }
     // Поиск, папка и позиция списка живут выше раскладки: телефон, две панели, поворот и
     // складка переиспользуют одно состояние, а не создают список заново. Ключ аккаунта
     // не даёт поиску и id папок прошлого аккаунта перейти в следующий.
@@ -1622,7 +1621,7 @@ private fun BeyGramAppContent(
             returnRouteName = equalizerReturnRouteName
         )
     )
-    // Направление перехода берётся из порядка открытия экранов: назад — pop, новый экран — push, вкладки — fade.
+    // Направление перехода берётся из порядка открытия экранов: назад — pop, новый экран — push, вкладки — сдвиг по порядку панели.
     // Keep back-stack direction local to the active account. A route visited in another account
     // must not turn a new screen into a backwards transition after switching accounts.
     val routeHistory = remember(selectedAccountId) {
@@ -1633,6 +1632,12 @@ private fun BeyGramAppContent(
         )
     }
     val routeMove = routeHistory.visit(route)
+    val selectTwoPaneTab: (MainTab) -> Unit = { tab ->
+        if (tab != MainTab.Chats && route != MainTab.Chats.route) {
+            routeHistory.prepareTabSwitch(MainTab.Chats.route)
+        }
+        selectTab(tab)
+    }
     LaunchedEffect(route, previousRouteName) {
         // Every Equalizer entry (player, Settings, profile) records its caller here. The Settings shortcut used to
         // bypass LocalOpenEqualizer; this common transition keeps the return destination correct for all entries.
@@ -2269,7 +2274,6 @@ private fun BeyGramAppContent(
         LocalChatAnimationPreferences provides chatAnimationPreferences,
         LocalSystemReducedMotion provides reducedMotion,
         LocalMotionSettings provides motionSettings,
-        LocalMainTabIndicator provides tabIndicator,
         LocalAutoDownloadFile provides repository::autoDownloadFile,
         LocalBackgroundMediaDownload provides repository::downloadFileInBackground,
         LocalOpenEqualizer provides {
@@ -2424,6 +2428,7 @@ GlobalSearchScreen(
             // navigation and the chat chrome can never disagree about the layout they are in.
             val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)
             val routeTwoPane = windowLayout.twoPane
+            val layoutDirection = LocalLayoutDirection.current
             CompositionLocalProvider(LocalWindowLayout provides windowLayout) {
             // Один набор спецификаций на все переходы: длительность и easing берутся из токенов движка.
             val pushSpec = rememberMotionSpec(MotionToken.NavigationPush)
@@ -2492,25 +2497,28 @@ GlobalSearchScreen(
                     )
                 }
                 // An account switch resets the host: outgoing content must not render against the new account's state.
-                else -> key(selectedAccountId) { AnimatedContent(
-                    targetState = route,
+                else -> key(selectedAccountId) {
+                val routeTransitionSpec = rememberRouteTransitionSpec<RouteTransitionFrame>(
+                    move = routeMove,
+                    push = pushSpec,
+                    pop = popSpec,
+                    tab = tabSpec,
+                    tabDirection = routeHistory.tabDirection,
+                    layoutDirection = layoutDirection,
+                    resolveMove = ::routeTransitionMove
+                )
+                AnimatedContent(
+                    targetState = RouteTransitionFrame(route, routeTwoPane),
                     modifier = Modifier.fillMaxSize().clipToBounds(),
                     // Two panes: the list and the open chat share one slot, so selecting a chat never remounts the list.
                     // Phones: a comment thread stays in its chat's slot, since it is the same open conversation.
-                    contentKey = {
-                        when {
-                            routeTwoPane && it in twoPaneSlotRoutes -> AppRoute.Chats
-                            it == AppRoute.MessageThread -> AppRoute.Chat
-                            else -> it
-                        }
-                    },
-                    transitionSpec = {
-                        routeContentTransform(routeMove, pushSpec, popSpec, tabSpec, routeHistory.tabDirection)
-                    },
+                    contentKey = { routeContentKey(it.route, it.twoPane) },
+                    transitionSpec = routeTransitionSpec,
                     label = "routeTransition"
-                ) { screenRoute ->
+                ) { frame ->
+                val screenRoute = frame.route
                 Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
-                when (if (routeTwoPane && screenRoute in twoPaneSlotRoutes) AppRoute.Chats else screenRoute) {
+                when (if (frame.twoPane && screenRoute in twoPaneSlotRoutes) AppRoute.Chats else screenRoute) {
                 AppRoute.Start -> StartScreen(
                     tdLibReadiness = tdLibReadiness,
                     authState = authState,
@@ -2606,7 +2614,7 @@ GlobalSearchScreen(
                                     MainTabRail(
                                         tabs = MainTab.entries.filter { tabVisibility.isVisible(it) },
                                         selected = MainTab.Chats,
-                                        onSelect = selectTab,
+                                        onSelect = selectTwoPaneTab,
                                         slim = layout.navigation == WindowNavigation.SlimRail,
                                         bottomContent = if (layout.navigation == WindowNavigation.SlimRail) {
                                             { NowPlayingBar(hideWhenImeVisible = true, railCover = true) }
@@ -2634,7 +2642,7 @@ GlobalSearchScreen(
                                         // Меню стиля внутри панели списка: ведёт себя как телефон, правая часть — содержимое.
                                         MainTabsScaffold(
                                             "${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats,
-                                            tabVisibility, selectTab, tabStateHolder, contentUnderDock = true
+                                            tabVisibility, selectTwoPaneTab, tabStateHolder, contentUnderDock = true
                                         ) { chatsList(true, open) }
                                     } else {
                                         chatsList(true, open)
@@ -3372,3 +3380,21 @@ private fun mergeForumTopics(
     val freshIds = fresh.mapTo(HashSet()) { it.id }
     return fresh + shown.filter { it.id !in freshIds }
 }
+
+@Immutable
+internal data class RouteTransitionFrame(
+    val route: AppRoute,
+    val twoPane: Boolean
+)
+
+internal fun routeContentKey(route: AppRoute, twoPane: Boolean): AppRoute = when {
+    twoPane && route in twoPaneSlotRoutes -> AppRoute.Chats
+    route == AppRoute.MessageThread -> AppRoute.Chat
+    else -> route
+}
+
+internal fun routeTransitionMove(
+    initial: RouteTransitionFrame,
+    target: RouteTransitionFrame,
+    routeMove: NavigationMove
+): NavigationMove = if (initial.route == target.route) NavigationMove.None else routeMove
