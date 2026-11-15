@@ -30,8 +30,9 @@ import com.beykus.beygram.data.appearance.MessageAnimationPreset
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
-import com.beykus.beygram.data.settings.VideoMessageSettingsStore
+import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.model.AnimationItem
 import com.beykus.beygram.domain.model.AnimationPage
 import com.beykus.beygram.domain.model.BotCallbackAnswer
 import com.beykus.beygram.domain.model.BotCommandMenu
