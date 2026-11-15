@@ -359,6 +359,14 @@ class BgWaveController(
             ?.takeIf { decode(it, nowSeconds) is BgWaveDecodeResult.Ok }
     }
 
+    /** Stops only the wave captured by the caller, never a replacement session. */
+    internal fun stopIfCurrent(expected: BgWaveSessionState, nowSeconds: Long): String? = synchronized(lock) {
+        val current = _state.value ?: return null
+        if (current.sidHex != expected.sidHex || current.accountId != expected.accountId ||
+            current.chatId != expected.chatId || current.role != expected.role) return null
+        stop(nowSeconds)
+    }
+
     /** «Повторить» after a failure: asks the session to reconnect. */
     fun retry(nowSeconds: Long): Boolean = synchronized(lock) {
         val current = _state.value ?: return false
