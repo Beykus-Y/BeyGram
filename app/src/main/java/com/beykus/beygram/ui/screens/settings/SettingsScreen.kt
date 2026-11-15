@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Devices
@@ -83,7 +84,7 @@ import com.beykus.beygram.ui.design.glassScreenBackground
 fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit,
     onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit,
     onDiagnostics: () -> Unit, onUpdates: () -> Unit, onLanguage: () -> Unit, onSessions: () -> Unit,
-    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicLibrary: () -> Unit = {}, onExperiments: () -> Unit = {}) {
+    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicLibrary: () -> Unit = {}, onExperiments: () -> Unit = {}, onTriggerWords: () -> Unit = {}) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     Column(
@@ -108,6 +109,8 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsLink(Icons.Rounded.Videocam, stringResource(R.string.settings_video_recording_title), onVideoRecording)
             SettingsRowDivider()
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
+            SettingsRowDivider()
+            SettingsLink(Icons.Rounded.Search, stringResource(R.string.trigger_title), onTriggerWords)
         }
         SettingsGroup(stringResource(R.string.settings_group_sound_playback)) {
             SettingsLink(Icons.Rounded.GraphicEq, stringResource(R.string.settings_equalizer_title), onEqualizer)

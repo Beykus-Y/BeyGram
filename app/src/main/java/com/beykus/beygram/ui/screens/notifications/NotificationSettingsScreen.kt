@@ -118,6 +118,14 @@ fun NotificationSettingsScreen(
             Text(stringResource(R.string.notif_no_google_title), color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(stringResource(R.string.notif_no_google_body), color = palette.textSecondary)
             Text(stringResource(R.string.settings_autosave_note), color = palette.textSecondary, fontSize = 13.sp)
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onTriggers).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.trigger_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.trigger_row_hint), color = palette.textSecondary)
+                }
+                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary)
+            }
+            HorizontalDivider(color = palette.divider)
             SettingToggle(stringResource(R.string.notif_toggle_messages), stringResource(R.string.notif_toggle_messages_hint), config.enabled) {
                 accountPreferences.update(config.copy(enabled = it))
                 runtime.refresh()
@@ -158,14 +166,6 @@ fun NotificationSettingsScreen(
             }) { Text(stringResource(R.string.notif_allow_background_work)) }
             Text(stringResource(R.string.notif_battery_note), color = palette.textSecondary, fontSize = 13.sp)
             error?.let { Text(it.resolve(), color = palette.danger) }
-            HorizontalDivider(color = palette.divider)
-            Row(Modifier.fillMaxWidth().clickable(onClick = onTriggers), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.trigger_title), color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Text(stringResource(R.string.trigger_row_hint), color = palette.textSecondary)
-                }
-                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = palette.textSecondary)
-            }
             HorizontalDivider(color = palette.divider)
             Row(Modifier.fillMaxWidth().clickable(onClick = onDiagnostics), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
