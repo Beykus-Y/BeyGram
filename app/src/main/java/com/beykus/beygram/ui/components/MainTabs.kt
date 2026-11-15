@@ -96,17 +96,18 @@ import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 
 private val TabPillWidth = 56.dp
 private val TabPillHeight = 32.dp
+internal const val MainTabSelectionIndicatorTag = "MainTabSelectionIndicator"
 
 /**
- * Where the bottom bar's selection indicator is, in dp. It is provided above the route content: the bar is rebuilt on
- * every tab change, but this holder outlives it, so the indicator keeps gliding from the old tab to the new one.
+ * Where a bottom bar's selection indicator is, in dp. Each [MainTabBar] owns its own holder by default so
+ * horizontal tab transitions keep the outgoing bar's indicator anchored to its own tab instead of sliding across it.
  */
 internal class MainTabIndicator {
     val x = Animatable(0f)
-    var placed = false
+    var placed by mutableStateOf(false)
 }
 
-internal val LocalMainTabIndicator = staticCompositionLocalOf { MainTabIndicator() }
+internal val LocalMainTabIndicator = staticCompositionLocalOf<MainTabIndicator?> { null }
 
 /** Подпись раздела в навигации: нижнем меню телефона или рейке широкого экрана. */
 internal val MainTab.title: String
@@ -544,8 +545,8 @@ private fun NavigationBarContent(
         val tabWidth = availableWidth / tabs.size.coerceAtLeast(1)
         val selectedIndex = tabs.indexOf(selected)
         val targetX = tabWidth * selectedIndex.coerceAtLeast(0) + (tabWidth - spec.pillWidth) / 2
-        // The indicator is owned above the route content, so a tab change moves it rather than starting a new one.
-        val indicator = LocalMainTabIndicator.current
+        // Each bar keeps its own indicator unless a host explicitly scopes one for in-place tab changes.
+        val indicator = LocalMainTabIndicator.current ?: remember { MainTabIndicator() }
         LaunchedEffect(targetX.value, indicatorSpec) {
             if (selectedIndex < 0) return@LaunchedEffect
             if (!spec.showSelectionPill) return@LaunchedEffect
@@ -556,6 +557,7 @@ private fun NavigationBarContent(
                 indicator.placed = true
             }
         }
+        val indicatorX = if (indicator.placed) indicator.x.value.dp else targetX
         Column {
             // The indicator and the row share one Box, so the indicator sits behind the icons and never adds height.
             Box(Modifier.fillMaxWidth()) {
@@ -565,17 +567,18 @@ private fun NavigationBarContent(
                         spec,
                         palette.textPrimary,
                         Modifier.offset(
-                            x = indicator.x.value.dp + (spec.pillWidth - spec.markWidth) / 2,
+                            x = indicatorX + (spec.pillWidth - spec.markWidth) / 2,
                             y = -markLift(spec)
-                        )
+                        ).testTag(MainTabSelectionIndicatorTag)
                     )
                 } else if (selectedIndex >= 0 && spec.showSelectionPill) {
                     Box(
                         Modifier
-                            .offset(x = indicator.x.value.dp)
+                            .offset(x = indicatorX)
                             .size(width = spec.pillWidth, height = spec.pillHeight)
                             .clip(RoundedCornerShape(spec.pillRadius))
                             .background(palette.accentSoft.copy(alpha = palette.accentSoft.alpha * spec.indicatorAlpha))
+                            .testTag(MainTabSelectionIndicatorTag)
                     )
                 }
                 Row(
