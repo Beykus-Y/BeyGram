@@ -314,6 +314,9 @@ fun ChatScreen(
         PendingTextSendSessions.queue(sendApplication, accountId)
     }
     val textSendScopeKey = remember(accountId, chat.id, forumTopicId) { TextSendScopeKey(accountId, chat.id, forumTopicId) }
+    val textQueueWriting by remember(textSendQueue, textSendScopeKey) {
+        textSendQueue.composerWriting(textSendScopeKey)
+    }.collectAsStateWithLifecycle(initialValue = false)
     val queuedTextAttempts by remember(textSendQueue, textSendScopeKey) {
         textSendQueue.observe(textSendScopeKey)
     }.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -555,22 +558,24 @@ fun ChatScreen(
         }
     )
     fun retryLocalTextAttempt(attemptId: Long, sendNowConsent: Boolean = false) {
-        try {
-            textSendQueue.retry(
-                scopeKey = textSendScopeKey,
-                attemptId = attemptId,
-                sendNowConsent = sendNowConsent,
-                baselineSequence = conversation.observeChatHistory(chat.id).value.liveArrivalSequence,
-                execute = { attempt -> executeTextSendAttempt(conversation, attempt) },
-                onFailure = { attempt, failure ->
-                    attachments.stealthFallback.offer(failure) {
-                        retryLocalTextAttempt(attempt.attemptId, sendNowConsent = true)
-                    }
-                },
-                formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
-            )
-        } catch (_: TextSendStorageException) {
-            error = queueStorageFailureText
+        textSendQueue.launchMutation {
+            try {
+                textSendQueue.retry(
+                    scopeKey = textSendScopeKey,
+                    attemptId = attemptId,
+                    sendNowConsent = sendNowConsent,
+                    baselineSequence = conversation.observeChatHistory(chat.id).value.liveArrivalSequence,
+                    execute = { attempt -> executeTextSendAttempt(conversation, attempt) },
+                    onFailure = { attempt, failure ->
+                        attachments.stealthFallback.offer(failure) {
+                            retryLocalTextAttempt(attempt.attemptId, sendNowConsent = true)
+                        }
+                    },
+                    formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
+                )
+            } catch (_: TextSendStorageException) {
+                error = queueStorageFailureText
+            }
         }
     }
     fun retryFailedMessages(messageIds: List<Long>, sendNowConsent: Boolean = false) {
@@ -1504,7 +1509,7 @@ fun ChatScreen(
      * the choice applies to this send only and is not kept for the next one.
      */
     fun sendCurrentDraft(options: MessageSendOptions) {
-        if (secretChatClosed || editId != null || inlineSending) return
+        if (secretChatClosed || editId != null || inlineSending || textQueueWriting) return
         pendingSticker?.let { sticker ->
             pendingSticker = null
             attachments.sendStickerWithOptions(sticker, options)
@@ -1573,37 +1578,40 @@ fun ChatScreen(
             val timeLabel = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())
             val baselineSeq = history.liveArrivalSequence
             error = null
-            try {
-                textSendQueue.enqueue(
-                    scopeKey = textSendScopeKey,
-                    text = outgoing.text,
-                    entities = outgoing.entities,
-                    replyToMessageId = replySnapshot,
-                    replyPreview = replyPreviewSnapshot,
-                    options = effectiveOptions,
-                    baselineSequence = baselineSeq,
-                    timeLabel = timeLabel,
-                    dismissForceReplyMessageId = forceReplyId,
-                    execute = { attempt -> executeTextSendAttempt(conversation, attempt) },
-                    onSuccess = {
-                        launch?.awaitingSend = false
-                    },
-                    onFailure = { attempt, failure ->
-                        launch?.awaitingSend = false
-                        launch?.let(composerLaunches::remove)
-                        attachments.stealthFallback.offer(failure) {
-                            retryLocalTextAttempt(attempt.attemptId, sendNowConsent = true)
-                        }
-                    },
-                    formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
-                )
-            } catch (_: TextSendStorageException) {
-                launch?.awaitingSend = false
-                launch?.let(composerLaunches::remove)
-                error = queueStorageFailureText
-                return
+            val submittedDraft = composerDraft
+            textSendQueue.launchComposerWrite(textSendScopeKey) {
+                try {
+                    textSendQueue.enqueue(
+                        scopeKey = textSendScopeKey,
+                        text = outgoing.text,
+                        entities = outgoing.entities,
+                        replyToMessageId = replySnapshot,
+                        replyPreview = replyPreviewSnapshot,
+                        options = effectiveOptions,
+                        baselineSequence = baselineSeq,
+                        timeLabel = timeLabel,
+                        dismissForceReplyMessageId = forceReplyId,
+                        execute = { attempt -> executeTextSendAttempt(conversation, attempt) },
+                        onSuccess = {
+                            launch?.awaitingSend = false
+                        },
+                        onFailure = { attempt, failure ->
+                            launch?.awaitingSend = false
+                            launch?.let(composerLaunches::remove)
+                            attachments.stealthFallback.offer(failure) {
+                                retryLocalTextAttempt(attempt.attemptId, sendNowConsent = true)
+                            }
+                        },
+                        formatError = { it.userMessage(context, R.string.err_chat_send_failed) }
+                    )
+                } catch (_: TextSendStorageException) {
+                    launch?.awaitingSend = false
+                    launch?.let(composerLaunches::remove)
+                    error = queueStorageFailureText
+                    return@launchComposerWrite
+                }
+                updateDraft { current -> if (current == submittedDraft) MessageDraft() else current }
             }
-            updateDraft { MessageDraft() }
             return
         }
         // A scheduled message is not in the chat yet, so it must not run the Composer Launch animation.
@@ -2266,7 +2274,7 @@ fun ChatScreen(
         val displayedFieldEntities = if (hidingComposerForLaunch && !editing) emptyList() else fieldEntities
         val fieldLimit = when { editing -> editLimit; attachments.active && attachments.extra == null -> limits.caption; else -> limits.text }
         val overLimit = fieldText.codePointCount(0, fieldText.length) > fieldLimit
-        val busy = sending || inlineSending || editBusy || attachments.sending
+        val busy = sending || inlineSending || editBusy || attachments.sending || textQueueWriting
         val canSend = !busy && when {
             editing -> fieldText != editMessage?.text && (editMessage?.media != null || fieldText.isNotBlank())
             attachments.active -> attachments.canSend
@@ -2635,10 +2643,12 @@ fun ChatScreen(
             onDiscard = {
                 val attemptId = target.localAttemptId
                 if (attemptId != null) {
-                    try {
-                        textSendQueue.discard(textSendScopeKey, attemptId)
-                    } catch (_: TextSendStorageException) {
-                        error = queueStorageFailureText
+                    textSendQueue.launchMutation {
+                        try {
+                            textSendQueue.discard(textSendScopeKey, attemptId)
+                        } catch (_: TextSendStorageException) {
+                            error = queueStorageFailureText
+                        }
                     }
                 } else {
                     scope.launch {
