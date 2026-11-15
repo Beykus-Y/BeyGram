@@ -198,6 +198,14 @@ class BgWaveController(
             BgWaveLog.i("msg.unknown-session", "sid" to BgWaveLog.sid(msg.sidHex))
             return
         }
+        // Validate the sender binding before advancing replay protection. A different account
+        // or chat must never be able to exhaust the real peer's nonce window.
+        val boundInvite = invites[msg.sidHex]
+        if (boundInvite != null && (boundInvite.accountId != accountId ||
+                boundInvite.chatId != chatId || boundInvite.senderId != senderId)) return
+        val boundState = _state.value?.takeIf { it.sidHex == msg.sidHex }
+        if (boundState != null && (boundState.accountId != accountId ||
+                boundState.chatId != chatId || boundState.peerId != senderId)) return
         if (!acceptNonce(msg.sidHex, msg.type, msg.nonce)) {
             BgWaveLog.w("msg.replay", null, "type" to msg.type, "sid" to BgWaveLog.sid(msg.sidHex))
             return
@@ -526,6 +534,11 @@ class BgWaveController(
             if (generation != gen || !starting || session != null ||
                 latestInvite == null || latestInvite.status != BgWaveInviteStatus.Pending || sidHex in closed
             ) {
+                if (generation == gen && starting) {
+                    starting = false
+                    startingAccountId = null
+                    _state.value = null
+                }
                 true
             } else {
                 starting = false
@@ -625,6 +638,7 @@ class BgWaveController(
         while (closed.size >= MAX_CLOSED) {
             val eldest = closed.iterator().next()
             closed.remove(eldest)
+            if (!invites.containsKey(eldest)) lastNonce.keys.removeAll { it.startsWith("$eldest:") }
         }
         closed.add(sidHex)
     }
