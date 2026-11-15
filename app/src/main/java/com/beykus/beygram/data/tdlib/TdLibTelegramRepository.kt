@@ -83,6 +83,7 @@ import com.beykus.beygram.data.media.AutoDownloadTdlibMapping
 import com.beykus.beygram.data.media.TrafficUsageStore
 import com.beykus.beygram.data.media.currentAutoDownloadNetwork
 import com.beykus.beygram.data.delayed.DelayedSendQueue
+import com.beykus.beygram.ui.screens.chat.PendingTextSendSessions
 import com.beykus.beygram.data.media.decideAutoDownload
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.data.chatmemory.ChatMemoryChatFacts
@@ -2989,6 +2990,8 @@ class TdLibTelegramRepository private constructor(
                 _authState.value = AuthState.WaitingForPassword(state.passwordHint.orEmpty())
             }
             is TdApi.AuthorizationStateReady -> {
+                runCatching { PendingTextSendSessions.authorized(appContext, accountId) }
+                    .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
                 clearQrLoginState()
                 secondaryAuthorizationLost = false
                 _authState.value = AuthState.Ready
@@ -3034,6 +3037,8 @@ class TdLibTelegramRepository private constructor(
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
+                runCatching { PendingTextSendSessions.signedOut(appContext, accountId) }
+                    .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
                 if (!isLegacyAccount) secondaryAuthorizationLost = true
                 autoDownloads.clear()
                 cancelledAutoDownloads.clear()
