@@ -77,7 +77,6 @@ import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.StarBorder
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -95,6 +94,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -806,21 +806,12 @@ private fun PlayerStatusLine(player: MusicPlayerUi) {
                 .semantics { contentDescription = markDescription }
                 .padding(horizontal = 6.dp, vertical = 4.dp)
         )
-        if (explain) AlertDialog(
+        if (explain) BeyGramDialog(
             onDismissRequest = { explain = false },
-            containerColor = palette.surface,
-            title = { Text(stringResource(R.string.player_bgmix_badge), color = palette.textPrimary) },
-            text = {
-                Text(
-                    stringResource(if (player.bgMix) R.string.player_bgmix_explain else R.string.player_bgmix_preparing_explain),
-                    color = palette.textSecondary
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { explain = false }) {
-                    Text(stringResource(R.string.common_close), color = palette.textSecondary)
-                }
-            }
+            title = stringResource(R.string.player_bgmix_badge),
+            message = stringResource(if (player.bgMix) R.string.player_bgmix_explain else R.string.player_bgmix_preparing_explain),
+            confirmText = stringResource(R.string.common_close),
+            onConfirm = { explain = false }
         )
     }
     }
@@ -1613,41 +1604,39 @@ private fun SaveQueueDialog(rows: List<QueueItemUi>, onDismiss: () -> Unit) {
     val appContext = LocalContext.current.applicationContext
     val defaultTitle = stringResource(R.string.queue_title)
     var title by remember { mutableStateOf(defaultTitle) }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.queue_save_as_playlist)) },
-        text = {
+        title = stringResource(R.string.queue_save_as_playlist),
+        content = {
             androidx.compose.material3.OutlinedTextField(
                 value = title,
                 onValueChange = { title = it.take(80) },
                 singleLine = true
             )
         },
-        confirmButton = {
-            TextButton(
-                enabled = title.isNotBlank(),
-                onClick = {
-                    val tracks = rows.mapNotNull { it.item.toPlaylistTrack() }
-                    val name = title.trim()
-                    onDismiss()
-                    // The dialog leaves composition at once, so the work runs in a scope that outlives it.
-                    queueSaveScope.launch {
-                        val repository = MusicLibraries.get(appContext)
-                        when (val created = repository.createPlaylist(name)) {
-                            is MusicOutcome.Done -> {
-                                when (val added = repository.addTracks(created.value.id, tracks)) {
-                                    is MusicOutcome.Done ->
-                                        Toast.makeText(appContext, appContext.getString(R.string.queue_saved_as_playlist), Toast.LENGTH_SHORT).show()
-                                    is MusicOutcome.Failed -> appContext.reportMusicOutcome(added)
-                                }
-                            }
-                            is MusicOutcome.Failed -> appContext.reportMusicOutcome(created)
+        confirmText = stringResource(R.string.queue_save_confirm),
+        confirmEnabled = title.isNotBlank(),
+        onConfirm = {
+            val tracks = rows.mapNotNull { it.item.toPlaylistTrack() }
+            val name = title.trim()
+            onDismiss()
+            // The dialog leaves composition at once, so the work runs in a scope that outlives it.
+            queueSaveScope.launch {
+                val repository = MusicLibraries.get(appContext)
+                when (val created = repository.createPlaylist(name)) {
+                    is MusicOutcome.Done -> {
+                        when (val added = repository.addTracks(created.value.id, tracks)) {
+                            is MusicOutcome.Done ->
+                                Toast.makeText(appContext, appContext.getString(R.string.queue_saved_as_playlist), Toast.LENGTH_SHORT).show()
+                            is MusicOutcome.Failed -> appContext.reportMusicOutcome(added)
                         }
                     }
+                    is MusicOutcome.Failed -> appContext.reportMusicOutcome(created)
                 }
-            ) { Text(stringResource(R.string.queue_save_confirm)) }
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss
     )
 }
 

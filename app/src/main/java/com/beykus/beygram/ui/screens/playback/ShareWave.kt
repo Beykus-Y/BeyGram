@@ -1,9 +1,6 @@
 package com.beykus.beygram.ui.screens.playback
 
 import android.widget.Toast
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,6 +16,7 @@ import com.beykus.beygram.media.bgwave.BgWaveErrors
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import com.beykus.beygram.media.bgwave.BgWavePhase
 import com.beykus.beygram.playback.PlaybackItem
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
 import com.beykus.beygram.ui.screens.chat.ForwardTarget
 import kotlinx.coroutines.CompletableDeferred
@@ -103,12 +101,14 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
         onClose = onClose,
     )
     confirm?.let { (target, answer) ->
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { answer.complete(false) },
-            title = { Text(stringResource(R.string.bgwave_share_confirm_title, target.title)) },
-            text = { Text(stringResource(R.string.bgwave_share_confirm_body)) },
-            confirmButton = { TextButton(onClick = { answer.complete(true) }) { Text(stringResource(R.string.bgwave_share_confirm_send)) } },
-            dismissButton = { TextButton(onClick = { answer.complete(false) }) { Text(stringResource(R.string.bgwave_share_confirm_cancel)) } },
+            title = stringResource(R.string.bgwave_share_confirm_title, target.title),
+            message = stringResource(R.string.bgwave_share_confirm_body),
+            confirmText = stringResource(R.string.bgwave_share_confirm_send),
+            onConfirm = { answer.complete(true) },
+            dismissText = stringResource(R.string.bgwave_share_confirm_cancel),
+            onDismiss = { answer.complete(false) },
         )
     }
 }
