@@ -26,7 +26,7 @@ class TextSendQueueTest {
 
     @Test
     fun rapidConsecutiveSendsExecuteInFifoOrderWithoutMixingSnapshots() = runTest(UnconfinedTestDispatcher()) {
-        val queue = TextSendQueue(backgroundScope)
+        val queue = TextSendQueue(backgroundScope, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         val firstGate = CompletableDeferred<Unit>()
         val executed = mutableListOf<Triple<String, Long?, MessageSendOptions>>()
 
@@ -85,7 +85,7 @@ class TextSendQueueTest {
 
     @Test
     fun attemptsAreIsolatedByAccountChatAndTopic() = runTest(UnconfinedTestDispatcher()) {
-        val queue = TextSendQueue(backgroundScope)
+        val queue = TextSendQueue(backgroundScope, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         val gate = CompletableDeferred<Unit>()
 
         queue.enqueue(
@@ -114,7 +114,7 @@ class TextSendQueueTest {
 
     @Test
     fun failedAttemptStaysVisibleWithReasonAndCanRetryOrDiscard() = runTest(UnconfinedTestDispatcher()) {
-        val queue = TextSendQueue(backgroundScope)
+        val queue = TextSendQueue(backgroundScope, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
         var shouldFail = true
 
         val attempt = queue.enqueue(
