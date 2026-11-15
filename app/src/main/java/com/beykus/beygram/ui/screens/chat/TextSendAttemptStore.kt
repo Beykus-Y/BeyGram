@@ -105,15 +105,19 @@ internal class FileTextSendAttemptStore(
     }
 
     @Synchronized override fun load(): List<TextSendAttempt> {
-        val input = try {
-            file.openRead()
-        } catch (error: java.io.FileNotFoundException) {
-            // A missing snapshot is normal. An existing but unreadable one is not.
-            val base = file.baseFile
-            if (!base.exists() && !File(base.path + ".bak").exists()) return emptyList()
-            throw error
+        // AtomicFile.openRead() restores a legacy .bak over the base and may delete
+        // .new. Validate the committed candidate first so a corrupt snapshot does
+        // not destroy other recoverable evidence before the user chooses quarantine.
+        val base = file.baseFile
+        val backup = File(base.path + ".bak")
+        val committed = if (backup.exists()) backup else base
+        if (!committed.exists()) {
+            if (File(base.path + ".new").exists()) {
+                throw IOException("Uncommitted pending text snapshot requires recovery")
+            }
+            return emptyList()
         }
-        val bytes = input.use {
+        val bytes = committed.inputStream().use {
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(8192)
             while (true) {
@@ -126,6 +130,9 @@ internal class FileTextSendAttemptStore(
             }
             output.toByteArray()
         }
-        return TextSendSnapshotCodec.decode(bytes)
+        val decoded = TextSendSnapshotCodec.decode(bytes)
+        // Complete normal AtomicFile recovery only after validating the candidate.
+        file.openRead().close()
+        return decoded
     }
 }
