@@ -35,9 +35,11 @@ import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.media.bgmix.BgMixAudible
 import com.beykus.beygram.media.bgmix.BgMixNative
 import com.beykus.beygram.media.bgmix.BgMixSettingsStore
+import com.beykus.beygram.media.bgwave.BgWaveHostTap
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import com.beykus.beygram.media.bgwave.BgWaveRenderersFactory
 import com.beykus.beygram.media.bgmix.BgMixStatus
@@ -172,6 +174,19 @@ private class BgMixAwareListener(
     override fun onEvents(player: Player, events: Player.Events) {
         if (!bgMixOwnsPlayback()) target.onEvents(player, events)
     }
+}
+
+/** Only public, non-restricted, non-provider music may stream over a BG Wave host tap. */
+internal fun isWaveCaptureEligible(item: PlaybackItem?): Boolean {
+    if (item == null) return false
+    val isProviderItem = ProviderTracks.isProviderKey(item.key) || ProviderTracks.byKey(item.key) != null
+    return item.isMusic &&
+        !item.secret &&
+        !item.isSecretChat &&
+        !item.viewOnce &&
+        !item.isRestrictedCatalog &&
+        !item.systemPrivate &&
+        !isProviderItem
 }
 
 /**
@@ -392,6 +407,39 @@ object PlaybackEngine {
     private var bgMixHandoverGeneration = 0
     /** Adds tracks that finished downloading to the running BG Mix session and asks for the next ones; see [startBgMixFeed]. */
     private var bgMixFeedJob: Job? = null
+    /** Latest active BG Wave native session handle from [BgWaveHub], kept so new BG Mix players attach at once. */
+    @Volatile
+    private var lastWaveSessionHandle: Long = 0L
+
+    init {
+        BgWaveHub.hostTap = ::attachWaveTap
+    }
+
+    private fun attachWaveTap(sessionHandle: Long, attach: Boolean): Boolean {
+        lastWaveSessionHandle = if (attach && sessionHandle != 0L) sessionHandle else 0L
+        val driver = bgMix ?: return false
+        if (!attach || sessionHandle == 0L || !BgWaveHostTap.captureEligible || !driver.isActive) {
+            driver.attachWaveTap(0L)
+            return false
+        }
+        return driver.attachWaveTap(sessionHandle)
+    }
+
+    private fun syncBgMixWaveTap(driver: BgMixQueueDriver? = bgMix) {
+        if (driver == null || !driver.isActive) return
+        val handle = if (BgWaveHostTap.captureEligible) lastWaveSessionHandle else 0L
+        driver.attachWaveTap(handle)
+    }
+
+    private fun updateWaveCaptureEligibility(item: PlaybackItem?) {
+        val eligible = isWaveCaptureEligible(item)
+        BgWaveHostTap.setCaptureEligible(eligible)
+        if (!eligible) {
+            bgMix?.attachWaveTap(0L)
+        } else if (bgMixActive() && lastWaveSessionHandle != 0L) {
+            bgMix?.attachWaveTap(lastWaveSessionHandle)
+        }
+    }
 
     /** Key of the track that was moved past early for trailing silence. Cleared by the next media item transition. */
     private var trailingSkippedKey: String? = null
@@ -789,6 +837,7 @@ object PlaybackEngine {
             val nextItems = nextQueue.items.map { if (it.key == merged.key) merged else it }
             val nextIndex = nextQueue.index.takeIf { it in nextItems.indices } ?: nextItems.indexOfFirst { it.key == merged.key }
             val shouldPlay = currentState.playing || currentState.intentPlaying
+            updateWaveCaptureEligibility(merged)
             _state.update { it.copy(item = merged, queue = nextItems, queueIndex = nextIndex).withTimelineNavigation(exo) }
             if (timelineChanged(currentState, nextItems, nextIndex)) {
                 if (!replaceQueueAroundCurrent(nextItems, nextIndex, currentState.queue.size)) {
@@ -968,6 +1017,7 @@ object PlaybackEngine {
         installShuffleOrder(target, resolvedQueue.size, currentIndex = queue.index)
         applyPlayerModes(target, music = true)
         applySpeed(target, item)
+        updateWaveCaptureEligibility(item)
         if (autoPlay) target.prepare()
         updateAudioSessionId()
 
@@ -1027,6 +1077,7 @@ object PlaybackEngine {
         target.setMediaItems(listOf(mediaItemFor(resolved)), 0, if (defer) 0L else requestedStart)
         applyPlayerModes(target, music = resolved.isMusic && !resolved.systemPrivate, speech = resolved.kind != MediaKind.Audio)
         applySpeed(target, resolved)
+        updateWaveCaptureEligibility(resolved)
         target.prepare()
         updateAudioSessionId()
 
@@ -1371,6 +1422,7 @@ object PlaybackEngine {
         installShuffleOrder(target, resolvedQueue.size, playbackOrder, index)
         applyPlayerModes(target, music = item.isMusic && !item.systemPrivate, speech = item.kind != MediaKind.Audio)
         applySpeed(target, item)
+        updateWaveCaptureEligibility(item)
         target.prepare()
         if (defer) {
             target.pause()
@@ -1879,7 +1931,7 @@ object PlaybackEngine {
     private fun bgMixDriver(context: Context): BgMixQueueDriver =
         (bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }).also {
             // Lets a live BG Wave host tap the mix that is playing right now; the hub re-attaches every tick.
-            BgWaveHub.hostTap = { handle, attach -> it.attachWaveTap(if (attach) handle else 0L) }
+            BgWaveHub.hostTap = ::attachWaveTap
         }
 
     /**
@@ -1908,6 +1960,9 @@ object PlaybackEngine {
         val queue = driver.queueItems
         val item = queue[index]
         val before = _state.value
+        BgWaveHostTap.exoSuppressedForBgMix = true
+        updateWaveCaptureEligibility(item)
+        syncBgMixWaveTap(driver)
         progress?.cancel()
         progress = null
         exo?.let {
@@ -2124,13 +2179,17 @@ object PlaybackEngine {
             setExoFocusHandling(target, handle = true)
             return false
         }
+        // Suppress ExoPlayer's tap before attaching BG Mix's tap so both never push PCM simultaneously.
+        BgWaveHostTap.exoSuppressedForBgMix = true
+        updateWaveCaptureEligibility(order[index])
+        syncBgMixWaveTap(driver)
         // From here the handover is committed. The crossfade runs to its end unless a stop or a new track supersedes it.
         withContext(NonCancellable) {
             // The equalizer moves to the BG Mix output while that output is still silent, so the re-attach is not heard.
             _audioSessionId.value = driver.audioSessionId
             if (!crossfadeIntoBgMix(target, driver, generation)) {
                 // A stop or a new track came meanwhile: BG Mix is not adopted, and ExoPlayer plays on at full level.
-                if (driver.isActive) stopBgMix()
+                if (driver.isActive) stopBgMix() else BgWaveHostTap.exoSuppressedForBgMix = false
                 target.volume = 1f
                 setExoFocusHandling(target, handle = true)
                 updateAudioSessionId()
@@ -2292,6 +2351,7 @@ object PlaybackEngine {
         val playingNativeId = status.queue.firstOrNull { it.state == "playing" }?.id
         val index = playingNativeId?.let { driver.indexOfNative(it) } ?: _state.value.queueIndex
         val item = driver.itemAt(index) ?: return
+        updateWaveCaptureEligibility(item)
         val master = status.decks.getOrNull(status.master)
         val deckPlaying = master?.playing == true
         val finished = status.queue.isNotEmpty() &&
@@ -2390,6 +2450,8 @@ object PlaybackEngine {
         bgMixSeekJob?.cancel()
         bgMixSeekJob = null
         bgMixOriginalQueue = null
+        bgMix?.attachWaveTap(0L)
+        BgWaveHostTap.exoSuppressedForBgMix = false
         bgMix?.stop()
         _bgMixTransition.value = null
         releaseBgFocus()
@@ -2428,6 +2490,8 @@ object PlaybackEngine {
 
     private fun haltPlayer() {
         stopBgMix()
+        updateWaveCaptureEligibility(null)
+        BgWaveHostTap.exoSuppressedForBgMix = false
         progress?.cancel()
         progress = null
         clearDeferredSeek()
@@ -3021,12 +3085,16 @@ object PlaybackEngine {
             if (bgMixActive()) return
             trailingSkippedKey = null
             val mediaId = mediaItem?.mediaId
+            if (mediaId == null) {
+                updateWaveCaptureEligibility(null)
+            }
             val snapshot = _state.value
             if (mediaId != null && reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                 transitionToken++
                 val index = snapshot.queue.indexOfFirst { it.key == mediaId }
                 if (index >= 0) {
                     val item = resolvedItem(snapshot.queue[index])
+                    updateWaveCaptureEligibility(item)
                     val speed = effectiveSpeed(item)
                     exo?.setPlaybackSpeed(speed)
                     val queue = snapshot.queue.map { if (it.key == item.key) item else it }
@@ -3423,6 +3491,8 @@ object PlaybackEngine {
     private fun newCrossfadePlayer(): ExoPlayer? {
         val context = appContext ?: return null
         return ExoPlayer.Builder(context)
+            // Keep BgWaveHostTap fed solely by the primary player so the overlapping tail never double-pushes at 2x speed.
+            .setRenderersFactory(BgWaveRenderersFactory(context, tapEnabled = false))
             .setMediaSourceFactory(DefaultMediaSourceFactory(PlaybackDataSourceFactory(context)))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
