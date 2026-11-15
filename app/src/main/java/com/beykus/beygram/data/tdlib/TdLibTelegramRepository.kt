@@ -500,13 +500,13 @@ class TdLibTelegramRepository private constructor(
         autoDownloadNetworkMonitor.start()
     }
     private val serviceMessages = TdServiceMessageMapper(appContext)
-    init {
+    private fun registerWaveSender() {
         BgWaveHub.registerSender(accountId) { chatId, link ->
             val label = appContext.getString(R.string.bgwave_service_label)
             sendMessage(
                 chatId, label, null,
                 listOf(MessageTextEntity(0, label.length, TextStyleKind.Url, link)),
-                0L, false, MessageSendOptions(disableLinkPreview = true),
+                0L, false, MessageSendOptions(disableLinkPreview = true, sendNowConsent = true),
             )
         }
     }
@@ -2994,6 +2994,7 @@ class TdLibTelegramRepository private constructor(
                 _authState.value = AuthState.WaitingForPassword(state.passwordHint.orEmpty())
             }
             is TdApi.AuthorizationStateReady -> {
+                registerWaveSender()
                 clearQrLoginState()
                 secondaryAuthorizationLost = false
                 _authState.value = AuthState.Ready
@@ -3089,6 +3090,7 @@ class TdLibTelegramRepository private constructor(
                 BgWaveHub.forgetAccount(accountId)
             }
             is TdApi.AuthorizationStateClosed -> {
+                BgWaveHub.forgetAccount(accountId)
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()
                 networkMonitor.stop()
                 autoDownloadNetworkMonitor.stop()
