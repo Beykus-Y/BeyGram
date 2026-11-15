@@ -18,7 +18,8 @@ class BgWaveListenerAudio(
     private val audioManager: AudioManager,
     private val onFocusLost: () -> Unit,
 ) {
-    private var track: AudioTrack? = null
+    @Volatile private var track: AudioTrack? = null
+    @Volatile private var pausedForFocus = false
     private var focusRequest: AudioFocusRequest? = null
     private var thread: Thread? = null
     @Volatile private var running = false
@@ -30,15 +31,18 @@ class BgWaveListenerAudio(
                 stop()
                 onFocusLost()
             }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> track?.pause()
-            AudioManager.AUDIOFOCUS_GAIN -> if (running) track?.play()
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                pausedForFocus = true
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> pausedForFocus = false
         }
     }
 
     /** Returns false when focus or the output could not be started. */
     @Synchronized
     fun start(): Boolean {
-        if (running) return true
+        if (running && thread?.isAlive == true) return true
+        if (track != null) stop()
         if (!requestFocus()) return false
 
         val minBytes = AudioTrack.getMinBufferSize(
@@ -75,8 +79,18 @@ class BgWaveListenerAudio(
             return false
         }
         track = out
+        pausedForFocus = false
         running = true
-        out.play()
+        try {
+            out.play()
+        } catch (e: IllegalStateException) {
+            track = null
+            running = false
+            out.release()
+            abandonFocus()
+            BgWaveLog.w("audio.start.failed", e)
+            return false
+        }
         BgWaveLog.i("audio.start", "rate" to SAMPLE_RATE)
         thread = Thread({ pumpLoop(out) }, "bgwave-listener-audio").apply {
             isDaemon = true
@@ -85,12 +99,14 @@ class BgWaveListenerAudio(
         return true
     }
 
-    /** Stops output, joins the pump thread, releases the track and gives back audio focus. */
+    /** The pump owns the AudioTrack until it exits; stop never releases a track being written. */
     @Synchronized
     fun stop() {
         running = false
+        track = null
         val pump = thread
         thread = null
+        pump?.interrupt()
         if (pump != null && pump !== Thread.currentThread()) {
             try {
                 pump.join(JOIN_TIMEOUT_MS)
@@ -98,15 +114,6 @@ class BgWaveListenerAudio(
                 Thread.currentThread().interrupt()
             }
         }
-        track?.let {
-            try {
-                it.stop()
-            } catch (e: IllegalStateException) {
-                BgWaveLog.w("audio.stop.failed", e)
-            }
-            it.release()
-        }
-        track = null
         abandonFocus()
     }
 
@@ -115,30 +122,59 @@ class BgWaveListenerAudio(
         var pulledFrames = 0L
         var underruns = 0L
         var lastLogNanos = System.nanoTime()
-        while (running) {
-            val frames = session.pullListenerPcm(buffer, FRAMES_PER_READ, SAMPLE_RATE)
-            pulledFrames += maxOf(frames, 0)
-            if (frames <= 0) underruns++
-            val now = System.nanoTime()
-            if (now - lastLogNanos >= 1_000_000_000L) {
-                BgWaveLog.i("audio.pull", "frames" to pulledFrames, "underruns" to underruns)
-                pulledFrames = 0L
-                underruns = 0L
-                lastLogNanos = now
+        var paused = false
+        fun current() = running && track === out
+        try {
+            while (current()) {
+                if (pausedForFocus) {
+                    if (!paused) {
+                        out.pause()
+                        out.flush()
+                        paused = true
+                    }
+                    // Drain the live stream instead of replaying stale audio on focus gain.
+                    session.pullListenerPcm(buffer, FRAMES_PER_READ, SAMPLE_RATE)
+                    Thread.sleep(20L)
+                    continue
+                }
+                if (paused) {
+                    out.play()
+                    paused = false
+                }
+                val frames = session.pullListenerPcm(buffer, FRAMES_PER_READ, SAMPLE_RATE)
+                    .coerceIn(0, FRAMES_PER_READ)
+                pulledFrames += frames
+                if (frames == 0) underruns++
+                val now = System.nanoTime()
+                if (now - lastLogNanos >= 1_000_000_000L) {
+                    BgWaveLog.i("audio.pull", "frames" to pulledFrames, "underruns" to underruns)
+                    pulledFrames = 0L
+                    underruns = 0L
+                    lastLogNanos = now
+                }
+                if (frames == 0) {
+                    // Do not enqueue a full block of silence on every underrun.
+                    Thread.sleep(5L)
+                    continue
+                }
+                val samples = frames * CHANNELS
+                var offset = 0
+                while (offset < samples && current() && !pausedForFocus) {
+                    val written = out.write(buffer, offset, samples - offset, AudioTrack.WRITE_NON_BLOCKING)
+                    if (written < 0) {
+                        BgWaveLog.w("audio.write.failed", null, "code" to written)
+                        return
+                    }
+                    if (written == 0) Thread.sleep(5L) else offset += written
+                }
             }
-            if (frames <= 0) {
-                // No decoded audio yet: write silence so the output clock keeps running.
-                buffer.fill(0f)
-                out.write(buffer, 0, buffer.size, AudioTrack.WRITE_BLOCKING)
-                continue
-            }
-            // Silence the tail if the pull returned fewer frames than requested.
-            if (frames < FRAMES_PER_READ) buffer.fill(0f, frames * CHANNELS, buffer.size)
-            val written = out.write(buffer, 0, buffer.size, AudioTrack.WRITE_BLOCKING)
-            if (written < 0) {
-                BgWaveLog.w("audio.write.failed", null, "code" to written)
-                running = false
-            }
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } catch (e: IllegalStateException) {
+            BgWaveLog.w("audio.pump.failed", e)
+        } finally {
+            runCatching { out.stop() }
+            out.release()
         }
     }
 
