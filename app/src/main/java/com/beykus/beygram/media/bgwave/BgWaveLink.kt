@@ -18,13 +18,13 @@ object BgWaveLink {
     /** The Telegram-safe https wrapper of [uri]; an https link is returned as is, anything else is refused. */
     fun toHttps(uri: String): String? = when {
         uri.length > MAX_LINK_CHARS -> null
-        uri.startsWith(HTTPS_PREFIX) -> uri
-        uri.startsWith(URI_PREFIX) -> HTTPS_PREFIX + uri.removePrefix(URI_PREFIX)
+        uri.startsWith(HTTPS_PREFIX) && uri.length > HTTPS_PREFIX.length -> uri
+        uri.startsWith(URI_PREFIX) && uri.length > URI_PREFIX.length ->
+            (HTTPS_PREFIX + uri.removePrefix(URI_PREFIX)).takeIf { it.length <= MAX_LINK_CHARS }
         else -> null
     }
 
-    fun isWaveLink(candidate: String): Boolean =
-        candidate.length <= MAX_LINK_CHARS && (candidate.startsWith(HTTPS_PREFIX) || candidate.startsWith(URI_PREFIX))
+    fun isWaveLink(candidate: String): Boolean = toHttps(candidate) != null
 
     /**
      * The first wave link hidden behind a text link of a message, or null for an ordinary message. A link that is only
