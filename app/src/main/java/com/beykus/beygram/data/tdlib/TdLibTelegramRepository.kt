@@ -3373,13 +3373,28 @@ class TdLibTelegramRepository private constructor(
     private fun offerToWave(message: TdApi.Message) {
         if (message.isOutgoing) return
         val link = waveLinkOf(message) ?: return
-        val chat = profiles.chat(message.chatId) ?: return
         val sender = message.senderId as? TdApi.MessageSenderUser ?: return
+        if (sender.userId != message.chatId) return
+        val chat = profiles.chat(message.chatId)
+        if (chat != null) {
+            deliverWave(message, link, sender.userId, chat)
+            return
+        }
+        // UpdateNewMessage may precede UpdateNewChat. Resolve rather than discarding the invitation.
+        val authGeneration = secretChatSession
+        client.send(TdApi.GetChat(message.chatId), Client.ResultHandler { result ->
+            if (result is TdApi.Chat && authGeneration == secretChatSession && _authState.value == AuthState.Ready) {
+                deliverWave(message, link, sender.userId, result)
+            }
+        })
+    }
+
+    private fun deliverWave(message: TdApi.Message, link: String, senderId: Long, chat: TdApi.Chat) {
         try {
             BgWaveHub.controller.onMessage(
                 accountId = accountId,
                 chatId = message.chatId,
-                senderId = sender.userId,
+                senderId = senderId,
                 outgoing = false,
                 privateChat = chat.type is TdApi.ChatTypePrivate,
                 uri = link,
