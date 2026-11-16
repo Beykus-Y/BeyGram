@@ -37,4 +37,8 @@
     <string name="bgwave_share_confirm_send">Отправить</string>
     <string name="bgwave_share_confirm_cancel">Отмена</string>
     <string name="bgwave_mini_title">Волна</string>
+    <string name="bgwave_listener_channel_name">Совместное прослушивание</string>
+    <string name="bgwave_listener_notification_title">Вы слушаете волну</string>
+    <string name="bgwave_listener_notification_text">Звук продолжит играть с выключенным экраном</string>
+    <string name="bgwave_listener_notification_stop">Выйти</string>
 </resources>

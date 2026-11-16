@@ -37,4 +37,8 @@
     <string name="bgwave_share_confirm_send">Send</string>
     <string name="bgwave_share_confirm_cancel">Cancel</string>
     <string name="bgwave_mini_title">Wave</string>
+    <string name="bgwave_listener_channel_name">Listening together</string>
+    <string name="bgwave_listener_notification_title">You are listening to a wave</string>
+    <string name="bgwave_listener_notification_text">Sound keeps playing with the screen off</string>
+    <string name="bgwave_listener_notification_stop">Leave</string>
 </resources>
