@@ -20,7 +20,6 @@ import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -40,11 +39,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.beykus.beygram.ui.components.sheetSurfaceColor
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.MainActivity
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MUSIC_COVER_DIRECTORY
@@ -140,7 +137,7 @@ fun BgMusicExportSheet(playlist: MusicPlaylist, onDismiss: () -> Unit) {
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = sheetSurfaceColor()) {
+    BeyGramSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 24.dp)) {
             Text(
                 stringResource(R.string.bgmusic_export_title),
@@ -282,37 +279,30 @@ private fun ChatSendDialog(
     val chats by repository.chats.collectAsStateWithLifecycle()
     val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
     val captionLimit = repository.messageLimits.collectAsStateWithLifecycle().value.caption
-    Dialog(
-        onDismissRequest = { if (!session.sending) onClose(false) },
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            dismissOnBackPress = !session.sending,
-            dismissOnClickOutside = !session.sending,
-        ),
-    ) {
-        ShareTargetScreen(
-            requestId = session.requestId,
-            text = "",
-            uris = session.uris,
-            session = session,
-            chats = chats + archivedChats,
-            captionLimit = captionLimit,
-            loadTopics = { chatId -> repository.forumTopics(chatId) },
-            sendText = { chatId, topicId, text ->
-                repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)
-            },
-            sendMedia = { chatId, topicId, media, caption ->
-                if (media.size == 1) {
-                    repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId)
-                } else {
-                    repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId)
-                }
-            },
-            onSent = { _, _ -> onClose(true) },
-            onCancel = { onClose(false) },
-        )
-    }
+    ShareTargetScreen(
+        requestId = session.requestId,
+        text = "",
+        uris = session.uris,
+        session = session,
+        chats = chats + archivedChats,
+        recipientRepository = repository,
+        captionLimit = captionLimit,
+        observeFile = repository::observeFile,
+        downloadFile = repository::downloadFile,
+        loadTopics = { chatId -> repository.forumTopics(chatId) },
+        sendText = { chatId, topicId, text ->
+            repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)
+        },
+        sendMedia = { chatId, topicId, media, caption ->
+            if (media.size == 1) {
+                repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId, options = com.beykus.beygram.domain.model.MessageSendOptions(shareDelivery = true))
+            } else {
+                repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId, options = com.beykus.beygram.domain.model.MessageSendOptions(shareDelivery = true))
+            }
+        },
+        onSent = { _, _ -> onClose(true) },
+        onCancel = { onClose(false) },
+    )
 }
 
 /**

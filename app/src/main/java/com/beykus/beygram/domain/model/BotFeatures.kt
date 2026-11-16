@@ -70,3 +70,12 @@ data class MusicBotTrack(
     val mimeType: String,
     val sizeBytes: Long
 )
+
+/** A music bot track that was kept in Saved Messages, so it has a permanent place Telegram can find it again. */
+data class SavedMusicBotTrack(
+    val chatId: Long,
+    val messageId: Long,
+    val title: String,
+    val performer: String,
+    val durationSeconds: Int
+)

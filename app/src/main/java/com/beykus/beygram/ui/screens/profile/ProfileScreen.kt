@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
+import com.beykus.beygram.ui.design.panelFill
+import com.beykus.beygram.ui.design.PanelFloor
 import com.beykus.beygram.ui.design.HairlineEdge
 import com.beykus.beygram.ui.design.signatureChrome
 import android.content.Context
@@ -48,7 +50,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.data.media.OutgoingMediaImporter
 import com.beykus.beygram.data.presence.LastSeenStyle
+import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.*
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.*
@@ -95,6 +99,7 @@ fun ProfileScreen(
     onDeleted: () -> Unit = {}, onOpenLinkedChannel: (Long) -> Unit = {},
     hiddenTabs: List<MainTab> = emptyList(), onOpenTab: (MainTab) -> Unit = {},
     sharedMessages: (suspend (SharedMediaKind, Long, Boolean) -> Result<MessageSearchPage>)? = null,
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
     confirmExport: suspend (Long) -> Boolean = { false }, messageRights: suspend (Long) -> MessageCapabilities? = { null },
     forwardMessage: suspend (Long, Long) -> Result<Unit> = { _, _ -> Result.failure(IllegalStateException()) }, chats: List<ChatPreview> = emptyList(),
     onContentOpened: (Long) -> Unit = {}, onOpenMessage: (messageId: Long, forumTopicId: Long) -> Unit = { _, _ -> },
@@ -112,7 +117,10 @@ fun ProfileScreen(
     /** Own profile music: removes one track from the account list. Other profiles never call it. */
     removeProfileAudio: suspend (Int) -> Result<Unit> = { Result.failure(IllegalStateException("Profile music unavailable")) },
     /** Own profile music: moves one track to the first place of the account list. */
-    moveProfileAudioToFront: suspend (Int) -> Result<Unit> = { Result.failure(IllegalStateException("Profile music unavailable")) }
+    moveProfileAudioToFront: suspend (Int) -> Result<Unit> = { Result.failure(IllegalStateException("Profile music unavailable")) },
+    loadForwardTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
+    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null,
+    recipientRepository: TelegramRepository? = null
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -145,7 +153,8 @@ fun ProfileScreen(
         sharedMessages = sharedMessages, confirmExport = confirmExport,
         messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage, autoDownloadFile = autoDownloadFile,
-        chatLibrary = chatLibrary
+        chatLibrary = chatLibrary, onOpenMessageEntity = onOpenMessageEntity,
+        loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic, recipientRepository = recipientRepository
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
             if (!isOwnProfile) ChatInfoMenu(
@@ -177,7 +186,7 @@ fun ProfileScreen(
                         )
                     }
                     Spacer(Modifier.height(16.dp))
-                    Text(info.title.ifBlank { stringResource(R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                    Text(info.title.ifBlank { stringResource(if (info.status is ProfilePresence.DeletedAccount) R.string.deleted_account_name else R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                         modifier = Modifier.semantics { heading() })
                     Spacer(Modifier.height(4.dp))
                     ProfileSubtitle(info, lastSeenStyle)
@@ -293,7 +302,7 @@ fun ProfileScreen(
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
                 chatLibrary?.let { link -> ChatLibraryMusicRow(info.id, link.accountId) { link.onOpen(info.id) } }
-                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile, protectedContent = protectedContent)
+                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile, protectedContent = protectedContent, onOpenMessageEntity = onOpenMessageEntity, loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic, recipientRepository = recipientRepository)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 // A settings-style row in its own card, not a bare accent link that reads as a section header.
                 if (isOwnProfile) Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {
@@ -343,50 +352,43 @@ fun ProfileScreen(
         }
     }
     state.info?.takeIf { secretChatConfirm }?.let { info ->
-        AlertDialog(
-            onDismissRequest = { if (!secretChatBusy) { secretChatConfirm = false; secretChatError = null } },
-            title = { Text(stringResource(R.string.secret_chat_start_title)) },
-            text = {
-                Column {
-                    Text(stringResource(R.string.secret_chat_start_message), color = palette.textSecondary, fontSize = 14.sp)
-                    secretChatError?.let {
-                        Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp).errorAnnouncement())
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !secretChatBusy,
-                    onClick = {
-                        val create = startSecretChat ?: return@TextButton
-                        if (secretChatBusy) return@TextButton
-                        scope.launch {
-                            secretChatBusy = true
-                            secretChatError = null
-                            try {
-                                create(info.id)
-                                    .onSuccess { chatId ->
-                                        secretChatConfirm = false
-                                        onSecretChatOpened(chatId)
-                                    }
-                                    .onFailure {
-                                        secretChatError = it.userMessage(context, R.string.secret_chat_create_failed)
-                                    }
-                            } finally {
-                                secretChatBusy = false
-                            }
-                        }
-                    }
-                ) {
-                    if (secretChatBusy) CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
-                    else Text(stringResource(R.string.secret_chat_start_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(enabled = !secretChatBusy, onClick = { secretChatConfirm = false; secretChatError = null }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
+        // The error and the progress bar sit under the message, inside the dialog's own scroll area.
+        val statusContent: @Composable () -> Unit = {
+            secretChatError?.let {
+                Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.padding(top = 10.dp).errorAnnouncement())
             }
+            if (secretChatBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp), color = palette.accent)
+        }
+        BeyGramDialog(
+            onDismissRequest = { if (!secretChatBusy) { secretChatConfirm = false; secretChatError = null } },
+            title = stringResource(R.string.secret_chat_start_title),
+            message = stringResource(R.string.secret_chat_start_message),
+            content = if (secretChatError != null || secretChatBusy) statusContent else null,
+            confirmText = stringResource(R.string.secret_chat_start_confirm),
+            confirmEnabled = !secretChatBusy,
+            onConfirm = {
+                val create = startSecretChat ?: return@BeyGramDialog
+                if (secretChatBusy) return@BeyGramDialog
+                scope.launch {
+                    secretChatBusy = true
+                    secretChatError = null
+                    try {
+                        create(info.id)
+                            .onSuccess { chatId ->
+                                secretChatConfirm = false
+                                onSecretChatOpened(chatId)
+                            }
+                            .onFailure {
+                                secretChatError = it.userMessage(context, R.string.secret_chat_create_failed)
+                            }
+                    } finally {
+                        secretChatBusy = false
+                    }
+                }
+            },
+            dismissText = stringResource(R.string.common_cancel),
+            dismissEnabled = !secretChatBusy,
+            onDismiss = { secretChatConfirm = false; secretChatError = null }
         )
     }
 }
@@ -613,7 +615,7 @@ internal fun ProfileToolbar(title: String, onBack: () -> Unit, actions: @Composa
         when (design.components.topBar) {
             TopBarVariant.Elevated -> Modifier.topAppBarSurface()
             TopBarVariant.Glass -> Modifier
-                .background(palette.surface.copy(alpha = design.surfaces.surfaceAlpha.coerceAtLeast(0.72f)))
+                .background(design.surfaces.panelFill(palette.surface, PanelFloor.Card))
             TopBarVariant.Signature -> Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Bottom)
             TopBarVariant.Flat -> Modifier
         }

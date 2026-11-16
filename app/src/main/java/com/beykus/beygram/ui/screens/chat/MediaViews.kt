@@ -1,6 +1,10 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
+import android.content.res.Configuration
+import com.beykus.beygram.ui.accessibility.rememberHasMousePointer
+import com.beykus.beygram.ui.accessibility.rememberTouchExplorationEnabled
+import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
 import android.content.Intent
 import android.graphics.Bitmap
@@ -20,8 +24,16 @@ import android.util.LruCache
 import android.webkit.MimeTypeMap
 import android.widget.ImageView
 import androidx.compose.foundation.Image
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import com.beykus.beygram.ui.motion.fadeEnter
+import com.beykus.beygram.ui.motion.fadeExit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -34,8 +46,10 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Forward
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
@@ -58,6 +72,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.*
 import com.beykus.beygram.ui.components.TextButton
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,14 +89,20 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import kotlinx.coroutines.Job
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -138,6 +160,8 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.motion.rememberMotionSpec
+import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.scrollToPageRespectingMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import com.beykus.beygram.ui.components.TrafficUsageBadge
@@ -151,8 +175,11 @@ import com.beykus.beygram.ui.screens.playback.rememberMusicCardPlayback
 import com.beykus.beygram.ui.screens.playback.rememberPlaybackFraction
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -444,7 +471,12 @@ internal fun MediaPreview(
      */
     onStickerOpen: (() -> Unit)? = null,
     /** The chat may supply an ordered, lazily paged music queue instead of a standalone track. */
-    onMusicPlay: ((PlaybackItem) -> Unit)? = null,
+    onMusicPlay: ((PlaybackItem, Long?) -> Unit)? = null,
+    /**
+     * A play request from outside the row, for example a tap on the caption of a shared track. Each tap is a new
+     * instance, so the same timecode can be requested twice. Its start position is in milliseconds.
+     */
+    externalPlay: AudioPlayRequest? = null,
     /** Selection mode is on: a tap on the bubble selects the message instead of opening it. */
     selectionActive: Boolean = false,
 ) {
@@ -510,7 +542,10 @@ internal fun MediaPreview(
     // Голосовое ждёт загрузки в своём пузыре, поэтому здесь ожидание относится только к музыке.
     val row = remember(media.fileId) { Any() }
     val waitingForAudio = media.kind == MediaKind.Audio && pendingPlaybackRow.value === row
-    fun playAudio() {
+    // The start asked for while the file is still downloading; the last tap wins, a plain row tap clears it.
+    var pendingStartMs by remember(media.fileId) { mutableStateOf<Long?>(null) }
+    fun playAudio(startMs: Long? = null) {
+        pendingStartMs = startMs
         if (media.kind == MediaKind.Audio && thumbId != media.fileId && thumb.localPath == null && !media.isSecret) {
             // One wait per track: taps while the cover downloads must not stack observers. The process-scoped
             // observer keeps the player cover updated after this row leaves the composition.
@@ -533,16 +568,20 @@ internal fun MediaPreview(
         else {
             val item = media.playbackItem(audioPath, audioTitle, origin,
                 artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce)
-            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item) else startAudio(context, item)
+            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item, startMs) else startAudio(context, item, startMs)
+            pendingStartMs = null
         }
     }
+    LaunchedEffect(externalPlay) { externalPlay?.let { playAudio(it.startMs) } }
     // Нажатие до окончания загрузки запоминается: как только файл готов, он начинает играть. Ждёт только последнее нажатое.
     LaunchedEffect(audioPath, waitingForAudio) {
         if (waitingForAudio && audioPath != null) {
             pendingPlaybackRow.value = null
             val item = media.playbackItem(audioPath, audioTitle, origin,
                 artworkPath = if (thumbId != media.fileId) thumb.localPath else null, growing = partialGrowing, accountId = accountId, viewOnce = viewOnce)
-            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item) else startAudio(context, item)
+            val startMs = pendingStartMs
+            pendingStartMs = null
+            if (onMusicPlay != null && !item.systemPrivate) onMusicPlay(item, startMs) else startAudio(context, item, startMs)
         }
     }
     DisposableEffect(row) {
@@ -850,7 +889,8 @@ internal data class MediaViewerItem(
     val messageId: Long,
     val media: MessageMedia,
     val viewOnce: Boolean = false,
-    val chatId: Long? = null
+    val chatId: Long? = null,
+    val caption: String = ""
 )
 
 /** Фото и видео листаются вместе, и счётчик «N из M» считает их тоже вместе. */
@@ -874,8 +914,10 @@ internal fun MediaViewer(
     fullFileOnlyWhenActive: Boolean = false,
     /** Repository-backed automatic download; when absent the same local policy gates [downloadFile]. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
-    /** Window bounds of the tapped thumbnail. When set, the page grows out of it and returns there on close. */
-    originBounds: Rect? = null
+    /** Screen bounds of the tapped thumbnail. When set, the page grows out of it and returns there on close. */
+    originBounds: Rect? = null,
+    /** Keep the entire viewer window protected, even when every page is ordinary media. */
+    forceSecure: Boolean = false
 ) {
     // The source can shrink asynchronously while LazyLayout still holds indices from the previous frame.
     // Keep the count, keys and content aligned to the same immutable snapshot for this composition.
@@ -941,9 +983,54 @@ internal fun MediaViewer(
     var controlsVisible by remember { mutableStateOf(true) }
     // Панель возвращается при каждом переходе: иначе после скрытия на фото нельзя вернуть действия на видео или файле.
     LaunchedEffect(pagerState.settledPage) { controlsVisible = true }
+    val touchExploration = rememberTouchExplorationEnabled()
+    // Restoring chrome when TalkBack is toggled on after auto-hide ensures assistive arrows/zoom are immediately reachable.
+    LaunchedEffect(touchExploration) { if (touchExploration) controlsVisible = true }
+    val hasMousePointer = rememberHasMousePointer()
+    val configuration = LocalConfiguration.current
+    val hasNonTouchNavigation = hasMousePointer ||
+        configuration.keyboard != Configuration.KEYBOARD_NOKEYS ||
+        configuration.navigation == Configuration.NAVIGATION_DPAD ||
+        configuration.navigation == Configuration.NAVIGATION_TRACKBALL ||
+        configuration.navigation == Configuration.NAVIGATION_WHEEL
+    val showAssistiveControls = MediaViewerPolicy.shouldShowNavigationControls(
+        touchExploration = touchExploration,
+        smallestScreenWidthDp = configuration.smallestScreenWidthDp,
+        hasNonTouchNavigation = hasNonTouchNavigation
+    )
+    val isStillImage = shown.media.mimeType.startsWith("image/") && shown.media.kind != MediaKind.Sticker
     // A spoiler that is still hidden cannot be shared, saved or opened in another app, even when its file is already on disk.
     val shownHidden = shown.media.hasSpoiler && !shown.media.isSecret && shown.messageId !in revealedSpoilers
     val exportPath = if (canExport && !shown.media.isSecret && !shown.viewOnce && !shownHidden) shownFile.localPath else null
+    // Use a conflated channel instead of Compose state so continuous pinch/pan gestures reset the idle
+    // timer without recomposing MediaViewer on every pointer frame.
+    val interactionChannel = remember { Channel<Unit>(Channel.CONFLATED) }
+    LaunchedEffect(
+        pagerState.settledPage,
+        controlsVisible,
+        menuOpen,
+        touchExploration,
+        shownHidden,
+        shownFile.localPath != null,
+        isStillImage
+    ) {
+        if (!MediaViewerPolicy.shouldAutoHideControls(
+                isStillImage = isStillImage,
+                controlsVisible = controlsVisible,
+                menuOpen = menuOpen,
+                touchExploration = touchExploration,
+                spoilerHidden = shownHidden,
+                fileReady = shownFile.localPath != null
+            )
+        ) {
+            return@LaunchedEffect
+        }
+        interactionChannel.trySend(Unit)
+        interactionChannel.receiveAsFlow().collectLatest {
+            delay(3600L)
+            controlsVisible = false
+        }
+    }
     // Кнопки могут показывать право, пришедшее для соседнего вложения, поэтому каждое действие сверяет право заново.
     fun exportIfAllowed(messageId: Long, action: suspend () -> String?) {
         scope.launch { fileNotice = if (confirmExport(messageId)) action() else context.getString(R.string.media_export_denied) }
@@ -959,8 +1046,14 @@ internal fun MediaViewer(
     // at full intensity. The close waits for the exit before it
     // calls onClose, so the dialog leaves the tree only after it has animated out. Off and reduced motion start shown.
     val viewerSpec = rememberMotionSpec(MotionToken.MediaExpand)
+    val chromeSpec = viewerSpec
+    val chromeMotionInstant = rememberMotionInstant(MotionToken.MediaExpand)
+    val palette = beyGramPalette()
     var viewerShown by remember { mutableStateOf(viewerSpec.isInstant) }
     var viewerClosing by remember { mutableStateOf(false) }
+    // Read only inside graphicsLayer so continuous vertical drags never recompose MediaViewer.
+    val dismissFractionState = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(pagerState.settledPage) { dismissFractionState.floatValue = 0f }
     LaunchedEffect(Unit) { viewerShown = true }
     val viewerProgress by animateFloatAsState(if (viewerShown) 1f else 0f, viewerSpec.animationSpec<Float>(), label = "mediaViewerProgress")
     fun requestClose() {
@@ -972,88 +1065,244 @@ internal fun MediaViewer(
             onClose()
         }
     }
-    Dialog(onDismissRequest = ::requestClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia, settledViewOnce)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
-        // Верхняя панель лежит поверх страницы: тап по картинке её прячет, крестик закрытия виден всегда.
-        // Панель действий и сообщения стоят под страницей, потому что поверх неё лежит управление видео и аудио.
+    val hasPrimaryBottomActions = (actions != null && actions.canForward) || exportPath != null
+    val shownCaption = if (!shownHidden) shown.caption.trim() else ""
+    val reserveNonStillFooter = !isStillImage && (actions != null || canExport)
+    val density = LocalDensity.current
+    var topBarHeightPx by remember { mutableIntStateOf(0) }
+    var bottomOverlayHeightPx by remember { mutableIntStateOf(0) }
+    val zoomControlsBottomPadding = if (isStillImage && controlsVisible && bottomOverlayHeightPx > 0) {
+        with(density) { bottomOverlayHeightPx.toDp() } + 12.dp
+    } else 16.dp
+    val hasOverflowActions = (actions != null && (actions.canEdit || actions.canDelete)) || exportPath != null || onShowInChat != null
+    val captionScroll = key(shown.messageId) { rememberScrollState() }
+    LaunchedEffect(captionScroll.isScrollInProgress) {
+        while (captionScroll.isScrollInProgress) {
+            interactionChannel.trySend(Unit)
+            delay(500L)
+        }
+    }
+    val captionBox: @Composable () -> Unit = {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(if (isStillImage) Color(0xB3070B10) else Color(0xCC070B10))
+                .heightIn(max = 120.dp)
+                .verticalScroll(captionScroll)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = shownCaption,
+                color = Color.White,
+                fontSize = 14.sp,
+                lineHeight = 19.sp
+            )
+        }
+    }
+    val bottomChromeContent: @Composable () -> Unit = {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 64.dp)
+                .background(if (isStillImage) Color(0xB3070B10) else Color.Transparent)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download, Color.White) {
+                exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
+            }
+            if (exportPath != null) ViewerAction(stringResource(R.string.common_share), Icons.Rounded.Share, Color.White) {
+                exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) }
+            }
+            if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, Color.White, onClick = actions.onForward)
+        }
+    }
+    Dialog(onDismissRequest = ::requestClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia, settledViewOnce, forceSecure)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
+        // Верхняя панель и нижние действия на фото лежат поверх страницы: тап по картинке или idle их прячет, крестик закрытия остаётся доступным.
+        // На видео/аудио нижние действия стоят под страницей, чтобы не перекрывать полосу перемотки плеера.
         val pageSize = LocalWindowInfo.current.containerSize
-        // Read in the draw phase, so the page moves per frame without recomposing the dialog content.
-        Column(Modifier.fillMaxSize().graphicsLayer {
-            val transform = mediaViewerTransform(originBounds, pageSize.width.toFloat(), pageSize.height.toFloat(), (1f - viewerProgress) * viewerSpec.intensity)
-            alpha = viewerProgress
-            scaleX = transform.scale
-            scaleY = transform.scale
-            translationX = transform.offsetX
-            translationY = transform.offsetY
-        }.background(Color(0xFF070B10)).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), key = { index -> mediaViewerPageKey(pageIds, index) }) { page ->
-                    // Compose may request an index belonging to the preceding page count during an update.
-                    // Never index the backing list until this page exists in our current snapshot.
-                    currentPages.getOrNull(page)?.let { item ->
-                        MediaViewerPage(item, observeFile, downloadFile, autoDownload, canExport = canExport, active = page == safeSettledPage,
-                            fullFileOnlyWhenActive = fullFileOnlyWhenActive,
-                            revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
-                            onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
-                            onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible }, controlsVisible = controlsVisible)
+        var mediaBounds by remember { mutableStateOf<Rect?>(null) }
+        var viewportBounds by remember { mutableStateOf<Rect?>(null) }
+        // Read in the draw phase, so backdrop, media, and chrome animate per frame without recomposing.
+        Box(Modifier.fillMaxSize().onGloballyPositioned { viewportBounds = it.mediaScreenBounds() }) {
+            // Separate backdrop so interactive vertical swipe fades the background without distorting the opening transform.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = viewerProgress * mediaViewerDismissBackdropAlpha(dismissFractionState.floatValue) }
+                    .background(Color(0xFF070B10))
+            )
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .onGloballyPositioned { coords -> mediaBounds = coords.mediaScreenBounds() }
+                ) {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val transform = mediaViewerTransform(
+                                    origin = originBounds,
+                                    pageWidth = pageSize.width.toFloat(),
+                                    pageHeight = pageSize.height.toFloat(),
+                                    travel = (1f - viewerProgress) * viewerSpec.intensity,
+                                    target = mediaBounds,
+                                    viewport = viewportBounds
+                                )
+                                alpha = viewerProgress
+                                scaleX = transform.scale
+                                scaleY = transform.scale
+                                translationX = transform.offsetX
+                                translationY = transform.offsetY
+                                val cornerPx = transform.cornerRadiusDp.dp.toPx()
+                                if (cornerPx > 0.5f) {
+                                    clip = true
+                                    shape = RoundedCornerShape(cornerPx)
+                                } else {
+                                    clip = false
+                                }
+                            },
+                        key = { index -> mediaViewerPageKey(pageIds, index) }
+                    ) { page ->
+                        // Compose may request an index belonging to the preceding page count during an update.
+                        // Never index the backing list until this page exists in our current snapshot.
+                        currentPages.getOrNull(page)?.let { item ->
+                            MediaViewerPage(item, observeFile, downloadFile, autoDownload, canExport = canExport, active = page == safeSettledPage,
+                                fullFileOnlyWhenActive = fullFileOnlyWhenActive,
+                                revealed = item.messageId in revealedSpoilers, onReveal = { revealedSpoilers += item.messageId },
+                                onOpenFile = { path -> openExternal(item, path) }, onViewed = onViewed,
+                                onDismiss = ::requestClose, onToggleControls = { controlsVisible = !controlsVisible },
+                                onDismissProgress = { fraction -> if (page == safeSettledPage && !viewerClosing) dismissFractionState.floatValue = fraction },
+                                showZoomControls = showAssistiveControls && controlsVisible && page == safeSettledPage,
+                                zoomControlsBottomPadding = zoomControlsBottomPadding,
+                                onUserInteraction = { interactionChannel.trySend(Unit) })
+                        }
+                    }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .onSizeChanged { topBarHeightPx = it.height }
+                            .graphicsLayer { alpha = viewerProgress * (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
+                            .background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent)
+                            .padding(horizontal = 6.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = ::requestClose,
+                            modifier = if (!controlsVisible) Modifier.background(Color(0x66070B10), CircleShape) else Modifier
+                        ) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
+                        if (controlsVisible) {
+                            Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                                Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                val counter = if (currentPages.size > 1) "${safeSettledPage + 1} / ${currentPages.size}" else null
+                                val subtitleLine = listOfNotNull(counter, subtitle?.takeIf { it.isNotBlank() }).joinToString(" · ")
+                                if (subtitleLine.isNotEmpty()) {
+                                    Text(subtitleLine, color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                // Read-only traffic line for the selected file. Secret, view-once and hidden-spoiler
+                                // pages keep their existing presentation and never show download details.
+                                if (shownFile.isDownloading && !shown.media.isSecret && !shown.media.isSecretChat && !shown.viewOnce && !shownHidden) {
+                                    TrafficUsageBadge(
+                                        accountId = accountId,
+                                        fileId = shown.media.fileId,
+                                        downloadedBytes = shownFile.downloadedBytes,
+                                        totalBytes = shownFile.size,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            }
+                            if (hasOverflowActions) Box {
+                                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
+                                BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    if (actions != null && actions.canEdit) BeyGramPopoverItem(
+                                        text = stringResource(R.string.common_edit),
+                                        leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                                        onClick = { menuOpen = false; actions.onEdit() }
+                                    )
+                                    if (exportPath != null) BeyGramPopoverItem(
+                                        text = stringResource(R.string.media_open_in_other_app),
+                                        onClick = { menuOpen = false; openExternal(shown, exportPath) }
+                                    )
+                                    if (onShowInChat != null) BeyGramPopoverItem(
+                                        text = stringResource(R.string.media_show_in_chat),
+                                        onClick = { menuOpen = false; onShowInChat(shown.messageId) }
+                                    )
+                                    if (actions != null && actions.canDelete) BeyGramPopoverItem(
+                                        text = stringResource(R.string.common_delete),
+                                        leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = palette.danger) },
+                                        danger = true,
+                                        onClick = { menuOpen = false; actions.onDelete() }
+                                    )
+                                }
+                            }
+                        } else Spacer(Modifier.weight(1f))
+                    }
+                    // Кнопки листания показываются для TalkBack, клавиатуры/мыши и планшетов; на сенсорном телефоне фото остаётся свободным от стрелок.
+                    if (showAssistiveControls && controlsVisible && currentPages.size > 1) {
+                        IconButton(
+                            onClick = { scope.launch { pagerState.scrollToPageRespectingMotion(safeSettledPage - 1, motionInstant = chromeMotionInstant) } },
+                            enabled = safeSettledPage > 0,
+                            modifier = Modifier.align(Alignment.CenterStart).padding(8.dp).graphicsLayer { alpha = viewerProgress * (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }.background(Color(0x80070B10), CircleShape)
+                        ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (safeSettledPage > 0) 1f else 0.3f)) }
+                        IconButton(
+                            onClick = { scope.launch { pagerState.scrollToPageRespectingMotion(safeSettledPage + 1, motionInstant = chromeMotionInstant) } },
+                            enabled = safeSettledPage < currentPages.lastIndex,
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).graphicsLayer { alpha = viewerProgress * (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }.background(Color(0x80070B10), CircleShape)
+                        ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
+                    }
+                    if (!isStillImage && shownCaption.isNotEmpty()) {
+                        // Video/audio player controls occupy the bottom of the frame, so place non-still captions under the top bar.
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = controlsVisible,
+                            enter = chromeSpec.fadeEnter(),
+                            exit = chromeSpec.fadeExit(),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = with(density) { topBarHeightPx.toDp() })
+                                .graphicsLayer { alpha = viewerProgress * (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
+                        ) {
+                            captionBox()
+                        }
+                    }
+                    if (isStillImage && (hasPrimaryBottomActions || shownCaption.isNotEmpty())) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = controlsVisible,
+                            enter = chromeSpec.fadeEnter(),
+                            exit = chromeSpec.fadeExit(),
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .graphicsLayer { alpha = viewerProgress * (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }
+                        ) {
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .onSizeChanged { bottomOverlayHeightPx = it.height }
+                            ) {
+                                if (shownCaption.isNotEmpty()) captionBox()
+                                if (hasPrimaryBottomActions) bottomChromeContent()
+                            }
+                        }
+                    } else {
+                        bottomOverlayHeightPx = 0
                     }
                 }
-                Row(
-                    Modifier.fillMaxWidth().align(Alignment.TopCenter).background(if (controlsVisible) Color(0xB3070B10) else Color.Transparent).padding(horizontal = 6.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = ::requestClose) { Icon(Icons.Rounded.Close, stringResource(R.string.common_close), tint = Color.White) }
-                    if (controlsVisible) {
-                        Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                            Text(title ?: shown.media.fileName.ifBlank { shown.media.kind.label(context) }, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            subtitle?.let { Text(it, color = Color(0xFFA39C95), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            // Read-only traffic line for the selected file. Secret, view-once and hidden-spoiler
-                            // pages keep their existing presentation and never show download details.
-                            if (shownFile.isDownloading && !shown.media.isSecret && !shown.media.isSecretChat && !shown.viewOnce && !shownHidden) {
-                                TrafficUsageBadge(
-                                    accountId = accountId,
-                                    fileId = shown.media.fileId,
-                                    downloadedBytes = shownFile.downloadedBytes,
-                                    totalBytes = shownFile.size,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
-                            }
+                if (reserveNonStillFooter || externalError != null || fileNotice != null || extraFooter != null) {
+                    Column(Modifier.fillMaxWidth().graphicsLayer { alpha = viewerProgress }) {
+                        if (reserveNonStillFooter) {
+                            if (controlsVisible) Box(Modifier.graphicsLayer { alpha = (1f - dismissFractionState.floatValue * 2f).coerceIn(0f, 1f) }) { bottomChromeContent() }
+                            else Box(Modifier.fillMaxWidth().heightIn(min = 64.dp))
                         }
-                        if (exportPath != null) IconButton(onClick = { exportIfAllowed(shown.messageId) { shareMedia(context, exportPath, shown.media.mimeType) } }) { Icon(Icons.Rounded.Share, stringResource(R.string.common_share), tint = Color.White) }
-                        if (exportPath != null || onShowInChat != null) Box {
-                            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                if (exportPath != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_open_in_other_app)) }, onClick = { menuOpen = false; openExternal(shown, exportPath) })
-                                if (onShowInChat != null) DropdownMenuItem(text = { Text(stringResource(R.string.media_show_in_chat)) }, onClick = { menuOpen = false; onShowInChat(shown.messageId) })
-                            }
-                        }
-                    } else Spacer(Modifier.weight(1f))
-                }
-                // Кнопки листания нужны тем, кто не листает пальцем, например TalkBack. Кнопка у края неактивна, если соседней страницы нет.
-                if (currentPages.size > 1) {
-                    IconButton(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage - 1) } },
-                        enabled = safeSettledPage > 0,
-                        modifier = Modifier.align(Alignment.CenterStart).padding(8.dp).background(Color(0x80070B10), CircleShape)
-                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, stringResource(R.string.media_previous), tint = Color.White.copy(alpha = if (safeSettledPage > 0) 1f else 0.3f)) }
-                    IconButton(
-                        onClick = { scope.launch { pagerState.animateScrollToPage(safeSettledPage + 1) } },
-                        enabled = safeSettledPage < currentPages.lastIndex,
-                        modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp).background(Color(0x80070B10), CircleShape)
-                    ) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, stringResource(R.string.media_next), tint = Color.White.copy(alpha = if (safeSettledPage < currentPages.lastIndex) 1f else 0.3f)) }
+                        externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
+                        fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).errorAnnouncement()) }
+                        extraFooter?.invoke()
+                    }
                 }
             }
-            // Строка всегда занимает место, где может появиться действие: иначе страница прыгает, когда докачанный файл добавляет «Сохранить».
-            if (actions != null || canExport) Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, onClick = actions.onForward)
-                if (exportPath != null) ViewerAction(stringResource(R.string.common_save), Icons.Rounded.Download) {
-                    exportIfAllowed(shown.messageId) { withContext(Dispatchers.IO) { saveToDevice(context, exportPath, shown.media) } }
-                }
-                if (actions != null && actions.canEdit) ViewerAction(stringResource(R.string.common_edit), Icons.Rounded.Edit, onClick = actions.onEdit)
-                if (actions != null && actions.canDelete) ViewerAction(stringResource(R.string.common_delete), Icons.Rounded.Delete, Color(0xFFF97066), actions.onDelete)
-            }
-            externalError?.let { Text(it, color = Color(0xFFFFBE9D), modifier = Modifier.padding(16.dp).errorAnnouncement()) }
-            fileNotice?.let { Text(it, color = Color.LightGray, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).errorAnnouncement()) }
-            extraFooter?.invoke()
         }
     }
 }
@@ -1064,7 +1313,7 @@ private fun MediaViewerPage(
     item: MediaViewerItem, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
     autoDownloadFile: (AutoDownloadRequest) -> Unit,
     canExport: Boolean, active: Boolean, fullFileOnlyWhenActive: Boolean, revealed: Boolean, onReveal: () -> Unit, onOpenFile: (String) -> Unit, onViewed: (Long) -> Unit,
-    onDismiss: () -> Unit, onToggleControls: () -> Unit, controlsVisible: Boolean
+    onDismiss: () -> Unit, onToggleControls: () -> Unit, onDismissProgress: (Float) -> Unit, showZoomControls: Boolean, zoomControlsBottomPadding: Dp, onUserInteraction: () -> Unit
 ) {
     val media = item.media
     val context = LocalContext.current
@@ -1241,7 +1490,8 @@ private fun MediaViewerPage(
                 Text(file.error?.resolve() ?: stringResource(R.string.media_download_progress, formatMediaSize(file.downloadedBytes), formatMediaSize(file.size)), color = Color.LightGray, modifier = Modifier.padding(16.dp))
                 if (!file.isDownloading) TextButton(onClick = { downloadFile(media.fileId) }) { Text(stringResource(R.string.common_download)) }
             }
-            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, showZoomControls = controlsVisible && active,
+            media.mimeType.startsWith("image/") -> ZoomableImage(path, onDismiss, onToggleControls, onDismissProgress = onDismissProgress,
+                showZoomControls = showZoomControls, zoomControlsBottomPadding = zoomControlsBottomPadding, onUserInteraction = onUserInteraction,
                 contentDescription = media.kind.label(context))
             media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/") ->
                 LocalVideo(path, media.kind == MediaKind.Animation, active, onStarted = { currentOnViewed(item.messageId) })
@@ -1270,7 +1520,7 @@ private fun PhotoPreview(file: MediaFileState, thumbnailPath: String?, onDownloa
 }
 
 @Composable
-private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color(0xFFCFC4FF), onClick: () -> Unit) {
+private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color.White, onClick: () -> Unit) {
     Column(Modifier.heightIn(min = 48.dp).clip(styledShape(12.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
         Spacer(Modifier.height(4.dp))
@@ -1279,52 +1529,163 @@ private fun ViewerAction(label: String, icon: ImageVector, tint: Color = Color(0
 }
 
 @Composable
-private fun ZoomableImage(path: String, onDismiss: () -> Unit, onToggleControls: () -> Unit, showZoomControls: Boolean, contentDescription: String?) {
+private fun ZoomableImage(
+    path: String,
+    onDismiss: () -> Unit,
+    onToggleControls: () -> Unit,
+    onDismissProgress: (Float) -> Unit,
+    showZoomControls: Boolean,
+    zoomControlsBottomPadding: Dp,
+    onUserInteraction: () -> Unit,
+    contentDescription: String?
+) {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val motionSpec = rememberMotionSpec(MotionToken.MediaExpand)
     var scale by remember(path) { mutableFloatStateOf(1f) }
     var offset by remember(path) { mutableStateOf(Offset.Zero) }
-    // Протяжка вниз при масштабе 1 двигает картинку за пальцем; отпущенная дальше четверти высоты закрывает просмотр.
-    var dismissY by remember(path) { mutableFloatStateOf(0f) }
+    var zoomJob by remember(path) { mutableStateOf<Job?>(null) }
+    // Вертикальная протяжка вверх или вниз при масштабе 1 двигает картинку за пальцем синхронно без очереди корутин.
+    var dismissOffsetY by remember(path) { mutableFloatStateOf(0f) }
+    var dismissReturnJob by remember(path) { mutableStateOf<Job?>(null) }
     var size by remember { mutableStateOf(IntSize.Zero) }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     val currentOnToggleControls by rememberUpdatedState(onToggleControls)
+    val currentOnDismissProgress by rememberUpdatedState(onDismissProgress)
+    val currentOnUserInteraction by rememberUpdatedState(onUserInteraction)
     val transform = rememberTransformableState { zoom, pan, _ ->
+        zoomJob?.cancel()
+        zoomJob = null
+        currentOnUserInteraction()
         scale = (scale * zoom).coerceIn(1f, 5f)
         offset = clampImageOffset(offset + pan, scale, size)
     }
-    val dismissDrag = rememberDraggableState { delta -> if (scale <= 1f) dismissY += delta }
+    val dismissDrag = rememberDraggableState { delta ->
+        if (scale <= 1.01f) {
+            dismissReturnJob?.cancel()
+            dismissReturnJob = null
+            currentOnUserInteraction()
+            dismissOffsetY += delta
+            currentOnDismissProgress(mediaViewerDismissFraction(dismissOffsetY, size.height.toFloat()))
+        }
+    }
     // Масштаб, ушедший выше 1 посреди протяжки, отменяет её: сдвиг не должен остаться после возврата к масштабу 1.
-    LaunchedEffect(scale > 1f) { if (scale > 1f) dismissY = 0f }
+    LaunchedEffect(scale > 1.01f) {
+        if (scale > 1.01f && (dismissOffsetY != 0f || dismissReturnJob != null)) {
+            dismissReturnJob?.cancel()
+            dismissReturnJob = null
+            dismissOffsetY = 0f
+            currentOnDismissProgress(0f)
+        }
+    }
+    fun animateZoomTo(targetScale: Float, focalPoint: Offset?) {
+        val nextScale = targetScale.coerceIn(1f, 5f)
+        val startScale = scale
+        val startOffset = offset
+        val center = Offset(size.width / 2f, size.height / 2f)
+        zoomJob?.cancel()
+        if (motionSpec.isInstant) {
+            zoomJob = null
+            val rawOffset = if (focalPoint != null) {
+                offsetAroundPoint(focalPoint, center, startOffset, startScale, nextScale)
+            } else {
+                offsetAroundCenter(startOffset, startScale, nextScale, size)
+            }
+            scale = nextScale
+            offset = clampImageOffset(rawOffset, nextScale, size)
+            return
+        }
+        zoomJob = scope.launch {
+            animate(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMedium
+                )
+            ) { progress, _ ->
+                val interpolatedScale = startScale + (nextScale - startScale) * progress
+                val rawOffset = if (focalPoint != null) {
+                    offsetAroundPoint(focalPoint, center, startOffset, startScale, interpolatedScale)
+                } else {
+                    offsetAroundCenter(startOffset, startScale, interpolatedScale, size)
+                }
+                scale = interpolatedScale
+                offset = clampImageOffset(rawOffset, interpolatedScale, size)
+            }
+            zoomJob = null
+        }
+    }
     // Кнопки масштаба меняют его вокруг центра, как и жест. Нужны тем, кому неудобно сводить два пальца.
     fun zoomTo(target: Float) {
-        val next = target.coerceIn(1f, 5f)
-        offset = offsetAroundCenter(offset, scale, next, size)
-        scale = next
+        currentOnUserInteraction()
+        animateZoomTo(target, focalPoint = null)
     }
+    val velocityThresholdPx = remember(density) { with(density) { 800.dp.toPx() } }
+    val minFlingTravelPx = remember(density) { with(density) { 24.dp.toPx() } }
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1f })
-            .draggable(state = dismissDrag, orientation = Orientation.Vertical, enabled = scale <= 1f, onDragStopped = {
-                if (dismissY > size.height / 4f) currentOnDismiss()
-                dismissY = 0f
+        Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { size = it }.transformable(transform, canPan = { scale > 1.01f })
+            .draggable(state = dismissDrag, orientation = Orientation.Vertical, enabled = scale <= 1.01f, onDragStopped = { velocity ->
+                if (shouldDismissMediaViewer(dismissOffsetY, velocity, size.height.toFloat(), velocityThresholdPx, minFlingTravelPx)) {
+                    currentOnDismiss()
+                } else if (motionSpec.isInstant) {
+                    dismissReturnJob?.cancel()
+                    dismissReturnJob = null
+                    dismissOffsetY = 0f
+                    currentOnDismissProgress(0f)
+                } else {
+                    dismissReturnJob?.cancel()
+                    val startOffset = dismissOffsetY
+                    dismissReturnJob = scope.launch {
+                        animate(
+                            initialValue = startOffset,
+                            targetValue = 0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ) { value, _ ->
+                            dismissOffsetY = value
+                            currentOnDismissProgress(mediaViewerDismissFraction(value, size.height.toFloat()))
+                        }
+                        dismissReturnJob = null
+                    }
+                }
             })
             .pointerInput(path) {
                 detectTapGestures(
                     onTap = { currentOnToggleControls() },
-                    // Двойной тап приближает к точке касания, поэтому место под пальцем не уезжает. Второй тап возвращает масштаб 1.
+                    // Двойной тап плавно приближает к точке касания, поэтому место под пальцем не уезжает. Второй тап возвращает масштаб 1.
                     onDoubleTap = { point ->
-                        val target = if (scale > 1f) 1f else 2.5f
-                        offset = clampImageOffset(offsetAroundPoint(point, Offset(size.width / 2f, size.height / 2f), offset, scale, target), target, size)
-                        scale = target
+                        currentOnUserInteraction()
+                        val target = if (scale > 1.01f) 1f else 2.5f
+                        animateZoomTo(target, focalPoint = point)
                     }
                 )
             }
         ) {
-            LocalMediaImage(path, Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y + dismissY }, fit = true, maxDimension = 4096,
-                contentDescriptionText = contentDescription)
+            LocalMediaImage(
+                path,
+                Modifier.fillMaxSize().graphicsLayer {
+                    val dragScale = if (scale <= 1.01f) {
+                        mediaViewerDismissScale(mediaViewerDismissFraction(dismissOffsetY, size.height.toFloat()))
+                    } else 1f
+                    scaleX = scale * dragScale
+                    scaleY = scale * dragScale
+                    translationX = offset.x
+                    translationY = offset.y + dismissOffsetY
+                },
+                fit = true,
+                maxDimension = 4096,
+                contentDescriptionText = contentDescription
+            )
         }
         // Кнопки стоят поверх картинки, а не внутри её жестов: тап по кнопке не должен переключать панели или сдвигать фото.
         // Внизу по центру, чтобы на низком окне не наезжать на кнопки листания у краёв.
         if (showZoomControls) Row(
-            Modifier.align(Alignment.BottomCenter).padding(16.dp).background(Color(0x80070B10), styledShape(24.dp)),
+            Modifier.align(Alignment.BottomCenter)
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = zoomControlsBottomPadding)
+                .background(Color(0x80070B10), styledShape(24.dp)),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { zoomTo(scale / 1.5f) }, enabled = scale > 1f) {
@@ -1544,12 +1905,15 @@ private fun LocalVideo(
     }
     // Играет только текущая страница; соседнее видео, которое увели свайпом, ставим на паузу.
     // Звук видео не идёт поверх музыки из общего плеера: когда видео становится активным, музыка на паузе.
+    val interruptionOwner = remember { Any() }
+    DisposableEffect(interruptionOwner) { onDispose { PlaybackEngine.endInterruption(interruptionOwner) } }
     LaunchedEffect(active, player) {
         if (active) {
-            // Анимация без звука музыку не прерывает.
-            if (!loop) PlaybackEngine.pause()
+            // Анимация без звука музыку не прерывает. Когда просмотр закрывается, музыка продолжается сама.
+            if (!loop) PlaybackEngine.beginInterruption(interruptionOwner)
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) play()
         } else {
+            PlaybackEngine.endInterruption(interruptionOwner)
             player.pause()
         }
     }
@@ -1684,9 +2048,12 @@ private fun AudioInPlayer(
 }
 
 /** Музыка из чата и просмотрщика идёт через общий плеер. Новый файл заменяет текущий, в том числе кружок в ленте. */
-private fun startAudio(context: Context, item: PlaybackItem) {
-    PlaybackEngine.toggle(context, item)
+private fun startAudio(context: Context, item: PlaybackItem, startMs: Long? = null) {
+    PlaybackEngine.toggle(context, item, startPositionMs = startMs)
 }
+
+/** A request to play a track from a chat bubble outside its row; [startMs] null means from the start. */
+internal class AudioPlayRequest(val startMs: Long?)
 
 internal fun openExternalMedia(context: Context, path: String, mime: String): String? = runCatching {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))

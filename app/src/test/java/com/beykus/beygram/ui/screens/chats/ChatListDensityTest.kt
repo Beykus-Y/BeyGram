@@ -11,6 +11,12 @@ class ChatListDensityTest {
         assertEquals(10.dp, ChatListDensity().rowVerticalPadding)
     }
 
+    @Test fun onlySpaciousDensityEnablesTwoLinePreview() {
+        assertEquals(1, chatListDensityFor(ListDensity.Compact).previewLines)
+        assertEquals(1, chatListDensityFor(ListDensity.Comfortable).previewLines)
+        assertEquals(2, chatListDensityFor(ListDensity.Spacious).previewLines)
+    }
+
     @Test fun densityMapsToTheRowPaddingOfEachStep() {
         assertEquals(ChatListDensity(), chatListDensityFor(ListDensity.Comfortable))
         assertTrue(chatListDensityFor(ListDensity.Compact).rowVerticalPadding < ChatListDensity().rowVerticalPadding)

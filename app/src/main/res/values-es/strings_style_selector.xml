@@ -4,7 +4,6 @@
     <string name="style_preview_scene_messages">Conversación</string>
     <string name="style_preview_scene_settings">Ajustes</string>
     <string name="style_preview_description">Vista previa del estilo «%1$s», pantalla «%2$s»</string>
-    <string name="style_preview_glass_note">La vista previa muestra el cristal sin desenfoque de fondo. El desenfoque real aparece en la propia interfaz.</string>
     <string name="style_preview_glass_fallback_note">Ahora el cristal se dibuja con un tinte denso y sin desenfoque, igual que en la vista previa.</string>
     <string name="style_preview_search">Buscar</string>
     <string name="style_preview_folder_all">Todos</string>
@@ -23,6 +22,15 @@
     <string name="style_preview_chat4_name">Notas</string>
     <string name="style_preview_chat4_message">Lista de la compra</string>
     <string name="style_preview_chat4_time">lun</string>
+    <string name="style_preview_chat5_name">Dima</string>
+    <string name="style_preview_chat5_message">Vale, lo miro mañana</string>
+    <string name="style_preview_chat5_time">Mar</string>
+    <string name="style_preview_chat6_name">Familia</string>
+    <string name="style_preview_chat6_message">¿Cena el sábado?</string>
+    <string name="style_preview_chat6_time">Dom</string>
+    <string name="style_preview_chat7_name">Trabajo</string>
+    <string name="style_preview_chat7_message">Informe enviado</string>
+    <string name="style_preview_chat7_time">Vie</string>
     <string name="style_preview_settings_general">General</string>
     <string name="style_preview_settings_notifications">Notificaciones</string>
     <string name="style_preview_settings_sounds">Sonidos de chat</string>

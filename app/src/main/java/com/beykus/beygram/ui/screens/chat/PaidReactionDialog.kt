@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,18 +11,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -35,11 +33,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.Switch
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.PAID_REACTION_PRESETS
 import com.beykus.beygram.domain.model.PaidReactionAmountBlock
@@ -66,6 +67,9 @@ internal class PaidReactionSender(
     /** Chooses one preset. */
     fun select(starCount: Long) = PaidReactionStore.select(owner, starCount)
 
+    /** Chooses whether the reaction is anonymous. */
+    fun selectPrivacy(isAnonymous: Boolean) = PaidReactionStore.selectPrivacy(owner, isAnonymous)
+
     /** Sends the chosen amount once. */
     fun send() = PaidReactionStore.send(conversation, owner)
 
@@ -88,7 +92,7 @@ internal fun rememberPaidReactions(
     conversation: ConversationRepository,
     onSent: (PaidReactionTarget) -> Unit = {}
 ): PaidReactionSender {
-    val owner = remember { Any() }
+    val owner = remember(conversation) { Any() }
     val latestOnSent by rememberUpdatedState(onSent)
     val sender = remember(conversation, owner) { PaidReactionSender(conversation, owner) { target -> latestOnSent(target) } }
     PaidReactionDialog(sender)
@@ -106,10 +110,10 @@ private fun PaidReactionDialog(sender: PaidReactionSender) {
     val balance = state.balance
     val blocked = paidReactionAmountBlock(state.starCount, balance?.starCount, state.maximum)
     val busy = state.sending
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { sender.dismiss() },
-        title = { Text(stringResource(R.string.paid_reaction_dialog_title)) },
-        text = {
+        title = stringResource(R.string.paid_reaction_dialog_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (balance != null) {
                     Text(
@@ -136,7 +140,11 @@ private fun PaidReactionDialog(sender: PaidReactionSender) {
                         color = palette.textPrimary,
                         fontSize = 15.sp
                     )
-                    Text(stringResource(R.string.paid_reaction_public), color = palette.textSecondary, fontSize = 13.sp)
+                    PaidReactionPrivacyRow(
+                        checked = state.isAnonymous,
+                        enabled = !busy && !state.uncertain,
+                        onCheckedChange = sender::selectPrivacy
+                    )
                     if (blocked == PaidReactionAmountBlock.ExceedsBalance) {
                         Text(
                             stringResource(R.string.paid_reaction_not_enough),
@@ -155,21 +163,34 @@ private fun PaidReactionDialog(sender: PaidReactionSender) {
                 }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = { sender.send() },
-                enabled = balance != null && blocked == null && !busy && !state.uncertain,
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                Text(stringResource(R.string.common_send))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { sender.dismiss() }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(if (state.uncertain) R.string.common_close else R.string.common_cancel))
-            }
-        }
+        confirmText = stringResource(R.string.common_send),
+        onConfirm = { sender.send() },
+        confirmEnabled = balance != null && blocked == null && !busy && !state.uncertain,
+        dismissText = stringResource(if (state.uncertain) R.string.common_close else R.string.common_cancel),
+        onDismiss = { if (!busy) sender.dismiss() }
     )
+}
+
+/** A single accessible, theme-aware toggle; the explanation reflects the selected privacy. */
+@Composable
+private fun PaidReactionPrivacyRow(checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
+            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(stringResource(R.string.paid_reaction_anonymous), color = palette.textPrimary, fontSize = 14.sp)
+            Text(
+                stringResource(if (checked) R.string.paid_reaction_anonymous_hint else R.string.paid_reaction_public),
+                color = palette.textSecondary,
+                fontSize = 13.sp
+            )
+        }
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
 }
 
 /** One Stars amount the user can pick. An amount that is not allowed is dimmed and does nothing when tapped. */

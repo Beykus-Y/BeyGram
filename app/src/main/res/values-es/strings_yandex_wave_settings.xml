@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yandex_wave_settings_open">Personalizar la radio</string>
+    <string name="yandex_wave_settings_title">Ajustes de la radio</string>
+    <string name="yandex_wave_settings_reset">Restablecer</string>
+    <string name="yandex_wave_settings_listen">Escuchar</string>
+    <string name="yandex_wave_settings_activity">Actividad</string>
+    <string name="yandex_wave_settings_mood">Estado de ánimo</string>
+    <string name="yandex_wave_settings_character">Carácter</string>
+    <string name="yandex_wave_settings_language">Idioma</string>
+    <string name="yandex_wave_settings_default">Cualquiera</string>
+    <string name="yandex_wave_activity_work">Trabajo</string>
+    <string name="yandex_wave_activity_focus">Concentración</string>
+    <string name="yandex_wave_activity_workout">Entrenamiento</string>
+    <string name="yandex_wave_activity_relax">Relax</string>
+    <string name="yandex_wave_mood_calm">Tranquilo</string>
+    <string name="yandex_wave_mood_energetic">Enérgico</string>
+    <string name="yandex_wave_language_russian">Ruso</string>
+    <string name="yandex_wave_language_foreign">Extranjero</string>
+    <string name="yandex_wave_summary_default">Según tu gusto</string>
+</resources>

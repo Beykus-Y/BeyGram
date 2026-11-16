@@ -2,7 +2,10 @@ package com.beykus.beygram
 
 import android.app.Application
 import android.util.Log
+import com.beykus.beygram.ui.screens.chat.PendingTextSendSessions
 import com.beykus.beygram.analytics.AnalyticsSync
+import com.beykus.beygram.media.bgwave.BgWaveHub
+import com.beykus.beygram.media.bgwave.BgWaveListenerKeepAlive
 import com.beykus.beygram.data.music.MusicHistoryRecorder
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.tdlib.TdAccountRegistry
@@ -39,7 +42,12 @@ class BeyGramApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        PendingTextSendSessions.scheduleStartupQuarantine(this)
         MultiAccountDiagnostics.initialize(this)
+        BgWaveHub.attachAudioManager(getSystemService(android.media.AudioManager::class.java), this)
+        BgWaveHub.attachConnectivityManager(getSystemService(android.net.ConnectivityManager::class.java))
+        // Keeps a listener's wave alive with the screen off; installed once, for the life of the process.
+        BgWaveListenerKeepAlive.install(this, applicationScope)
         // Stage A of multi-account: metadata-only zero-copy migration. The existing
         // TDLib client continues to use filesDir/tdlib exactly as before. If
         // disk/metadata is corrupt, leave TDLib untouched and report the failure;

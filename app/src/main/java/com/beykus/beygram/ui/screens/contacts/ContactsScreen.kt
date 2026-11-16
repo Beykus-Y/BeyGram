@@ -32,10 +32,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PersonAdd
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -70,15 +67,26 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.ChatAvatar
+import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
+import com.beykus.beygram.ui.screens.chat.ForwardTarget
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.components.listRowTitleWeight
 import com.beykus.beygram.ui.components.StyledListDivider
+import com.beykus.beygram.ui.components.MainTabHeader
 import com.beykus.beygram.ui.components.MainTabTitle
+import com.beykus.beygram.ui.components.LocalNavigationDock
+import com.beykus.beygram.ui.components.scrollClearance
+import com.beykus.beygram.ui.components.mainTabInsets
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -100,10 +108,14 @@ fun ContactsScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onChatOpened: (chatId: Long) -> Unit,
-    accountId: String = "legacy"
+    accountId: String = "legacy",
+    loadShareTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
+    sendContactToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null,
+    recipientRepository: TelegramRepository? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
+    val dockInset = LocalNavigationDock.current.scrollClearance
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state: ContactsScreenState = viewModel(key = "contacts:$accountId")
@@ -131,7 +143,7 @@ fun ContactsScreen(
         groups.filterKeys { it != CONTACT_SYMBOL_GROUP } + groups.filterKeys { it == CONTACT_SYMBOL_GROUP }
     }
     val shareChats = remember(chats) {
-        chats.filter { it.canPost }.distinctBy { it.id }.sortedBy { it.title.lowercase() }
+        chats
     }
 
     fun reload() {
@@ -182,14 +194,18 @@ fun ContactsScreen(
     // The same screen surface as Settings: the glass style draws its glow, the others the plain screen colour.
     Column(
         Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+            .mainTabInsets()
             .imePadding()
     ) {
-        MainTabTitle(stringResource(R.string.contacts_title), Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
-            IconButton(onClick = { showAddDialog = true }) { Icon(Icons.Rounded.PersonAdd, stringResource(R.string.contacts_add_contact_description), tint = palette.accent) }
-        }
-        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-            SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.contacts_search_placeholder))
+        MainTabHeader {
+            Column {
+                MainTabTitle(stringResource(R.string.contacts_title), Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+                    IconButton(onClick = { showAddDialog = true }) { Icon(Icons.Rounded.PersonAdd, stringResource(R.string.contacts_add_contact_description), tint = palette.accent) }
+                }
+                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SearchField(query = query, onChange = { query = it }, placeholder = stringResource(R.string.contacts_search_placeholder))
+                }
+            }
         }
         if (loading && contacts.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
         openError?.let { Text(it, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
@@ -209,10 +225,10 @@ fun ContactsScreen(
             visible.isEmpty() -> EmptyState(stringResource(R.string.contacts_empty_no_results), Modifier.weight(1f))
             else -> Box(
                 // The list is one group card, as a settings list is; the hint, the headings and the rows inside carry no glass.
-                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = if (dockInset > 0.dp) 0.dp else 16.dp)
                     .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
             ) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp + dockInset)) {
                     item(key = "contacts_actions_hint") {
                         Text(
                             stringResource(R.string.contacts_actions_hint),
@@ -281,6 +297,9 @@ fun ContactsScreen(
             contact = contact,
             chats = shareChats,
             sendContact = sendContact,
+            loadTopics = loadShareTopics,
+            sendContactToTopic = sendContactToTopic,
+            recipientRepository = recipientRepository,
             observeFile = observeFile,
             downloadFile = downloadFile,
             onDismiss = { sharingContact = null },
@@ -362,33 +381,30 @@ private fun ContactRow(
         }
         // The row itself owns the long-press and TalkBack actions; no repeated overflow icon on every contact.
         Box(Modifier.width(1.dp)) {
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.contacts_action_edit)) },
+            BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.contacts_action_edit),
                     onClick = { menuOpen = false; onEdit() }
                 )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.contacts_action_share)) },
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.contacts_action_share),
                     onClick = { menuOpen = false; onShare() }
                 )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            stringResource(
-                                if (contact.phone.isBlank()) R.string.contacts_number_hidden else R.string.contacts_action_copy
-                            )
-                        )
-                    },
+                BeyGramPopoverItem(
+                    text = stringResource(
+                        if (contact.phone.isBlank()) R.string.contacts_number_hidden else R.string.contacts_action_copy
+                    ),
                     enabled = contact.phone.isNotBlank(),
                     onClick = { menuOpen = false; onCopy() }
                 )
                 // The subtitle is @username only when the contact has one; otherwise it shows the phone number.
-                if (contact.subtitle.startsWith("@")) DropdownMenuItem(
-                    text = { Text(stringResource(R.string.contacts_action_copy_username)) },
+                if (contact.subtitle.startsWith("@")) BeyGramPopoverItem(
+                    text = stringResource(R.string.contacts_action_copy_username),
                     onClick = { menuOpen = false; onCopyUsername() }
                 )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.contacts_action_delete), color = palette.danger) },
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.contacts_action_delete),
+                    danger = true,
                     onClick = { menuOpen = false; onDelete() }
                 )
             }
@@ -420,10 +436,10 @@ private fun AddContactDialog(
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val canSave = !saving && firstName.isNotBlank() && phone.count { it.isDigit() } >= 7
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text(stringResource(R.string.contacts_add_dialog_title)) },
-        text = {
+        title = stringResource(R.string.contacts_add_dialog_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(firstName, { firstName = it.take(64) }, label = { Text(stringResource(R.string.contacts_field_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
                 OutlinedTextField(lastName, { lastName = it.take(64) }, label = { Text(stringResource(R.string.contacts_field_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
@@ -431,19 +447,21 @@ private fun AddContactDialog(
                 error?.let { Text(it, color = palette.danger, fontSize = 14.sp) }
             }
         },
-        confirmButton = {
-            TextButton(enabled = canSave, onClick = {
-                scope.launch {
-                    saving = true
-                    error = null
-                    onSubmit(firstName.trim(), lastName.trim(), phone.filter { it.isDigit() || it == '+' })
-                        .onSuccess { onAdded(); onDismiss() }
-                        .onFailure { error = it.userMessage(context, R.string.contacts_add_failed) }
-                    saving = false
-                }
-            }) { Text(if (saving) stringResource(R.string.contacts_adding) else stringResource(R.string.contacts_add)) }
+        confirmText = if (saving) stringResource(R.string.contacts_adding) else stringResource(R.string.contacts_add),
+        confirmEnabled = canSave,
+        onConfirm = {
+            scope.launch {
+                saving = true
+                error = null
+                onSubmit(firstName.trim(), lastName.trim(), phone.filter { it.isDigit() || it == '+' })
+                    .onSuccess { onAdded(); onDismiss() }
+                    .onFailure { error = it.userMessage(context, R.string.contacts_add_failed) }
+                saving = false
+            }
         },
-        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !saving,
+        onDismiss = onDismiss
     )
 }
 
@@ -466,10 +484,10 @@ private fun EditContactDialog(
     val nameValid = firstName.isNotBlank() || lastName.isNotBlank()
     val phoneValid = phone.isBlank() || phone.count { it.isDigit() } >= 7
     val canSave = !saving && nameValid && phoneValid
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text(stringResource(R.string.contacts_edit_title)) },
-        text = {
+        title = stringResource(R.string.contacts_edit_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(firstName, { firstName = it.take(64) }, label = { Text(stringResource(R.string.contacts_field_first_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
                 OutlinedTextField(lastName, { lastName = it.take(64) }, label = { Text(stringResource(R.string.contacts_field_last_name)) }, singleLine = true, enabled = !saving, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
@@ -479,19 +497,21 @@ private fun EditContactDialog(
                 error?.let { Text(it, color = palette.danger, fontSize = 14.sp) }
             }
         },
-        confirmButton = {
-            TextButton(enabled = canSave, onClick = {
-                scope.launch {
-                    saving = true
-                    error = null
-                    onSubmit(contact.userId, firstName.trim(), lastName.trim(), phone.filter { it.isDigit() || it == '+' })
-                        .onSuccess { onSaved(); onDismiss() }
-                        .onFailure { error = it.userMessage(context, R.string.contacts_edit_failed) }
-                    saving = false
-                }
-            }) { Text(if (saving) stringResource(R.string.contacts_saving) else stringResource(R.string.contacts_save)) }
+        confirmText = if (saving) stringResource(R.string.contacts_saving) else stringResource(R.string.contacts_save),
+        confirmEnabled = canSave,
+        onConfirm = {
+            scope.launch {
+                saving = true
+                error = null
+                onSubmit(contact.userId, firstName.trim(), lastName.trim(), phone.filter { it.isDigit() || it == '+' })
+                    .onSuccess { onSaved(); onDismiss() }
+                    .onFailure { error = it.userMessage(context, R.string.contacts_edit_failed) }
+                saving = false
+            }
         },
-        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !saving,
+        onDismiss = onDismiss
     )
 }
 
@@ -508,28 +528,31 @@ private fun DeleteContactDialog(
     var deleting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val displayName = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
-    AlertDialog(
+    val shownError = error
+    val errorContent: @Composable () -> Unit = {
+        Text(shownError.orEmpty(), color = palette.danger, fontSize = 14.sp)
+    }
+    BeyGramDialog(
         onDismissRequest = { if (!deleting) onDismiss() },
-        title = { Text(stringResource(R.string.contacts_delete_title)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.contacts_delete_message, displayName))
-                error?.let { Text(it, color = palette.danger, fontSize = 14.sp) }
+        title = stringResource(R.string.contacts_delete_title),
+        message = stringResource(R.string.contacts_delete_message, displayName),
+        content = if (shownError != null) errorContent else null,
+        confirmText = if (deleting) stringResource(R.string.contacts_deleting) else stringResource(R.string.contacts_delete_confirm),
+        confirmEnabled = !deleting,
+        destructive = true,
+        onConfirm = {
+            scope.launch {
+                deleting = true
+                error = null
+                onDelete(contact.userId)
+                    .onSuccess { onDeleted(); onDismiss() }
+                    .onFailure { error = it.userMessage(context, R.string.contacts_delete_failed) }
+                deleting = false
             }
         },
-        confirmButton = {
-            TextButton(enabled = !deleting, onClick = {
-                scope.launch {
-                    deleting = true
-                    error = null
-                    onDelete(contact.userId)
-                        .onSuccess { onDeleted(); onDismiss() }
-                        .onFailure { error = it.userMessage(context, R.string.contacts_delete_failed) }
-                    deleting = false
-                }
-            }) { Text(if (deleting) stringResource(R.string.contacts_deleting) else stringResource(R.string.contacts_delete_confirm), color = palette.danger) }
-        },
-        dismissButton = { TextButton(enabled = !deleting, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !deleting,
+        onDismiss = onDismiss
     )
 }
 
@@ -541,52 +564,54 @@ private fun ShareContactDialog(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onDismiss: () -> Unit,
-    onSent: () -> Unit
+    onSent: () -> Unit,
+    loadTopics: (suspend (Long) -> Result<List<ForumTopic>?>)?,
+    sendContactToTopic: (suspend (Long, Long, Long) -> Result<Unit>)?,
+    recipientRepository: TelegramRepository?
 ) {
-    val palette = beyGramPalette()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var retryBlocked by rememberSaveable { mutableStateOf(false) }
+    val completed = rememberSaveable { arrayListOf<String>() }
     val displayName = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
-    AlertDialog(
-        onDismissRequest = { if (!sending) onDismiss() },
-        title = { Text(stringResource(R.string.contacts_share_title)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(displayName, color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
-                if (sending) Text(stringResource(R.string.contacts_share_sending), color = palette.textSecondary, fontSize = 13.sp)
-                error?.let { Text(it, color = palette.danger, fontSize = 14.sp) }
-                if (chats.isEmpty()) {
-                    Text(stringResource(R.string.contacts_share_no_chats), color = palette.textSecondary, fontSize = 14.sp)
-                } else {
-                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                        items(chats, key = { it.id }) { chat ->
-                            Row(
-                                Modifier.fillMaxWidth()
-                                    .combinedClickable(enabled = !sending, onClick = {
-                                        if (!sending) scope.launch {
-                                            sending = true
-                                            error = null
-                                            sendContact(chat.id, contact.userId)
-                                                .onSuccess { onSent(); onDismiss() }
-                                                .onFailure { error = it.userMessage(context, R.string.contacts_share_failed) }
-                                            sending = false
-                                        }
-                                    })
-                                    .padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ChatAvatar(chat, 40.dp, observeFile, downloadFile)
-                                Spacer(Modifier.width(12.dp))
-                                Text(chat.title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            }
-                        }
+    ForwardChatDialog(
+        chats = chats,
+        busy = sending,
+        error = error,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        allowComment = false,
+        retryBlocked = retryBlocked,
+        loadTopics = loadTopics.takeIf { sendContactToTopic != null },
+        recipientRepository = recipientRepository,
+        titleOverride = stringResource(R.string.contacts_share_title),
+        previewText = displayName,
+        onSend = { targets, _ ->
+            sending = true
+            error = null
+            val failed = mutableListOf<ForwardTarget>()
+            try {
+                for (target in targets) {
+                    val key = "${target.chatId}:${target.topicId}"
+                    if (key in completed) continue
+                    val result = if (target.topicId == 0L) sendContact(target.chatId, contact.userId)
+                        else sendContactToTopic?.invoke(target.chatId, contact.userId, target.topicId)
+                            ?: Result.failure(IllegalStateException())
+                    if (result.isSuccess) completed.add(key)
+                    else {
+                        failed += target
+                        if (com.beykus.beygram.share.isShareOutcomeUnknown(result.exceptionOrNull())) retryBlocked = true
+                        error = result.exceptionOrNull().userMessage(context, R.string.contacts_share_failed)
                     }
                 }
+                if (failed.isEmpty()) onSent()
+                else error = context.getString(R.string.forward_failed_chats, failed.size) + error?.let { "\n$it" }.orEmpty()
+                failed
+            } finally {
+                sending = false
             }
         },
-        confirmButton = {},
-        dismissButton = { TextButton(enabled = !sending, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        onClose = onDismiss
     )
 }

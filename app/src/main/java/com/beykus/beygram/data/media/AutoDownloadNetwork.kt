@@ -34,10 +34,10 @@ internal fun classifyAutoDownloadNetwork(
 }
 
 /**
- * Current route for local download decisions. An external VPN hides its transport on many devices, so
- * the code also inspects the other known networks; if no Wi-Fi/cellular transport can be proved, the
- * result is [AutoDownloadNetwork.Other], which follows the conservative mobile policy. The local
- * Mihomo proxy is a SOCKS listener inside the app and does not change this transport.
+ * Current route for local download decisions. Under a VPN the route is the underlying Wi-Fi or cellular network when
+ * Android reports it, otherwise the VPN's own transport flags. If no Wi-Fi/cellular transport can be proved, the result
+ * is [AutoDownloadNetwork.Other], which follows the conservative mobile policy. The local Mihomo proxy is a SOCKS
+ * listener inside the app and does not change this transport.
  */
 internal fun currentAutoDownloadNetwork(context: Context): AutoDownloadNetwork {
     val manager = context.getSystemService(ConnectivityManager::class.java) ?: return AutoDownloadNetwork.None
@@ -54,12 +54,14 @@ internal fun currentAutoDownloadNetwork(context: Context): AutoDownloadNetwork {
                     (it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || it.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR))
             }
     } else emptyList()
-    val transport = if (!vpn) activeCaps else underlying.firstOrNull()
-    val wifi = transport?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
-    val mobile = transport?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-    val wifiMetered = wifi && transport?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
+    // When the VPN's underlying networks cannot be read (older Android, hidden API), the VPN's own capabilities still
+    // report the route it runs over on most devices, including its metered and roaming flags.
+    val transport: NetworkCapabilities = if (!vpn) activeCaps else (underlying.firstOrNull() ?: activeCaps)
+    val wifi = transport.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+    val mobile = transport.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+    val wifiMetered = wifi && !transport.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     @Suppress("DEPRECATION")
-    val roaming = mobile && transport?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING) == false
+    val roaming = mobile && !transport.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING)
     return classifyAutoDownloadNetwork(
         hasInternet = activeCaps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
         wifi = wifi,
@@ -157,6 +159,13 @@ object AutoDownloadRuntime {
         network = currentAutoDownloadNetwork(context.applicationContext),
         request = request
     )
+
+    /**
+     * A streamed provider row is part of playback, so the row that plays next is fetched on any route. Only a missing
+     * network stops it; the size, category and data-saver rules apply to the rows after it.
+     */
+    fun streamingPrefetchAllowed(context: Context): Boolean =
+        currentAutoDownloadNetwork(context.applicationContext) != AutoDownloadNetwork.None
 
     /** Returns true when [download] was invoked. A denied request leaves the existing manual button untouched. */
     fun request(context: Context, request: AutoDownloadRequest, download: (Int) -> Unit, accountId: String = "legacy"): Boolean {

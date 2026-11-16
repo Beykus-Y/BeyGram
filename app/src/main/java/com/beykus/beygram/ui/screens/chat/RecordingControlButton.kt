@@ -83,7 +83,7 @@ internal fun RecordingControlButton(
 
     // Semantics OnClick is used by TalkBack/Switch Access; it is deliberately
     // separate from raw tap/long-press so physical Telegram-style gestures stay intact.
-    Box(Modifier.size(48.dp).semantics(mergeDescendants = true) {
+    Box(Modifier.size(ComposerButtonSize).semantics(mergeDescendants = true) {
             role = Role.Button
             contentDescription = if (active) lockLabel else startLabel
             if (!enabled) disabled()
@@ -159,7 +159,7 @@ internal fun RecordingControlButton(
                 }
             }
         }, contentAlignment = Alignment.Center) {
-        Box(Modifier.size(48.dp).graphicsLayer { translationX = dragX.floatValue; translationY = dragY.floatValue }
+        Box(Modifier.size(ComposerButtonSize).graphicsLayer { translationX = dragX.floatValue; translationY = dragY.floatValue }
             .clip(CircleShape).background(
                 when {
                     active || canceling -> palette.danger
@@ -170,10 +170,10 @@ internal fun RecordingControlButton(
             Icon(if (mode == ComposerRecordingMode.Voice) Icons.Rounded.Mic else Icons.Rounded.Videocam,
                 contentDescription = null,
                 tint = when {
-                    active || canceling -> Color.White
+                    active || canceling -> palette.onAccent
                     tonal -> palette.accentInk
                     else -> palette.textSecondary
-                }, modifier = Modifier.size(23.dp))
+                }, modifier = Modifier.size(ComposerIconSize))
         }
     }
 }

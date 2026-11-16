@@ -1,6 +1,9 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
+import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,7 +37,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -51,14 +53,13 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
+import androidx.compose.foundation.horizontalScroll
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
@@ -116,6 +117,8 @@ import com.beykus.beygram.domain.model.ViewOncePolicy
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassSheet
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberAutoplayEligible
 import com.beykus.beygram.ui.motion.rememberMotionSpec
@@ -1142,6 +1145,8 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
     val focus = LocalFocusManager.current
     val available = enabled && !state.sending && !state.importing && !state.locating
     // The sticker/GIF entry is drawn next to this button by the chat screen, not here.
+    // The same 48 dp round surface as the record control beside the field, so the attach button is not a bare glyph.
+    val tonal = LocalDesignSystem.current.composerTonal
     IconButton(
         onClick = {
             // The action grid replaces the keyboard, not the other way round.
@@ -1150,7 +1155,9 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
             state.toggleMenu()
         },
         enabled = available,
-        modifier = Modifier.size(48.dp).semantics { contentDescription = context.getString(R.string.composer_attach_description) }
+        modifier = Modifier.size(48.dp).clip(CircleShape)
+            .background(if (tonal) palette.accentSoft else palette.surface2)
+            .semantics { contentDescription = context.getString(R.string.composer_attach_description) }
     ) {
         Icon(
             Icons.Rounded.AttachFile,
@@ -1233,15 +1240,14 @@ internal fun AttachmentPanel(
             shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = exitSpec.animationSpec()) +
                 fadeOut(animationSpec = exitSpec.animationSpec())
     ) {
-    Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    Column(Modifier.fillMaxWidth().glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)) {
         when {
             state.menuOpen || (!visible && exitMenuOpen) -> AttachmentMenu(
                 allowsPolls = state.allowsPolls,
                 allowsMusic = state.allowsMusic,
                 enabled = state.menuOpen && !state.sending && !state.importing && !state.locating,
                 chatObjectsEnabled = state.pending.isEmpty(),
-                onAction = { if (state.menuOpen) state.performAction(it) },
-                onClose = { if (state.menuOpen) state.closeMenu() }
+                onAction = { if (state.menuOpen) state.performAction(it) }
             )
             state.active -> PreparedAttachmentsPanel(
                 state = state,
@@ -1306,21 +1312,20 @@ internal fun AttachmentPanel(
     }
     }
     if (discardConfirm) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { discardConfirm = false },
-            title = { Text(stringResource(R.string.composer_attachments_clear_title)) },
-            text = { Text(stringResource(R.string.composer_attachments_clear_message)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    discardConfirm = false
-                    state.discardAll()
-                    focus.clearFocus()
-                    keyboard?.hide()
-                }) { Text(stringResource(R.string.composer_attachments_clear_confirm), color = palette.danger) }
+            title = stringResource(R.string.composer_attachments_clear_title),
+            message = stringResource(R.string.composer_attachments_clear_message),
+            confirmText = stringResource(R.string.composer_attachments_clear_confirm),
+            onConfirm = {
+                discardConfirm = false
+                state.discardAll()
+                focus.clearFocus()
+                keyboard?.hide()
             },
-            dismissButton = {
-                TextButton(onClick = { discardConfirm = false }) { Text(stringResource(R.string.composer_attachments_clear_keep)) }
-            }
+            destructive = true,
+            dismissText = stringResource(R.string.composer_attachments_clear_keep),
+            onDismiss = { discardConfirm = false }
         )
     }
 }
@@ -1339,8 +1344,14 @@ private fun PreparedAttachmentsPanel(
     val palette = beyGramPalette()
     val enabled = !closing && !state.sending && !state.importing
     val itemCount = displayPending.size + if (state.extra != null && !closing) 1 else 0
+    // Визуальный каркас: шапка предпросмотра — отдельная поверхность с токеном палитры, без изменения логики очереди и качества.
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 14.dp, end = 6.dp),
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clip(styledShape(16.dp))
+            .background(palette.surface2)
+            .heightIn(min = 48.dp)
+            .padding(start = 14.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -1354,6 +1365,9 @@ private fun PreparedAttachmentsPanel(
             Icon(Icons.Rounded.Close, stringResource(R.string.composer_attachments_clear_action), tint = palette.textSecondary)
         }
     }
+    // Один общий выбор качества для всех видео и аудио в наборе. Каждый файл всё равно хранит своё состояние.
+    val qualityItems = displayPending.filter { it.qualityKind() != null }
+    if (enabled && qualityItems.size >= 2) QualityForAllRow(state, qualityItems)
     if (isCompactAttachmentSet(displayPending, if (closing) null else state.extra)) {
         // Mixed batches now share the fixed-height rail. Polls, contacts and other
         // MessageExtraDraft actions keep their dedicated semantic cards.
@@ -1402,6 +1416,31 @@ private fun PreparedAttachmentsPanel(
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.composer_view_once), color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(stringResource(R.string.composer_view_once_hint), color = palette.textSecondary, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+/** Общий режим набора, если все файлы выбрали один и тот же; при смешанных значениях или пустом списке — null. */
+internal fun commonQualityMode(modes: List<MediaQualityMode?>): MediaQualityMode? = modes.distinct().singleOrNull()
+
+@Composable
+private fun QualityForAllRow(state: AttachmentState, items: List<OutgoingMedia>) {
+    val palette = beyGramPalette()
+    // Отмечено, только если у всех файлов набора одинаковый режим; иначе ни один чип не выбран.
+    val common = commonQualityMode(items.map { state.preparations[it.path]?.mode })
+    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
+        Text(stringResource(R.string.composer_quality_all_title), color = palette.textSecondary, fontSize = 12.sp)
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MediaQualityMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = common == mode,
+                    onClick = { items.forEach { state.selectQuality(it, mode) } },
+                    label = { Text(stringResource(mode.labelRes()), fontSize = 13.sp) }
+                )
             }
         }
     }
@@ -1570,6 +1609,11 @@ private fun CompactVisualAttachmentTray(
                             }
                         }
                     )
+                    // Видимое удаление одним нажатием поверх тайла; long-press меню остаётся как прежде.
+                    Box(Modifier.align(Alignment.TopEnd)) {
+                        AttachmentRemoveButton(fileName = item.fileName.ifBlank { item.kind.label(context) }, enabled = enabled,
+                            onClick = { state.remove(item) })
+                    }
                     if (item.kind == MediaKind.Video && !documentTile) {
                         Row(
                             modifier = Modifier.align(Alignment.BottomStart)
@@ -1596,17 +1640,18 @@ private fun CompactVisualAttachmentTray(
                             color = Color.White, strokeWidth = 2.dp
                         )
                     }
-                    DropdownMenu(
+                    BeyGramPopover(
                         expanded = enabled && menuItemKey == itemKey,
-                        onDismissRequest = { menuItemKey = null }
+                        onDismissRequest = { menuItemKey = null },
+                        alignEnd = false
                     ) {
-                        DropdownMenuItem(
-                            text = { Text(moveLeft) },
+                        BeyGramPopoverItem(
+                            text = moveLeft,
                             enabled = index > 0,
                             onClick = { menuItemKey = null; state.movePending(item, -1) }
                         )
-                        DropdownMenuItem(
-                            text = { Text(moveRight) },
+                        BeyGramPopoverItem(
+                            text = moveRight,
                             enabled = index < state.pending.lastIndex,
                             onClick = { menuItemKey = null; state.movePending(item, 1) }
                         )

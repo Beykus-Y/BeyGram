@@ -6,6 +6,8 @@ import com.beykus.beygram.diagnostics.report.EventKind
 import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.share.ShareMediaHandoff
+import com.beykus.beygram.share.ShareOutcomeUncertainException
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.*
 import kotlinx.coroutines.*
@@ -17,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal class TdConversationActions(
     client: () -> Client, private val history: MessageHistoryStore,
     private val map: (TdApi.Message) -> ChatMessage,
+    private val mapLastMessage: (TdApi.Message) -> ForumTopicLastMessage? = { null },
     private val onTopicDraft: (Long, Int, TdApi.DraftMessage?) -> Unit = { _, _, _ -> },
     stealthDelaySeconds: () -> Int? = { null }
 ) {
@@ -204,10 +207,17 @@ internal class TdConversationActions(
     }
 
     /**
-     * Темы группы с темами, в которые можно писать; null для всего остального. TDLib отдаёт до 100 тем за запрос, поэтому идём по страницам.
+     * Темы группы с темами, в которые можно писать; null для всего остального. [query] ищет темы по названию на сервере:
+     * в этой версии TDLib это единственный серверный поиск тем. TDLib отдаёт до 100 тем за запрос, поэтому идём по страницам
+     * и отдаём каждую готовую страницу через [onPage]; [ForumTopicsPage.isComplete] у последней страницы значит, что сервер
+     * действительно кончил список, а не что мы упёрлись в предел страниц.
      * Закрытые темы видны, если их создал этот аккаунт или он управляет темами: в закрытую тему пишут создатель и администраторы с этим правом.
      */
-    suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit = {}): Result<List<ForumTopic>?> = conversationResult<List<ForumTopic>?> {
+    suspend fun forumTopicsPage(
+        chatId: Long,
+        query: String = "",
+        onPage: (ForumTopicsPage) -> Unit = {}
+    ): Result<ForumTopicsPage?> = conversationResult<ForumTopicsPage?> {
         val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup ?: return@conversationResult null
         val supergroup = request(TdApi.GetSupergroup(type.supergroupId))
         if (!supergroup.isForum) return@conversationResult null
@@ -217,61 +227,83 @@ internal class TdConversationActions(
             else -> false
         }
         val topics = mutableListOf<ForumTopic>()
+        var totalCount = 0
         var offsetDate = 0
         var offsetMessageId = 0L
         var offsetTopicId = 0
         var pages = 0
+        var hasMorePages = true
+        var cursorRepeated = false
+        // The first cursor is always unique, so the loop overwrites this before it can be returned.
+        var finalPage = ForumTopicsPage(topics = emptyList(), totalCount = 0, isComplete = false)
         val visitedCursors = mutableSetOf<Triple<Int, Long, Int>>()
         while (true) {
-            if (!visitedCursors.add(Triple(offsetDate, offsetMessageId, offsetTopicId))) break
-            val page = request(TdApi.GetForumTopics(chatId, "", offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
+            if (!visitedCursors.add(Triple(offsetDate, offsetMessageId, offsetTopicId))) {
+                // The server pointed back at a page we already have; asking again would loop forever.
+                cursorRepeated = true
+                break
+            }
+            val page = request(TdApi.GetForumTopics(chatId, query.trim(), offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
+            // TDLib's total is approximate and can be zero on a later page; the newest non-zero answer is the best one.
+            if (page.totalCount > 0) totalCount = page.totalCount
             page.topics.filter { !it.info.isHidden }
-                .mapTo(topics) {
-                    onTopicDraft(chatId, it.info.forumTopicId, it.draftMessage)
-                    ForumTopic(
-                        id = it.info.forumTopicId.toLong(),
-                        title = it.info.name,
-                        unreadCount = it.unreadCount,
-                        isPinned = it.isPinned,
-                        isClosed = it.info.isClosed,
-                        canWrite = !it.info.isClosed || it.info.isOutgoing || manageTopics,
-                        canManage = it.info.isOutgoing || manageTopics,
-                        canPin = manageTopics,
-                        order = it.order,
-                        lastReadInboxMessageId = it.lastReadInboxMessageId,
-                        lastReadOutboxMessageId = it.lastReadOutboxMessageId,
-                        lastMessagePreview = (it.lastMessage?.content as? TdApi.MessageText)?.text?.text.orEmpty()
-                    )
+                .mapTo(topics) { topic ->
+                    onTopicDraft(chatId, topic.info.forumTopicId, topic.draftMessage)
+                    forumTopic(topic, manageTopics)
                 }
             // Present page one without waiting for slow/large forum pagination.
             // Snapshot immutable data before the next suspendable TDLib request.
-            onPage(uniqueForumTopics(topics))
             pages++
-            if (page.topics.isEmpty() || page.nextOffsetForumTopicId == 0 || pages == MAX_FORUM_TOPIC_PAGES) break
+            hasMorePages = page.topics.isNotEmpty() && page.nextOffsetForumTopicId != 0
+            val snapshot = ForumTopicsPage(
+                topics = uniqueForumTopics(topics),
+                totalCount = totalCount,
+                isComplete = forumTopicsPageComplete(hasMorePages, cursorRepeated)
+            )
+            onPage(snapshot)
+            finalPage = snapshot
+            if (!hasMorePages || pages >= MAX_FORUM_TOPIC_PAGES) break
             offsetDate = page.nextOffsetDate
             offsetMessageId = page.nextOffsetMessageId
             offsetTopicId = page.nextOffsetForumTopicId
         }
-        uniqueForumTopics(topics)
+        finalPage
     }
 
-    /**
-     * GetForumTopics can omit lastMessage for long-inactive topics or return non-text content.
-     * Request the newest message only for a visible topic without a usable preview.
-     * This does not alter the full, separately paged topic history.
-     */
-    suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> =
-        conversationResult<String?> {
-            if (forumTopicId <= 0L) return@conversationResult null
-            val messages = request(TdApi.GetForumTopicHistory().apply {
-                this.chatId = chatId
-                this.forumTopicId = forumTopicId.toInt()
-                fromMessageId = 0L
-                offset = 0
-                limit = 1
-            })
-            messages.messages.orEmpty().filterNotNull().firstOrNull()?.let { forumTopicMessagePreview(map(it)) }
-        }
+    /** One topic of a page, including notification, unread and last-message details the list can render directly. */
+    private fun forumTopic(topic: TdApi.ForumTopic, manageTopics: Boolean): ForumTopic {
+        val info = topic.info
+        // GetForumTopics can omit lastMessage for long-inactive topics. The dedicated projection avoids building a
+        // full ChatMessage (media registration, reactions, keyboard, service-user hydration) for every topic row.
+        val lastMessage = topic.lastMessage?.let(mapLastMessage)
+        return ForumTopic(
+            id = info.forumTopicId.toLong(),
+            title = info.name,
+            unreadCount = topic.unreadCount,
+            isPinned = topic.isPinned,
+            isClosed = info.isClosed,
+            canWrite = !info.isClosed || info.isOutgoing || manageTopics,
+            canManage = info.isOutgoing || manageTopics,
+            canPin = manageTopics,
+            order = topic.order,
+            lastMessagePreview = lastMessage?.plainPreview.orEmpty(),
+            lastReadInboxMessageId = topic.lastReadInboxMessageId,
+            lastReadOutboxMessageId = topic.lastReadOutboxMessageId,
+            icon = info.icon?.let { ForumTopicIcon(colorArgb = it.color, customEmojiId = it.customEmojiId) },
+            isGeneral = info.isGeneral,
+            isOutgoing = info.isOutgoing,
+            isNameImplicit = info.isNameImplicit,
+            creationDate = info.creationDate,
+            unreadMentionCount = topic.unreadMentionCount,
+            unreadReactionCount = topic.unreadReactionCount,
+            unreadPollVoteCount = topic.unreadPollVoteCount,
+            useDefaultMuteFor = topic.notificationSettings?.useDefaultMuteFor ?: true,
+            muteFor = topic.notificationSettings?.muteFor ?: 0,
+            hasDraft = hasDraftContent(topic.draftMessage),
+            draftPreview = forumTopicDraftPreview(topic.draftMessage),
+            lastMessage = lastMessage
+        )
+    }
 
     /** All mutations go through TDLib; the server is the final authority for permissions. */
     suspend fun canCreateTopic(chatId: Long): Result<Boolean> = conversationResult {
@@ -325,8 +357,47 @@ internal class TdConversationActions(
         if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_media_only))
         val bounded = boundTelegramText(text, entities, limits.value.text)
         if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
-        send(chatId, replyId, forumTopicId, options) { TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft } }
+        send(chatId, replyId, forumTopicId, options) { TdApi.InputMessageText().apply { this.text = formattedText(bounded.text, bounded.entities); this.clearDraft = clearDraft
+            if (options.disableLinkPreview) linkPreviewOptions = TdApi.LinkPreviewOptions().apply { isDisabled = true } } }
     }.onFailure { recordSendFailure("text", it) }
+
+    suspend fun paidTextPrice(chatId: Long): Result<Long> = conversationResult {
+        when (val type = request(TdApi.GetChat(chatId)).type) {
+            is TdApi.ChatTypePrivate -> {
+                if (request(TdApi.GetUser(type.userId)).paidMessageStarCount <= 0L) 0L
+                else request(TdApi.GetUserFullInfo(type.userId)).outgoingPaidMessageStarCount
+            }
+            is TdApi.ChatTypeSupergroup -> {
+                val group = request(TdApi.GetSupergroup(type.supergroupId))
+                // The advertised group fee applies to non-admins; use the current user's actual fee.
+                // Channel direct-message groups have a separate per-topic pricing model.
+                if (group.isChannel || group.isDirectMessagesGroup || group.paidMessageStarCount <= 0L) 0L
+                else request(TdApi.GetSupergroupFullInfo(type.supergroupId)).outgoingPaidMessageStarCount
+            }
+            else -> 0L
+        }
+    }
+
+    suspend fun sendPaidText(
+        chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity>,
+        confirmedStarCount: Long, disableNotification: Boolean,
+        forumTopicId: Long = 0L, disableLinkPreview: Boolean = false
+    ): Result<Unit> = conversationResult {
+        require(confirmedStarCount > 0L)
+        val bounded = boundTelegramText(text, entities, limits.value.text)
+        if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
+        send(
+            chatId, replyId, forumTopicId,
+            options = MessageSendOptions(disableNotification = disableNotification, disableLinkPreview = disableLinkPreview),
+            confirmedPaidStars = confirmedStarCount
+        ) {
+            TdApi.InputMessageText().apply {
+                this.text = formattedText(bounded.text, bounded.entities)
+                clearDraft = false
+                if (disableLinkPreview) linkPreviewOptions = TdApi.LinkPreviewOptions().apply { isDisabled = true }
+            }
+        }
+    }
 
     /** A poll carries its own question and options; no caption is involved, so only the send options are checked. */
     suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = pollResult<Unit> {
@@ -427,16 +498,20 @@ internal class TdConversationActions(
         requireFutureSchedule(options)
         send(chatId, replyId, forumTopicId, options) { contactMessageContent(contact) }
     }.onFailure { recordSendFailure("contact", it) }
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
-        requireFutureSchedule(options)
-        requireViewOnceSupported(media, options)
-        android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
-        val bounded = boundTelegramText(caption, entities, limits.value.caption)
-        send(chatId, replyId, forumTopicId, options, media = listOf(media)) { uploaded ->
-            uploaded.single().toInputContent(bounded.text, bounded.entities, selfDestructType(options))
-        }
-        android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
-    }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> {
+        val handoff = ShareMediaHandoff()
+        val result = conversationResult<Unit> {
+            requireFutureSchedule(options)
+            requireViewOnceSupported(media, options)
+            android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
+            val bounded = boundTelegramText(caption, entities, limits.value.caption)
+            send(chatId, replyId, forumTopicId, options, media = listOf(media), onMediaHandoff = handoff::markHandedOff) { uploaded ->
+                uploaded.single().toInputContent(bounded.text, bounded.entities, selfDestructType(options))
+            }
+            android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
+        }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
+        return if (options.shareDelivery) handoff.classify(result) else result
+    }
 
     /** A sticker keeps its native content type; TDLib sends it by file id without downloading the picker preview. */
     suspend fun sendSticker(chatId: Long, sticker: OutgoingMedia, replyId: Long?, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
@@ -445,31 +520,41 @@ internal class TdConversationActions(
         send(chatId, replyId, forumTopicId, options) { sticker.toInputContent("") }
     }.onSuccess { recordMediaAccepted("sticker") }.onFailure { recordSendFailure("sticker", it) }
 
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
-        require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
-        requireFutureSchedule(options)
-        if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_single_media))
-        val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
-        val replyTarget = replyId?.let {
-            if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
-            request(TdApi.GetMessage(chatId, it))
-        }
-        val resolved = stealth.resolve(chatId, options, media)
-        val protocolOptions = sendOptions(resolved.options)
-        val messages = stealth.scheduledRequest(resolved) { request(TdApi.SendMessageAlbum().apply {
-            this.chatId = chatId
-            this.options = protocolOptions
-            inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
-            if (replyTarget != null) {
-                topicId = replyTarget.topicId
-                replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
-            } else if (forumTopicId > 0L) {
-                topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> {
+        val handoff = ShareMediaHandoff()
+        val result = conversationResult<Unit> {
+            require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
+            requireFutureSchedule(options)
+            if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_single_media))
+            val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
+            val replyTarget = replyId?.let {
+                if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+                request(TdApi.GetMessage(chatId, it))
             }
-        }) }
-        // A scheduled album belongs to TDLib's schedule queue, not to the visible chat history.
-        messages.messages.orEmpty().filterNotNull().filter { it.schedulingState == null }.forEach { message -> history.put(map(message)); hydrateReply(message) }
-    }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
+            val resolved = stealth.resolve(chatId, options, media, onMediaHandoff = handoff::markHandedOff)
+            val protocolOptions = sendOptions(resolved.options)
+            val messages = stealth.scheduledRequest(resolved) { handoff.markHandedOff(); request(TdApi.SendMessageAlbum().apply {
+                this.chatId = chatId
+                this.options = protocolOptions
+                inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
+                if (replyTarget != null) {
+                    topicId = replyTarget.topicId
+                    replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+                } else if (forumTopicId > 0L) {
+                    topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
+                }
+            }) }
+            // A scheduled album belongs to TDLib's schedule queue, not to the visible chat history.
+            val returned = messages.messages.orEmpty()
+            try {
+                returned.filterNotNull().filter { it.schedulingState == null }.forEach { message -> history.put(map(message)); hydrateReply(message) }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { throw ShareOutcomeUncertainException(failure) }
+            if (options.shareDelivery && (returned.size != media.size || returned.any { it == null }))
+                throw com.beykus.beygram.share.ShareOutcomeUncertainException()
+        }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
+        return if (options.shareDelivery) handoff.classify(result) else result
+    }
 
     suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L): Result<PinnedMessagePage> = conversationResult {
         val page = request(pinnedMessagesRequest(chatId, fromMessageId, forumTopicId))
@@ -489,17 +574,39 @@ internal class TdConversationActions(
     private suspend fun send(
         chatId: Long, replyId: Long?, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(),
         media: List<OutgoingMedia> = emptyList(), liveLocation: Boolean = false,
+        confirmedPaidStars: Long = 0L,
+        onMediaHandoff: () -> Unit = {},
         content: (List<OutgoingMedia>) -> TdApi.InputMessageContent
     ) {
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
             request(TdApi.GetMessage(chatId, it))
         }
+        // Never persist a payment authorization or turn it into a scheduled send.
+        if (confirmedPaidStars > 0L) {
+            if (forumTopicId !in 0L..Int.MAX_VALUE.toLong() ||
+                (replyTarget != null && !com.beykus.beygram.domain.model.paidTextReplyTopicMatches(
+                    forumTopicId, (replyTarget.topicId as? TdApi.MessageTopicForum)?.forumTopicId?.toLong(),
+                    replyTarget.topicId != null
+                ))) {
+                throw UserMessageException(UiText.Res(R.string.paid_text_draft_changed))
+            }
+            if (stealth.active() || options.scheduledAtSeconds != null) {
+                throw UserMessageException(UiText.Res(R.string.stealth_schedule_unavailable_paid))
+            }
+            val currentPrice = paidTextPrice(chatId).getOrThrow()
+            if (!paidTextPriceMatches(confirmedPaidStars, currentPrice)) {
+                throw UserMessageException(UiText.Res(R.string.paid_text_price_changed))
+            }
+        }
         // Resolved last, so the scheduled date is taken as close to the request as possible.
-        val resolved = stealth.resolve(chatId, options, media, liveLocation)
-        val protocolOptions = sendOptions(resolved.options)
+        val resolved = stealth.resolve(chatId, options, media, liveLocation, onMediaHandoff)
+        if (confirmedPaidStars > 0L && resolved.options.scheduledAtSeconds != null) {
+            throw UserMessageException(UiText.Res(R.string.stealth_schedule_unavailable_paid))
+        }
+        val protocolOptions = sendOptions(resolved.options).apply { paidMessageStarCount = confirmedPaidStars }
         val inputContent = content(resolved.media)
-        val message = stealth.scheduledRequest(resolved) { request(TdApi.SendMessage().apply {
+        val message = stealth.scheduledRequest(resolved) { onMediaHandoff(); request(TdApi.SendMessage().apply {
             this.chatId = chatId; inputMessageContent = inputContent; this.options = protocolOptions
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
@@ -509,7 +616,10 @@ internal class TdConversationActions(
             }
         }) }
         // TDLib keeps scheduled messages in a separate server-side queue.
-        if (message.schedulingState == null) { history.put(map(message)); hydrateReply(message) }
+        try {
+            if (message.schedulingState == null) { history.put(map(message)); hydrateReply(message) }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) { throw ShareOutcomeUncertainException(failure) }
     }
 
     /** All scheduled messages in the chat, newest first, straight from TDLib (the only scheduled-message store). */
@@ -659,7 +769,7 @@ internal class TdConversationActions(
         requireFutureSchedule(options)
         val resolved = stealth.resolve(toChatId, options)
         val forwarded = stealth.scheduledRequest(resolved) {
-            request(forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved.options)))
+            request(forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved.options), options.removeForwardCaption))
         }
         val returned = forwarded.messages.orEmpty()
         val forwardedIds = ids.filterIndexed { index, _ -> returned.getOrNull(index) != null }
@@ -746,6 +856,15 @@ internal class TdConversationActions(
     }
 
     /**
+     * The newest messages for the long-press preview. Only GetChatHistory is sent: no OpenChat and no ViewMessages,
+     * so the chat keeps its unread count. Forum chats or other refusals become an error that the card shows as empty.
+     */
+    suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>> = conversationResult {
+        if (chatId == 0L) throw UserMessageException(UiText.Res(R.string.err_message_original_unavailable))
+        request(peekHistoryRequest(chatId, PEEK_MESSAGE_LIMIT)).messages.orEmpty().filterNotNull().sortedBy { it.id }.map(map)
+    }
+
+    /**
      * Messages around [messageId], newest last. TDLib may return fewer messages, so the target is fetched separately.
      * A read watermark can outlive its message: if the target was deleted, the surrounding page is still usable and is
      * returned instead of failing the whole unread-boundary jump.
@@ -759,6 +878,16 @@ internal class TdConversationActions(
             if (error.code == 404) null else throw error
         }
         (page + listOfNotNull(target)).distinctBy { it.id }.sortedBy { it.id }
+    }
+
+    /** Only the message itself: TDLib answers from its local database when it has the message, without a history page. */
+    suspend fun single(chatId: Long, messageId: Long): Result<ChatMessage?> = conversationResult {
+        val target = if (chatId == 0L || messageId <= 0) null else try {
+            request(TdApi.GetMessage(chatId, messageId))
+        } catch (error: TdRequestError) {
+            if (error.code == 404) null else throw error
+        }
+        target?.let(map)
     }
 
     suspend fun context(chatId: Long, messageId: Long): Result<MessageContext> = conversationResult {
@@ -839,6 +968,11 @@ internal class TdConversationActions(
 
 private const val TAG = "BeyGramNet"
 private const val FORUM_TOPIC_PAGE_SIZE = 100
+internal const val PEEK_MESSAGE_LIMIT = 15
+
+/** History request for the preview card: the newest page, read-neutral. Kept apart so a test can pin what it sends. */
+internal fun peekHistoryRequest(chatId: Long, limit: Int): TdApi.GetChatHistory =
+    TdApi.GetChatHistory(chatId, 0L, 0, limit.coerceIn(1, PEEK_MESSAGE_LIMIT), false)
 private const val MAX_FORUM_TOPIC_PAGES = 20
 /** Telegram's shortest live-location window offered by the composer. */
 private const val LIVE_LOCATION_PERIOD_SECONDS = 15 * 60
@@ -1020,15 +1154,16 @@ internal fun forwardMessagesRequest(
     messageIds: List<Long>,
     asCopy: Boolean,
     messageThreadId: Long? = null,
-    options: TdApi.MessageSendOptions = TdApi.MessageSendOptions()
+    options: TdApi.MessageSendOptions = TdApi.MessageSendOptions(),
+    removeCaption: Boolean = false
 ) = TdApi.ForwardMessages(
     toChatId,
     messageThreadId?.takeIf { it > 0L }?.let { TdApi.MessageTopicForum(it.toInt()) },
     fromChatId,
     messageIds.toLongArray(),
     options,
-    asCopy,
-    false
+    asCopy || removeCaption,
+    removeCaption
 )
 
 /** Single-message overload kept for shared-media forwarding and focused protocol tests. */
@@ -1114,12 +1249,50 @@ internal fun redactedTdlibMessage(message: String?): String? {
         .ifBlank { null }
 }
 
+/**
+ * The listing is complete only when the server has no next page and did not send us back to a page we have.
+ * Hitting the page cap keeps `hasMorePages` true, so it never masquerades as a complete list. A terminal empty
+ * page at the cap is still complete: it proves there is nothing after the last non-empty page.
+ */
+internal fun forumTopicsPageComplete(hasMorePages: Boolean, cursorRepeated: Boolean): Boolean =
+    !hasMorePages && !cursorRepeated
+
 /** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */
 internal fun uniqueForumTopics(topics: List<ForumTopic>): List<ForumTopic> =
     topics.distinctBy(ForumTopic::id).sortedByDescending(ForumTopic::order)
 
-/** A blank string means a message exists but has no textual snippet (for example a photo). */
-internal fun forumTopicMessagePreview(message: ChatMessage): String =
-    message.text.trim().ifBlank {
-        message.media?.fileName?.trim().orEmpty().ifBlank { message.serviceText?.trim().orEmpty() }
-    }
+/** A resolved topic-row preview plus the plain string legacy topic pickers keep using. */
+internal data class ForumTopicPreviewProjection(val preview: UiText, val plain: String)
+
+/**
+ * The topic-list preview keeps the chat-list rule of showing the actual text first and a file name for an attachment
+ * without a caption; when neither exists, it falls back to the same media/service labels the chat list uses.
+ */
+internal fun forumTopicLastMessagePreview(
+    text: String,
+    fileName: String,
+    serviceText: String?,
+    fallback: UiText
+): ForumTopicPreviewProjection {
+    val plain = serviceText?.trim().orEmpty()
+        .ifEmpty { text.trim().ifEmpty { fileName.trim() } }
+    return ForumTopicPreviewProjection(
+        preview = plain.takeIf { it.isNotEmpty() }?.let(UiText::Raw) ?: fallback,
+        plain = plain
+    )
+}
+
+/**
+ * A reply without text is a real draft in this app, so it must keep the topic's Draft marker. Other draft content
+ * types are not represented by the composer here and are ignored; a blank text draft is not a draft either.
+ */
+internal fun hasDraftContent(draft: TdApi.DraftMessage?): Boolean {
+    if (draft == null) return false
+    if (draft.replyTo != null) return true
+    val content = draft.content as? TdApi.DraftMessageContentText ?: return false
+    return !content.text?.text.isNullOrBlank()
+}
+
+/** The short text of a topic draft, or an empty string for a reply-only draft. */
+internal fun forumTopicDraftPreview(draft: TdApi.DraftMessage?): String =
+    ((draft?.content as? TdApi.DraftMessageContentText)?.text?.text ?: "").trim().take(180)

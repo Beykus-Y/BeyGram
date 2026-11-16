@@ -106,6 +106,9 @@ data class PlaybackItem(
     /** Neither secret attachments, secret-chat media nor view-once content may reach queues or system metadata. */
     val systemPrivate: Boolean get() = secret || isSecretChat || viewOnce
 
+    /** External catalog files are never forwarded, exported or put on a profile; only a track link is shared. */
+    val isRestrictedCatalog: Boolean get() = LazyTrackRegistry.sourceFor(key)?.restricted == true
+
     /** System-visible id for private content must not expose the Telegram file id or message origin. */
     val systemMediaId: String
         get() = if (systemPrivate) "beygram-secret-${Integer.toHexString(key.hashCode())}" else key
@@ -131,6 +134,15 @@ data class PlaybackState(
     val durationMs: Long = 0L,
     val speed: Float = 1f,
     val failed: Boolean = false,
+    /** The queue lost the network and continues from the same position as soon as it returns. */
+    val waitingForNetwork: Boolean = false,
+    /** The queue plays through BG Mix, which has no shuffle, repeat or speed; those buttons hand the queue to the regular player. */
+    val bgMixActive: Boolean = false,
+    /**
+     * BG Mix is on and takes this queue over as soon as the playing track is ready for it: its file finished downloading
+     * and BG Mix prepared it. Until then the regular player plays, so the track starts at once.
+     */
+    val bgMixPreparing: Boolean = false,
     /** Плеер хотя бы раз сообщил, что файл реально играет. Отметка «прослушано» ставится по этому флагу, а не по нажатию. */
     val started: Boolean = false,
     /** Файл доиграл до конца. Кружок в ленте сворачивается, а новый запуск начинает файл сначала. */
@@ -265,9 +277,24 @@ internal fun queueForPlayback(items: List<PlaybackItem>, index: Int): PlaybackQu
 }
 
 /** Sleep is based on elapsed real time (not wall clock), so changing the phone clock cannot extend playback. */
-val SLEEP_TIMER_MINUTES: Set<Int> = setOf(15, 30, 60)
+val SLEEP_TIMER_MINUTES: Set<Int> = setOf(5, 15, 30, 45, 60, 90)
 
-data class SleepTimerState(val accountId: String, val deadlineElapsedMs: Long)
+/** A custom sleep time may be anything from one minute to twelve hours. */
+const val SLEEP_TIMER_MAX_MINUTES: Int = 720
+
+/** Volume fades out over this long before the timer pauses the music. */
+const val SLEEP_FADE_MS: Long = 8_000L
+
+/**
+ * [untilTrackEnd] ends the timer with the track [trackKey] instead of at [deadlineElapsedMs]; the deadline then only
+ * serves as a placeholder and is not shown.
+ */
+data class SleepTimerState(
+    val accountId: String,
+    val deadlineElapsedMs: Long,
+    val untilTrackEnd: Boolean = false,
+    val trackKey: String? = null
+)
 
 fun sleepTimerRemainingMinutes(deadlineElapsedMs: Long, nowElapsedMs: Long): Int =
     ((deadlineElapsedMs - nowElapsedMs).coerceAtLeast(0L) + 59_999L).div(60_000L).toInt()
@@ -493,7 +520,7 @@ internal fun prefetchCandidates(
     val result = ArrayList<PlaybackItem>(max)
     for (queueIndex in following) {
         val item = state.queue[queueIndex]
-        if (item.systemPrivate || item.fileId == null) continue
+        if (item.systemPrivate || (item.fileId == null && !LazyTrackRegistry.isLazyKey(item.key))) continue
         if (item.path.isNotBlank() || item.growing != null) continue
         result += item
         if (result.size == max) break
@@ -528,3 +555,9 @@ internal fun intentAfterPlayWhenReadyChange(
         reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS -> if (playWhenReady) previousIntent else false
         else -> playWhenReady
     }
+
+/** A short event the root screen shows to the user. */
+enum class PlaybackNotice {
+    /** The playing track could not be opened and the queue moved to the next one. */
+    TrackSkipped,
+}

@@ -100,4 +100,57 @@ class PaidReactionStoreTest {
         assertFalse(failed.balanceLoading)
         assertEquals(UiText.Res(R.string.stars_load_error), failed.balanceFailure)
     }
+
+    @Test fun `public is the default for each new confirmation`() {
+        assertFalse(PaidReactionState().isAnonymous)
+        val selected = opened.withPrivacy(owner, true)
+        assertTrue(selected.isAnonymous)
+        assertFalse(selected.released(owner).isAnonymous)
+    }
+
+    @Test fun `submission contains exactly the confirmed target amount and privacy`() {
+        assertEquals(PaidReactionSubmission(target, 10L, false), opened.submissionFor(owner))
+        val selected = opened.withPrivacy(owner, true)
+        assertEquals(PaidReactionSubmission(target, 10L, true), selected.submissionFor(owner))
+        assertEquals(PaidReactionSubmission(target, 10L, false), selected.withPrivacy(owner, false).submissionFor(owner))
+    }
+
+    @Test fun `privacy cannot change during a send or an uncertain outcome or from another owner`() {
+        assertSame(sending, sending.withPrivacy(owner, true))
+        assertSame(uncertain, uncertain.withPrivacy(owner, true))
+        assertSame(opened, opened.withPrivacy(other, true))
+        val loading = opened.copy(balance = null, balanceLoading = true)
+        assertSame(loading, loading.withPrivacy(owner, true))
+    }
+
+    @Test fun `submission refuses a non-owner invalid amount or locked confirmation`() {
+        assertNull(opened.submissionFor(other))
+        assertNull(sending.submissionFor(owner))
+        assertNull(uncertain.submissionFor(owner))
+        assertNull(opened.copy(balance = null).submissionFor(owner))
+        assertNull(opened.copy(starCount = 101L).submissionFor(owner))
+        assertNull(opened.copy(maximum = 1L).submissionFor(owner))
+    }
+
+    @Test fun `anonymous selection survives a refused or uncertain send`() {
+        val anonymous = sending.copy(isAnonymous = true)
+        val refused = anonymous.sendFinished(Result.failure(UserMessageException(UiText.Res(R.string.err_paid_reaction_balance_low))))
+        assertTrue(refused.isAnonymous)
+        val unknown = anonymous.sendFinished(Result.failure(PaidReactionUncertainException(UiText.Res(R.string.err_paid_reaction_uncertain))))
+        assertTrue(unknown.isAnonymous)
+        assertTrue(unknown.uncertain)
+        assertNull(unknown.submissionFor(owner))
+    }
+
+    @Test fun `a late balance cannot change another opening for the same message`() {
+        val oldRequest = Any()
+        val newRequest = Any()
+        val fresh = opened.copy(balance = null, balanceLoading = true, balanceRequest = newRequest)
+        assertSame(fresh, fresh.balanceReadFor(oldRequest, Result.success(StarBalance(starCount = 999))))
+        val updated = fresh.balanceReadFor(newRequest, Result.success(StarBalance(starCount = 20)))
+        assertEquals(StarBalance(starCount = 20), updated.balance)
+        assertNull(updated.balanceRequest)
+        assertSame(updated, updated.balanceReadFor(newRequest, Result.success(StarBalance(starCount = 999))))
+    }
+
 }

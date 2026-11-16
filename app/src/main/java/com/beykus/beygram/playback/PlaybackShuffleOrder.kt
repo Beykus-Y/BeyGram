@@ -11,15 +11,22 @@ import kotlin.random.Random
  */
 @OptIn(UnstableApi::class)
 internal class PlaybackShuffleOrder(private val order: List<Int>) : ShuffleOrder {
+    /** Inverse of [order]: the position of every queue index, so neighbour lookups are O(1) instead of a scan. */
+    private val positionOf: IntArray = IntArray(order.size) { C.INDEX_UNSET }.also { positions ->
+        order.forEachIndexed { position, index -> if (index in positions.indices) positions[index] = position }
+    }
+
     override fun getLength(): Int = order.size
 
+    private fun positionOf(index: Int): Int = if (index in positionOf.indices) positionOf[index] else C.INDEX_UNSET
+
     override fun getNextIndex(index: Int): Int {
-        val position = order.indexOf(index)
+        val position = positionOf(index)
         return if (position >= 0 && position < order.lastIndex) order[position + 1] else C.INDEX_UNSET
     }
 
     override fun getPreviousIndex(index: Int): Int {
-        val position = order.indexOf(index)
+        val position = positionOf(index)
         return if (position > 0) order[position - 1] else C.INDEX_UNSET
     }
 
@@ -51,9 +58,17 @@ internal class PlaybackShuffleOrder(private val order: List<Int>) : ShuffleOrder
     override fun cloneAndClear(): ShuffleOrder = PlaybackShuffleOrder(emptyList())
 
     companion object {
-        /** Fresh randomized order; never sequential for more than one item. */
-        fun random(length: Int, random: Random = Random.Default): PlaybackShuffleOrder {
+        /**
+         * Fresh randomized order. When [currentIndex] names a queue item, that item goes first and the rest follows in
+         * random order, so every other track is still ahead of the playing one. Without it the order is never
+         * sequential for more than one item.
+         */
+        fun random(length: Int, random: Random = Random.Default, currentIndex: Int = C.INDEX_UNSET): PlaybackShuffleOrder {
             if (length <= 1) return PlaybackShuffleOrder((0 until length).toList())
+            if (currentIndex in 0 until length) {
+                val rest = (0 until length).filter { it != currentIndex }.shuffled(random)
+                return PlaybackShuffleOrder(listOf(currentIndex) + rest)
+            }
             val order = (0 until length).toMutableList()
             order.shuffle(random)
             if (order == (0 until length).toList()) {

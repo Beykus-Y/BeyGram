@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.ui.components.WindowLayout
 
 class AdaptiveChatsLayoutTest {
     @Test fun phonesStaySinglePane() {
@@ -46,5 +48,33 @@ class AdaptiveChatsLayoutTest {
             42L,
             chatListHighlightedId(showChat = true, selectedChatId = 42L, chatResolved = true)
         )
+    }
+
+    @Test fun shortWindowNarrowsTheListToHandTheChatMoreWidth() {
+        assertEquals(320f, chatListPaneWidthDp(851f, heightCompact = true), 0.01f)
+        assertEquals(300f, chatListPaneWidthDp(600f, heightCompact = true), 0.01f)
+        assertEquals(380f, chatListPaneWidthDp(1280f, heightCompact = false), 0.01f)
+    }
+
+    @Test fun createChatFloatsOnlyAboveABottomBar() {
+        val phone = WindowLayout(393f, 851f)
+        val fold = WindowLayout(673f, 841f)
+        val landscape = WindowLayout(851f, 393f)
+        val tablet = WindowLayout(1280f, 800f)
+        assertEquals(CreateChatPlacement.Fab, createChatPlacement(phone, false, false))
+        assertEquals(CreateChatPlacement.Fab, createChatPlacement(fold, true, false))
+        assertEquals(CreateChatPlacement.RailTop, createChatPlacement(landscape, true, false))
+        assertEquals(CreateChatPlacement.RailTop, createChatPlacement(tablet, true, false))
+        assertEquals(CreateChatPlacement.Header, createChatPlacement(landscape, true, true))
+        assertEquals(CreateChatPlacement.Header, createChatPlacement(tablet, true, true))
+    }
+
+    @Test fun paneSeparatorFollowsTheStyle() {
+        assertEquals(ChatPaneSeparator.Line, chatPaneSeparator(DesignStyle.Default, false, true))
+        assertEquals(ChatPaneSeparator.Line, chatPaneSeparator(DesignStyle.Signature, false, true))
+        assertEquals(ChatPaneSeparator.Shadow, chatPaneSeparator(DesignStyle.Material2, false, false))
+        assertEquals(ChatPaneSeparator.TonalLine, chatPaneSeparator(DesignStyle.Material3, false, false))
+        assertEquals(ChatPaneSeparator.Cards, chatPaneSeparator(DesignStyle.Material3, false, true))
+        assertEquals(ChatPaneSeparator.RimGradient, chatPaneSeparator(DesignStyle.LiquidGlass, true, true))
     }
 }

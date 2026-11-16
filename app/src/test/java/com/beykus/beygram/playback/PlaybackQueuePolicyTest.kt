@@ -306,7 +306,7 @@ class PlaybackQueuePolicyTest {
         assertEquals(1, sleepTimerRemainingMinutes(900_000L, 899_999L))
         assertEquals(0, sleepTimerRemainingMinutes(900_000L, 900_000L))
         assertEquals(0, sleepTimerRemainingMinutes(900_000L, 1_000_000L))
-        assertEquals(setOf(15, 30, 60), SLEEP_TIMER_MINUTES)
+        assertEquals(setOf(5, 15, 30, 45, 60, 90), SLEEP_TIMER_MINUTES)
     }
 
 }

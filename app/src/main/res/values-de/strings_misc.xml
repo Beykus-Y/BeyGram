@@ -14,6 +14,7 @@
     <string name="composer_type_file">Datei</string>
     <string name="composer_type_gif">GIF</string>
     <string name="composer_type_photo_video">Fotos und Videos</string>
+    <string name="composer_type_gallery">Galerie</string>
     <string name="composer_type_poll">Umfrage</string>
     <string name="composer_type_location">Standort</string>
     <string name="composer_type_live_location">Live-Standort</string>

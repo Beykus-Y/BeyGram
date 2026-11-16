@@ -133,4 +133,44 @@ class BgBeatJsonTest {
         assertEquals(BgBeatStatus.ERROR, result.status)
         assertEquals("Decoder failed: corrupt data", result.message)
     }
+
+    @Test
+    fun parsesPhraseLoudnessAndAnalyzedFlag() {
+        val json = """
+        {
+          "status": "ok",
+          "analyzed": true,
+          "phraseLoudness": [
+            {"time": 0.5, "value": 0.2},
+            {"time": 4.5, "value": 0.9},
+            {"time": 8.5, "value": -1.0}
+          ]
+        }
+        """.trimIndent()
+
+        val result = BgBeatAnalysis.fromJson(json)
+
+        assertTrue(result.analyzed)
+        assertEquals(3, result.phraseLoudness.size)
+        assertEquals(0.2f, result.phraseLoudnessAt(0.9)!!, 1e-6f)
+        assertEquals(0.9f, result.phraseLoudnessAt(4.0)!!, 1e-6f)
+        // The nearest downbeat is unknown, so there is no loudness to report.
+        assertEquals(null, result.phraseLoudnessAt(8.0))
+    }
+
+    @Test
+    fun loudnessIsAbsentWhenNotAnalysed() {
+        val json = """
+        {
+          "status": "ok",
+          "analyzed": false,
+          "phraseLoudness": [{"time": 0.5, "value": 0.7}]
+        }
+        """.trimIndent()
+
+        val result = BgBeatAnalysis.fromJson(json)
+
+        assertFalse(result.analyzed)
+        assertEquals(null, result.phraseLoudnessAt(0.5))
+    }
 }

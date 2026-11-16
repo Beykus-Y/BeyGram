@@ -26,10 +26,15 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.layer.CompositingStrategy
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.graphics.ColorMatrix as ComposeColorMatrix
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -113,7 +118,9 @@ enum class GlassEdge {
     /** A floating pane: one light rim around the whole shape. */
     Rim,
     /** Full-width chrome at the top of a screen: square window edges and one hairline where it meets the content. */
-    BottomHairline
+    BottomHairline,
+    /** Full-width chrome at the bottom of a screen (the chat composer): one hairline where it meets the content. */
+    TopHairline
 }
 
 @Composable
@@ -141,11 +148,46 @@ fun GlassPanel(
     // Boolean does not invalidate composition.
     val samplesBackdrop = glass != null && glass.samplesBackdrop &&
         backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val samplesFrosted = !samplesBackdrop && glass != null && glass.samplesFrosted && backdrop != null
+    val frostLayer = rememberGraphicsLayer()
     Box(
         modifier
             .onGloballyPositioned { originInWindow = it.positionInWindow() }
             .clip(shape)
     ) {
+        if (samplesFrosted) {
+            val base = if (backdropBase != Color.Unspecified) backdropBase else tint.copy(alpha = 1f)
+            val frostFilter = ColorFilter.colorMatrix(
+                ComposeColorMatrix(vibrancyMatrix(darkSurface = tint.luminance() < 0.5f).array)
+            )
+            Box(
+                Modifier.matchParentSize().drawBehind {
+                    drawRect(base)
+                    val sampled = backdrop
+                    val source = sampled?.layer
+                    if (sampled == null || source == null || !sampled.hasContent || sampled.recording) {
+                        drawRect(tint.copy(alpha = GlassUnsampledMaskAlpha))
+                        return@drawBehind
+                    }
+                    val ds = GlassStyle.FrostDownscale
+                    val small = IntSize(
+                        (size.width / ds).toInt().coerceAtLeast(1),
+                        (size.height / ds).toInt().coerceAtLeast(1)
+                    )
+                    val delta = sampled.originInWindow - originInWindow
+                    // The copy is rasterised at its own small size; stretching it back with filtering is the blur.
+                    frostLayer.compositingStrategy = CompositingStrategy.Offscreen
+                    frostLayer.colorFilter = frostFilter
+                    frostLayer.record(small) {
+                        withTransform({
+                            translate(delta.x / ds, delta.y / ds)
+                            scale(1f / ds, 1f / ds, pivot = Offset.Zero)
+                        }) { drawLayer(source) }
+                    }
+                    withTransform({ scale(ds, ds, pivot = Offset.Zero) }) { drawLayer(frostLayer) }
+                }
+            )
+        }
         if (samplesBackdrop) {
             val blurPx = with(density) { glass!!.blurRadiusDp.toPx() }
             // The opaque floor of the sampled pane: a list without its own background records transparent gaps, and
@@ -153,7 +195,7 @@ fun GlassPanel(
             val base = if (backdropBase != Color.Unspecified) backdropBase else tint.copy(alpha = 1f)
             Box(
                 Modifier.matchParentSize()
-                    .graphicsLayerWithBlur(blurPx, shape)
+                    .graphicsLayerWithBlur(blurPx, shape, darkSurface = tint.luminance() < 0.5f)
                     .drawBehind {
                         drawRect(base)
                         val sampled = backdrop
@@ -173,17 +215,17 @@ fun GlassPanel(
         // The tint is what makes glass readable: it is always drawn, blurred or not. Over a real blurred sample the
         // style's own tint is enough; without one the panel stays dense, so labels never fight sharp content below.
         val tintAlpha = glass?.tintAlpha?.coerceIn(0f, 1f) ?: 0f
-        val baseAlpha = if (samplesBackdrop) tintAlpha else maxOf(tintAlpha, 0.93f)
+        val baseAlpha = if (samplesBackdrop || samplesFrosted) tintAlpha else maxOf(tintAlpha, 0.93f)
         Box(Modifier.matchParentSize().background(tint.copy(alpha = baseAlpha)))
         if (glass != null) {
             // One light edge, brightest where the light falls and fading towards the bottom. A uniform frame plus a
             // heavy shadow read as a plastic tray rather than a pane of glass.
-            if (edge == GlassEdge.BottomHairline) Box(
+            if (edge == GlassEdge.BottomHairline || edge == GlassEdge.TopHairline) Box(
                 Modifier.matchParentSize().drawBehind {
                     val stroke = 1.dp.toPx()
                     drawRect(
                         color = rim.copy(alpha = glass.rimAlpha * 0.6f),
-                        topLeft = Offset(0f, size.height - stroke),
+                        topLeft = Offset(0f, if (edge == GlassEdge.TopHairline) 0f else size.height - stroke),
                         size = Size(size.width, stroke)
                     )
                 }
@@ -202,7 +244,7 @@ fun GlassPanel(
 }
 
 /** Render-effect wrapper, kept separate so an unsupported API level simply draws nothing instead of failing. */
-private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape): Modifier =
+private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape, darkSurface: Boolean): Modifier =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         graphicsLayer {
             clip = true
@@ -212,7 +254,7 @@ private fun Modifier.graphicsLayerWithBlur(radiusPx: Float, shape: Shape): Modif
             // a dark translucent card.
             val blur = RenderEffect.createBlurEffect(radiusPx, radiusPx, Shader.TileMode.CLAMP)
             val vibrancy = RenderEffect.createColorFilterEffect(
-                ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(GlassSampleSaturation) })
+                ColorMatrixColorFilter(vibrancyMatrix(darkSurface))
             )
             renderEffect = RenderEffect.createChainEffect(vibrancy, blur).asComposeRenderEffect()
         }
@@ -264,7 +306,7 @@ private fun glassOutlineBrush(glass: GlassStyle, rim: Color): Brush = Brush.vert
 )
 
 /** How much of the surface colour a glass card keeps, so the card reads lighter than the screen without a solid fill. */
-private const val GlassCardFillAlpha = 0.55f
+private const val GlassCardFillAlpha = 0.9f
 
 /**
  * A panel that slides up from the bottom (attachment menu, sheets) in the Liquid Glass style: a lit top edge and a
@@ -286,6 +328,30 @@ fun Modifier.glassSheet(design: DesignSystem, fill: Color, rim: Color): Modifier
         }
 }
 
+/**
+ * Saturation lift plus a brightness clamp for the blurred sample. On a dark surface the sample is scaled down, on a light
+ * one pulled towards white, so a bright photo or avatar behind the pane can never push labels below readable contrast
+ * while the tint stays light and the colours stay alive.
+ */
+private fun vibrancyMatrix(darkSurface: Boolean): ColorMatrix {
+    val matrix = ColorMatrix().apply { setSaturation(GlassSampleSaturation) }
+    val k = GlassSampleLuminanceScale
+    val offset = if (darkSurface) 0f else 255f * (1f - k)
+    val clamp = ColorMatrix(
+        floatArrayOf(
+            k, 0f, 0f, 0f, offset,
+            0f, k, 0f, 0f, offset,
+            0f, 0f, k, 0f, offset,
+            0f, 0f, 0f, 1f, 0f
+        )
+    )
+    matrix.postConcat(clamp)
+    return matrix
+}
+
+/** Share of the sample's brightness range kept by the clamp (towards the surface colour). */
+private const val GlassSampleLuminanceScale = 0.6f
+
 /** Saturation applied to the blurred sample (1 keeps the colours as they are). */
 private const val GlassSampleSaturation = 1.35f
 
@@ -293,11 +359,28 @@ private const val GlassSampleSaturation = 1.35f
 private const val GlassUnsampledMaskAlpha = 0.65f
 
 /**
- * True when glass panels on this device really sample a backdrop. Only then is recording the content worth its cost:
- * Balanced, Lite, other styles and Android versions without render effects never record anything.
+ * True when glass panels on this device really sample a backdrop: High with render effects (Android 12+) and Balanced
+ * frosting on any version. Lite, other styles and High below Android 12 never record anything.
  */
 val DesignSystem.recordsGlassBackdrop: Boolean
-    get() = usesGlass && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    get() = surfaces.glass.let { glass ->
+        style == DesignStyle.LiquidGlass && glass != null &&
+            (glass.samplesFrosted || (glass.samplesBackdrop && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S))
+    }
 
 /** True when the style draws glass at all (any quality), which decides whether a panel is framed like glass. */
 val DesignSystem.usesGlassPanels: Boolean get() = style == DesignStyle.LiquidGlass && surfaces.glass != null
+
+/**
+ * Minimum opacity of translucent panels, named by role, so the glass surfaces do not each carry their own number.
+ * A panel never gets less dense than [floor], and never less than the style's own surface alpha.
+ */
+object PanelFloor {
+    const val Field = 0.55f
+    const val Card = 0.72f
+    const val Bar = 0.78f
+    const val Player = 0.86f
+}
+
+/** The fill of a translucent panel: [surface] at the style's surface alpha, raised to [floor] (see [PanelFloor]). */
+fun DesignSurfaces.panelFill(surface: Color, floor: Float): Color = surface.copy(alpha = surfaceAlpha.coerceAtLeast(floor))

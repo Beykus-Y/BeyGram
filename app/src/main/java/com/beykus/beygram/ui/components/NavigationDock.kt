@@ -31,6 +31,12 @@ data class NavigationDockGeometry(
     val reservedHeight: Dp get() = if (floating) height + bottomMargin + contentGap else 0.dp
 }
 
+/**
+ * Bottom padding a scrolling main tab adds so its last row clears a floating glass dock the tab draws under. Zero in
+ * every layout where the content already ends above the dock.
+ */
+val NavigationDockGeometry.scrollClearance: Dp get() = contentInset
+
 /** Air between the content area (list, mini-player) and the floating capsule. */
 internal val DefaultNavigationDockGap: Dp = 8.dp
 

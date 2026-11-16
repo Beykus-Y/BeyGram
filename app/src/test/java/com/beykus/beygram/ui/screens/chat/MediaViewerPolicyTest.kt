@@ -1,8 +1,11 @@
 package com.beykus.beygram.ui.screens.chat
 
+import android.view.InputDevice
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.MessagePaidMediaInfo
+import com.beykus.beygram.ui.accessibility.hasMouseInputDevice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -36,6 +39,24 @@ class MediaViewerPolicyTest {
         assertFalse(MediaViewerPolicy.secureWhileShowing(plain))
         // View-once media in an ordinary private chat is still a one-time secret while its viewer is open.
         assertTrue(MediaViewerPolicy.secureWhileShowing(plain, viewOnce = true))
+    }
+
+    @Test fun paidGalleryRemainsSecureEvenForPlainMedia() {
+        assertTrue(MediaViewerPolicy.secureWhileShowing(plain, forceSecure = true))
+        assertTrue(MediaViewerPolicy.secureWhileShowing(secretVideo, forceSecure = true))
+    }
+
+    @Test fun purchasedGalleryUsesDistinctOccurrenceIdsForDuplicateFiles() {
+        val paid = MessagePaidMediaInfo(
+            starCount = 5L, itemCount = 3, isPurchased = true,
+            firstPurchasedMedia = plain, additionalPurchasedMedia = listOf(secretVideo, plain),
+            caption = "album"
+        )
+        val pages = purchasedMediaPages(paid)
+        assertEquals(listOf(1L, 2L, 3L), pages.map { it.messageId })
+        assertEquals(listOf(1, 3, 1), pages.map { it.media.fileId })
+        assertTrue(pages.all { it.caption == "album" })
+        assertTrue(purchasedMediaPages(paid.copy(isPurchased = false)).isEmpty())
     }
 
     @Test fun neighbourSecretPageStaysClosedWhileSwipeIsNotSettled() {
@@ -101,5 +122,34 @@ class MediaViewerPolicyTest {
         val ordinary = MediaViewerItem(messageId = 20, media = plain, viewOnce = false)
         assertEquals(emptyList<MediaViewerItem>(), MediaViewerPolicy.retainViewOncePage(emptyList(), ordinary))
         assertEquals(emptyList<MediaViewerItem>(), MediaViewerPolicy.retainViewOncePage(emptyList(), null))
+    }
+
+    @Test fun navigationControlsHiddenOnTouchPhoneAndShownForAssistiveOrLargeScreens() {
+        assertFalse(MediaViewerPolicy.shouldShowNavigationControls(touchExploration = false, smallestScreenWidthDp = 390, hasNonTouchNavigation = false))
+        assertTrue(MediaViewerPolicy.shouldShowNavigationControls(touchExploration = true, smallestScreenWidthDp = 390, hasNonTouchNavigation = false))
+        assertTrue(MediaViewerPolicy.shouldShowNavigationControls(touchExploration = false, smallestScreenWidthDp = 600, hasNonTouchNavigation = false))
+        assertTrue(MediaViewerPolicy.shouldShowNavigationControls(touchExploration = false, smallestScreenWidthDp = 390, hasNonTouchNavigation = true))
+    }
+
+    @Test fun autoHideOnlyAppliesToReadyUnobstructedStillImages() {
+        assertTrue(MediaViewerPolicy.shouldAutoHideControls(isStillImage = true, controlsVisible = true, menuOpen = false, touchExploration = false, spoilerHidden = false, fileReady = true))
+        assertFalse(MediaViewerPolicy.shouldAutoHideControls(isStillImage = false, controlsVisible = true, menuOpen = false, touchExploration = false, spoilerHidden = false, fileReady = true))
+        assertFalse(MediaViewerPolicy.shouldAutoHideControls(isStillImage = true, controlsVisible = true, menuOpen = true, touchExploration = false, spoilerHidden = false, fileReady = true))
+        assertFalse(MediaViewerPolicy.shouldAutoHideControls(isStillImage = true, controlsVisible = true, menuOpen = false, touchExploration = true, spoilerHidden = false, fileReady = true))
+        assertFalse(MediaViewerPolicy.shouldAutoHideControls(isStillImage = true, controlsVisible = true, menuOpen = false, touchExploration = false, spoilerHidden = true, fileReady = true))
+        assertFalse(MediaViewerPolicy.shouldAutoHideControls(isStillImage = true, controlsVisible = true, menuOpen = false, touchExploration = false, spoilerHidden = false, fileReady = false))
+    }
+
+    @Test fun mouseOnlyDeviceDetectedWithoutHardwareKeyboard() {
+        val sources = listOf(InputDevice.SOURCE_TOUCHSCREEN, InputDevice.SOURCE_MOUSE)
+        assertTrue(hasMouseInputDevice(sources))
+        assertFalse(hasMouseInputDevice(listOf(InputDevice.SOURCE_TOUCHSCREEN)))
+        assertTrue(
+            MediaViewerPolicy.shouldShowNavigationControls(
+                touchExploration = false,
+                smallestScreenWidthDp = 390,
+                hasNonTouchNavigation = hasMouseInputDevice(sources)
+            )
+        )
     }
 }

@@ -160,7 +160,7 @@ internal fun BotInlineResultsPanel(
     }
 
     // Idle with no results and no error means the draft is not an inline bot: the panel stays out of the layout.
-    if (loading || results != null || loadError != null) Column(Modifier.fillMaxWidth().background(palette.surface)) {
+    if (loading || results != null || loadError != null) Column(Modifier.fillMaxWidth().chatChromeBackground(palette.surface)) {
         HorizontalDivider(color = palette.divider)
         Row(
             Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 4.dp),

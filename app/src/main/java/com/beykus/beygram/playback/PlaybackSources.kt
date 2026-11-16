@@ -3,6 +3,9 @@ package com.beykus.beygram.playback
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -33,7 +36,9 @@ class PlaybackQueueSource(
     val download: (Int) -> Unit,
     val autoDownload: ((AutoDownloadRequest) -> Unit)? = null,
     /** Pages are fetched only near the queue boundary; returns older tracks in playback order, or an empty page. */
-    val loadMore: (suspend () -> List<PlaybackItem>)? = null
+    val loadMore: (suspend () -> List<PlaybackItem>)? = null,
+    /** Set when this queue is a radio of a music source (such as «Моя волна»); the player names it in its header. */
+    val radio: PlaybackRadio? = null
 ) {
     /**
      * Sends a prefetch through automatic-download tracking. Returns false when the caller did not supply the
@@ -44,6 +49,16 @@ class PlaybackQueueSource(
         callback(request)
         return true
     }
+}
+
+/**
+ * An endless queue that a music source fills by itself, such as Yandex «Моя волна». The player does not name radios
+ * itself: [title] («Моя волна») and [subtitle] (what it was built from, such as «По вашему вкусу») come ready from
+ * the source and replace «Воспроизводится из» in the player header.
+ */
+class PlaybackRadio(val title: String, subtitle: String) {
+    /** Changes when the radio's settings change while it plays; a state, so the player header redraws at once. */
+    var subtitle: String by mutableStateOf(subtitle)
 }
 
 internal data class ResolvedPlaybackSource(val path: String, val growing: GrowingPlaybackSource?)
@@ -116,6 +131,11 @@ internal class PlaybackSourceHandle(
     fun resolve(): ResolvedPlaybackSource? {
         val current = item
         if (current.path.isNotBlank()) return ResolvedPlaybackSource(current.path, current.growing)
+        LazyTrackRegistry.sourceFor(current.key)?.let { lazy ->
+            lazy.resolvedPath(current.key)?.let { return ResolvedPlaybackSource(it, null) }
+            // A provider row that is still downloading plays from its readable start, as a growing TDLib file does.
+            return lazy.growingCopy(current.key)?.let { ResolvedPlaybackSource(it.path, it.growing) }
+        }
         val fileId = current.fileId ?: return null
         val source = queueSource?.takeIf { it.accountId == current.accountId } ?: return null
         val state = source.observeFile(fileId).value
@@ -135,6 +155,7 @@ internal class PlaybackSourceHandle(
      */
     fun publish(resolved: ResolvedPlaybackSource) {
         val current = item
+        LazyTrackRegistry.sourceFor(current.key)?.published(current.key)
         if (current.path == resolved.path && current.growing === resolved.growing) return
         val updated = current.copy(path = resolved.path, growing = resolved.growing)
         item = updated
@@ -143,6 +164,11 @@ internal class PlaybackSourceHandle(
 
     fun request() {
         val current = item
+        val lazy = LazyTrackRegistry.sourceFor(current.key)
+        if (lazy != null && current.path.isBlank()) {
+            lazy.request(current.key)
+            return
+        }
         val fileId = current.fileId ?: return
         val source = queueSource?.takeIf { it.accountId == current.accountId } ?: return
         source.download(fileId)
@@ -150,7 +176,12 @@ internal class PlaybackSourceHandle(
 
     /** False for a lazy item that has neither a path nor an account-scoped observer to obtain one. */
     fun canResolve(): Boolean =
-        item.path.isNotBlank() || (item.fileId != null && queueSource?.accountId == item.accountId)
+        item.path.isNotBlank() || LazyTrackRegistry.isLazyKey(item.key) ||
+            (item.fileId != null && queueSource?.accountId == item.accountId)
+
+    /** A row whose provider could not deliver it: the wait ends with an error so the queue moves on. */
+    fun failed(): Boolean =
+        item.path.isBlank() && LazyTrackRegistry.sourceFor(item.key)?.failed(item.key) == true
 }
 
 /**
@@ -172,6 +203,10 @@ internal object PlaybackSources {
     }
 
     fun handle(mediaId: String): PlaybackSourceHandle? = handles[mediaId]
+
+    fun remove(mediaId: String) {
+        handles.remove(mediaId)
+    }
 
     fun clear() {
         handles.clear()
@@ -282,13 +317,13 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
             val transferActive = source.isDownloading()
             growingWaitFailure(transferActive, now - startedAt)?.let { failure ->
                 recordGrowingStall(failure, source, transferActive, now - startedAt)
-                throw IOException(failure.message)
+                throw PlaybackNetworkWaitException(failure.message)
             }
             if (now - requestedAt >= REQUEST_INTERVAL_MS) {
                 requestedAt = now
                 source.onNeedMore()
             }
-            sleep()
+            sleep(now - startedAt)
         }
         return C.RESULT_END_OF_INPUT
     }
@@ -316,19 +351,26 @@ internal class PlaybackDataSource(private val fallback: DataSource) : DataSource
                 requestedAt = now
                 handle.request()
             }
-            sleep()
+            sleep(now - startedAt)
             resolved = handle.resolve()
             if (resolved != null) return resolved
+            if (handle.failed()) throw IOException("The track source did not deliver this track")
             if (now - startedAt >= OPEN_TIMEOUT_MS) {
-                throw IOException("Audio is not available")
+                throw PlaybackNetworkWaitException("Audio is not available")
             }
         }
         throw IOException("Playback source was closed")
     }
 
-    private fun sleep() {
+    /** Polls quickly while the wait is young and backs off the longer the file takes, so a slow download is not spun on. */
+    private fun sleep(waitedMs: Long) {
+        val interval = when {
+            waitedMs < 1_000L -> POLL_INTERVAL_MS
+            waitedMs < 5_000L -> 100L
+            else -> 250L
+        }
         try {
-            Thread.sleep(POLL_INTERVAL_MS)
+            Thread.sleep(interval)
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             throw IOException("Interrupted while waiting for audio", interrupted)

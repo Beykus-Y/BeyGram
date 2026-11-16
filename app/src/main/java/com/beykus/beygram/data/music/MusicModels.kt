@@ -24,8 +24,21 @@ const val MUSIC_MAX_RECENT_ENTRIES = 200
 /** Listen statistics kept for tracks that are in no playlist. Tracks that are in a playlist always keep theirs. */
 const val MUSIC_MAX_STATS = 2_000
 
-/** Order in which a playlist's tracks are shown. [Manual] is the stored order; the others are applied once, when picked. */
-enum class MusicSortMode { Manual, Title, Artist, AddedAt, Duration }
+/** The tempos a track may carry in the library. A value outside this range, or not a finite number, is never stored or read. */
+const val MUSIC_MIN_BPM = 20.0
+const val MUSIC_MAX_BPM = 400.0
+
+/** The Tempo sort is offered for a playlist only when at least this many of its tracks have a known tempo. */
+const val MUSIC_TEMPO_SORT_MIN_TRACKS = 2
+
+/** Whether [bpm] is a tempo the library keeps. */
+fun isValidMusicBpm(bpm: Double): Boolean = bpm.isFinite() && bpm >= MUSIC_MIN_BPM && bpm <= MUSIC_MAX_BPM
+
+/**
+ * Order in which a playlist's tracks are shown. [Manual] is the stored order; the others are applied once, when picked.
+ * [Tempo] orders by the tempo that BG Beat stored for each track; tracks without one go last.
+ */
+enum class MusicSortMode { Manual, Title, Artist, AddedAt, Duration, Tempo }
 
 /**
  * One entry of a playlist. [itemId] is unique inside its playlist and never changes there, so the same Telegram
@@ -102,9 +115,17 @@ data class MusicListenStats(
     /** Epoch millis of the latest recorded start, or null when the track was never started. */
     val lastPlayedAt: Long? = null,
     /** Epoch millis of the first time the track was added to any playlist. */
-    val firstAddedAt: Long? = null
+    val firstAddedAt: Long? = null,
+    /**
+     * Tempo in BPM that BG Beat analysed during playback, kept only when that analysis was trustworthy (see trustedTempoBpm).
+     * Null when unknown. No analysis is started to fill it in.
+     */
+    val bpm: Double? = null
 ) {
     val trackKey: String get() = track.trackKey
+
+    /** Whether the track was ever started or added to a playlist. An entry that holds only a tempo has neither. */
+    val hasHistory: Boolean get() = playCount > 0 || lastPlayedAt != null || firstAddedAt != null
 }
 
 /** One "recently played" entry. The history holds each track once, newest first. */

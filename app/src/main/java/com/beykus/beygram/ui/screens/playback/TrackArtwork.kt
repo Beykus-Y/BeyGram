@@ -5,7 +5,8 @@ import android.graphics.BitmapFactory
 import java.io.RandomAccessFile
 import android.util.LruCache
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -183,7 +184,7 @@ internal fun TrackArtwork(
     val image by produceState<ArtworkImage>(initialValue = ArtworkImage("", null), key1 = artworkPath, key2 = audioPath) {
         value = withContext(Dispatchers.IO) { ArtworkImage(displayKey, loadTrackArtwork(artworkPath, audioPath)) }
     }
-    val reduced = systemReducedMotion()
+    val mediaMotion = rememberMotionSpec(MotionToken.MediaExpand)
     val shape = RoundedCornerShape(cornerRadius)
     val gradientEnd = lerp(background, tint, 0.14f)
     // A bitmap from another track is never shown: while a new cover decodes, the placeholder is visible.
@@ -197,7 +198,7 @@ internal fun TrackArtwork(
     ) {
         Crossfade(
             targetState = visible,
-            animationSpec = tween(durationMillis = if (reduced) 0 else ARTWORK_FADE_MS),
+            animationSpec = mediaMotion.animationSpec(),
             label = "trackArtwork"
         ) { bitmap ->
             if (bitmap != null) {

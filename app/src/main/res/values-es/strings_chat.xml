@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="chat_bot_copied">Texto copiado</string>
+    <string name="chat_bot_alert_title">Mensaje del bot</string>
     <string name="chat_bot_failed">No se pudo realizar la acción del bot</string>
     <string name="chat_bot_hide">Ocultar botones del bot</string>
     <string name="chat_bot_show">Mostrar botones del bot</string>
@@ -99,6 +100,9 @@
     <string name="err_chat_export_date_range">Comprueba el intervalo de fechas de la exportación del chat</string>
     <string name="chat_search_description">Buscar en el chat</string>
     <string name="chat_search_failed">Error de búsqueda</string>
+    <string name="chat_search_match_position">%1$d de %2$d</string>
+    <string name="chat_search_previous_match">Coincidencia anterior</string>
+    <string name="chat_search_next_match">Siguiente coincidencia</string>
     <string name="chat_send_later">Programar mensaje</string>
     <string name="chat_send_now">Enviar ahora</string>
     <string name="chat_send_options">Opciones de envío</string>
@@ -256,4 +260,9 @@
         <item quantity="other">Quedan aproximadamente %1$d minutos</item>
     </plurals>
     <string name="message_action_react">Añadir reacción</string>
+    <string name="chat_status_waiting_network">esperando red</string>
+    <string name="chat_send_failure_details">Detalles</string>
+    <string name="chat_send_failure_title">No se pudo enviar el mensaje</string>
+    <string name="chat_send_failure_discard">Eliminar</string>
+    <string name="chat_send_failure_copy">Copiar texto</string>
 </resources>

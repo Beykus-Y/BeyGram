@@ -33,6 +33,9 @@ internal data class PaidReactionState(
     val balanceFailure: UiText? = null,
     val maximum: Long? = null,
     val starCount: Long = PAID_REACTION_PRESETS.first(),
+    val isAnonymous: Boolean = false,
+    /** Unique to this opening, even if the same message is opened again or an account changes. */
+    val balanceRequest: Any? = null,
     val sending: Boolean = false,
     val failure: UiText? = null,
     /** TDLib did not confirm the commit, so the Stars may be spent: Send stays locked until the user closes the confirmation. */
@@ -60,6 +63,26 @@ internal fun PaidReactionState.balanceRead(result: Result<StarBalance>): PaidRea
         copy(balanceLoading = false, balanceFailure = (failure as? UserMessageException)?.text ?: UiText.Res(R.string.stars_load_error))
     }
 )
+
+/** A late response must not populate a different opening, even one for the same chat/message IDs. */
+internal fun PaidReactionState.balanceReadFor(request: Any, result: Result<StarBalance>): PaidReactionState =
+    if (balanceRequest === request) balanceRead(result).copy(balanceRequest = null) else this
+
+/** Privacy is part of the confirmation, not a persisted account preference. */
+internal fun PaidReactionState.withPrivacy(owner: Any, isAnonymous: Boolean): PaidReactionState =
+    if (this.owner === owner && target != null && balance != null && !sending && !uncertain)
+        copy(isAnonymous = isAnonymous, failure = null)
+    else this
+
+/** Immutable snapshot of exactly what the user confirmed. */
+internal data class PaidReactionSubmission(val target: PaidReactionTarget, val starCount: Long, val isAnonymous: Boolean)
+
+internal fun PaidReactionState.submissionFor(owner: Any): PaidReactionSubmission? {
+    val target = target ?: return null
+    if (this.owner !== owner || sending || uncertain) return null
+    if (paidReactionAmountBlock(starCount, balance?.starCount, maximum) != null) return null
+    return PaidReactionSubmission(target, starCount, isAnonymous)
+}
 
 /** A confirmed send closes the confirmation. A refused one keeps it open with the reason, and an unknown outcome is uncertain. */
 internal fun PaidReactionState.sendFinished(result: Result<Unit>): PaidReactionState = result.fold(
@@ -97,12 +120,11 @@ internal object PaidReactionStore {
         balanceJob?.cancel()
         this.onSent = onSent
         openedIn = conversation
-        _state.value = PaidReactionState(owner = owner, target = target, maximum = maximum, balanceLoading = true)
+        val request = Any()
+        _state.value = PaidReactionState(owner = owner, target = target, maximum = maximum, balanceLoading = true, balanceRequest = request)
         balanceJob = scope.launch {
             val result = conversation.starBalance()
-            // The confirmation may have been closed or moved to another message while the balance was read.
-            if (_state.value.target != target) return@launch
-            _state.value = _state.value.balanceRead(result)
+            _state.value = _state.value.balanceReadFor(request, result)
         }
     }
 
@@ -114,18 +136,26 @@ internal object PaidReactionStore {
         _state.value = current.copy(starCount = starCount, failure = null)
     }
 
-    /** Sends the chosen amount once. The result either closes the confirmation or explains why nothing was spent. */
+    /** Changes whether the sender is shown, only while the confirmation is editable. */
+    fun selectPrivacy(owner: Any, isAnonymous: Boolean) {
+        _state.value = _state.value.withPrivacy(owner, isAnonymous)
+    }
+
+    /** Sends the confirmed amount and privacy once. A send cannot cross account repositories. */
     fun send(conversation: ConversationRepository, owner: Any) {
+        if (conversation !== openedIn) return
         val current = _state.value
-        val target = current.target ?: return
-        if (current.owner !== owner || current.sending || current.uncertain) return
-        if (paidReactionAmountBlock(current.starCount, current.balance?.starCount, current.maximum) != null) return
-        val starCount = current.starCount
+        val submission = current.submissionFor(owner) ?: return
         _state.value = current.copy(sending = true, failure = null)
         scope.launch {
-            val result = conversation.addPaidReaction(target.chatId, target.messageId, starCount)
+            val result = conversation.addPaidReaction(
+                submission.target.chatId,
+                submission.target.messageId,
+                submission.starCount,
+                isAnonymous = submission.isAnonymous
+            )
             _state.value = _state.value.sendFinished(result)
-            if (result.isSuccess) onSent(target)
+            if (result.isSuccess) onSent(submission.target)
         }
     }
 

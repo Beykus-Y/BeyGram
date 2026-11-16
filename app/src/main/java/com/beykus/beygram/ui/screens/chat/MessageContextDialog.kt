@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
 
 /** A separate history window keeps distant replies from creating gaps in the main pagination. */
 @Composable
-internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: ConversationRepository,
+internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: ConversationRepository, riskGuard: StealthRiskGuard,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, onClose: () -> Unit,
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
@@ -81,10 +81,12 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
             paidReactions.open(chatId, messageId)
             return
         }
-        reactionScope.launch {
-            conversation.toggleReaction(chatId, messageId, reaction, addToRecent = false)
-                .onSuccess { reactions -> context = context?.let { current -> current.copy(messages = current.messages.map { if (it.id == messageId) it.copy(reactions = reactions) else it }) } }
-                .onFailure { failure -> Toast.makeText(androidContext, failure.userMessage(androidContext, R.string.chat_reaction_failed), Toast.LENGTH_SHORT).show() }
+        riskGuard.run {
+            reactionScope.launch {
+                conversation.toggleReaction(chatId, messageId, reaction, addToRecent = false)
+                    .onSuccess { reactions -> context = context?.let { current -> current.copy(messages = current.messages.map { if (it.id == messageId) it.copy(reactions = reactions) else it }) } }
+                    .onFailure { failure -> Toast.makeText(androidContext, failure.userMessage(androidContext, R.string.chat_reaction_failed), Toast.LENGTH_SHORT).show() }
+            }
         }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -110,15 +112,17 @@ internal fun MessageContextDialog(chatId: Long, targetId: Long, conversation: Co
                             viewerItem = message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, message.chatId) }
                             viewerChatId = message.chatId
                         }, onStickerOpen = { media -> stickerSetId = media.stickerSetId },
-                            onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation) },
+                            onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, riskGuard, onOpenEntity = onOpenMessageEntity) },
                             onActions = if (!allowEntityCopy || message.isViewOnce) null else copyableMessageLinks(message.text, message.entities)
                                 .takeIf { it.isNotEmpty() }
                                 ?.let { links -> { copyLinks = links } },
                             onPollVote = { messageId, choices ->
-                                reactionScope.launch {
-                                    conversation.votePoll(message.chatId, messageId, choices)
-                                        .onSuccess { reloadSnapshot() }
-                                        .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_vote_failed), Toast.LENGTH_SHORT).show() }
+                                riskGuard.run {
+                                    reactionScope.launch {
+                                        conversation.votePoll(message.chatId, messageId, choices)
+                                            .onSuccess { reloadSnapshot() }
+                                            .onFailure { Toast.makeText(androidContext, it.userMessage(androidContext, R.string.chat_poll_vote_failed), Toast.LENGTH_SHORT).show() }
+                                    }
                                 }
                             },
                             onPollStop = { messageId ->

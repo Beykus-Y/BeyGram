@@ -45,6 +45,31 @@ object BgBeatNative {
     @JvmStatic
     external fun nativeDestroyCancelToken(tokenHandle: Long)
 
+    /**
+     * Acquires a ref-counted analysis snapshot. Concurrent callers for the same
+     * file identity wait for one decode/analysis and share the result.
+     */
+    @JvmStatic
+    external fun nativeAcquireAnalysis(
+        filePath: String,
+        cacheDir: String,
+        minBpm: Double,
+        maxBpm: Double,
+        cancelTokenHandle: Long,
+        progressListener: BgBeatProgressListener?,
+        forceRefresh: Boolean
+    ): Long
+
+    @JvmStatic
+    external fun nativeAnalysisJson(handle: Long): String?
+
+    @JvmStatic
+    external fun nativeReleaseAnalysis(handle: Long)
+
+    @JvmStatic
+    external fun nativeLiveAnalysisHandles(): Int
+
+    /** Compatibility wrapper; new code should acquire a handle. */
     @JvmStatic
     external fun nativeAnalyzeFile(
         filePath: String,

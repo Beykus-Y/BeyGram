@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.design.LocalDesignSystem
 
 /*
@@ -45,10 +47,17 @@ import com.beykus.beygram.ui.design.LocalDesignSystem
 private val isMaterial2: Boolean
     @Composable get() = LocalDesignSystem.current.style == DesignStyle.Material2
 
-/** The button shape of the style: Material's pill everywhere except Material 2, which uses its 4dp button corner. */
+/** Styles that draw the button corner from their own shape token; Default and Material 3 keep Material's pill. */
+private val usesStyleButtonShape: Boolean
+    @Composable get() = when (LocalDesignSystem.current.style) {
+        DesignStyle.Material2, DesignStyle.Signature, DesignStyle.LiquidGlass -> true
+        DesignStyle.Default, DesignStyle.Material3 -> false
+    }
+
+/** The button shape of the style: Material 2 (4dp), Signature (14dp) and Glass (22dp) use their token, the rest the pill. */
 @Composable
 fun styledButtonShape(): Shape =
-    if (isMaterial2) RoundedCornerShape(LocalDesignSystem.current.shapes.button) else ButtonDefaults.shape
+    if (usesStyleButtonShape) RoundedCornerShape(LocalDesignSystem.current.shapes.button) else ButtonDefaults.shape
 
 /** Contained buttons in Material 2 sit 2dp above the surface and lift to 8dp while pressed. */
 @Composable
@@ -95,7 +104,7 @@ fun OutlinedButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    shape: Shape = if (isMaterial2) styledButtonShape() else ButtonDefaults.outlinedShape,
+    shape: Shape = if (usesStyleButtonShape) styledButtonShape() else ButtonDefaults.outlinedShape,
     colors: ButtonColors = ButtonDefaults.outlinedButtonColors(),
     elevation: ButtonElevation? = null,
     border: BorderStroke? = ButtonDefaults.outlinedButtonBorder(enabled),
@@ -120,7 +129,7 @@ fun TextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    shape: Shape = if (isMaterial2) styledButtonShape() else ButtonDefaults.textShape,
+    shape: Shape = if (usesStyleButtonShape) styledButtonShape() else ButtonDefaults.textShape,
     colors: ButtonColors = ButtonDefaults.textButtonColors(),
     elevation: ButtonElevation? = null,
     border: BorderStroke? = null,
@@ -216,9 +225,10 @@ private fun ClassicSwitch(
     }.let { if (enabled) it else it.copy(alpha = 0.38f).compositeOver(scheme.surface) }
     val trackTarget = (if (checked) scheme.primary.copy(alpha = 0.5f) else scheme.onSurface.copy(alpha = 0.38f))
         .let { if (enabled) it else it.copy(alpha = it.alpha * 0.5f) }
-    val thumb by animateColorAsState(thumbTarget, label = "classicSwitchThumb")
-    val track by animateColorAsState(trackTarget, label = "classicSwitchTrack")
-    val thumbOffset by animateDpAsState(if (checked) 16.dp else 0.dp, label = "classicSwitchOffset")
+    val microMotion = rememberMotionSpec(MotionToken.MicroFeedback)
+    val thumb by animateColorAsState(thumbTarget, animationSpec = microMotion.animationSpec(), label = "classicSwitchThumb")
+    val track by animateColorAsState(trackTarget, animationSpec = microMotion.animationSpec(), label = "classicSwitchTrack")
+    val thumbOffset by animateDpAsState(if (checked) 16.dp else 0.dp, animationSpec = microMotion.animationSpec(), label = "classicSwitchOffset")
 
     val toggle = if (onCheckedChange != null) {
         Modifier.toggleable(

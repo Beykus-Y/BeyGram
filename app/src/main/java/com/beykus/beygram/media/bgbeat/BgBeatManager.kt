@@ -2,7 +2,8 @@ package com.beykus.beygram.media.bgbeat
 
 import android.content.Context
 import android.util.Log
-import com.beykus.beygram.domain.model.MediaKind
+import com.beykus.beygram.data.music.MusicLibraries
+import com.beykus.beygram.data.music.toTrackRef
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackState
@@ -108,6 +109,8 @@ class BgBeatManager(
     private val sequenceId = AtomicLong(0L)
     private var currentJob: Job? = null
     private var currentCancelToken: Long = 0L
+    private var analysisLease: BgAnalysisLease? = null
+    private var pendingLeaseRef: java.util.concurrent.atomic.AtomicReference<BgAnalysisLease?>? = null
 
     @Volatile
     private var activeIdentity: BgBeatAnalysisIdentity? = null
@@ -155,42 +158,17 @@ class BgBeatManager(
 
         val accountId = item.accountId.ifBlank { PlaybackEngine.currentAccountId ?: "legacy" }
 
-        // Filter 1: Only regular music files
-        if (item.kind != MediaKind.Audio) {
+        // Only regular, fully downloaded, non-private music files. BG Motion uses
+        // the same rule so both consumers agree on what may enter the analysis cache.
+        val ineligible = BgMediaEligibility.reasonFor(item)
+        if (ineligible != null) {
             cancelCurrentAnalysis()
             activeIdentity = null
             completedIdentity = null
-            _uiState.value = BgBeatUiState.Ineligible(BgBeatIneligibleReason.NotMusic, item.key, accountId)
+            _uiState.value = BgBeatUiState.Ineligible(ineligible, item.key, accountId)
             return
         }
-
-        // Filter 2: Exclude secret media and system-private items
-        if (item.secret || item.systemPrivate) {
-            cancelCurrentAnalysis()
-            activeIdentity = null
-            completedIdentity = null
-            _uiState.value = BgBeatUiState.Ineligible(BgBeatIneligibleReason.PrivateMedia, item.key, accountId)
-            return
-        }
-
-        // Filter 3: Must not be actively streaming/growing
-        if (item.growing != null) {
-            cancelCurrentAnalysis()
-            activeIdentity = null
-            completedIdentity = null
-            _uiState.value = BgBeatUiState.Ineligible(BgBeatIneligibleReason.StillDownloading, item.key, accountId)
-            return
-        }
-
-        // Filter 4: Must be a completed, valid file on local storage
         val file = File(item.path)
-        if (!file.exists() || !file.isFile || file.length() <= 0L || file.name.endsWith(".temp")) {
-            cancelCurrentAnalysis()
-            activeIdentity = null
-            completedIdentity = null
-            _uiState.value = BgBeatUiState.Ineligible(BgBeatIneligibleReason.NotDownloaded, item.key, accountId)
-            return
-        }
 
         if (!BgBeatNative.isLoaded) {
             cancelCurrentAnalysis()
@@ -252,6 +230,10 @@ class BgBeatManager(
         }
         currentJob?.cancel()
         currentJob = null
+        pendingLeaseRef?.getAndSet(null)?.release()
+        pendingLeaseRef = null
+        analysisLease?.release()
+        analysisLease = null
         activeIdentity = null
     }
 
@@ -275,6 +257,30 @@ class BgBeatManager(
         startAnalysis(currentItem, file, currentAccount, identity, force = true)
     }
 
+    /**
+     * Keeps the tempo of a trustworthy analysis for the library's Tempo sort. It only stores what this analysis already found, and
+     * it runs on its own coroutine: a failed save must never turn a finished analysis into an error. The library refuses a track
+     * that belongs to another account than its own.
+     */
+    private fun recordTrustedTempo(item: PlaybackItem, analysis: BgBeatAnalysis) {
+        val bpm = trustedTempoBpm(analysis) ?: return
+        val track = item.toTrackRef() ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                MusicLibraries.get(context).recordTempo(track, bpm)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "Tempo of ${item.key} was not stored", e)
+            }
+        }
+    }
+
+    private data class AnalysisRun(
+        val analysis: BgBeatAnalysis,
+        val lease: BgAnalysisLease?
+    )
+
     private fun startAnalysis(
         item: PlaybackItem,
         file: File,
@@ -292,21 +298,19 @@ class BgBeatManager(
 
             val cancelToken = BgBeatNative.nativeCreateCancelToken()
             currentCancelToken = cancelToken
-
-            val cacheDir = BgBeatSettingsStore.getAccountCacheDir(context, accountId).absolutePath
+            var runLease: BgAnalysisLease? = null
+            val leaseRef = java.util.concurrent.atomic.AtomicReference<BgAnalysisLease?>(null)
+            pendingLeaseRef = leaseRef
 
             try {
-                val result = withContext(Dispatchers.Default) {
+                val run = withContext(Dispatchers.Default) {
                     if (sequenceId.get() != reqSeq || activeIdentity != identity) {
                         return@withContext null
                     }
 
-                    val effectiveCacheDir = if (force) "" else cacheDir
-                    val jsonStr = BgBeatNative.nativeAnalyzeFile(
-                        filePath = file.absolutePath,
-                        cacheDir = effectiveCacheDir,
-                        minBpm = identity.minBpm,
-                        maxBpm = identity.maxBpm,
+                    val lease = BgAnalysisRepository.acquire(
+                        context = context,
+                        identity = identity,
                         cancelTokenHandle = cancelToken,
                         progressListener = { fraction, stage ->
                             if (sequenceId.get() == reqSeq && activeIdentity == identity) {
@@ -316,28 +320,47 @@ class BgBeatManager(
                                     }
                                 }
                             }
-                        }
+                        },
+                        forceRefresh = force,
+                        out = leaseRef
                     )
-
-                    if (sequenceId.get() != reqSeq || activeIdentity != identity) {
-                        return@withContext null
+                    if (lease == null) {
+                        return@withContext AnalysisRun(
+                            BgBeatAnalysis(status = BgBeatStatus.ERROR, message = "Пустой ответ от C++ движка"),
+                            null
+                        )
                     }
+                    leaseRef.set(lease)
 
-                    if (jsonStr != null) {
-                        BgBeatAnalysis.fromJson(jsonStr)
-                    } else {
-                        BgBeatAnalysis(status = BgBeatStatus.ERROR, message = "Пустой ответ от C++ движка")
+                    try {
+                        if (sequenceId.get() != reqSeq || activeIdentity != identity) {
+                            lease.release()
+                            return@withContext null
+                        }
+                        AnalysisRun(BgBeatAnalysis.fromJson(lease.json), lease)
+                    } catch (t: Throwable) {
+                        lease.release()
+                        throw t
                     }
                 }
 
-                if (sequenceId.get() != reqSeq || activeIdentity != identity || result == null) {
+                runLease = run?.lease
+                if (sequenceId.get() != reqSeq || activeIdentity != identity || run == null) {
+                    runLease?.release()
+                    runLease = null
                     return@launch
                 }
 
-                when (result.status) {
+                when (run.analysis.status) {
                     BgBeatStatus.OK -> {
+                        // The lease stays alive until the track, account or the experiment changes.
+                        // BG Motion acquires the same native snapshot while it is here.
+                        analysisLease?.release()
+                        analysisLease = run.lease
+                        runLease = null
                         completedIdentity = identity
-                        _uiState.value = BgBeatUiState.Ready(result, itemKey, accountId)
+                        _uiState.value = BgBeatUiState.Ready(run.analysis, itemKey, accountId)
+                        recordTrustedTempo(item, run.analysis)
                         withContext(Dispatchers.IO) {
                             BgBeatSettingsStore.enforceCacheQuota(context)
                         }
@@ -352,7 +375,7 @@ class BgBeatManager(
                     }
                     BgBeatStatus.ERROR -> {
                         val outcome = BgBeatUiState.Error(
-                            result.message.ifBlank { "Ошибка анализа музыки" },
+                            run.analysis.message.ifBlank { "Ошибка анализа музыки" },
                             itemKey,
                             accountId
                         )
@@ -371,6 +394,13 @@ class BgBeatManager(
                     _uiState.value = outcome
                 }
             } finally {
+                runLease?.release()
+                // Covers cancellation after the native acquire returned but before
+                // the coroutine could publish its result.
+                leaseRef.get()?.let { pending ->
+                    if (analysisLease !== pending) pending.release()
+                }
+                if (pendingLeaseRef === leaseRef) pendingLeaseRef = null
                 BgBeatNative.nativeDestroyCancelToken(cancelToken)
                 if (currentCancelToken == cancelToken) {
                     currentCancelToken = 0L

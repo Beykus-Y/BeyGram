@@ -41,6 +41,9 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         users[user.id] = user
         publish()
     }
+    /** Whether TDLib reports this user as a deleted Telegram account. */
+    fun isDeletedUser(userId: Long): Boolean = synchronized(lock) { users[userId]?.type is TdApi.UserTypeDeleted }
+
     fun senderName(sender: TdApi.MessageSender?): String = synchronized(lock) {
         when (sender) {
             is TdApi.MessageSenderUser -> users[sender.userId]?.let { listOf(it.firstName, it.lastName).filter { name -> !name.isNullOrBlank() }.joinToString(" ") }.orEmpty()

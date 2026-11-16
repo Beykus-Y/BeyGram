@@ -1,6 +1,7 @@
 package com.beykus.beygram.media.bgbeat
 
 import org.json.JSONObject
+import kotlin.math.abs
 
 enum class BgBeatStatus {
     OK,
@@ -29,6 +30,12 @@ data class BgBeatBpmCandidate(
     val score: Float
 )
 
+/** Loudness of the phrase at a downbeat: [value] is 0 (quiet) .. 1 (loud), or -1 when unknown. */
+data class BgBeatPhraseLoudness(
+    val time: Double,
+    val value: Float
+)
+
 data class BgBeatAnalysis(
     val status: BgBeatStatus,
     val message: String = "",
@@ -54,8 +61,21 @@ data class BgBeatAnalysis(
     val beats: List<BgBeatBeat> = emptyList(),
     val waveform: List<BgBeatWaveformPeak> = emptyList(),
     val waveformPeaksPerSecond: Float = 0f,
-    val bpmCandidates: List<BgBeatBpmCandidate> = emptyList()
+    val bpmCandidates: List<BgBeatBpmCandidate> = emptyList(),
+    /** True when BG Beat built the musical timeline from the track, so its loudness data is evidence. */
+    val analyzed: Boolean = false,
+    val phraseLoudness: List<BgBeatPhraseLoudness> = emptyList()
 ) {
+    /**
+     * Loudness of the phrase nearest to [time] (seconds), 0..1, or null when the track has no
+     * loudness evidence (not analysed, or no dynamics).
+     */
+    fun phraseLoudnessAt(time: Double): Float? {
+        if (!analyzed || phraseLoudness.isEmpty()) return null
+        val nearest = phraseLoudness.minByOrNull { abs(it.time - time) } ?: return null
+        return nearest.value.takeIf { it >= 0f }
+    }
+
     companion object {
         fun fromJson(jsonStr: String): BgBeatAnalysis {
             val root = JSONObject(jsonStr)
@@ -119,6 +139,20 @@ data class BgBeatAnalysis(
                 }
             }
 
+            val loudnessArray = root.optJSONArray("phraseLoudness")
+            val phraseLoudness = mutableListOf<BgBeatPhraseLoudness>()
+            if (loudnessArray != null) {
+                for (i in 0 until loudnessArray.length()) {
+                    val l = loudnessArray.optJSONObject(i) ?: continue
+                    phraseLoudness.add(
+                        BgBeatPhraseLoudness(
+                            time = l.optDouble("time", 0.0),
+                            value = l.optDouble("value", -1.0).toFloat()
+                        )
+                    )
+                }
+            }
+
             return BgBeatAnalysis(
                 status = status,
                 message = message,
@@ -144,8 +178,32 @@ data class BgBeatAnalysis(
                 beats = beats,
                 waveform = waveform,
                 waveformPeaksPerSecond = root.optDouble("waveformPeaksPerSecond", 0.0).toFloat(),
-                bpmCandidates = bpmCandidates
+                bpmCandidates = bpmCandidates,
+                analyzed = root.optBoolean("analyzed", false),
+                phraseLoudness = phraseLoudness
             )
         }
     }
+}
+
+/**
+ * Lowest [BgBeatAnalysis.bpmConfidence] at which a tempo is kept for the library's Tempo sort. Below it the BPM is a guess, so
+ * it is not stored. Chosen conservatively: a sort on a wrong tempo is worse than a sort without one.
+ */
+const val BG_BEAT_TRUSTED_BPM_CONFIDENCE = 0.6f
+
+/**
+ * The BPM of [analysis] when it is trustworthy enough to keep, otherwise null. It must come from a successful analysis that built
+ * the musical timeline ([BgBeatAnalysis.analyzed]), with a positive finite BPM whose confidence reaches
+ * [BG_BEAT_TRUSTED_BPM_CONFIDENCE], a stable tempo, and no octave ambiguity (the tempo could be half or double the real one).
+ */
+fun trustedTempoBpm(analysis: BgBeatAnalysis): Double? {
+    val trusted = analysis.status == BgBeatStatus.OK &&
+        analysis.analyzed &&
+        !analysis.octaveAmbiguous &&
+        analysis.tempoStable &&
+        analysis.bpm.isFinite() &&
+        analysis.bpm > 0.0 &&
+        analysis.bpmConfidence >= BG_BEAT_TRUSTED_BPM_CONFIDENCE
+    return if (trusted) analysis.bpm else null
 }

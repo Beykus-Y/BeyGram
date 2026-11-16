@@ -60,7 +60,7 @@ internal class TdNotifications(
                     val notices = group.notifications.orEmpty().mapNotNull(::notice)
                     // A pending alert survives the snapshot while its notice is still active; the renderer's watermark stops repeats.
                     val alert = previous[group.id]?.takeIf { it.chatId == group.chatId }?.alertId?.takeIf { id -> notices.any { it.id == id } } ?: 0
-                    groups[group.id] = metadata(TelegramNoticeGroup(group.id, group.chatId, totalCount = group.totalCount,
+                    if (notices.isNotEmpty()) groups[group.id] = metadata(TelegramNoticeGroup(group.id, group.chatId, totalCount = group.totalCount,
                         notices = notices, alertId = alert, isSecret = group.type is TdApi.NotificationGroupTypeSecretChat))
                 }
                 _state.value = _state.value.copy(initialized = true, snapshot = true)
@@ -74,7 +74,7 @@ internal class TdNotifications(
                 val removed = (update.removedNotificationIds ?: intArrayOf()).toSet()
                 val added = update.addedNotifications.orEmpty()
                 val merged = (old?.notices.orEmpty().filterNot { it.id in removed } + added.mapNotNull(::notice)).associateBy { it.id }.values.sortedBy { it.id }.takeLast(10)
-                val newAlert = if (update.notificationSoundId != 0L) added.filter { !it.isSilent && it.id > (old?.notices?.maxOfOrNull { n -> n.id } ?: 0) }.maxOfOrNull { it.id } ?: 0 else 0
+                val newAlert = if (update.notificationSoundId != 0L) added.filter { !it.isSilent && merged.any { notice -> notice.id == it.id } && it.id > (old?.notices?.maxOfOrNull { n -> n.id } ?: 0) }.maxOfOrNull { it.id } ?: 0 else 0
                 // An alert the renderer has not posted yet stays until its notice is gone, even when other updates arrive first.
                 val pendingAlert = old?.alertId?.takeIf { id -> merged.any { it.id == id } } ?: 0
                 val alert = maxOf(pendingAlert, newAlert)
@@ -115,12 +115,20 @@ internal class TdNotifications(
     private fun replyable(chat: TdApi.Chat): Boolean =
         chat.type !is TdApi.ChatTypeSecret && (chat.type as? TdApi.ChatTypeSupergroup)?.isChannel != true && chat.permissions.canSendBasicMessages
     private fun notice(notification: TdApi.Notification): TelegramNotice? = when (val type = notification.type) {
-        is TdApi.NotificationTypeNewMessage -> TelegramNotice(notification.id, notification.date.toLong(), senderName(type.message.senderId),
+        is TdApi.NotificationTypeNewMessage -> if (isHiddenWaveControl(type.message)) null else TelegramNotice(notification.id, notification.date.toLong(), senderName(type.message.senderId),
             if (type.showPreview) preview(type.message.content) else UiText.Res(R.string.notif_new_message), type.showPreview, type.message.id,
             (type.message.topicId as? TdApi.MessageTopicForum)?.forumTopicId?.toLong() ?: 0L)
         is TdApi.NotificationTypeNewSecretChat -> TelegramNotice(notification.id, notification.date.toLong(), "", UiText.Res(R.string.notif_new_secret_chat), false)
         else -> null // No FCM registration; push payloads and unimplemented calls are not rendered.
     }
+    private fun isHiddenWaveControl(message: TdApi.Message): Boolean {
+        if (chats[message.chatId]?.type !is TdApi.ChatTypePrivate) return false
+        if ((message.senderId as? TdApi.MessageSenderUser)?.userId != message.chatId) return false
+        val link = waveLinkOf(message) ?: return false
+        val decoded = com.beykus.beygram.media.bgwave.BgWaveNative.decodeUri(link, message.date.toLong())
+        return com.beykus.beygram.media.bgwave.bgWaveCardStateFor(decoded) is com.beykus.beygram.media.bgwave.BgWaveCardState.Signal
+    }
+
     private fun preview(content: TdApi.MessageContent): UiText = when (content) {
         is TdApi.MessageText -> UiText.Raw(content.text.text.take(1000))
         is TdApi.MessagePhoto -> captioned(content.caption?.text, R.string.notif_preview_photo_caption, R.string.media_kind_photo)

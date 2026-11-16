@@ -1,11 +1,7 @@
 package com.beykus.beygram.playback
 
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.BatteryManager
-import com.beykus.beygram.data.media.AutoDownloadNetwork
-import com.beykus.beygram.data.media.currentAutoDownloadNetwork
+import android.os.PowerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,7 +12,7 @@ import java.io.File
 
 /**
  * Measures silence at the start and end of downloaded music in the background. Files are measured one at a time,
- * and only while the device is on Wi-Fi or charging. Secret, view-once and streamed media are never measured.
+ * and not while the battery saver is on. Measuring uses no network, because the file is already downloaded. Secret, view-once and streamed media are never measured.
  * Every file is measured once and then answered from [SilenceEdgeStore].
  */
 internal object SilenceAnalyzer {
@@ -39,7 +35,7 @@ internal object SilenceAnalyzer {
                     val key = cacheKey(item)
                     val length = file.length()
                     // Only the complete file: a partial download has fewer bytes than the message says it has.
-                    if (item.sizeBytes <= 0L || length != item.sizeBytes) continue
+                    if (!isCompleteCopy(item, length)) continue
                     if (SilenceEdgeStore.lookup(key, length) != null) continue
                     // A closed gate only postpones the work: the next queue change asks again.
                     if (!allowedInBackground(app)) return@launch
@@ -51,15 +47,26 @@ internal object SilenceAnalyzer {
         }
     }
 
-    /** Only complete music from a Telegram file with a stable id. Secret and view-once media are excluded. */
+    /**
+     * Only complete music with a stable identity: a Telegram file id, or a provider row key whose copy is written whole.
+     * Secret and view-once media are excluded.
+     */
     internal fun isMeasurable(item: PlaybackItem): Boolean =
         item.isMusic &&
             !item.systemPrivate &&
             item.growing == null &&
             item.path.isNotBlank() &&
-            item.fileId != null
+            (item.fileId != null || LazyTrackRegistry.isLazyKey(item.key))
 
-    internal fun cacheKey(item: PlaybackItem): String = "${item.accountId}:${item.fileId}"
+    internal fun cacheKey(item: PlaybackItem): String =
+        if (item.fileId == null) item.key else "${item.accountId}:${item.fileId}"
+
+    /**
+     * A Telegram file is complete when its size matches the message. A provider copy is downloaded under its final name
+     * only after the last byte, so any non-empty copy is complete.
+     */
+    private fun isCompleteCopy(item: PlaybackItem, length: Long): Boolean =
+        if (item.fileId == null) length > 0L else item.sizeBytes > 0L && length == item.sizeBytes
 
     /**
      * The stored measurement of a complete file. Null when the item is not measurable, the file is partial or changed,
@@ -67,23 +74,30 @@ internal object SilenceAnalyzer {
      */
     fun cachedEdges(item: PlaybackItem): SilenceEdges? {
         if (!isMeasurable(item)) return null
-        val length = File(item.path).length()
-        if (item.sizeBytes <= 0L || length != item.sizeBytes) return null
+        val length = completeFileLength(item) ?: return null
         return SilenceEdgeStore.lookup(cacheKey(item), length)
     }
 
-    /** Wi-Fi or charging. A signal that cannot be read counts as absent. */
-    internal fun allowedInBackground(context: Context): Boolean {
-        val network = runCatching { currentAutoDownloadNetwork(context) }.getOrDefault(AutoDownloadNetwork.None)
-        if (network == AutoDownloadNetwork.Wifi || network == AutoDownloadNetwork.WifiMetered) return true
-        return isCharging(context)
+    /** Lengths of files that are known to be complete. A finished file never changes, so the disk is asked once. */
+    private val completeLengths = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun completeFileLength(item: PlaybackItem): Long? {
+        if (item.fileId == null) return File(item.path).length().takeIf { it > 0L }
+        if (item.sizeBytes <= 0L) return null
+        completeLengths[item.path]?.let { return it.takeIf { length -> length == item.sizeBytes } }
+        val length = File(item.path).length()
+        if (length != item.sizeBytes) return null
+        if (completeLengths.size >= MAX_CACHED_LENGTHS) completeLengths.clear()
+        completeLengths[item.path] = length
+        return length
     }
 
-    private fun isCharging(context: Context): Boolean {
-        val status = runCatching {
-            context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-                ?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-        }.getOrNull() ?: -1
-        return status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
-    }
+    private const val MAX_CACHED_LENGTHS = 512
+
+    /**
+     * Measuring decodes a few seconds of a file that is already on the device and uses no network, so it only yields
+     * to the battery saver. A signal that cannot be read counts as allowed.
+     */
+    internal fun allowedInBackground(context: Context): Boolean =
+        !runCatching { context.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true }.getOrDefault(false)
 }

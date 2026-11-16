@@ -45,7 +45,7 @@ import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.MessageContext
 import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.MessageThreadPage
-import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.MessageLimits
 import com.beykus.beygram.domain.model.SpeechRecognitionTrial
@@ -68,6 +68,7 @@ import com.beykus.beygram.domain.model.BotWebAppSource
 import com.beykus.beygram.domain.model.BotWebAppTheme
 import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.MusicBotTrack
+import com.beykus.beygram.domain.model.SavedMusicBotTrack
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.StickerItem
 import com.beykus.beygram.domain.model.StickerSearchPage
@@ -394,6 +395,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun inlineBotQuery(chatId: Long, username: String, query: String, offset: String): Result<InlineBotResults?> = unavailable()
     override suspend fun musicBotSearch(query: String, offset: String, contextChatId: Long): Result<InlineBotResults?> = unavailable()
     override suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> = unavailable()
+    override suspend fun saveMusicBotTrack(queryId: Long, resultId: String): Result<SavedMusicBotTrack?> = unavailable()
     override suspend fun sendInlineBotResult(
         chatId: Long,
         queryId: Long,
@@ -432,7 +434,6 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> = noHistory
     override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {}
     override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {}
-    override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> = unavailable()
     override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = unavailable()
     override suspend fun linkedDiscussionChatId(chatId: Long): Result<Long> = unavailable()
     override suspend fun loadMessageThread(chatId: Long, messageId: Long): Result<MessageThread> = unavailable()
@@ -448,7 +449,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun sendScheduledNow(chatId: Long, messageId: Long): Result<Unit> = unavailable()
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = unavailable()
 
-    override suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit): Result<List<ForumTopic>?> = unavailable()
+    override suspend fun forumTopicsPage(chatId: Long, query: String, onPage: (ForumTopicsPage) -> Unit): Result<ForumTopicsPage?> = unavailable()
     override suspend fun canCreateForumTopic(chatId: Long): Result<Boolean> = unavailable()
     override suspend fun createForumTopic(chatId: Long, name: String): Result<Long> = unavailable()
     override suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit> = unavailable()
@@ -516,6 +517,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?> = MutableStateFlow<MessageEffect?>(null).asStateFlow()
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> = unavailable()
     override suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> = unavailable()
+    override suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>> = unavailable()
     override fun loadLatestMessages(chatId: Long) {}
     override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> = unavailable()
     override suspend fun searchMessages(chatId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter): Result<MessageSearchPage> = unavailable()

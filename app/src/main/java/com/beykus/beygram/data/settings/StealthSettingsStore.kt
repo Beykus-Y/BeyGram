@@ -39,7 +39,7 @@ data class StealthSettings(
     val scheduledSendDelay: Int?
         get() = if (failClosed || serverScheduledSend) scheduledSendDelaySeconds else null
 
-    /** True when the stealth lead is long enough for Telegram's scheduled queue; a shorter one is only waited out locally. */
+    /** True when the stealth lead is valid for Telegram scheduling. Legacy short values are refused at dispatch. */
     val schedulesOnServer: Boolean
         get() = scheduledSendDelay?.let(::stealthDelayUsesServer) == true
 
@@ -73,15 +73,12 @@ data class StealthSettings(
  */
 val StealthScheduleDelayChoices: List<Int> = listOf(15, 30, 60, 120)
 
-/** The leads «Своё время» accepts, from one second to one hour. */
-val StealthScheduleDelayRange: IntRange = 1..3600
-
-/**
- * The shortest lead sent to Telegram's scheduled queue. TDLib sends a date at or before now+10 seconds at once, and the
- * extra 5 seconds cover a slow request, as for the presets. A shorter lead is waited out by the app, and the message then
- * goes out as an ordinary send that can show the account online.
- */
+/** The shortest lead allowed for stealth scheduling; shorter legacy values must never send normally. */
 const val STEALTH_SERVER_SCHEDULE_MIN_SECONDS = 15
+
+/** New selections must be valid server delays; preserve old stored short values for an explicit user decision. */
+val StealthScheduleDelayRange: IntRange = STEALTH_SERVER_SCHEDULE_MIN_SECONDS..3600
+private val LegacyStealthScheduleDelayRange = 1..3600
 
 fun stealthDelayUsesServer(seconds: Int): Boolean = seconds >= STEALTH_SERVER_SCHEDULE_MIN_SECONDS
 
@@ -156,7 +153,7 @@ class StealthSettingsStore internal constructor(private val storage: StealthStor
         val (saved, changed) = synchronized(this) {
             val previous = _state.value
             // A valid write clears failClosed: the stored values are trusted again once they are rewritten.
-            val candidate = transform(previous).copy(failClosed = false).normalized()
+            val candidate = transform(previous).copy(failClosed = false).normalized(previous)
             val written = storage.replace(candidate.toStoredValues())
             val next = if (written || isAtLeastAsStrict(candidate, previous)) candidate else previous
             _state.value = next
@@ -254,7 +251,7 @@ private fun parse(stored: Map<String, *>): StealthSettings {
         warnRiskyActions = stored.flag(KEY_WARN_RISKY_ACTIONS),
         serverScheduledSend = if (version == CURRENT_VERSION) stored.flag(KEY_SCHEDULED_SEND) else false,
         scheduledSendDelaySeconds = if (version == CURRENT_VERSION) {
-            (stored[KEY_SCHEDULED_SEND_DELAY] as Int).also { check(it in StealthScheduleDelayRange) { "Unknown scheduled send delay" } }
+            (stored[KEY_SCHEDULED_SEND_DELAY] as Int).also { check(it in LegacyStealthScheduleDelayRange) { "Unknown scheduled send delay" } }
         } else {
             DEFAULT_STEALTH_SCHEDULE_DELAY_SECONDS
         },
@@ -288,10 +285,14 @@ private fun StealthSettings.toStoredValues(): Map<String, Any> {
     return values
 }
 
-/** Inherit means "no exception", so it is never stored or compared. A lead outside the accepted range is clamped into it. */
-private fun StealthSettings.normalized(): StealthSettings = copy(
+/** Keep an unchanged legacy short delay visible and blocked; new values cannot create another short delay. */
+private fun StealthSettings.normalized(previous: StealthSettings): StealthSettings = copy(
     chats = chats.filterValues { it != ChatStealthMode.Inherit },
-    scheduledSendDelaySeconds = scheduledSendDelaySeconds.coerceIn(StealthScheduleDelayRange)
+    scheduledSendDelaySeconds = if (scheduledSendDelaySeconds == previous.scheduledSendDelaySeconds) {
+        scheduledSendDelaySeconds
+    } else {
+        scheduledSendDelaySeconds.coerceIn(StealthScheduleDelayRange)
+    }
 )
 
 /**

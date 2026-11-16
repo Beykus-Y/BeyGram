@@ -11,7 +11,7 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.*
 import com.beykus.beygram.ui.components.Button
-import com.beykus.beygram.ui.components.TextButton
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -111,29 +111,29 @@ internal fun SecondaryProxySettingsScreen(
         }
     }
     desiredRoute?.let { preference ->
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (!changing) desiredRoute = null },
-            title = { Text(stringResource(R.string.multi_proxy_confirm_title)) },
-            text = { Text(stringResource(R.string.multi_proxy_confirm_note)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    desiredRoute = null
-                    changing = true
-                    changeFailed = false
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                controller.reconnectWithRoute(accountId, preference)
-                            }
-                        } catch (_: Exception) {
-                            changeFailed = true
-                        } finally { changing = false }
-                    }
-                }, enabled = !changing) { Text(stringResource(R.string.multi_proxy_reconnect)) }
+            title = stringResource(R.string.multi_proxy_confirm_title),
+            message = stringResource(R.string.multi_proxy_confirm_note),
+            confirmText = stringResource(R.string.multi_proxy_reconnect),
+            onConfirm = {
+                desiredRoute = null
+                changing = true
+                changeFailed = false
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            controller.reconnectWithRoute(accountId, preference)
+                        }
+                    } catch (_: Exception) {
+                        changeFailed = true
+                    } finally { changing = false }
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { desiredRoute = null }, enabled = !changing) { Text(stringResource(R.string.multi_account_cancel)) }
-            }
+            confirmEnabled = !changing,
+            dismissText = stringResource(R.string.multi_account_cancel),
+            onDismiss = { desiredRoute = null },
+            dismissEnabled = !changing
         )
     }
 }

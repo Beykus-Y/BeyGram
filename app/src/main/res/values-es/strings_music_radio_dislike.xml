@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="music_radio_dislike">No me gusta</string>
+    <string name="music_radio_disliked">Pista saltada, la radio no la repetirá</string>
+    <string name="music_radio_dislike_undo">Deshacer</string>
+</resources>

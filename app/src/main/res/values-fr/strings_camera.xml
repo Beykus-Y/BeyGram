@@ -157,4 +157,5 @@
     <string name="composer_quality_short_balanced_audio">96 kbit/s</string>
     <string name="composer_attachments_clear_action">Supprimer toutes les pièces jointes</string>
     <string name="composer_menu_chat_unavailable">Envoyez ou retirez d’abord les pièces jointes préparées.</string>
+    <string name="composer_quality_all_title">Qualité pour tous</string>
 </resources>

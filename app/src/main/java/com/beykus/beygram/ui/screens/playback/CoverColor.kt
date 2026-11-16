@@ -3,7 +3,8 @@ package com.beykus.beygram.ui.screens.playback
 import android.graphics.Bitmap
 import android.util.LruCache
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -147,10 +148,10 @@ internal fun rememberCoverTokens(
             CoverSurface(surfaceBase, tokens.text, tokens.muted)
         }
     }
-    val reduced = systemReducedMotion()
+    val mediaMotion = rememberMotionSpec(MotionToken.MediaExpand)
     val surface by animateColorAsState(
         targetValue = target.surface,
-        animationSpec = tween(durationMillis = if (reduced) 0 else ARTWORK_FADE_MS),
+        animationSpec = mediaMotion.animationSpec(),
         label = "coverSurface"
     )
     return remember(tokens, surface, target.text, target.muted) {

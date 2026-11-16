@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.components
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
@@ -28,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -47,15 +50,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
@@ -63,6 +69,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -76,32 +83,46 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.navigation.TabVisibility
+import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.ui.design.DesignSystem
 import com.beykus.beygram.ui.design.GlassPanel
 import com.beykus.beygram.ui.design.LocalGlassBackdrop
 import com.beykus.beygram.ui.design.glassBackdropSource
+import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.glassHighlight
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.NavigationVariant
+import com.beykus.beygram.ui.motion.MotionSpec
+import com.beykus.beygram.ui.motion.NavigationMove
+import com.beykus.beygram.ui.motion.rememberRouteTransitionSpec
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 
 private val TabPillWidth = 56.dp
 private val TabPillHeight = 32.dp
+internal const val MainTabSelectionIndicatorTag = "MainTabSelectionIndicator"
+internal const val MainTabDockTag = "MainTabDock"
 
 /**
- * Where the bottom bar's selection indicator is, in dp. It is provided above the route content: the bar is rebuilt on
- * every tab change, but this holder outlives it, so the indicator keeps gliding from the old tab to the new one.
+ * Where a bottom bar's selection indicator is, in dp. The shared main-tab host retains the same bar and
+ * indicator across root navigation, so a fast switch retargets the current animation instead of resetting it.
  */
-internal class MainTabIndicator {
-    val x = Animatable(0f)
-    var placed = false
+internal class MainTabIndicator(startX: Float? = null) {
+    val x = Animatable(startX ?: 0f)
+    var placed by mutableStateOf(startX != null)
 }
 
-internal val LocalMainTabIndicator = staticCompositionLocalOf { MainTabIndicator() }
+internal val LocalMainTabIndicator = staticCompositionLocalOf<MainTabIndicator?> { null }
+
+/**
+ * The tab a tab switch comes from while the new root slides in, null otherwise and with motion off. A bar or item that
+ * is composed by the switch starts its selection on this tab and travels to its own tab on the same curve as the slide,
+ * instead of appearing already selected. Only the first composition reads it.
+ */
+internal val LocalMainTabTransitionOrigin = staticCompositionLocalOf<MainTab?> { null }
 
 /** Подпись раздела в навигации: нижнем меню телефона или рейке широкого экрана. */
 internal val MainTab.title: String
@@ -267,7 +288,13 @@ internal fun MainTabItem(
     pillHeight: Dp = TabPillHeight,
     iconSize: Dp = 24.dp,
     interactive: Boolean = true,
-    selectionPill: Boolean = true
+    selectionPill: Boolean = true,
+    /** The slim rail of a short window shows icons only; the TalkBack name stays the tab title. */
+    showLabel: Boolean = true,
+    /** Overrides the style's pill width where the container is narrower than the bar's pill (slim rail). */
+    pillWidthOverride: Dp? = null,
+    /** The rail stands the Signature mark upright at the leading edge (3 x 20 dp) so it never touches the icon. */
+    verticalMark: Boolean = false
 ) {
     val design = LocalDesignSystem.current
     val spec = remember(design) { navigationSpecFor(design) }
@@ -281,12 +308,29 @@ internal fun MainTabItem(
         animationSpec = pressSpec.animationSpec(),
         label = "mainTabPress"
     )
-    val tint = when {
-        !selected -> palette.textSecondary
-        spec.selectedInk -> palette.textPrimary
-        else -> palette.accentInk
+    // On glass the inactive ink is the primary colour at reduced alpha: it stays readable over bright backdrops.
+    val inactiveTint = if (design.style == DesignStyle.LiquidGlass) palette.textPrimary.copy(alpha = 0.72f) else palette.textSecondary
+    val activeTint = if (spec.selectedInk) palette.textPrimary else palette.accentInk
+    val activeLabelTint = if (spec.selectedLabelOnSurface) palette.textPrimary else activeTint
+    // Selection runs 0 -> 1 on the TabSelect curve, the same one as the shared indicator, so the icon and label change
+    // together with the pill. A bar that a tab switch has just composed starts from the tab it came from, so its colours
+    // travel with the screen. Selection semantics stay immediate (see `selectable`).
+    val handoffOrigin = LocalMainTabTransitionOrigin.current
+    val selection = remember {
+        Animatable(
+            if (handoffOrigin != null) {
+                if (tab == handoffOrigin) 1f else 0f
+            } else {
+                if (selected) 1f else 0f
+            }
+        )
     }
-    val labelTint = if (selected && spec.selectedLabelOnSurface) palette.textPrimary else tint
+    val selectionSpec = rememberMotionSpec(MotionToken.TabSelect)
+    LaunchedEffect(selected, selectionSpec) {
+        selection.animateTo(if (selected) 1f else 0f, selectionSpec.animationSpec())
+    }
+    val tint = lerp(inactiveTint, activeTint, selection.value)
+    val labelTint = lerp(inactiveTint, activeLabelTint, selection.value)
     val itemModifier = if (interactive) {
         modifier.selectable(
             selected = selected,
@@ -305,16 +349,19 @@ internal fun MainTabItem(
             this.selected = selected
         }
     }
+    val tabTitle = tab.title
     val resolvedIconSize = if (iconSize == 24.dp) spec.iconSize else iconSize
     val resolvedPillHeight = if (pillHeight == TabPillHeight) spec.pillHeight else pillHeight
     val indicatorShape = RoundedCornerShape(spec.pillRadius)
     Column(
-        modifier = itemModifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
+        modifier = itemModifier
+            .then(if (showLabel) Modifier else Modifier.semantics { contentDescription = tabTitle })
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .width(spec.pillWidth)
+                .width(pillWidthOverride ?: spec.pillWidth)
                 .height(resolvedPillHeight)
                 .graphicsLayer {
                     val scale = tabPressScale(pressProgress)
@@ -328,8 +375,8 @@ internal fun MainTabItem(
                     .matchParentSize()
                     .clip(indicatorShape)
                     .background(
-                        if (selected && selectionPill && spec.showSelectionPill && !spec.indicatorMark) {
-                            palette.accentSoft.copy(alpha = palette.accentSoft.alpha * spec.indicatorAlpha)
+                        if (selectionPill && spec.showSelectionPill && !spec.indicatorMark) {
+                            palette.accentSoft.copy(alpha = palette.accentSoft.alpha * spec.indicatorAlpha * selection.value)
                         } else {
                             Color.Transparent
                         }
@@ -345,13 +392,23 @@ internal fun MainTabItem(
                 )
             }
             Icon(tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(resolvedIconSize))
-            if (selected && selectionPill && spec.indicatorMark) {
+            if (selectionPill && spec.indicatorMark && (selected || selection.value > 0f)) {
                 // A standalone item (the settings preview, the rail) has no shared indicator and no bar padding above
                 // it, so it draws its own mark inside the icon box, where no parent can clip it.
-                SelectionMark(spec, palette.textPrimary, Modifier.align(Alignment.TopCenter))
+                val markColor = palette.textPrimary.copy(alpha = selection.value)
+                if (verticalMark) {
+                    Box(
+                        Modifier.align(Alignment.CenterStart)
+                            .size(width = spec.markHeight, height = spec.markWidth)
+                            .clip(RoundedCornerShape(spec.markHeight / 2))
+                            .background(markColor)
+                    )
+                } else {
+                    SelectionMark(spec, markColor, Modifier.align(Alignment.TopCenter))
+                }
             }
         }
-        if (spec.showLabels) {
+        if (spec.showLabels && showLabel) {
             Spacer(Modifier.height(4.dp))
             Text(
                 text = tab.title,
@@ -377,7 +434,9 @@ internal fun tabLabelSize(nominal: TextUnit, fontScale: Float): TextUnit =
     if (fontScale > MaxTabLabelFontScale) nominal * (MaxTabLabelFontScale / fontScale) else nominal
 
 /** How far above the icon box the Signature mark sits, so it reads as a tab marker near the top edge of the bar. */
-private fun markLift(spec: NavigationSpec): Dp = (spec.barTopPadding - 4.dp).coerceAtLeast(0.dp)
+private fun markLift(spec: NavigationSpec): Dp =
+    // In a floating capsule the mark would sit 3-4px from the outline and merge with it, so it stays 3dp lower there.
+    (spec.barTopPadding - 4.dp - if (spec.floating) 3.dp else 0.dp).coerceAtLeast(0.dp)
 
 /** The Signature selection mark: a short rounded ink bar. */
 @Composable
@@ -428,7 +487,7 @@ internal fun MainTabBar(
     // A floating glass capsule keeps the system navigation inset outside its surface: the inset is air under the
     // capsule, not extra height inside it. Other floating styles and a pinned bar keep the inset inside, as before.
     val insetOutside = floating && glass != null
-    val outer = modifier.fillMaxWidth().then(
+    val outer = modifier.testTag(MainTabDockTag).fillMaxWidth().then(
         if (floating) {
             Modifier.then(if (insetOutside) Modifier.navigationBarsPadding() else Modifier).padding(
                 start = spec.horizontalMargin,
@@ -488,7 +547,9 @@ internal fun MainTabBar(
                 Box(Modifier.matchParentSize().glassHighlight(glass.highlightAlpha * 0.6f))
             }
             content()
-            if (spec.hairline) {
+            if (spec.hairline || spec.divider) {
+                // One full-width line on the very edge of the bar; inside the padded content it came up short of the
+                // screen edges and hung below the bar's shadow.
                 Box(Modifier.fillMaxWidth().height(1.dp).background(palette.divider))
             }
             if (glass != null) {
@@ -516,20 +577,29 @@ private fun NavigationBarContent(
         val tabWidth = availableWidth / tabs.size.coerceAtLeast(1)
         val selectedIndex = tabs.indexOf(selected)
         val targetX = tabWidth * selectedIndex.coerceAtLeast(0) + (tabWidth - spec.pillWidth) / 2
-        // The indicator is owned above the route content, so a tab change moves it rather than starting a new one.
-        val indicator = LocalMainTabIndicator.current
-        LaunchedEffect(targetX.value, indicatorSpec) {
+        // A tab switch hands over the tab it came from: this bar's pill starts there and rides to its own tab with the
+        // screen, instead of appearing on the new tab at once.
+        val originIndex = LocalMainTabTransitionOrigin.current?.let { tabs.indexOf(it) } ?: -1
+        val originX = if (originIndex >= 0 && selectedIndex >= 0 && originIndex != selectedIndex) {
+            (tabWidth * originIndex + (tabWidth - spec.pillWidth) / 2).value
+        } else {
+            null
+        }
+        // Each bar keeps its own indicator unless a host explicitly scopes one for in-place tab changes.
+        val indicator = LocalMainTabIndicator.current ?: remember { MainTabIndicator(originX) }
+        LaunchedEffect(selectedIndex, targetX.value, spec.showSelectionPill, indicatorSpec) {
             if (selectedIndex < 0) return@LaunchedEffect
             if (!spec.showSelectionPill) return@LaunchedEffect
             if (indicator.placed) {
-                indicator.x.animateTo(targetX.value, indicatorSpec.animationSpec())
+                // A reversal starts at the current position, without carrying momentum toward the old tab.
+                indicator.x.animateTo(targetX.value, indicatorSpec.animationSpec(), initialVelocity = 0f)
             } else {
                 indicator.x.snapTo(targetX.value)
                 indicator.placed = true
             }
         }
+        val indicatorX = if (indicator.placed) indicator.x.value.dp else targetX
         Column {
-            if (spec.divider) HorizontalDivider(color = palette.divider)
             // The indicator and the row share one Box, so the indicator sits behind the icons and never adds height.
             Box(Modifier.fillMaxWidth()) {
                 if (selectedIndex >= 0 && spec.showSelectionPill && spec.indicatorMark) {
@@ -538,17 +608,18 @@ private fun NavigationBarContent(
                         spec,
                         palette.textPrimary,
                         Modifier.offset(
-                            x = indicator.x.value.dp + (spec.pillWidth - spec.markWidth) / 2,
+                            x = indicatorX + (spec.pillWidth - spec.markWidth) / 2,
                             y = -markLift(spec)
-                        )
+                        ).testTag(MainTabSelectionIndicatorTag)
                     )
                 } else if (selectedIndex >= 0 && spec.showSelectionPill) {
                     Box(
                         Modifier
-                            .offset(x = indicator.x.value.dp)
+                            .offset(x = indicatorX)
                             .size(width = spec.pillWidth, height = spec.pillHeight)
                             .clip(RoundedCornerShape(spec.pillRadius))
                             .background(palette.accentSoft.copy(alpha = palette.accentSoft.alpha * spec.indicatorAlpha))
+                            .testTag(MainTabSelectionIndicatorTag)
                     )
                 }
                 Row(
@@ -558,17 +629,36 @@ private fun NavigationBarContent(
                         .selectableGroup()
                 ) {
                     tabs.forEach { tab ->
-                        MainTabItem(
-                            tab = tab,
-                            selected = tab == selected,
-                            onSelect = { onSelect(tab) },
-                            modifier = Modifier.weight(1f),
-                            selectionPill = false
-                        )
+                        key(tab) {
+                            MainTabItem(
+                                tab = tab,
+                                selected = tab == selected,
+                                onSelect = { onSelect(tab) },
+                                modifier = Modifier.weight(1f),
+                                selectionPill = false
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Calls, Contacts and Settings are lists of rows: stretched over a tablet window they become lines a metre long. The column
+ * is held to [MaxSectionContentWidth] and centred; a phone is narrower than the cap and sees no change.
+ */
+internal val MaxSectionContentWidth = 640.dp
+
+@Composable
+private fun ContentWidthCap(enabled: Boolean, content: @Composable () -> Unit) {
+    if (!enabled) {
+        content()
+        return
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.fillMaxHeight().widthIn(max = MaxSectionContentWidth).fillMaxWidth()) { content() }
     }
 }
 
@@ -592,6 +682,70 @@ internal fun MainTabsScaffold(
     contentUnderDock: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    MainTabsChrome(selected, visibility, onSelect, contentUnderDock) {
+        ContentWidthCap(selected != MainTab.Chats) {
+            stateHolder.SaveableStateProvider(key) { content() }
+        }
+    }
+}
+
+/** Persistent chrome with one animated viewport. Per-page state is scoped inside the viewport, not the dock. */
+@Composable
+internal fun MainTabsHost(
+    accountId: String,
+    selected: MainTab,
+    visibility: TabVisibility,
+    onSelect: (MainTab) -> Unit,
+    stateHolder: SaveableStateHolder,
+    tabMotion: MotionSpec,
+    tabDirection: Int,
+    player: @Composable (Boolean, Boolean) -> Unit = { floatingDock, railCover ->
+        NowPlayingBar(hideWhenImeVisible = true, floatingDock = floatingDock, railCover = railCover)
+    },
+    content: @Composable (MainTab) -> Unit
+) {
+    val transitionSpec = rememberRouteTransitionSpec<MainTab>(
+        move = NavigationMove.Tab,
+        push = tabMotion,
+        pop = tabMotion,
+        tab = tabMotion,
+        tabDirection = tabDirection
+    )
+    // The persistent bar already has a live selection; the old incoming-bar handoff is only for separate slots.
+    CompositionLocalProvider(LocalMainTabTransitionOrigin provides null) {
+        // Only this route host owns the opaque screen background. The legacy list-pane scaffold
+        // must remain transparent (its rows and parent choose their own surfaces).
+        Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
+        MainTabsChrome(selected, visibility, onSelect, contentUnderDock = true, player = player) {
+            AnimatedContent(
+                targetState = selected,
+                modifier = Modifier.fillMaxSize().clipToBounds(),
+                transitionSpec = transitionSpec,
+                label = "mainTabPageTransition"
+            ) { page ->
+                Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
+                    ContentWidthCap(page != MainTab.Chats) {
+                        stateHolder.SaveableStateProvider("$accountId:${page.route.name}") { content(page) }
+                    }
+                }
+            }
+        }
+        }
+    }
+}
+
+/** Layout shared by the persistent tab host and individual wide/list-pane scaffolds. */
+@Composable
+private fun MainTabsChrome(
+    selected: MainTab?,
+    visibility: TabVisibility,
+    onSelect: (MainTab) -> Unit,
+    contentUnderDock: Boolean,
+    player: @Composable (Boolean, Boolean) -> Unit = { floatingDock, railCover ->
+        NowPlayingBar(hideWhenImeVisible = true, floatingDock = floatingDock, railCover = railCover)
+    },
+    content: @Composable () -> Unit
+) {
     val tabs = MainTab.entries.filter { visibility.isVisible(it) }
     val design = LocalDesignSystem.current
     val spec = remember(design) { navigationSpecFor(design) }
@@ -601,8 +755,16 @@ internal fun MainTabsScaffold(
     // Reset with the design: a bar measured in another placement or style must not reserve space for the old one.
     var measuredBarHeight by remember(design) { mutableStateOf(0.dp) }
     val density = LocalDensity.current
+    // The keyboard covers the dock, and screens with a field (Contacts search) pad themselves by the keyboard height.
+    // Drawing the dock anyway shows it for a frame above the keyboard while it opens and doubles the bottom space, so
+    // the dock and the reserve for it step aside while the keyboard is up.
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val isRail = usesMainNavigationRail(maxWidth.value)
+        // The class is read from this scaffold's own box: inside the list pane of a split layout it is a phone-width
+        // box (bottom bar), and across a whole short window it is the slim rail.
+        val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)
+        val isRail = windowLayout.usesRail
+        val slimRail = windowLayout.navigation == WindowNavigation.SlimRail
         // One description of the navigation for every screen below, so the create button and the mini-player can line up
         // with the dock instead of repeating its numbers.
         val dock = NavigationDockGeometry(
@@ -615,8 +777,14 @@ internal fun MainTabsScaffold(
         // phone dock would move the sections away from the leading edge and lose the space the rail exists for.
         if (isRail) {
             Row(Modifier.fillMaxSize()) {
-                MainTabRail(tabs = tabs, selected = selected, onSelect = onSelect)
-                Column(
+                MainTabRail(
+                    tabs = tabs,
+                    selected = selected,
+                    onSelect = onSelect,
+                    slim = slimRail,
+                    bottomContent = if (slimRail) { { player(false, true) } } else null
+                )
+                    Column(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -628,10 +796,10 @@ internal fun MainTabsScaffold(
                 ) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         CompositionLocalProvider(LocalNavigationDock provides dock) {
-                            stateHolder.SaveableStateProvider(key) { content() }
+                            content()
                         }
                     }
-                    NowPlayingBar(hideWhenImeVisible = true)
+                    if (!slimRail) player(false, false)
                 }
             }
         } else if (floating) {
@@ -640,23 +808,21 @@ internal fun MainTabsScaffold(
             // measured as one block; a screen that draws under the dock pads its list by that height, every other
             // screen simply ends above it.
             val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            val backdrop = LocalGlassBackdrop.current
-            // Only the content is recorded. The bar sits outside this subtree, so the panel never samples a layer
-            // that is being written in the same pass - that self-reference is a native crash in the render thread.
+            // Record the complete clipped content viewport, including both animated pages, into one layer per host.
+            // Neither page writes into the dock's backdrop independently. The bar and player sit outside this subtree,
+            // so the panel never samples a layer that is being written in the same pass (native render-thread crash).
             // Nothing is recorded unless the dock really blurs it: Balanced, Lite and old Android pay nothing.
-            val recordContent = if (design.recordsGlassBackdrop && backdrop != null) {
-                Modifier.glassBackdropSource(backdrop)
-            } else {
-                Modifier
-            }
+            val backdrop = if (design.recordsGlassBackdrop) rememberGlassBackdrop() else null
+            val recordContent = if (backdrop != null) Modifier.glassBackdropSource(backdrop) else Modifier
             // Only the glass dock blurs what is under it, so only there does the list run beneath the capsule.
             val underDock = contentUnderDock && design.usesGlassPanels
             var overlayHeight by remember(design) { mutableStateOf(0.dp) }
             // Until the overlay has measured itself the token is a safe approximation; afterwards the real height is
             // used, so a large font or a 3-button navigation inset cannot put a row under the dock. The measured
             // overlay already holds the gap above the capsule (the mini-player slot's bottom padding).
-            val reserve = overlayHeight.takeIf { it > 0.dp }
+            val measuredReserve = overlayHeight.takeIf { it > 0.dp }
                 ?: (design.spacing.navigationHeight + navigationBarInset + spec.bottomMargin + DefaultNavigationDockGap)
+            val reserve = if (imeVisible) 0.dp else measuredReserve
             Box(Modifier.fillMaxSize()) {
                 Box(
                     Modifier.fillMaxSize()
@@ -665,23 +831,25 @@ internal fun MainTabsScaffold(
                 ) {
                     val screenDock = if (underDock) dock.copy(contentInset = reserve) else dock
                     CompositionLocalProvider(LocalNavigationDock provides screenDock) {
-                        stateHolder.SaveableStateProvider(key) { content() }
+                        content()
                     }
                 }
-                Column(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .onSizeChanged { overlayHeight = with(density) { it.height.toDp() } }
-                ) {
-                    // The mini-player floats with the dock and keeps the same gap above the capsule the list gets.
-                    Box(Modifier.padding(bottom = DefaultNavigationDockGap)) {
-                        NowPlayingBar(hideWhenImeVisible = true, floatingDock = true)
+                if (!imeVisible) CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
+                    Column(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                            .onSizeChanged { overlayHeight = with(density) { it.height.toDp() } }
+                    ) {
+                        // The mini-player floats with the dock and keeps the same gap above the capsule the list gets.
+                        Box(Modifier.padding(bottom = DefaultNavigationDockGap)) {
+                            player(true, false)
+                        }
+                        MainTabBar(
+                            tabs = tabs,
+                            selected = selected,
+                            onSelect = onSelect,
+                            onPanelHeightChange = { measuredBarHeight = it }
+                        )
                     }
-                    MainTabBar(
-                        tabs = tabs,
-                        selected = selected,
-                        onSelect = onSelect,
-                        onPanelHeightChange = { measuredBarHeight = it }
-                    )
                 }
             }
         } else {
@@ -690,11 +858,11 @@ internal fun MainTabsScaffold(
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     CompositionLocalProvider(LocalNavigationDock provides dock) {
-                        stateHolder.SaveableStateProvider(key) { content() }
+                        content()
                     }
                 }
-                NowPlayingBar(hideWhenImeVisible = true)
-                MainTabBar(tabs = tabs, selected = selected, onSelect = onSelect)
+                player(false, false)
+                if (!imeVisible) MainTabBar(tabs = tabs, selected = selected, onSelect = onSelect)
             }
         }
     }

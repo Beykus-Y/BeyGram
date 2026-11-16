@@ -12,8 +12,8 @@ set(BGMEDIA_BUILD_MINIAUDIO ON CACHE BOOL "" FORCE)
 set(BGMEDIA_BUILD_DESKTOP OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
-# Pinned commit of BG Media main (BG Mix 0.3 MixSession + BG Beat). Bump deliberately.
-set(BGMEDIA_PINNED_COMMIT "73507c8d7b216da423f0bab26f0a3fca413b265d")
+# Pinned commit of BG Media dev (fallback when the submodule is absent). Keep equal to the third_party/bg-media pointer.
+set(BGMEDIA_PINNED_COMMIT "74d309d9bd7aa09b7343b3ecd7bfa0df783adfdf")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media/CMakeLists.txt")
     set(BGMEDIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media")
@@ -55,13 +55,52 @@ endif()
 add_library(bgbeat_jni SHARED
     bgbeat_jni.cpp
     bgmix_jni.cpp
+    bgwave_jni.cpp
+    bgwave_session_jni.cpp
+    bgmotion_jni.cpp
+    bg_analysis_registry.cpp
 )
 
 target_compile_features(bgbeat_jni PRIVATE cxx_std_20)
 target_compile_options(bgbeat_jni PRIVATE -fexceptions -frtti -Wall -Wextra)
 
 if(HAVE_BGMEDIA)
-    if(NOT TARGET bgmedia_core)
+    # BG Wave peer-to-peer adapters (libopus + libdatachannel).
+    option(BEYGRAM_WAVE_P2P "Build the BG Wave Opus and WebRTC adapters" ON)
+if(BEYGRAM_WAVE_P2P)
+    # libdatachannel pulls in plog, whose cmake_minimum_required(VERSION < 3.5) the NDK CMake rejects.
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+    set(BGMEDIA_BUILD_WAVE_OPUS ON CACHE BOOL "" FORCE)
+    set(BGMEDIA_BUILD_WAVE_WEBRTC ON CACHE BOOL "" FORCE)
+
+    # OpenSSL for libsrtp/libdatachannel (BG-Media BG_WAVE.md: OpenSSL on Android). Built once per ABI;
+    # BEYGRAM_OPENSSL_CACHE, when set, is a directory CI can cache between runs.
+    if(CMAKE_ANDROID_ARCH_ABI AND CMAKE_ANDROID_NDK)
+        if(DEFINED ENV{BEYGRAM_OPENSSL_CACHE} AND NOT "$ENV{BEYGRAM_OPENSSL_CACHE}" STREQUAL "")
+            set(BEYGRAM_OPENSSL_PREFIX "$ENV{BEYGRAM_OPENSSL_CACHE}/${CMAKE_ANDROID_ARCH_ABI}")
+        else()
+            set(BEYGRAM_OPENSSL_PREFIX "${CMAKE_BINARY_DIR}/openssl-${CMAKE_ANDROID_ARCH_ABI}")
+        endif()
+        execute_process(
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/../../../../scripts/build-openssl-android.sh"
+                    "${CMAKE_ANDROID_ARCH_ABI}" "${CMAKE_ANDROID_NDK}" "${BEYGRAM_OPENSSL_PREFIX}"
+            RESULT_VARIABLE beygram_openssl_rc
+            ERROR_VARIABLE beygram_openssl_err
+        )
+        if(NOT beygram_openssl_rc EQUAL 0)
+            message(FATAL_ERROR "OpenSSL for Android failed (${beygram_openssl_rc}): ${beygram_openssl_err}")
+        endif()
+        # Cache entries, not normal variables: libdatachannel calls find_package(OpenSSL) in its own
+        # subdirectory scope, where plain variables set here were not visible.
+        set(OPENSSL_ROOT_DIR "${BEYGRAM_OPENSSL_PREFIX}" CACHE PATH "" FORCE)
+        set(OPENSSL_USE_STATIC_LIBS TRUE CACHE BOOL "" FORCE)
+        set(OPENSSL_INCLUDE_DIR "${BEYGRAM_OPENSSL_PREFIX}/include" CACHE PATH "" FORCE)
+        set(OPENSSL_CRYPTO_LIBRARY "${BEYGRAM_OPENSSL_PREFIX}/lib/libcrypto.a" CACHE FILEPATH "" FORCE)
+        set(OPENSSL_SSL_LIBRARY "${BEYGRAM_OPENSSL_PREFIX}/lib/libssl.a" CACHE FILEPATH "" FORCE)
+    endif()
+endif()
+
+if(NOT TARGET bgmedia_core)
         # bgmedia_miniaudio keeps miniaudio device IO enabled: MiniaudioMixDevice.cpp needs ma_device,
         # which MA_NO_DEVICE_IO removes. bgbeat_jni.cpp still defines it for its own translation unit.
         add_subdirectory("${BGMEDIA_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/bgmedia" EXCLUDE_FROM_ALL)
@@ -73,13 +112,24 @@ if(HAVE_BGMEDIA)
         "${BGMEDIA_DIR}/third_party/miniaudio"
     )
 
+    # MusicalTimeline (timeline loudness and the analysed flag) lives in bgmedia_rig, not bgmedia_core.
     target_link_libraries(bgbeat_jni PRIVATE
         bgmedia_core
+        bgmedia_rig
         bgmedia_miniaudio
         android
         log
     )
     target_compile_definitions(bgbeat_jni PRIVATE HAVE_BGMEDIA=1 MA_NO_DEVICE_IO)
+    if(BEYGRAM_WAVE_P2P)
+        # Real P2P session layer: BG-Media pipeline + Opus + libdatachannel WebRTC.
+        target_compile_definitions(bgbeat_jni PRIVATE BGWAVE_P2P=1)
+        target_link_libraries(bgbeat_jni PRIVATE bgmedia_wave_opus bgmedia_wave_webrtc)
+        if(ANDROID)
+            # Keep static OpenSSL symbols private to libbgbeat_jni.so so they cannot collide with libtdjni.so.
+            target_link_options(bgbeat_jni PRIVATE "-Wl,--exclude-libs,libssl.a" "-Wl,--exclude-libs,libcrypto.a")
+        endif()
+    endif()
 else()
     target_link_libraries(bgbeat_jni PRIVATE
         android

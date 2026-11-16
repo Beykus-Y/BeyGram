@@ -304,12 +304,13 @@ internal class TdMediaMapper(
         return full?.let { MessageMedia(MediaKind.Photo, register(it.photo), preview?.photo?.let(::register), "", "image/jpeg", it.width, it.height, hasSpoiler = hasSpoiler, isSecret = isSecret, minithumbnail = photo.minithumbnail?.data) }
     }
 
-    /** Locked bundles keep TDLib's preview and price; a purchased bundle is mapped from its first real item. */
+    /** Locked bundles keep TDLib's preview and price; map every available item only after purchase. */
     private fun TdApi.MessagePaidMedia.toPaidMediaInfo(): MessagePaidMediaInfo {
         val items = this.media.orEmpty()
         // TDLib sends one kind for the whole bundle: previews until it is bought, then the purchased media.
         val locked = items.filterIsInstance<TdApi.PaidMediaPreview>().firstOrNull()
         val purchased = items.isNotEmpty() && locked == null
+        val purchasedItems = if (purchased) items.mapNotNull { it.toPurchasedMedia() } else emptyList()
         return MessagePaidMediaInfo(
             starCount = this.starCount,
             itemCount = items.size,
@@ -319,7 +320,8 @@ internal class TdMediaMapper(
             previewHeight = locked?.height ?: 0,
             previewDurationSeconds = locked?.duration ?: 0,
             blurredMinithumbnail = locked?.minithumbnail?.data,
-            firstPurchasedMedia = if (purchased) items.firstNotNullOfOrNull { it.toPurchasedMedia() } else null
+            firstPurchasedMedia = purchasedItems.firstOrNull(),
+            additionalPurchasedMedia = purchasedItems.drop(1)
         )
     }
 

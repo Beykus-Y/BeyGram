@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Devices
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.Icon
@@ -67,7 +69,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.MainTabHeader
 import com.beykus.beygram.ui.components.MainTabTitle
+import com.beykus.beygram.ui.components.LocalNavigationDock
+import com.beykus.beygram.ui.components.scrollClearance
+import com.beykus.beygram.ui.components.mainTabInsets
 import com.beykus.beygram.ui.components.groupSurfaceColor
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassCard
@@ -78,18 +84,20 @@ import com.beykus.beygram.ui.design.glassScreenBackground
 fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, onLastSeen: () -> Unit,
     onNotifications: () -> Unit, onStorage: () -> Unit, onProxy: () -> Unit, onVideoRecording: () -> Unit,
     onDiagnostics: () -> Unit, onUpdates: () -> Unit, onLanguage: () -> Unit, onSessions: () -> Unit,
-    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicLibrary: () -> Unit = {}) {
+    onSecondaryAccounts: () -> Unit, onPrivacy: () -> Unit, onAccountSecurity: () -> Unit, onAutoDownload: () -> Unit, onAppLock: () -> Unit = {}, onEqualizer: () -> Unit = {}, onMusicLibrary: () -> Unit = {}, onExperiments: () -> Unit = {}, onTriggerWords: () -> Unit = {}) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     Column(
         Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-            .verticalScroll(rememberScrollState())
+            .mainTabInsets()
     ) {
-        MainTabTitle(
-            stringResource(R.string.settings_title),
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
-        )
+        MainTabHeader {
+            MainTabTitle(
+                stringResource(R.string.settings_title),
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)
+            )
+        }
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
 
         SettingsGroup(stringResource(R.string.settings_group_interface)) {
             SettingsLink(Icons.Rounded.Language, stringResource(R.string.feature_language), onLanguage)
@@ -101,31 +109,13 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
             SettingsLink(Icons.Rounded.Videocam, stringResource(R.string.settings_video_recording_title), onVideoRecording)
             SettingsRowDivider()
             SettingsLink(Icons.Rounded.Notifications, stringResource(R.string.notif_title), onNotifications)
+            SettingsRowDivider()
+            SettingsLink(Icons.Rounded.Search, stringResource(R.string.trigger_title), onTriggerWords)
         }
-        val transitionContext = LocalContext.current
-        remember(transitionContext) { TrackTransitionSettings.load(transitionContext) }
-        val skipSilence by TrackTransitionSettings.skipSilence.collectAsStateWithLifecycle()
-        val crossfade by TrackTransitionSettings.crossfade.collectAsStateWithLifecycle()
         SettingsGroup(stringResource(R.string.settings_group_sound_playback)) {
             SettingsLink(Icons.Rounded.GraphicEq, stringResource(R.string.settings_equalizer_title), onEqualizer)
             SettingsRowDivider()
             SettingsLink(Icons.Rounded.MusicNote, stringResource(R.string.settings_music_title), onMusicLibrary)
-            SettingsRowDivider()
-            SettingsToggle(
-                icon = Icons.Rounded.SkipNext,
-                title = stringResource(R.string.settings_skip_silence_title),
-                subtitle = stringResource(R.string.settings_skip_silence_desc),
-                checked = skipSilence,
-                onCheckedChange = { TrackTransitionSettings.setSkipSilence(transitionContext, it) }
-            )
-            SettingsRowDivider()
-            SettingsToggle(
-                icon = Icons.Rounded.SwapHoriz,
-                title = stringResource(R.string.settings_crossfade_title),
-                subtitle = stringResource(R.string.settings_crossfade_desc),
-                checked = crossfade,
-                onCheckedChange = { TrackTransitionSettings.setCrossfade(transitionContext, it) }
-            )
         }
         SettingsGroup(stringResource(R.string.settings_group_devices_privacy)) {
             SettingsLink(Icons.Rounded.Key, stringResource(R.string.account_security_title), onAccountSecurity)
@@ -154,36 +144,17 @@ fun SettingsScreen(onNavigationSettings: () -> Unit, onAppearance: () -> Unit, o
         SettingsGroup(stringResource(R.string.settings_group_updates)) {
             SettingsLink(Icons.Rounded.SystemUpdate, stringResource(R.string.updates_title), onUpdates)
         }
-        val context = LocalContext.current
-        val bgBeatSettings = remember { BgBeatSettingsStore.getInstance(context) }
-        val bgBeatEnabled by bgBeatSettings.enabled.collectAsStateWithLifecycle()
-        remember(context) { BgMixSettingsStore.load(context) }
-        val bgMixEnabled by BgMixSettingsStore.enabled.collectAsStateWithLifecycle()
-
         SettingsGroup(stringResource(R.string.settings_group_experiments)) {
-            SettingsToggle(
-                icon = Icons.Rounded.GraphicEq,
-                title = stringResource(R.string.settings_bgbeat_title),
-                subtitle = stringResource(R.string.settings_bgbeat_desc),
-                checked = bgBeatEnabled,
-                onCheckedChange = { bgBeatSettings.setEnabled(it) }
-            )
-            SettingsRowDivider()
-            SettingsToggle(
-                icon = Icons.Rounded.SwapHoriz,
-                title = stringResource(R.string.settings_bgmix_title),
-                subtitle = stringResource(R.string.settings_bgmix_desc),
-                checked = bgMixEnabled,
-                onCheckedChange = { BgMixSettingsStore.setEnabled(context, it) }
-            )
+            SettingsLink(Icons.Rounded.Tune, stringResource(R.string.settings_experiments_title), onExperiments)
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(12.dp + LocalNavigationDock.current.scrollClearance))
+        }
     }
 }
 
 /** Every group has its own heading and card; labels are announced as headings by TalkBack. */
 @Composable
-private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     // The style owns the group card: Default keeps its 20dp, Material 2 turns the card into a tight 4dp surface.
@@ -212,7 +183,7 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
 }
 
 @Composable
-private fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) {
+internal fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
@@ -225,7 +196,7 @@ private fun SettingsLink(icon: ImageVector, title: String, onClick: () -> Unit) 
 }
 
 @Composable
-private fun SettingsToggle(
+internal fun SettingsToggle(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
@@ -249,6 +220,25 @@ private fun SettingsToggle(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+/** The length of the overlap between tracks, from one to twelve seconds. Shown only while the crossfade is on. */
+@Composable
+internal fun CrossfadeLengthRow(seconds: Int, onChange: (Int) -> Unit) {
+    val palette = beyGramPalette()
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Text(
+            stringResource(R.string.settings_crossfade_length, seconds),
+            color = palette.textPrimary,
+            fontSize = 15.sp
+        )
+        androidx.compose.material3.Slider(
+            value = seconds.toFloat(),
+            onValueChange = { onChange(it.toInt()) },
+            valueRange = TrackTransitionSettings.MIN_CROSSFADE_SECONDS.toFloat()..TrackTransitionSettings.MAX_CROSSFADE_SECONDS.toFloat(),
+            steps = TrackTransitionSettings.MAX_CROSSFADE_SECONDS - TrackTransitionSettings.MIN_CROSSFADE_SECONDS - 1
         )
     }
 }

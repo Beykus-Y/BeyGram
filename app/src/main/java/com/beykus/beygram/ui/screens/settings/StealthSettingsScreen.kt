@@ -21,13 +21,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -217,7 +216,7 @@ private fun ColumnScope.StealthSettingsBody(store: StealthSettingsStore, onServe
 /**
  * Sending through Telegram's scheduled messages (#541): the server publishes the message after the chosen lead, so the
  * app does not have to be open then. The presets start at 15 seconds because Telegram sends anything due within 10 at once;
- * «Своё время» accepts 1 second to an hour, and a lead under 15 seconds is waited out by the app with a warning.
+ * «Своё время» accepts 15 seconds to an hour; a legacy short value must be corrected before sending.
  */
 @Composable
 private fun ScheduledSendSection(settings: StealthSettings, update: ((StealthSettings) -> StealthSettings) -> Unit) {
@@ -275,10 +274,10 @@ private fun CustomDelayDialog(initial: Int, onDismiss: () -> Unit, onConfirm: (I
     val palette = beyGramPalette()
     var text by remember { mutableStateOf(initial.toString()) }
     val value = text.trim().toIntOrNull()?.takeIf { it in StealthScheduleDelayRange }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.stealth_schedule_custom)) },
-        text = {
+        title = stringResource(R.string.stealth_schedule_custom),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.stealth_schedule_dialog_hint), color = palette.textSecondary, fontSize = 13.sp)
                 OutlinedTextField(
@@ -292,17 +291,13 @@ private fun CustomDelayDialog(initial: Int, onDismiss: () -> Unit, onConfirm: (I
                     } else null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
-                if (value != null && !stealthDelayUsesServer(value)) {
-                    Text(stringResource(R.string.stealth_schedule_short_warning), color = palette.warningText, fontSize = 13.sp)
-                }
             }
         },
-        confirmButton = {
-            TextButton(onClick = { value?.let(onConfirm) }, enabled = value != null) {
-                Text(stringResource(R.string.common_save), color = if (value != null) palette.accent else palette.textSecondary)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } }
+        confirmText = stringResource(R.string.common_save),
+        confirmEnabled = value != null,
+        onConfirm = { value?.let(onConfirm) },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss
     )
 }
 

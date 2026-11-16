@@ -1107,8 +1107,10 @@ private fun VideoNoteScreenBrightness(active: Boolean) {
 @Composable
 internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modifier = Modifier, onCancel: () -> Unit) {
     val palette = beyGramPalette()
-    Row(modifier.heightIn(min = 48.dp).clip(styledShape(20.dp)).background(palette.surface2).padding(horizontal = 8.dp),
+    val shape = RoundedCornerShape(com.beykus.beygram.ui.design.LocalDesignSystem.current.shapes.composer)
+    Row(modifier.height(ComposerButtonSize).clip(shape).background(palette.surface2).padding(start = 6.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (recorder.locked) RecordingDiscardButton(onClick = onCancel)
         Spacer(Modifier.size(9.dp).clip(CircleShape).background(palette.danger))
         Icon(Icons.Rounded.Videocam, null, tint = palette.danger, modifier = Modifier.size(19.dp))
         Text(duration((recorder.elapsedMs / 1000).toInt()), color = palette.textPrimary, fontSize = 16.sp)
@@ -1119,11 +1121,6 @@ internal fun VideoNoteRecordingDock(recorder: VideoNoteRecorder, modifier: Modif
             maxLines = 1,
             modifier = Modifier.weight(1f)
         )
-        if (recorder.locked) {
-            com.beykus.beygram.ui.components.TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.recorder_cancel), color = palette.warningText, fontSize = 13.sp)
-            }
-        }
     }
 }
 

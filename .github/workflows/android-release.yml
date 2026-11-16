@@ -120,6 +120,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Gradle dependency cache
+        # Only public plugins and libraries from the Gradle User Home. No Build Cache and no configuration cache are
+        # stored: the build embeds secrets.properties values, and a cache saved by a push is readable by PR code.
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: ${{ github.event_name != 'push' }}
+          gradle-home-cache-excludes: caches/build-cache-1
+
       - name: Install Android platform 36.1
         # The runner image ships the Android SDK but not sdkmanager on PATH.
         # Command output is echoed as notice annotations so failures are readable.
@@ -145,16 +153,25 @@ jobs:
           # code cannot read these secrets.
           TELEGRAM_API_ID: ${{ github.event_name != 'pull_request' && secrets.TELEGRAM_API_ID || '' }}
           TELEGRAM_API_HASH: ${{ github.event_name != 'pull_request' && secrets.TELEGRAM_API_HASH || '' }}
+          # Optional Yandex Music sign-in in both flavors. Same pull-request rule as above.
+          YANDEX_MUSIC_CLIENT_ID: ${{ github.event_name != 'pull_request' && secrets.YANDEX_MUSIC_CLIENT_ID || '' }}
+          YANDEX_MUSIC_CLIENT_SECRET: ${{ github.event_name != 'pull_request' && secrets.YANDEX_MUSIC_CLIENT_SECRET || '' }}
         run: |
           {
             echo "telegramApiId=${TELEGRAM_API_ID:-0}"
             echo "telegramApiHash=${TELEGRAM_API_HASH:-}"
+            echo "yandexMusicClientId=${YANDEX_MUSIC_CLIENT_ID:-}"
+            echo "yandexMusicClientSecret=${YANDEX_MUSIC_CLIENT_SECRET:-}"
           } > secrets.properties
 
       - name: Run unit tests
         # JVM tests of the dev debug variant. They run before the APKs are built, so a failing test fails this job,
         # and a failed main build cannot be published.
         run: ./gradlew --no-daemon :app:testDevDebugUnitTest
+
+      - name: Verify Yandex Music in the Stable variant
+        # The shared provider tests must also pass against prod; PR builds use blank OAuth configuration.
+        run: ./gradlew --no-daemon :app:testProdDebugUnitTest --tests 'com.beykus.beygram.data.yandex.*'
 
       - name: Upload unit test reports
         # A failed run keeps the report, so the exact failing assertion can be read after the job ends.
@@ -165,6 +182,8 @@ jobs:
           path: |
             app/build/reports/tests/testDevDebugUnitTest/
             app/build/test-results/testDevDebugUnitTest/
+            app/build/reports/tests/testProdDebugUnitTest/
+            app/build/test-results/testProdDebugUnitTest/
           if-no-files-found: warn
           retention-days: 14
 
@@ -181,8 +200,30 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Read the NDK version
+        id: ndk
+        run: echo "version=$(sed -n 's/.*ndkVersion = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)" >> "$GITHUB_OUTPUT"
+
+      # OpenSSL for the BG Wave adapter is built once per script version, NDK and ABI and shared by DEV and main
+      # builds. Only push builds save it; pull requests restore from the DEV or main cache.
+      - name: Restore OpenSSL for Android (BG Wave)
+        id: openssl-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/beygram-openssl
+          key: beygram-openssl-${{ hashFiles('scripts/build-openssl-android.sh') }}-ndk${{ steps.ndk.outputs.version }}-arm64-v8a-${{ runner.os }}
+
       - name: Build debug, release and instrumented-test APKs (no device tests)
+        env:
+          BEYGRAM_OPENSSL_CACHE: ${{ runner.temp }}/beygram-openssl
         run: ./gradlew --no-daemon :app:assembleDevDebug :app:assembleProdRelease :app:assembleDevDebugAndroidTest
+
+      - name: Save OpenSSL for Android (BG Wave)
+        if: github.event_name == 'push' && steps.openssl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/beygram-openssl
+          key: ${{ steps.openssl-cache.outputs.cache-primary-key }}
 
       - name: Assert install permission comes only from flavor overlays
         run: |

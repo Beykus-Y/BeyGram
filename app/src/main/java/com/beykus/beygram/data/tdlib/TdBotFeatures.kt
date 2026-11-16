@@ -106,6 +106,9 @@ internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> In
         // The send changes Saved Messages on the server. It is awaited without cancellation so the temporary message id is
         // always captured; otherwise a cancelled screen could leave an orphaned message and a cleared draft behind.
         val sent = withContext(NonCancellable) {
+            // This operation needs an immediate temporary/favorite message; scheduling it would not work.
+            // Check the live account policy at the actual send, not before fetching the chat or its draft.
+            if (stealth.active()) throw UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked))
             request(TdApi.SendInlineQueryResultMessage().apply {
                 chatId = savedMessagesChatId
                 this.queryId = queryId
@@ -137,6 +140,45 @@ internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> In
             }
             // A copy that never reaches the caller would stay reserved for the life of the process.
             if (!delivered) copied?.let { MusicBotCache.discard(it) }
+        }
+    }
+
+    /**
+     * Keeps a music bot track: the result goes to Saved Messages and stays there. Returns where it lives, so the track has
+     * an address a playlist or the favorites can keep. A result that is not audio is removed again.
+     */
+    suspend fun saveMusicBotTrack(queryId: Long, resultId: String): Result<SavedMusicBotTrack?> = requestResult {
+        val savedMessagesChatId = request(TdApi.GetMe()).id
+        val savedDraft = request(TdApi.GetChat(savedMessagesChatId)).draftMessage
+        val sent = withContext(NonCancellable) {
+            // This operation needs an immediate temporary/favorite message; scheduling it would not work.
+            // Check the live account policy at the actual send, not before fetching the chat or its draft.
+            if (stealth.active()) throw UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked))
+            request(TdApi.SendInlineQueryResultMessage().apply {
+                chatId = savedMessagesChatId
+                this.queryId = queryId
+                this.resultId = resultId
+                hideViaBot = false
+            })
+        }
+        try {
+            val audio = (sent.content as? TdApi.MessageAudio)?.audio
+            val messageId = if (sent.sendingState == null) sent.id else awaitConfirmedId(sent.id)
+            if (audio == null || messageId == null) {
+                if (audio == null && messageId != null) {
+                    withContext(NonCancellable) { runCatching { request(TdApi.DeleteMessages(savedMessagesChatId, longArrayOf(messageId), true)) } }
+                }
+                return@requestResult null
+            }
+            SavedMusicBotTrack(
+                chatId = savedMessagesChatId,
+                messageId = messageId,
+                title = audio.title.orEmpty(),
+                performer = audio.performer.orEmpty(),
+                durationSeconds = audio.duration
+            )
+        } finally {
+            withContext(NonCancellable) { runCatching { restoreSavedMessagesDraft(savedMessagesChatId, savedDraft) } }
         }
     }
 

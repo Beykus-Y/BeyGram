@@ -2,8 +2,11 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -13,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -35,6 +39,7 @@ import com.beykus.beygram.data.appearance.BubbleStyle
 import com.beykus.beygram.data.appearance.ListDensity
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MessageSendState
+import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.DesignBubbleGeometry
 
@@ -209,9 +214,11 @@ internal fun useInlineTextMetadata(message: ChatMessage, hasSenderHeader: Boolea
         message.inlineKeyboard.isEmpty() &&
         message.sendState != MessageSendState.Failed &&
         !hasSenderHeader &&
+        !message.isForwarded &&
         !hasTranslation
 
 /** Время, статус отправки и кнопка повтора. При [overlay] — белым на тёмной плашке поверх фото. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BubbleMeta(
     message: ChatMessage,
@@ -223,11 +230,23 @@ internal fun BubbleMeta(
     /** Opens the earlier texts that Chat Memory kept; the versions link shows only when the message has some and this is set. */
     onShowVersions: (() -> Unit)? = null,
     /** How many earlier texts the link counts; an album passes the member that kept them. */
-    versionCount: Int = message.memory?.versionCount ?: 0
+    versionCount: Int = message.memory?.versionCount ?: 0,
+    /** Confirmed TDLib connection state, used only to label queued outgoing messages while offline. */
+    connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
+    /** Opens compact failure details (reason, retry, copy, discard) for a failed outgoing message. */
+    onShowFailureDetails: (() -> Unit)? = null,
+    insideTextInsets: Boolean = false,
+    compactDocument: Boolean = false,
 ) {
     val palette = beyGramPalette()
     val failed = message.sendState == MessageSendState.Failed
-    val status = if (message.isOutgoing && failed) " · " + stringResource(R.string.chat_status_not_sent) else ""
+    val waitingOffline = message.isOutgoing && message.sendState == MessageSendState.Sending &&
+        (connectionState == TelegramConnectionState.WaitingForNetwork || connectionState == TelegramConnectionState.Connecting)
+    val status = when {
+        message.isOutgoing && failed -> " · " + stringResource(R.string.chat_status_not_sent)
+        waitingOffline -> " · " + stringResource(R.string.chat_status_waiting_network)
+        else -> ""
+    }
     val textColor = when {
         overlay -> Color.White
         failed -> palette.warningText
@@ -236,7 +255,9 @@ internal fun BubbleMeta(
     val modifier = when {
         overlay -> Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
             .padding(horizontal = 6.dp, vertical = 2.dp)
+        insideTextInsets -> Modifier.padding(bottom = 4.dp)
         inline -> Modifier.padding(start = 4.dp, end = 8.dp, bottom = 4.dp)
+        compactDocument -> Modifier.padding(start = 12.dp, end = 12.dp, bottom = 5.dp)
         else -> Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
     }
     // Chat Memory marks: a kept deletion and a lost attachment. Empty for every message that Chat Memory did not keep.
@@ -247,21 +268,60 @@ internal fun BubbleMeta(
     )
     val memoryPrefix = if (memoryLabels.isEmpty()) "" else memoryLabels.joinToString(" · ") + " · "
     Column(modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(memoryPrefix + (if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
-                color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = palette.warningText, fontSize = 12.sp,
-                modifier = Modifier.clickable(onClick = onRetry))
+        val statusIcon = @Composable {
             if (message.isOutgoing && message.sendState == MessageSendState.Sending) {
                 Spacer(Modifier.width(3.dp))
-                Icon(Icons.Rounded.Schedule, stringResource(R.string.chat_sending_description), tint = if (overlay) Color.White else palette.messageTime,
-                    modifier = Modifier.size(14.dp))
+                Icon(
+                    Icons.Rounded.Schedule,
+                    if (waitingOffline) stringResource(R.string.chat_status_waiting_network) else stringResource(R.string.chat_sending_description),
+                    tint = if (overlay) Color.White else palette.messageTime,
+                    modifier = Modifier.size(14.dp)
+                )
             }
             if (message.isOutgoing && message.sendState == MessageSendState.Sent) {
                 Spacer(Modifier.width(3.dp))
                 Icon(if (isRead) Icons.Rounded.DoneAll else Icons.Rounded.Done,
                     if (isRead) stringResource(R.string.chat_read_description) else stringResource(R.string.chat_sent_description),
                     tint = if (overlay) Color.White else palette.accent, modifier = Modifier.size(16.dp))
+            }
+        }
+        val timeWithIcon = @Composable {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (message.isOutgoing && failed) {
+                    Icon(
+                        Icons.Rounded.ErrorOutline,
+                        contentDescription = stringResource(R.string.chat_status_not_sent),
+                        tint = if (overlay) Color.White else palette.warningText,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(3.dp))
+                }
+                Text(memoryPrefix + (if (message.isEdited) stringResource(R.string.chat_edited) + " · " else "") + message.time + status,
+                    color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                statusIcon()
+            }
+        }
+        if (inline) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                timeWithIcon()
+                if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = textColor, fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable(onClick = onRetry))
+                if (message.isOutgoing && failed && onShowFailureDetails != null) {
+                    Text(" · " + stringResource(R.string.chat_send_failure_details), color = textColor, fontSize = 12.sp,
+                        modifier = Modifier.clickable(onClick = onShowFailureDetails))
+                }
+            }
+        } else {
+            FlowRow(
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Box(Modifier.align(Alignment.CenterVertically)) { timeWithIcon() }
+                if (retryAvailable) Text(" · " + stringResource(R.string.chat_retry_send), color = textColor, fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.align(Alignment.CenterVertically).clickable(onClick = onRetry))
+                if (message.isOutgoing && failed && onShowFailureDetails != null) {
+                    Text(" · " + stringResource(R.string.chat_send_failure_details), color = textColor, fontSize = 12.sp,
+                        modifier = Modifier.align(Alignment.CenterVertically).clickable(onClick = onShowFailureDetails))
+                }
             }
         }
         // The link has a line of its own, so a long time or label can never squeeze it out at a large font size.

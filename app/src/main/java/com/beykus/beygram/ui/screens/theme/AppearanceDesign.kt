@@ -22,12 +22,11 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -51,6 +50,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
 
 /** Shared measurements for every Appearance page. They keep the section compact on phones. */
 internal object AppearanceDimens {
@@ -88,7 +89,7 @@ internal fun AppearanceCard(
 ) {
     val palette = beyGramPalette()
     Column(
-        modifier.fillMaxWidth().clip(AppearanceDimens.cardShape).background(palette.surface)
+        modifier.fillMaxWidth().glassCard(LocalDesignSystem.current, palette.surface, palette.textSecondary, AppearanceDimens.cardShape)
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(AppearanceDimens.cardGap),
         content = content
@@ -117,8 +118,8 @@ internal fun AppearanceNavCard(
 ) {
     val palette = beyGramPalette()
     Row(
-        Modifier.fillMaxWidth().clip(AppearanceDimens.cardShape)
-            .background(palette.surface)
+        Modifier.fillMaxWidth()
+            .glassCard(LocalDesignSystem.current, palette.surface, palette.textSecondary, AppearanceDimens.cardShape)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = "$title, $summary" }
             .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -430,17 +431,14 @@ internal fun AppearanceResetDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(stringResource(R.string.appearance_reset_confirm), color = MaterialTheme.colorScheme.error)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.theme_editor_cancel)) }
-        }
+        title = title,
+        message = message,
+        confirmText = stringResource(R.string.appearance_reset_confirm),
+        onConfirm = onConfirm,
+        destructive = true,
+        dismissText = stringResource(R.string.theme_editor_cancel),
+        onDismiss = onDismiss
     )
 }

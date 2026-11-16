@@ -25,6 +25,14 @@ class AutoDownloadPolicyTest {
     private fun reason(decision: AutoDownloadDecision): AutoDownloadDenial =
         (decision as AutoDownloadDecision.Denied).reason
 
+    @Test fun streamedRowEstimateFollowsTheMusicRule() {
+        val estimate = estimatedStreamBytes(durationSeconds = 240)
+        assertEquals(9_600_000L, estimate)
+        assertEquals(AutoDownloadDecision.Allowed, decide(MediaKind.Audio, estimate, AutoDownloadNetwork.Wifi))
+        assertEquals(AutoDownloadDenial.Disabled, reason(decide(MediaKind.Audio, estimate, AutoDownloadNetwork.Mobile)))
+        assertEquals(0L, estimatedStreamBytes(durationSeconds = 0))
+    }
+
     @Test fun wifiPhotoWithinLimitIsAllowed() {
         assertEquals(AutoDownloadDecision.Allowed, decide(MediaKind.Photo, 2 * AutoDownloadSettings.MIB, AutoDownloadNetwork.Wifi))
     }

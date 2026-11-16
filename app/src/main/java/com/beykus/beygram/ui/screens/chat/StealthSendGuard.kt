@@ -1,23 +1,20 @@
 package com.beykus.beygram.ui.screens.chat
 
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.StealthScheduleUnavailableException
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.text.userMessage
-import com.beykus.beygram.ui.components.beyGramPalette
 
 /** A send waits for the user's confirmation while hidden presence warns about sending and this chat session has not confirmed one. */
 internal fun stealthSendNeedsConfirmation(warns: Boolean, confirmed: Boolean): Boolean = warns && !confirmed
@@ -51,20 +48,19 @@ internal class StealthSendGuard(private val conversation: ConversationRepository
     @Composable
     fun Dialog() {
         val action = pending ?: return
-        val palette = beyGramPalette()
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = ::cancel,
-            title = { Text(stringResource(R.string.stealth_send_warning_title)) },
-            text = { Text(stringResource(R.string.stealth_send_warning_text)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    pending = null
-                    pendingCancel = {}
-                    confirmed = true
-                    action()
-                }) { Text(stringResource(R.string.stealth_send_warning_send), color = palette.accent) }
+            title = stringResource(R.string.stealth_send_warning_title),
+            message = stringResource(R.string.stealth_send_warning_text),
+            confirmText = stringResource(R.string.stealth_send_warning_send),
+            onConfirm = {
+                pending = null
+                pendingCancel = {}
+                confirmed = true
+                action()
             },
-            dismissButton = { TextButton(onClick = ::cancel) { Text(stringResource(R.string.common_cancel)) } }
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = ::cancel
         )
     }
 }
@@ -99,21 +95,18 @@ internal class StealthScheduleFallback {
     @Composable
     fun Dialog() {
         val (error, sendNow) = pending ?: return
-        val palette = beyGramPalette()
         val context = LocalContext.current
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { pending = null },
-            title = { Text(stringResource(R.string.stealth_schedule_fallback_title)) },
-            text = {
-                Text(error.userMessage(context, R.string.stealth_schedule_failed) + "\n\n" + stringResource(R.string.stealth_schedule_fallback_text))
+            title = stringResource(R.string.stealth_schedule_fallback_title),
+            message = error.userMessage(context, R.string.stealth_schedule_failed) + "\n\n" + stringResource(R.string.stealth_schedule_fallback_text),
+            confirmText = stringResource(R.string.stealth_schedule_fallback_send_now),
+            onConfirm = {
+                pending = null
+                sendNow()
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    pending = null
-                    sendNow()
-                }) { Text(stringResource(R.string.stealth_schedule_fallback_send_now), color = palette.accent) }
-            },
-            dismissButton = { TextButton(onClick = { pending = null }) { Text(stringResource(R.string.common_cancel)) } }
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { pending = null }
         )
     }
 }

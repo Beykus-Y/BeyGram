@@ -76,6 +76,7 @@ internal class ComposerLaunch(
     val baselineSequence: Long,
     val speed: Float
 ) {
+    var localAttemptId by mutableStateOf<Long?>(null)
     var messageId by mutableStateOf<Long?>(null)
     var message by mutableStateOf<ChatMessage?>(null)
     var targetBounds by mutableStateOf<Rect?>(null)
@@ -134,6 +135,34 @@ internal fun findComposerLaunchMessage(
         .minByOrNull { order[it.id] ?: Int.MAX_VALUE }
 }
 
+internal fun resolveComposerLaunchTargets(
+    launches: List<ComposerLaunch>,
+    history: ChatHistory,
+    visibleLocalRowIds: Set<Long>
+): Map<Long, ComposerLaunch> = buildMap {
+    val assigned = mutableSetOf<Long>()
+    launches.sortedBy { it.key }.forEach { launch ->
+        val existing = launch.messageId?.let { resolveMessageIdThroughReplacements(it, history.recentReplacements) }
+        if (existing != null) {
+            assigned += existing
+            put(existing, launch)
+        } else {
+            val candidate = findComposerLaunchMessage(
+                history, launch.text, launch.replyToMessageId, launch.baselineSequence, assigned
+            )
+            if (candidate != null) {
+                assigned += candidate.id
+                put(candidate.id, launch)
+            } else {
+                val localRowId = launch.localAttemptId?.let { -it }
+                if (localRowId != null && localRowId in visibleLocalRowIds) {
+                    put(localRowId, launch)
+                }
+            }
+        }
+    }
+}
+
 /** Measured start/end geometry for the spatial transition. Kept pure so source/destination math can be tested. */
 internal data class ComposerLaunchGeometry(
     val sourceCenter: androidx.compose.ui.geometry.Offset,
@@ -160,6 +189,23 @@ internal fun composerLaunchGeometry(source: Rect, target: Rect, bubbleSize: IntS
         baseTop = targetCenter.y - bubbleHeight / 2f
     )
 }
+
+/** Poll interval while waiting for the real row to be measured. */
+internal const val COMPOSER_LAUNCH_POLL_MS = 30
+
+/** Longest wait for a measured target while the send is still in flight; beyond it the real row appears normally. */
+internal const val COMPOSER_LAUNCH_PRE_SEND_WAIT_MS = 2_000
+
+/** Longest wait for a measured target after the send has been confirmed. */
+internal const val COMPOSER_LAUNCH_POST_SEND_WAIT_MS = 900
+
+/**
+ * Whether a Composer Launch with no measured target should stop waiting and fall back to a normal appearance.
+ * While the send is pending the bounded pre-send budget applies; after confirmation only the short post-send budget.
+ */
+internal fun composerLaunchShouldGiveUp(totalWaitMs: Int, sinceSendMs: Int, awaitingSend: Boolean): Boolean =
+    if (awaitingSend) totalWaitMs >= COMPOSER_LAUNCH_PRE_SEND_WAIT_MS
+    else sinceSendMs >= COMPOSER_LAUNCH_POST_SEND_WAIT_MS
 
 /**
  * Full-screen overlay for Composer Launch. It draws a bubble that starts at the composer's measured bounds and lands
@@ -207,11 +253,12 @@ internal fun ComposerLaunchLayer(
     LaunchedEffect(launch.key) {
         var total = 0
         var sinceSend = 0
-        while ((launch.targetBounds == null || bubbleSize.width == 0) && total < 6000) {
-            delay(30)
-            total += 30
-            if (!launch.awaitingSend) sinceSend += 30
-            if (!launch.awaitingSend && sinceSend >= 900) break
+        while ((launch.targetBounds == null || bubbleSize.width == 0) &&
+            !composerLaunchShouldGiveUp(total, sinceSend, launch.awaitingSend)
+        ) {
+            delay(COMPOSER_LAUNCH_POLL_MS.toLong())
+            total += COMPOSER_LAUNCH_POLL_MS
+            if (!launch.awaitingSend) sinceSend += COMPOSER_LAUNCH_POLL_MS
         }
         if (launch.targetBounds == null || bubbleSize.width == 0) {
             onCancel(launch)

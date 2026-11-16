@@ -126,6 +126,16 @@ enum class AutoDownloadDenial {
     TooLarge
 }
 
+/** Bytes per second at the highest bitrate a streamed music row can arrive in (320 kbps). */
+private const val STREAM_ESTIMATE_BYTES_PER_SECOND = 40_000L
+
+/**
+ * Size guess for a provider row before its file exists: its duration at the highest bitrate. The size rule of the
+ * music category is checked with this estimate; the exact size is known only once the file has arrived.
+ */
+fun estimatedStreamBytes(durationSeconds: Int): Long =
+    durationSeconds.coerceAtLeast(0).toLong() * STREAM_ESTIMATE_BYTES_PER_SECOND
+
 fun MediaKind.autoDownloadCategory(): AutoDownloadCategory = when (this) {
     MediaKind.Photo -> AutoDownloadCategory.Photos
     MediaKind.Video, MediaKind.Animation, MediaKind.VideoNote -> AutoDownloadCategory.Videos

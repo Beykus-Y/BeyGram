@@ -4,12 +4,11 @@ import android.content.Context
 import com.beykus.beygram.ui.design.styledShape
 import android.widget.Toast
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,11 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import com.beykus.beygram.ui.components.OutlinedButton
@@ -41,6 +43,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MUSIC_COVER_DIRECTORY
 import com.beykus.beygram.data.music.MusicLibraries
+import com.beykus.beygram.data.music.MusicLibraryRepository
 import com.beykus.beygram.data.music.MusicOutcome
 import com.beykus.beygram.data.music.MusicPlaylist
 import com.beykus.beygram.data.music.PlaylistTrack
@@ -86,6 +91,8 @@ fun BgMusicPreviewScreen(
     parsed: BgMusicParsed,
     onDismiss: () -> Unit,
     onOpenLocalPlaylist: ((playlistId: String) -> Unit)? = null,
+    /** The library to save into. Null means the app's library; unit tests pass their own. */
+    libraryOverride: MusicLibraryRepository? = null,
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
@@ -93,7 +100,7 @@ fun BgMusicPreviewScreen(
     val source = LocalPlaybackRepositorySource.current
     val repository = source?.repository
     val accountId = source?.accountId ?: LocalPlaybackAccountId.current
-    val libraryRepository = remember(context) { MusicLibraries.get(context) }
+    val libraryRepository = remember(context, libraryOverride) { libraryOverride ?: MusicLibraries.get(context) }
     val library by libraryRepository.library.collectAsStateWithLifecycle()
     val libraryLoaded by libraryRepository.isLoaded.collectAsStateWithLifecycle()
     val favoritesName = stringResource(R.string.bgmusic_favorites_name)
@@ -223,12 +230,13 @@ fun BgMusicPreviewScreen(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         Surface(
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f).padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight * 0.92f),
             shape = styledShape(20.dp),
             color = palette.surface,
         ) {
-            Column(Modifier.fillMaxSize().padding(20.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (shownCover != null) {
                         LocalMediaImage(
@@ -252,14 +260,22 @@ fun BgMusicPreviewScreen(
                             Text(trackLine, color = palette.textSecondary, fontSize = 13.sp)
                         }
                         manifest?.author?.let { author ->
-                            Text(
-                                stringResource(R.string.bgmusic_author_line, author.name),
-                                color = palette.textSecondary,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Person, contentDescription = null, tint = palette.textSecondary,
+                                    modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    stringResource(R.string.bgmusic_author_line, author.name),
+                                    color = palette.textSecondary,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.Top)) {
+                        Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.bgmusic_close), tint = palette.textSecondary)
                     }
                 }
                 manifest?.description?.takeIf { it.isNotBlank() }?.let { description ->
@@ -281,7 +297,7 @@ fun BgMusicPreviewScreen(
                     }
                     Text(statusText, color = palette.textSecondary, fontSize = 13.sp)
                     Spacer(Modifier.height(6.dp))
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                    LazyColumn(Modifier.weight(1f, fill = false).fillMaxWidth()) {
                         items(manifest.tracks, key = { it.id }) { track ->
                             TrackRow(
                                 track = track,
@@ -303,24 +319,25 @@ fun BgMusicPreviewScreen(
                         openId = saved ?: localCopy?.id?.takeIf { decision is BgMusicImportDecision.SameRevision },
                         onOpen = onOpenLocalPlaylist,
                     )
-                    Button(
-                        onClick = ::listenAvailable,
-                        enabled = availableCount > 0 && repository != null,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.bgmusic_listen_available))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(
-                        onClick = ::onSaveClicked,
-                        enabled = libraryLoaded && !busy && (
-                            decision is BgMusicImportDecision.NewPlaylist ||
-                                decision is BgMusicImportDecision.NewerRevision ||
-                                decision is BgMusicImportDecision.OlderRevision
-                            ),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.bgmusic_action_save))
+                    val canListen = availableCount > 0 && repository != null
+                    val canSave = libraryLoaded && !busy && (
+                        decision is BgMusicImportDecision.NewPlaylist ||
+                            decision is BgMusicImportDecision.NewerRevision ||
+                            decision is BgMusicImportDecision.OlderRevision
+                        )
+                    // Only actionable playback needs a prominent control. The status above already explains zero matches.
+                    if (canListen) {
+                        Button(onClick = ::listenAvailable, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.bgmusic_listen_available))
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        OutlinedButton(onClick = ::onSaveClicked, enabled = canSave, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.bgmusic_action_save))
+                        }
+                    } else {
+                        Button(onClick = ::onSaveClicked, enabled = canSave, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.bgmusic_action_save))
+                        }
                     }
                 } else {
                     val unsupported = parsed is BgMusicParsed.Unsupported
@@ -330,13 +347,8 @@ fun BgMusicPreviewScreen(
                         fontSize = 14.sp,
                     )
                 }
-                Spacer(Modifier.height(4.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) {
-                        Text(stringResource(R.string.bgmusic_close))
-                    }
-                }
             }
+        }
         }
     }
 
@@ -345,48 +357,32 @@ fun BgMusicPreviewScreen(
         val localId = localCopy?.id
         // Updating needs the saved copy. Without one, the newer file can only be saved as a copy, so "Update" is not offered.
         val canUpdate = newer && localId != null
-        AlertDialog(
+        val saveAsCopy: () -> Unit = {
+            askChoice = false
+            importFile(null)
+        }
+        BeyGramDialog(
             onDismissRequest = { askChoice = false },
-            title = {
-                Text(stringResource(if (newer) R.string.bgmusic_import_newer_title else R.string.bgmusic_import_older_title))
+            title = stringResource(if (newer) R.string.bgmusic_import_newer_title else R.string.bgmusic_import_older_title),
+            message = stringResource(if (newer) R.string.bgmusic_import_newer_text else R.string.bgmusic_import_older_text),
+            confirmText = stringResource(if (canUpdate) R.string.bgmusic_action_update else R.string.bgmusic_action_save_copy),
+            onConfirm = {
+                askChoice = false
+                importFile(if (canUpdate) localId else null)
             },
-            text = {
-                Text(stringResource(if (newer) R.string.bgmusic_import_newer_text else R.string.bgmusic_import_older_text))
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        askChoice = false
-                        importFile(if (canUpdate) localId else null)
-                    },
-                ) {
-                    Text(stringResource(if (canUpdate) R.string.bgmusic_action_update else R.string.bgmusic_action_save_copy))
-                }
-            },
-            dismissButton = {
-                Row {
-                    if (canUpdate) {
-                        TextButton(onClick = {
-                            askChoice = false
-                            importFile(null)
-                        }) {
-                            Text(stringResource(R.string.bgmusic_action_save_copy))
-                        }
-                    }
-                    TextButton(onClick = { askChoice = false }) {
-                        Text(stringResource(R.string.common_cancel))
-                    }
-                }
-            },
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { askChoice = false },
+            neutralText = if (canUpdate) stringResource(R.string.bgmusic_action_save_copy) else null,
+            onNeutral = if (canUpdate) saveAsCopy else null,
         )
     }
 
     if (pickedTrack != null) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { pendingTrack = null },
-            title = { Text(stringResource(R.string.bgmusic_add_picker_title)) },
-            text = {
-                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+            title = stringResource(R.string.bgmusic_add_picker_title),
+            content = {
+                Column(Modifier.fillMaxWidth()) {
                     library.playlists.forEach { target ->
                         Text(
                             if (target.isFavorites) favoritesName else target.title,
@@ -400,11 +396,8 @@ fun BgMusicPreviewScreen(
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { pendingTrack = null }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
-            },
+            confirmText = stringResource(R.string.common_cancel),
+            onConfirm = { pendingTrack = null },
         )
     }
 }
@@ -418,7 +411,11 @@ private fun TrackRow(
     onAdd: () -> Unit,
 ) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    val unavailableLabel = if (!available && !searching) stringResource(R.string.bgmusic_track_unavailable) else null
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            .then(if (unavailableLabel != null) Modifier.semantics { stateDescription = unavailableLabel } else Modifier)
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
@@ -444,17 +441,13 @@ private fun TrackRow(
                 Spacer(Modifier.width(8.dp))
                 Text(bgMusicDurationText(track.durationSec), color = palette.textSecondary, fontSize = 12.sp)
             }
-        }
-        when {
-            available -> TextButton(onClick = onAdd) {
-                Text(stringResource(R.string.bgmusic_add_to_playlist), fontSize = 13.sp)
+            if (unavailableLabel != null) {
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Rounded.Block, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(18.dp))
             }
-            !searching -> Text(
-                stringResource(R.string.bgmusic_track_unavailable),
-                color = palette.textSecondary,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(start = 12.dp, top = 2.dp),
-            )
+        }
+        if (available) TextButton(onClick = onAdd) {
+            Text(stringResource(R.string.bgmusic_add_to_playlist), fontSize = 13.sp)
         }
     }
 }

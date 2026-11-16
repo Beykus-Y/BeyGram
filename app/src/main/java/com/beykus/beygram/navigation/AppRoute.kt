@@ -48,6 +48,8 @@ enum class AppRoute {
     AccountSecurity,
     AppLock,
     Equalizer,
+    Experiments,
+    MusicAccountSignIn,
     MusicSearch,
     NewChat,
     CreateGroup,
@@ -56,6 +58,7 @@ enum class AppRoute {
     StoryPublisher,
     MyMusic,
     MusicPlaylist,
+    MusicCollection,
     TriggerWords,
     TriggerMentions
 }

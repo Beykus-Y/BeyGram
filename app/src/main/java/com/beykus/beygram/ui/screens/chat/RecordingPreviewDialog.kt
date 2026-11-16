@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
@@ -59,10 +59,10 @@ internal fun RecordingPreviewDialog(
         }.getOrNull()
     }
     DisposableEffect(player) { onDispose { player?.release() } }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = {},
-        title = { Text(stringResource(R.string.recorder_preview_title)) },
-        text = {
+        title = stringResource(R.string.recorder_preview_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (mediaList.size > 1) {
                     Text(stringResource(R.string.recorder_preview_batch, mediaList.size, duration(mediaList.sumOf { it.durationSeconds })))
@@ -102,7 +102,10 @@ internal fun RecordingPreviewDialog(
                 }
             }
         },
-        confirmButton = { Button(enabled = !sending, onClick = onSend) { Text(stringResource(if (mediaList.size > 1) R.string.recorder_send_all else R.string.recorder_send)) } },
-        dismissButton = { TextButton(enabled = !sending, onClick = onDelete) { Text(stringResource(R.string.recorder_delete)) } }
+        confirmText = stringResource(if (mediaList.size > 1) R.string.recorder_send_all else R.string.recorder_send),
+        onConfirm = onSend,
+        confirmEnabled = !sending,
+        dismissText = stringResource(R.string.recorder_delete),
+        onDismiss = { if (!sending) onDelete() }
     )
 }

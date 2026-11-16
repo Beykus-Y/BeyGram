@@ -14,11 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
@@ -842,14 +840,11 @@ private fun PasswordDialog(
         }
     }
 
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(title)) },
-        text = {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+        title = stringResource(title),
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (disable) {
                     Text(
                         stringResource(R.string.account_security_disable_warning),
@@ -901,19 +896,14 @@ private fun PasswordDialog(
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
             }
         },
-        confirmButton = {
-            TextButton(enabled = !busy, onClick = { confirm() }) {
-                Text(
-                    stringResource(if (disable) R.string.account_security_2fa_disable else R.string.common_save),
-                    color = if (disable) palette.danger else palette.accentInk
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        confirmText = stringResource(if (disable) R.string.account_security_2fa_disable else R.string.common_save),
+        confirmEnabled = !busy,
+        destructive = disable,
+        onConfirm = { confirm() },
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !busy,
+        onDismiss = onDismiss,
+        secure = true
     )
 }
 
@@ -950,14 +940,11 @@ private fun RecoveryEmailDialog(
         onConfirm(password, email)
     }
 
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(title)) },
-        text = {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+        title = stringResource(title),
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (remove) {
                     Text(
                         stringResource(R.string.account_security_email_remove_warning),
@@ -995,22 +982,17 @@ private fun RecoveryEmailDialog(
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
             }
         },
-        confirmButton = {
-            TextButton(enabled = !busy, onClick = { confirm() }) {
-                Text(
-                    stringResource(
-                        if (remove) R.string.account_security_email_remove_confirm
-                        else R.string.common_save
-                    ),
-                    color = if (remove) palette.danger else palette.accentInk
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        confirmText = stringResource(
+            if (remove) R.string.account_security_email_remove_confirm
+            else R.string.common_save
+        ),
+        confirmEnabled = !busy,
+        destructive = remove,
+        onConfirm = { confirm() },
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !busy,
+        onDismiss = onDismiss,
+        secure = true
     )
 }
 
@@ -1030,14 +1012,11 @@ private fun DeleteAccountDialog(
     val confirmed = matchesDeletionConfirmation(word, expectedWord) &&
         (!hasPassword || password.isNotEmpty())
 
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(R.string.account_security_delete_dialog_title)) },
-        text = {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+        title = stringResource(R.string.account_security_delete_dialog_title),
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     stringResource(R.string.account_security_delete_warning),
                     color = palette.danger,
@@ -1090,16 +1069,14 @@ private fun DeleteAccountDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(enabled = !busy && confirmed, onClick = { onConfirm(password) }) {
-                Text(stringResource(R.string.account_security_delete_confirm), color = palette.danger)
-            }
-        },
-        dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        confirmText = stringResource(R.string.account_security_delete_confirm),
+        confirmEnabled = !busy && confirmed,
+        destructive = true,
+        onConfirm = { onConfirm(password) },
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !busy,
+        onDismiss = onDismiss,
+        secure = true
     )
 }
 

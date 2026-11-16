@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,7 +33,6 @@ import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -43,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -266,16 +264,15 @@ private fun PollCard(
             }
         }
     }
-    if (confirmStop) AlertDialog(
+    if (confirmStop) BeyGramDialog(
         onDismissRequest = { confirmStop = false },
-        title = { Text(stringResource(R.string.chat_poll_stop_title)) },
-        text = { Text(stringResource(R.string.chat_poll_stop_text)) },
-        confirmButton = {
-            TextButton(onClick = { confirmStop = false; onStop?.invoke(message.id) }) {
-                Text(stringResource(R.string.chat_poll_stop_confirm), color = palette.danger)
-            }
-        },
-        dismissButton = { TextButton(onClick = { confirmStop = false }) { Text(stringResource(R.string.common_cancel)) } }
+        title = stringResource(R.string.chat_poll_stop_title),
+        message = stringResource(R.string.chat_poll_stop_text),
+        confirmText = stringResource(R.string.chat_poll_stop_confirm),
+        destructive = true,
+        onConfirm = { confirmStop = false; onStop?.invoke(message.id) },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { confirmStop = false }
     )
     val loadVoters = onLoadVoters
     val addOption = onAddOption
@@ -335,11 +332,11 @@ private fun PollVotersDialog(
     }
     LaunchedEffect(selectedOption) { loadPage(reset = true) }
 
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.chat_poll_voters_title)) },
-        text = {
-            Column(Modifier.heightIn(max = 480.dp)) {
+        title = stringResource(R.string.chat_poll_voters_title),
+        content = {
+            Column {
                 if (poll.options.size > 1) Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -366,8 +363,8 @@ private fun PollVotersDialog(
                         stringResource(R.string.chat_poll_voters_empty), color = palette.textSecondary,
                         modifier = Modifier.padding(12.dp)
                     )
-                    else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
-                        itemsIndexed(voters, key = { index, _ -> "$selectedOption:$index" }) { _, voter ->
+                    else -> Column(Modifier.fillMaxWidth()) {
+                        voters.forEach { voter ->
                             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.size(32.dp).clip(CircleShape).background(palette.accentSoft), contentAlignment = Alignment.Center) {
                                     Icon(Icons.Rounded.Person, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(18.dp))
@@ -395,7 +392,8 @@ private fun PollVotersDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) } }
+        confirmText = stringResource(R.string.common_close),
+        onConfirm = onDismiss
     )
 }
 
@@ -412,10 +410,10 @@ private fun AddPollOptionDialog(
     var problem by remember { mutableStateOf<PollOptionAddProblem?>(null) }
     var serverError by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(R.string.chat_poll_add_option_title)) },
-        text = {
+        title = stringResource(R.string.chat_poll_add_option_title),
+        content = {
             Column {
                 OutlinedTextField(
                     value = text,
@@ -433,34 +431,29 @@ private fun AddPollOptionDialog(
                 )
                 val shownError = problem?.let { pollOptionProblemText(it) } ?: serverError
                 if (shownError != null) Text(shownError, color = palette.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                if (busy) CircularProgressIndicator(Modifier.padding(top = 8.dp).size(18.dp), strokeWidth = 2.dp, color = palette.accent)
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val next = poll.addOptionProblem(text)
-                    if (next != null) {
-                        problem = next
-                        return@TextButton
-                    }
-                    scope.launch {
-                        busy = true
-                        serverError = null
-                        val result = onAdd(text.trim())
-                        busy = false
-                        if (result.isSuccess) onDismiss()
-                        else serverError = result.exceptionOrNull()
-                            .userMessage(context, R.string.chat_poll_add_option_failed)
-                    }
-                },
-                enabled = !busy,
-                modifier = Modifier.defaultMinSize(minHeight = 48.dp)
-            ) {
-                if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = palette.accent)
-                else Text(stringResource(R.string.chat_poll_add_option_send))
+        confirmText = stringResource(R.string.chat_poll_add_option_send),
+        confirmEnabled = !busy,
+        onConfirm = {
+            val next = poll.addOptionProblem(text)
+            if (next != null) {
+                problem = next
+            } else {
+                scope.launch {
+                    busy = true
+                    serverError = null
+                    val result = onAdd(text.trim())
+                    busy = false
+                    if (result.isSuccess) onDismiss()
+                    else serverError = result.exceptionOrNull()
+                        .userMessage(context, R.string.chat_poll_add_option_failed)
+                }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.common_cancel)) } }
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { if (!busy) onDismiss() }
     )
 }
 

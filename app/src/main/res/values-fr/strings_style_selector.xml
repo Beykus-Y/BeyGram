@@ -4,7 +4,6 @@
     <string name="style_preview_scene_messages">Conversation</string>
     <string name="style_preview_scene_settings">Paramètres</string>
     <string name="style_preview_description">Aperçu du style « %1$s », écran « %2$s »</string>
-    <string name="style_preview_glass_note">L\'aperçu montre le verre sans flou d\'arrière-plan. Le vrai flou apparaît dans l\'interface elle-même.</string>
     <string name="style_preview_glass_fallback_note">Le verre est actuellement dessiné avec une teinte dense et sans flou, comme dans l\'aperçu.</string>
     <string name="style_preview_search">Rechercher</string>
     <string name="style_preview_folder_all">Toutes</string>
@@ -23,6 +22,15 @@
     <string name="style_preview_chat4_name">Notes</string>
     <string name="style_preview_chat4_message">Liste de courses</string>
     <string name="style_preview_chat4_time">lun.</string>
+    <string name="style_preview_chat5_name">Dima</string>
+    <string name="style_preview_chat5_message">D\'accord, je regarde demain</string>
+    <string name="style_preview_chat5_time">Mar.</string>
+    <string name="style_preview_chat6_name">Famille</string>
+    <string name="style_preview_chat6_message">Dîner samedi ?</string>
+    <string name="style_preview_chat6_time">Dim.</string>
+    <string name="style_preview_chat7_name">Travail</string>
+    <string name="style_preview_chat7_message">Rapport envoyé</string>
+    <string name="style_preview_chat7_time">Ven.</string>
     <string name="style_preview_settings_general">Général</string>
     <string name="style_preview_settings_notifications">Notifications</string>
     <string name="style_preview_settings_sounds">Sons des discussions</string>

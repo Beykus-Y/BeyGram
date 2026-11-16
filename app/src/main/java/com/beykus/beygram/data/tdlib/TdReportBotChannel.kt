@@ -27,7 +27,9 @@ import org.drinkless.tdlib.TdApi
  */
 internal class TdReportBotChannel(
     private val client: () -> Client,
-    private val pinnedBotUserId: Long
+    private val pinnedBotUserId: Long,
+    /** Режим невидимки: команда ушла бы сразу, поэтому отказ до создания сессии. */
+    private val stealthActive: () -> Boolean = { false }
 ) : ReportBotChannel {
 
     private val request = TdRequests(client)
@@ -83,6 +85,8 @@ internal class TdReportBotChannel(
 
     override suspend fun sendReportCommand(botChatId: Long, nonce: String): Result<Unit> =
         botResult {
+            // В режиме невидимки команда не уходит: её нельзя отправить отложенным сообщением. Проверка до создания сессии.
+            if (stealthActive()) throw ReportBotException(ReportBotFailure.STEALTH_BLOCKED, "stealth sending is active")
             // Новый nonce — новая сессия корреляции: старые ответы бота не считаются.
             // Сессия создаётся до отправки: обновление об отправке может прийти раньше, чем вернётся SendMessage.
             val started = Session(

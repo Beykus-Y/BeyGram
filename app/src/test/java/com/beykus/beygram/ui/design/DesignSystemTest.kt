@@ -86,7 +86,7 @@ class DesignSystemTest {
         // Material 3 uses its outlined filter chip instead of the accent fill; Glass keeps its tonal chip.
         assertEquals(ChipSelectionTone.Filter, byStyle.getValue(DesignStyle.Material3).chipSelection)
         assertEquals(ChipSelectionTone.Tonal, byStyle.getValue(DesignStyle.LiquidGlass).chipSelection)
-        assertEquals(8.dp, byStyle.getValue(DesignStyle.Material3).badgeRadius)
+        assertEquals(11.dp, byStyle.getValue(DesignStyle.Material3).badgeRadius)
 
         // Signature drops the archive card entirely and keeps the largest hierarchy.
         assertEquals(ArchiveTreatment.Flat, byStyle.getValue(DesignStyle.Signature).archive)
@@ -174,6 +174,14 @@ class DesignSystemTest {
         assertFalse(designFor(DesignStyle.LiquidGlass, GlassQuality.Lite).usesGlass)
         // The matte level still renders a recognisable surface instead of becoming transparent.
         assertEquals(1f, designFor(DesignStyle.LiquidGlass, GlassQuality.Lite).surfaces.surfaceAlpha)
+    }
+
+    @Test fun balancedFrostsTheBackdropAndLiteStaysDense() {
+        val balanced = designFor(DesignStyle.LiquidGlass, GlassQuality.Balanced).surfaces.glass!!
+        assertTrue(balanced.samplesFrosted)
+        assertTrue(balanced.tintAlpha < 0.8f)
+        assertFalse(designFor(DesignStyle.LiquidGlass, GlassQuality.Lite).surfaces.glass!!.samplesFrosted)
+        assertFalse(designFor(DesignStyle.LiquidGlass, GlassQuality.High).surfaces.glass!!.samplesFrosted)
     }
 
     @Test fun anExplicitQualityChoiceIsKeptAndAutoUsesTheDetectedLevel() {

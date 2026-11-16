@@ -1,6 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
-import android.widget.Toast
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -14,12 +14,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -28,8 +26,10 @@ import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,7 +45,6 @@ import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageInvoiceInfo
-import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.MessagePaidMediaInfo
 import com.beykus.beygram.domain.model.PaidContentKey
 import com.beykus.beygram.domain.model.TELEGRAM_STARS_CURRENCY
@@ -55,11 +54,11 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.profile.openExternalPaymentPage
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
+import com.beykus.beygram.playback.LocalPlaybackAccountId
 
 /**
  * A paid photo or video bundle. A locked bundle shows TDLib's blurred preview and the Stars price. A purchased bundle
- * shows its first item when that item can be displayed, and always says that it was purchased.
+ * shows its first item as a preview and opens all available items in the in-app viewer.
  */
 @Composable
 internal fun PaidMediaCard(
@@ -75,12 +74,11 @@ internal fun PaidMediaCard(
     val key = message.paidContentKey()
     val owner = remember { Any() }
     val paymentState by PaidContentPaymentStore.state.collectAsState()
-    val firstItem = paid.firstPurchasedMedia
     Box(modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().clip(styledShape(12.dp)).background(palette.surface2)) {
             if (paid.isPurchased) {
-                if (firstItem != null && observeFile != null && downloadFile != null) {
-                    PurchasedPreview(firstItem, key, actions, observeFile, downloadFile, autoDownloadFile)
+                if (observeFile != null && downloadFile != null) {
+                    PurchasedGallery(paid, key, actions, observeFile, downloadFile, autoDownloadFile)
                 }
             } else {
                 LockedPreview(paid)
@@ -174,40 +172,55 @@ internal fun InvoiceCard(
 }
 
 /**
- * The purchased first item, shown with the same preview as any other photo or video in the chat. Opening it hands the file to
- * another app, so that happens only when TDLib still allows saving the message, as the media viewer checks before every export.
+ * The album is local to this message and account. The shared viewer uses occurrence IDs, not message IDs:
+ * multiple attachments belong to one message and even duplicate file IDs must remain separate pages.
+ * No message actions or export handlers are provided to this read-only gallery.
  */
+internal fun purchasedMediaPages(paid: MessagePaidMediaInfo): List<MediaViewerItem> =
+    paid.purchasedMedia.mapIndexed { index, item ->
+        MediaViewerItem(messageId = index.toLong() + 1L, media = item, caption = paid.caption)
+    }
+
 @Composable
-private fun PurchasedPreview(
-    item: MessageMedia,
-    key: PaidContentKey,
+private fun PurchasedGallery(
+    paid: MessagePaidMediaInfo,
+    contentKey: PaidContentKey,
     actions: PaidContentActions?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)?
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val file by remember(item.fileId) { observeFile(item.fileId) }.collectAsState()
-    MediaPreview(
-        media = item,
-        observeFile = observeFile,
-        downloadFile = downloadFile,
-        // BeyGram has no viewer for paid items: a downloaded file opens in another app, otherwise it is downloaded.
-        onOpen = {
-            val path = file.localPath
-            if (path != null) {
-                scope.launch {
-                    val allowed = actions?.confirmExport(key) == true
-                    val error = if (allowed) openExternalMedia(context, path, item.mimeType) else context.getString(R.string.media_export_denied)
-                    error?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
-                }
-            } else {
-                downloadFile(item.fileId)
-            }
-        },
-        autoDownloadFile = autoDownloadFile
-    )
+    val accountId = LocalPlaybackAccountId.current
+    val pages = purchasedMediaPages(paid)
+    val item = pages.firstOrNull() ?: return
+    // Reset the whole subtree (including remembered file observers) across account/message/album changes.
+    key(accountId, contentKey, actions, pages.map { it.media.fileId }) {
+        var selectedId by remember { mutableStateOf<Long?>(null) }
+        MediaPreview(
+            media = item.media,
+            observeFile = observeFile,
+            downloadFile = downloadFile,
+            onOpen = { selectedId = item.messageId },
+            autoDownloadFile = autoDownloadFile
+        )
+        selectedId?.let { selected ->
+            MediaViewer(
+                pages = pages,
+                selectedId = selected,
+                onSelect = { selectedId = it },
+                observeFile = observeFile,
+                downloadFile = downloadFile,
+                // These page IDs are album occurrences, not Telegram message IDs. Never send them to TDLib.
+                onViewed = {},
+                onClose = { selectedId = null },
+                canExport = false,
+                confirmExport = { false },
+                fullFileOnlyWhenActive = true,
+                autoDownloadFile = autoDownloadFile,
+                forceSecure = true
+            )
+        }
+    }
 }
 
 /** TDLib's blurred preview of a locked bundle, or a neutral box when none was sent. */
@@ -285,20 +298,14 @@ private fun PaidContentDialogs(step: PaidContentStep, key: PaidContentKey, owner
 private fun StarsConfirmDialog(step: PaidContentStep.Confirming, actions: PaidContentActions) {
     val price = formatPriceMinorUnits(step.starCount, TELEGRAM_STARS_CURRENCY)
     val balance = formatStarAmount(step.balance.starCount, step.balance.nanostarCount)
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { actions.dismiss(step.key) },
-        title = { Text(stringResource(R.string.paid_content_confirm_title)) },
-        text = { Text(stringResource(R.string.paid_content_confirm_body, price, balance)) },
-        confirmButton = {
-            TextButton(onClick = { actions.confirm(step.key) }) {
-                Text(stringResource(R.string.paid_content_pay, price))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { actions.dismiss(step.key) }) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        title = stringResource(R.string.paid_content_confirm_title),
+        message = stringResource(R.string.paid_content_confirm_body, price, balance),
+        confirmText = stringResource(R.string.paid_content_pay, price),
+        onConfirm = { actions.confirm(step.key) },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = { actions.dismiss(step.key) }
     )
 }
 
@@ -306,10 +313,10 @@ private fun StarsConfirmDialog(step: PaidContentStep.Confirming, actions: PaidCo
 @Composable
 private fun ExternalMethodsDialog(step: PaidContentStep.ChoosingExternal, actions: PaidContentActions) {
     val context = LocalContext.current
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { actions.dismiss(step.key) },
-        title = { Text(stringResource(R.string.paid_content_external_title)) },
-        text = {
+        title = stringResource(R.string.paid_content_external_title),
+        content = {
             Column {
                 Text(stringResource(R.string.paid_content_external_body))
                 step.methods.forEach { method ->
@@ -328,12 +335,8 @@ private fun ExternalMethodsDialog(step: PaidContentStep.ChoosingExternal, action
                 }
             }
         },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = { actions.dismiss(step.key) }) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        confirmText = stringResource(R.string.common_cancel),
+        onConfirm = { actions.dismiss(step.key) }
     )
 }
 

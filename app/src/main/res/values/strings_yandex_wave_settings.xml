@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="yandex_wave_settings_open">Настроить волну</string>
+    <string name="yandex_wave_settings_title">Настройки волны</string>
+    <string name="yandex_wave_settings_reset">Сбросить</string>
+    <string name="yandex_wave_settings_listen">Слушать</string>
+    <string name="yandex_wave_settings_activity">Занятие</string>
+    <string name="yandex_wave_settings_mood">Настроение</string>
+    <string name="yandex_wave_settings_character">Характер</string>
+    <string name="yandex_wave_settings_language">Язык</string>
+    <string name="yandex_wave_settings_default">Любое</string>
+    <string name="yandex_wave_activity_work">Работа</string>
+    <string name="yandex_wave_activity_focus">Концентрация</string>
+    <string name="yandex_wave_activity_workout">Тренировка</string>
+    <string name="yandex_wave_activity_relax">Отдых</string>
+    <string name="yandex_wave_mood_calm">Спокойное</string>
+    <string name="yandex_wave_mood_energetic">Бодрое</string>
+    <string name="yandex_wave_language_russian">Русский</string>
+    <string name="yandex_wave_language_foreign">Иностранный</string>
+    <string name="yandex_wave_summary_default">По вашему вкусу</string>
+</resources>

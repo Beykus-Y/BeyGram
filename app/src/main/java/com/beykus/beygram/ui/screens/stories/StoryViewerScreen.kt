@@ -34,7 +34,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Reply
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,6 +76,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.screens.chat.StealthScheduleFallback
+import com.beykus.beygram.ui.screens.chat.rememberStealthRiskGuard
+import com.beykus.beygram.ui.screens.chat.rememberStealthSendGuard
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ReactionOption
@@ -525,6 +527,10 @@ fun StoryViewerScreen(
     }
     var replySending by remember { mutableStateOf(false) }
     val storyStealthFallback = remember { StealthScheduleFallback() }
+    // A story reaction asks first while hidden presence warns about risky actions; asked once per story poster (see StealthRiskGuard).
+    val riskGuard = rememberStealthRiskGuard(posterChatId) { repository.stealthWarnsBeforeSending() }
+    // A story reply asks first while hidden presence warns about sending; asked once per story poster (see StealthSendGuard).
+    val sendGuard = rememberStealthSendGuard(posterChatId, repository)
     var deleting by remember { mutableStateOf(false) }
 
     val entry = snapshot
@@ -787,13 +793,15 @@ fun StoryViewerScreen(
             onDismiss = { showReactions = false },
             onPick = { option ->
                 val target = if (detail?.chosenReaction == option) null else option
-                scope.launch {
-                    repository.setStoryReaction(posterChatId, reactionStoryId, target)
-                        .onSuccess {
-                            detail = detail?.copy(chosenReaction = target)
-                            showReactions = false
-                        }
-                        .onFailure { notice = it.userMessage(context, R.string.stories_reaction_failed) }
+                riskGuard.run {
+                    scope.launch {
+                        repository.setStoryReaction(posterChatId, reactionStoryId, target)
+                            .onSuccess {
+                                detail = detail?.copy(chosenReaction = target)
+                                showReactions = false
+                            }
+                            .onFailure { notice = it.userMessage(context, R.string.stories_reaction_failed) }
+                    }
                 }
             }
         )
@@ -819,11 +827,13 @@ fun StoryViewerScreen(
         }
     }
     storyStealthFallback.Dialog()
+    riskGuard.Dialog()
+    sendGuard.Dialog()
     if (showReply) {
         StoryReplyDialog(
             sending = replySending,
             onDismiss = { if (!replySending) showReply = false },
-            onSend = { text -> sendStoryReply(text, sendNowConsent = false) }
+            onSend = { text -> sendGuard.run { sendStoryReply(text, sendNowConsent = false) } }
         )
     }
 
@@ -883,35 +893,31 @@ fun StoryViewerScreen(
     }
 
     if (showDelete) {
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { if (!deleting) showDelete = false },
-            title = { Text(stringResource(R.string.stories_delete)) },
-            text = { Text(stringResource(R.string.stories_delete_confirm)) },
-            confirmButton = {
-                TextButton(
-                    enabled = !deleting,
-                    onClick = {
-                        deleting = true
-                        scope.launch {
-                            repository.deleteStory(posterChatId, deleteStoryId)
-                                .onSuccess {
-                                    notice = context.getString(R.string.stories_deleted)
-                                    closeViewer(StoryViewerCloseReason.Deleted)
-                                }
-                                .onFailure {
-                                    deleting = false
-                                    showDelete = false
-                                    notice = it.userMessage(context, R.string.stories_delete_failed)
-                                }
+            title = stringResource(R.string.stories_delete),
+            message = stringResource(R.string.stories_delete_confirm),
+            confirmText = stringResource(R.string.common_delete),
+            onConfirm = {
+                deleting = true
+                scope.launch {
+                    repository.deleteStory(posterChatId, deleteStoryId)
+                        .onSuccess {
+                            notice = context.getString(R.string.stories_deleted)
+                            closeViewer(StoryViewerCloseReason.Deleted)
                         }
-                    }
-                ) { Text(stringResource(R.string.common_delete)) }
-            },
-            dismissButton = {
-                TextButton(enabled = !deleting, onClick = { showDelete = false }) {
-                    Text(stringResource(R.string.common_cancel))
+                        .onFailure {
+                            deleting = false
+                            showDelete = false
+                            notice = it.userMessage(context, R.string.stories_delete_failed)
+                        }
                 }
-            }
+            },
+            confirmEnabled = !deleting,
+            destructive = true,
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { showDelete = false },
+            dismissEnabled = !deleting
         )
     }
 }
@@ -1198,10 +1204,10 @@ private fun StoryReactionGlyph(option: ReactionOption, repository: TelegramRepos
 @Composable
 private fun StoryReplyDialog(sending: Boolean, onDismiss: () -> Unit, onSend: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!sending) onDismiss() },
-        title = { Text(stringResource(R.string.stories_reply_title)) },
-        text = {
+        title = stringResource(R.string.stories_reply_title),
+        content = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
@@ -1211,14 +1217,11 @@ private fun StoryReplyDialog(sending: Boolean, onDismiss: () -> Unit, onSend: (S
                 modifier = Modifier.fillMaxWidth()
             )
         },
-        confirmButton = {
-            TextButton(
-                enabled = text.isNotBlank() && !sending,
-                onClick = { onSend(text) }
-            ) { Text(stringResource(R.string.common_send)) }
-        },
-        dismissButton = {
-            TextButton(enabled = !sending, onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
-        }
+        confirmText = stringResource(R.string.common_send),
+        onConfirm = { onSend(text) },
+        confirmEnabled = text.isNotBlank() && !sending,
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss,
+        dismissEnabled = !sending
     )
 }

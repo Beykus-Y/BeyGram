@@ -204,7 +204,7 @@ internal class DelayedSendController(
         if (rows.isEmpty()) return
         val palette = beyGramPalette()
         // Bounded and scrollable: a backlog of waiting messages must never push the composer off the screen.
-        Column(Modifier.fillMaxWidth().heightIn(max = 168.dp).background(palette.surface).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 168.dp).chatChromeBackground(palette.surface).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp)) {
             rows.forEach { entry ->
                 DelayedSendRow(
                     entry = entry,

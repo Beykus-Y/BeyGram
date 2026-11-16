@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.usesGlassPanels
 
 /**
  * Fill of a grouped surface (a settings card, the archive row). Material 3 separates groups with its tonal container
@@ -29,8 +30,10 @@ fun groupSurfaceColor(): Color {
 fun sheetSurfaceColor(): Color {
     val design = LocalDesignSystem.current
     val palette = beyGramPalette()
-    return when (design.style) {
-        DesignStyle.Material3 -> MaterialTheme.colorScheme.surfaceContainerLow
+    return when {
+        design.style == DesignStyle.Material3 -> MaterialTheme.colorScheme.surfaceContainerLow
+        // The same dense glass fill as the attachment menu, so bottom sheets read as part of the glass style.
+        design.usesGlassPanels -> palette.surface.copy(alpha = 0.94f)
         else -> palette.surface
     }
 }

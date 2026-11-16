@@ -37,7 +37,9 @@ import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackQueueSource
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.components.sheetSurfaceColor
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -175,7 +177,7 @@ private fun ProfileMusicSheet(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var failure by remember { mutableStateOf<String?>(null) }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = sheetSurfaceColor()) {
+    BeyGramSheet(onDismissRequest = onDismiss, scrollableContent = false) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Text(
                 stringResource(R.string.profile_music_title),
@@ -251,16 +253,17 @@ private fun ProfileMusicRow(
             IconButton(onClick = { menuOpen = true }) {
                 Icon(Icons.Rounded.MoreVert, moreLabel, tint = palette.textSecondary)
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                if (position > 0) DropdownMenuItem(
-                    text = { Text(stringResource(R.string.profile_music_make_first), color = palette.textPrimary) },
+            BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (position > 0) BeyGramPopoverItem(
+                    text = stringResource(R.string.profile_music_make_first),
                     onClick = {
                         menuOpen = false
                         onMakeFirst()
                     }
                 )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.profile_music_remove), color = palette.danger) },
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.profile_music_remove),
+                    danger = true,
                     onClick = {
                         menuOpen = false
                         onRemove()

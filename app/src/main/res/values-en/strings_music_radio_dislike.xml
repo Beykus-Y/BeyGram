@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="music_radio_dislike">Dislike</string>
+    <string name="music_radio_disliked">Track skipped, the radio won\'t repeat it</string>
+    <string name="music_radio_dislike_undo">Undo</string>
+</resources>

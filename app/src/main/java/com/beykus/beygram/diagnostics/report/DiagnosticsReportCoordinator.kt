@@ -25,7 +25,10 @@ enum class ReportFailureReason {
     CONFLICT,
     API_UNAVAILABLE,
     PAYLOAD_TOO_LARGE,
-    FAILED_DELIVERY;
+    FAILED_DELIVERY,
+
+    /** Режим невидимки запретил отправку команды боту до её отправки. */
+    STEALTH_BLOCKED;
 
     /** Отказ, при котором повтор той же отправки бессмысленен: нужен новый отчёт. */
     val isTerminal: Boolean
@@ -384,7 +387,13 @@ class DiagnosticsReportCoordinator(
             _state.value = ReportFlowState.Failed(botReason(failure), prepared.reportId, null, canRetrySameReport = false)
             return false
         }
-        if (botChannel.sendReportCommand(chatId, prepared.nonce).isFailure) {
+        val sendResult = botChannel.sendReportCommand(chatId, prepared.nonce)
+        if (sendResult.isFailure) {
+            // Режим невидимки отказал до отправки: отчёт не поставлен в очередь, поэтому его id не показываем.
+            if ((sendResult.exceptionOrNull() as? ReportBotException)?.failure == ReportBotFailure.STEALTH_BLOCKED) {
+                _state.value = ReportFlowState.Failed(ReportFailureReason.STEALTH_BLOCKED, null, null, canRetrySameReport = false)
+                return false
+            }
             _state.value = ReportFlowState.Failed(
                 ReportFailureReason.TELEGRAM_UNAVAILABLE, prepared.reportId, null, canRetrySameReport = false
             )

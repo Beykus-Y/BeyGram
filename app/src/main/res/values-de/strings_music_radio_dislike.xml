@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="music_radio_dislike">Gefällt nicht</string>
+    <string name="music_radio_disliked">Titel übersprungen, das Radio spielt ihn nicht erneut</string>
+    <string name="music_radio_dislike_undo">Rückgängig</string>
+</resources>

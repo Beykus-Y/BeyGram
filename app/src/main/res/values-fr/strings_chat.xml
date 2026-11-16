@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="chat_bot_copied">Texte copié</string>
+    <string name="chat_bot_alert_title">Message du bot</string>
     <string name="chat_bot_failed">Impossible d’effectuer l’action du bot</string>
     <string name="chat_bot_hide">Masquer les boutons du bot</string>
     <string name="chat_bot_show">Afficher les boutons du bot</string>
@@ -212,6 +213,9 @@
     <string name="err_chat_export_date_range">Vérifiez la plage de dates de l’export</string>
     <string name="chat_search_description">Rechercher dans la discussion</string>
     <string name="chat_search_failed">La recherche a échoué</string>
+    <string name="chat_search_match_position">%1$d sur %2$d</string>
+    <string name="chat_search_previous_match">Occurrence précédente</string>
+    <string name="chat_search_next_match">Occurrence suivante</string>
     <string name="chat_send_later">Programmer le message</string>
     <string name="chat_send_now">Envoyer maintenant</string>
     <string name="chat_send_options">Options d’envoi</string>
@@ -251,6 +255,11 @@
     <string name="chat_sending_description">Envoi</string>
     <string name="chat_sent_description">Envoyé</string>
     <string name="chat_status_not_sent">non envoyé</string>
+    <string name="chat_status_waiting_network">en attente de réseau</string>
+    <string name="chat_send_failure_details">Détails</string>
+    <string name="chat_send_failure_title">Échec de l’envoi du message</string>
+    <string name="chat_send_failure_discard">Supprimer</string>
+    <string name="chat_send_failure_copy">Copier le texte</string>
     <string name="chat_video_note_permission_denied">Les autorisations de caméra et de microphone sont requises pour les messages vidéo</string>
     <string name="chat_video_note_processing">Traitement</string>
     <string name="chat_video_note_send_failed">Impossible d’envoyer le message vidéo</string>

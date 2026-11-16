@@ -1,35 +1,54 @@
 package com.beykus.beygram.data.tdlib
 
-import com.beykus.beygram.domain.model.ChatMessage
-import com.beykus.beygram.domain.model.MediaKind
-import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ForumTopicPreviewTest {
-    private fun message(
-        text: String = "",
-        media: MessageMedia? = null,
-        serviceText: String? = null
-    ) = ChatMessage(
-        id = 15L, chatId = 12L, text = text, time = "",
-        isOutgoing = false, media = media, serviceText = serviceText
-    )
+    private val photoFallback = UiText.Res(R.string.media_kind_photo)
 
     @Test fun textMessageIsShownWhenHistoryIsOld() {
-        assertEquals("Hello", forumTopicMessagePreview(message(text = "  Hello  ")))
+        val projection = forumTopicLastMessagePreview(
+            text = "  Hello  ",
+            fileName = "",
+            serviceText = null,
+            fallback = UiText.Raw("")
+        )
+        assertEquals(UiText.Raw("Hello"), projection.preview)
+        assertEquals("Hello", projection.plain)
     }
 
     @Test fun documentUsesOriginalFilenameAsPreview() {
-        val media = MessageMedia(MediaKind.Document, 10, fileName = "report.pdf")
-        assertEquals("report.pdf", forumTopicMessagePreview(message(media = media)))
+        val projection = forumTopicLastMessagePreview(
+            text = "",
+            fileName = "report.pdf",
+            serviceText = null,
+            fallback = UiText.Raw("")
+        )
+        assertEquals(UiText.Raw("report.pdf"), projection.preview)
+        assertEquals("report.pdf", projection.plain)
     }
 
     @Test fun serviceEventCanBePreviewed() {
-        assertEquals("Topic renamed", forumTopicMessagePreview(message(serviceText = "Topic renamed")))
+        val projection = forumTopicLastMessagePreview(
+            text = "",
+            fileName = "",
+            serviceText = "Topic renamed",
+            fallback = UiText.Raw("")
+        )
+        assertEquals(UiText.Raw("Topic renamed"), projection.preview)
+        assertEquals("Topic renamed", projection.plain)
     }
 
-    @Test fun photoWithoutFilenameNeedsGenericRecentMessageLabel() {
-        assertEquals("", forumTopicMessagePreview(message(media = MessageMedia(MediaKind.Photo, 11))))
+    @Test fun photoWithoutFilenameFallsBackToTheMediaLabel() {
+        val projection = forumTopicLastMessagePreview(
+            text = "",
+            fileName = "",
+            serviceText = null,
+            fallback = photoFallback
+        )
+        assertEquals(photoFallback, projection.preview)
+        assertEquals("", projection.plain)
     }
 }

@@ -22,8 +22,10 @@
     <string name="stealth_schedule_upload_failed">Die Datei konnte nicht vorab hochgeladen werden, daher lässt sich das Senden nicht zuverlässig planen.</string>
     <string name="stealth_schedule_custom">Eigene Zeit</string>
     <string name="stealth_schedule_custom_value">Eigene Zeit: %1$s</string>
-    <string name="stealth_schedule_dialog_hint">Verzögerung in Sekunden, von 1 bis 3600</string>
+    <string name="stealth_schedule_dialog_hint">Verzögerung in Sekunden, von 15 bis 3600</string>
     <string name="stealth_schedule_dialog_label">Sekunden</string>
-    <string name="stealth_schedule_dialog_error">Gib eine ganze Zahl von 1 bis 3600 ein</string>
-    <string name="stealth_schedule_short_warning">Eine Verzögerung unter 15 Sekunden ist für geplante Telegram-Nachrichten zu unzuverlässig: Die App wartet selbst und sendet eine normale Nachricht. Telegram kann dich als online anzeigen, und wenn die App vor dem Senden geschlossen wird, geht die Nachricht eventuell nicht raus.</string>
+    <string name="stealth_schedule_dialog_error">Gib eine ganze Zahl von 15 bis 3600 ein</string>
+    <string name="stealth_schedule_short_warning">Die gespeicherte Verzögerung liegt unter 15 Sekunden. Wähle mindestens 15 Sekunden. Ohne ausdrückliche Zustimmung bleibt normales Senden bis dahin gesperrt.</string>
+    <string name="stealth_schedule_music_bot_blocked">Der Musikbot sendet sofort eine Nachricht an Gespeicherte Nachrichten. Bei aktivem unsichtbarem Senden ist diese Aktion nicht verfügbar.</string>
+    <string name="stealth_diagnostic_send_blocked">Diese Prüfung ist im Unsichtbar-Modus nicht verfügbar, weil sie sofort eine Nachricht sendet. Schalte das unsichtbare Senden aus und versuche es erneut.</string>
 </resources>

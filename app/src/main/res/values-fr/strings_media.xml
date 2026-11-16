@@ -37,6 +37,7 @@
     <string name="recorder_camera_switch_aborted">Impossible de changer de caméra ; l’enregistrement est arrêté</string>
     <string name="recorder_camera_switch_failed">Impossible de changer de caméra ; l’enregistrement continue</string>
     <string name="recorder_cancel">Annuler</string>
+    <string name="recorder_discard">Supprimer l’enregistrement</string>
     <string name="recorder_delete">Supprimer</string>
     <string name="recorder_file_name">Message-video.mp4</string>
     <string name="recorder_locked">Enregistrement verrouillé</string>

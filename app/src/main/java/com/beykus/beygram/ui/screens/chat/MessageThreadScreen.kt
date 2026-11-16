@@ -4,6 +4,9 @@ import androidx.activity.compose.BackHandler
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,9 +42,11 @@ import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,9 +70,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.deeplink.MessageEntityLink
+import com.beykus.beygram.domain.model.ChatHistory
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.InteractionEffect
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageReply
@@ -83,6 +90,7 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -94,6 +102,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 internal fun MessageThreadScreen(
+    accountId: String,
     channelChatId: Long,
     channelTitle: String,
     postId: Long,
@@ -105,6 +114,7 @@ internal fun MessageThreadScreen(
     initialDraftEntities: List<MessageTextEntity> = emptyList(),
     initialReplyToId: Long = 0L,
     onDraftChange: (String, List<MessageTextEntity>, Long) -> Unit = { _, _, _ -> },
+    onDraftCommitted: (String, List<MessageTextEntity>, Long) -> Unit = { _, _, _ -> },
     onBack: () -> Unit,
     onOpenProfile: (Long) -> Unit,
     /** Repository-backed automatic download for the shared media viewer. */
@@ -115,20 +125,19 @@ internal fun MessageThreadScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    var post by remember(channelChatId, postId) { mutableStateOf(initialPost) }
-    var thread by remember(channelChatId, postId) { mutableStateOf<MessageThread?>(null) }
-    var messages by remember(channelChatId, postId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var loading by remember(channelChatId, postId) { mutableStateOf(true) }
-    var errorText by remember(channelChatId, postId) { mutableStateOf<String?>(null) }
-    var pagingError by remember(channelChatId, postId) { mutableStateOf<String?>(null) }
-    var loadingOlder by remember(channelChatId, postId) { mutableStateOf(false) }
-    var hasOlder by remember(channelChatId, postId) { mutableStateOf(false) }
-    var text by rememberSaveable(channelChatId, postId) { mutableStateOf(initialDraftText) }
-    var entities by rememberSaveable(channelChatId, postId) { mutableStateOf(initialDraftEntities) }
-    var replyTarget by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
-    var replyTargetId by rememberSaveable(channelChatId, postId) { mutableLongStateOf(initialReplyToId) }
-    var focusRequest by remember(channelChatId, postId) { mutableIntStateOf(0) }
-    var sending by remember { mutableStateOf(false) }
+    var post by remember(accountId, channelChatId, postId) { mutableStateOf(initialPost) }
+    var thread by remember(accountId, channelChatId, postId) { mutableStateOf<MessageThread?>(null) }
+    var messages by remember(accountId, channelChatId, postId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+    var loading by remember(accountId, channelChatId, postId) { mutableStateOf(true) }
+    var errorText by remember(accountId, channelChatId, postId) { mutableStateOf<String?>(null) }
+    var pagingError by remember(accountId, channelChatId, postId) { mutableStateOf<String?>(null) }
+    var loadingOlder by remember(accountId, channelChatId, postId) { mutableStateOf(false) }
+    var hasOlder by remember(accountId, channelChatId, postId) { mutableStateOf(false) }
+    var text by rememberSaveable(accountId, channelChatId, postId) { mutableStateOf(initialDraftText) }
+    var entities by rememberSaveable(accountId, channelChatId, postId) { mutableStateOf(initialDraftEntities) }
+    var replyTarget by remember(accountId, channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
+    var replyTargetId by rememberSaveable(accountId, channelChatId, postId) { mutableLongStateOf(initialReplyToId) }
+    var focusRequest by remember(accountId, channelChatId, postId) { mutableIntStateOf(0) }
     var sendError by remember { mutableStateOf<String?>(null) }
     var reactionTarget by remember { mutableStateOf<Pair<Long, ChatMessage>?>(null) }
     var reactionOptions by remember(conversation) { mutableStateOf<List<ReactionOption>>(emptyList()) }
@@ -137,12 +146,16 @@ internal fun MessageThreadScreen(
         scope.launch { conversation.messageContext(channelChatId, postId).onSuccess { context -> post = context.messages.firstOrNull { it.id == postId } } }
     }
     val paidReactions = rememberPaidReactions(conversation) { reloadPost() }
+    // Reactions, poll votes and bot buttons ask first while hidden presence warns about risky actions; asked once per thread (see StealthRiskGuard).
+    val riskGuard = rememberStealthRiskGuard(channelChatId to postId) { conversation.stealthWarnsBeforeSending() }
+    // Comments ask first while hidden presence warns about sending; asked once per thread (see StealthSendGuard).
+    val sendGuard = rememberStealthSendGuard(channelChatId, conversation)
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
     var selectedMediaChatId by remember { mutableStateOf(0L) }
     var stickerSetId by remember { mutableStateOf<Long?>(null) }
     // A view-once message is deleted as soon as it is opened; keep its page for this viewer session.
-    var retainedViewOnce by remember(channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
-    var openedViewOnceIds by remember(channelChatId, postId) { mutableStateOf(emptySet<Long>()) }
+    var retainedViewOnce by remember(accountId, channelChatId, postId) { mutableStateOf<ChatMessage?>(null) }
+    var openedViewOnceIds by remember(accountId, channelChatId, postId) { mutableStateOf(emptySet<Long>()) }
     val viewOnceGate = rememberViewOnceStealthGate(channelChatId to postId)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val messageLimits by conversation.messageLimits.collectAsStateWithLifecycle()
@@ -230,16 +243,18 @@ internal fun MessageThreadScreen(
             paidReactions.open(chatId, message.id)
             return
         }
-        scope.launch {
-            conversation.toggleReaction(chatId, message.id, option, addToRecent)
-                .onSuccess { reactions ->
-                    if (message.id == post?.id && chatId == channelChatId) {
-                        post = post?.copy(reactions = reactions)
-                    } else {
-                        messages = messages.map { if (it.id == message.id && it.chatId == chatId) it.copy(reactions = reactions) else it }
+        riskGuard.run {
+            scope.launch {
+                conversation.toggleReaction(chatId, message.id, option, addToRecent)
+                    .onSuccess { reactions ->
+                        if (message.id == post?.id && chatId == channelChatId) {
+                            post = post?.copy(reactions = reactions)
+                        } else {
+                            messages = messages.map { if (it.id == message.id && it.chatId == chatId) it.copy(reactions = reactions) else it }
+                        }
                     }
-                }
-                .onFailure { sendError = it.userMessage(context, R.string.chat_reaction_failed) }
+                    .onFailure { sendError = it.userMessage(context, R.string.chat_reaction_failed) }
+            }
         }
     }
 
@@ -266,6 +281,7 @@ internal fun MessageThreadScreen(
         }
     }
 
+    val listScrollInstant = rememberMotionInstant(MotionToken.ListReorder)
     fun jump(reply: MessageReply) {
         if (reply.isUnavailable || reply.messageId <= 0L) {
             sendError = context.getString(R.string.chat_reply_original_unavailable)
@@ -275,7 +291,7 @@ internal fun MessageThreadScreen(
         val isPost = (reply.chatId == channelChatId && reply.messageId == postId) ||
             (reply.chatId == thread?.discussionChatId && reply.messageId == thread?.threadId)
         if (isPost) {
-            if (post != null) scope.launch { listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1) }
+            if (post != null) scope.launch { listState.scrollToItemRespectingMotion(listState.layoutInfo.totalItemsCount - 1, motionInstant = listScrollInstant) }
             return
         }
         val index = messages.indexOfFirst { it.id == reply.messageId && it.chatId == reply.chatId }
@@ -283,10 +299,118 @@ internal fun MessageThreadScreen(
             sendError = context.getString(R.string.thread_reply_not_loaded)
             return
         }
-        scope.launch { listState.animateScrollToItem(messages.lastIndex - index) }
+        scope.launch { listState.scrollToItemRespectingMotion(messages.lastIndex - index, motionInstant = listScrollInstant) }
     }
 
     val stealthFallback = remember { StealthScheduleFallback() }
+    val sendGeneration by remember(accountId) { PendingTextSendSessions.generation(accountId) }.collectAsStateWithLifecycle()
+    val sendQueue = remember(context.applicationContext, accountId, sendGeneration) {
+        PendingTextSendSessions.queue(context.applicationContext, accountId)
+    }
+    val sendKey = TextSendScopeKey(accountId, thread?.discussionChatId ?: 0L, thread?.threadId ?: 0L)
+    var failedSendTarget by remember(sendKey) { mutableStateOf<FailedSendTarget?>(null) }
+    val confirmedCommentIds = remember(sendKey) { mutableStateMapOf<Long, Long>() }
+    val discussionHistory by remember(conversation, thread?.discussionChatId) {
+        val chatId = thread?.discussionChatId ?: 0L
+        if (chatId != 0L) conversation.observeChatHistory(chatId)
+        else MutableStateFlow(ChatHistory())
+    }.collectAsStateWithLifecycle()
+    val writing by remember(sendQueue, sendKey) { sendQueue.composerWriting(sendKey) }
+        .collectAsStateWithLifecycle(initialValue = false)
+    // Only clear when the parent completes an earlier overlay write; never overwrite active typing on keystroke echoes.
+    val emptyDraft = Triple("", emptyList<MessageTextEntity>(), 0L)
+    val incomingDraft = Triple(initialDraftText, initialDraftEntities, initialReplyToId)
+    val previousIncomingDraft = remember(accountId, channelChatId, postId) { arrayOf(incomingDraft) }
+    val currentLocalDraft = Triple(text, entities, replyTarget?.id ?: replyTargetId)
+    val shouldClearDraft = incomingDraft == emptyDraft &&
+        previousIncomingDraft[0] != emptyDraft &&
+        currentLocalDraft == previousIncomingDraft[0]
+    SideEffect {
+        // Recheck the live draft at the commit point: a scheduled effect must never
+        // erase a keystroke that arrived after this composition was calculated.
+        if (shouldClearDraft && Triple(text, entities, replyTarget?.id ?: replyTargetId) == currentLocalDraft) {
+            text = ""
+            entities = emptyList()
+            replyTarget = null
+            replyTargetId = 0L
+        }
+        previousIncomingDraft[0] = incomingDraft
+    }
+    val pending by remember(sendQueue, sendKey) { sendQueue.observe(sendKey) }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    LaunchedEffect(pending) {
+        val activeIds = pending.mapTo(HashSet()) { it.attemptId }
+        confirmedCommentIds.keys.retainAll(activeIds)
+    }
+    val visiblePending = remember(pending, discussionHistory, thread?.threadId, messages, confirmedCommentIds.toMap()) {
+        visibleThreadPendingTextAttempts(
+            attempts = pending,
+            discussionHistory = discussionHistory,
+            threadId = thread?.threadId ?: 0L,
+            threadMessages = messages,
+            confirmedMessageIdsByAttempt = confirmedCommentIds
+        )
+    }
+    val queueStorageFailed by sendQueue.storageFailed.collectAsStateWithLifecycle()
+    val queueStorageCorrupt by sendQueue.storageCorrupt.collectAsStateWithLifecycle()
+    val queueStorageFailureText = stringResource(R.string.chat_send_queue_storage_failed)
+    LaunchedEffect(sendQueue, sendKey, queueStorageFailed, queueStorageCorrupt) {
+        if (queueStorageFailed && !queueStorageCorrupt) sendError = queueStorageFailureText
+        else if (!queueStorageFailed && sendError == queueStorageFailureText) sendError = null
+    }
+    suspend fun dispatchComment(
+        attemptId: Long? = null,
+        consent: Boolean = false,
+        submittedText: String = "",
+        submittedEntities: List<MessageTextEntity> = emptyList(),
+        submittedReplyId: Long? = null
+    ): Boolean {
+        val current = thread ?: return false
+        if (current.discussionChatId != sendKey.chatId || current.threadId != sendKey.forumTopicId) return false
+        val baseline = conversation.observeChatHistory(current.discussionChatId).value.liveArrivalSequence
+        val execute: suspend (TextSendAttempt) -> Result<Unit> = { attempt ->
+            conversation.sendThreadReply(attempt.scope.chatId, attempt.scope.forumTopicId, attempt.text,
+                attempt.entities, attempt.replyToMessageId, attempt.options.sendNowConsent).map { sent ->
+                if (sent != null) {
+                    // Read the live snapshot after the suspension: several attempts can share
+                    // an enqueue-time snapshot, but each successful comment must count once.
+                    val live = thread
+                    if (live != null && live.discussionChatId == attempt.scope.chatId &&
+                        live.threadId == attempt.scope.forumTopicId) {
+                        confirmedCommentIds[attempt.attemptId] = sent.id
+                        val history = conversation.observeChatHistory(live.discussionChatId).value
+                        messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history,
+                            live.discussionChatId, live.threadId)
+                        thread = live.copy(replyCount = live.replyCount + 1)
+                    }
+                } else showStealthScheduledNotice(context)
+                Unit
+            }
+        }
+        val failure: (TextSendAttempt, Throwable) -> Unit = { attempt, error ->
+            if (!stealthFallback.offer(error) { sendQueue.launchMutation { dispatchComment(attempt.attemptId, true) } }) {
+                sendError = error.userMessage(context, R.string.thread_comments_send_failed)
+            }
+        }
+        val format: (Throwable) -> String = { it.userMessage(context, R.string.thread_comments_send_failed) }
+        return try {
+            if (attemptId != null) {
+                sendQueue.retry(sendKey, attemptId, sendNowConsent = consent, baselineSequence = baseline,
+                    execute = execute, onFailure = failure, formatError = format)
+            } else {
+                if (submittedText.isBlank()) return false
+                sendQueue.enqueue(sendKey, submittedText, submittedEntities, submittedReplyId,
+                    null, com.beykus.beygram.domain.model.MessageSendOptions(sendNowConsent = consent),
+                    baseline,
+                    java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date()),
+                    execute = execute, onFailure = failure, formatError = format)
+                true
+            }
+        } catch (_: TextSendStorageException) {
+            sendError = queueStorageFailureText
+            false
+        }
+    }
     fun retryComment(chatId: Long, messageId: Long, sendNowConsent: Boolean) {
         scope.launch {
             conversation.retryMessages(chatId, listOf(messageId), sendNowConsent).onFailure { failure ->
@@ -298,44 +422,32 @@ internal fun MessageThreadScreen(
     }
     fun send(sendNowConsent: Boolean = false) {
         val current = thread ?: return
-        if (!current.canReply || sending || text.isBlank()) return
+        if (!current.canReply || text.isBlank() || sendQueue.isComposerWriting(sendKey)) return
         if (text.codePointCount(0, text.length) > messageLimits.text) {
             sendError = context.getString(R.string.chat_truncated_notice, messageLimits.text)
             return
         }
-        val outgoingText = text
-        val outgoingEntities = entities
-        val replyTo = replyTarget?.id ?: replyTargetId.takeIf { it > 0L }
-        sending = true
+        val submittedText = text
+        val submittedEntities = entities.toList()
+        val submittedReply = replyTarget?.id ?: replyTargetId
         sendError = null
-        scope.launch {
-            try {
-                conversation.sendThreadReply(current.discussionChatId, current.threadId, outgoingText, outgoingEntities, replyTo, sendNowConsent)
-                    .onSuccess { sent ->
-                        if (sent != null) {
-                            // TDLib may already have confirmed this comment, so the snapshot must not bring its temporary copy back.
-                            val history = conversation.observeChatHistory(current.discussionChatId).value
-                            messages = mergeThreadHistory(mergeThreadMessages(messages, listOf(sent)), history, current.discussionChatId, current.threadId)
-                            thread = current.copy(replyCount = current.replyCount + 1)
-                        } else {
-                            // Stealth mode put the comment into Telegram's scheduled queue; it appears when the server publishes it.
-                            showStealthScheduledNotice(context)
-                        }
-                        text = ""
-                        entities = emptyList()
-                        replyTarget = null
-                        replyTargetId = 0L
-                        onDraftChange("", emptyList(), 0L)
-                        scope.launch { listState.animateScrollToItem(0) }
-                    }
-                    .onFailure { failure ->
-                        if (!stealthFallback.offer(failure) { send(sendNowConsent = true) }) {
-                            sendError = failure.userMessage(context, R.string.thread_comments_send_failed)
-                        }
-                    }
-            } finally {
-                sending = false
+        sendQueue.launchComposerWrite(sendKey) {
+            if (!dispatchComment(
+                    consent = sendNowConsent,
+                    submittedText = submittedText,
+                    submittedEntities = submittedEntities,
+                    submittedReplyId = submittedReply.takeIf { it > 0L }
+                )) return@launchComposerWrite
+            // A later edit must not be erased by the completed IO operation.
+            if (text == submittedText && entities == submittedEntities &&
+                (replyTarget?.id ?: replyTargetId) == submittedReply) {
+                text = ""
+                entities = emptyList()
+                replyTarget = null
+                replyTargetId = 0L
+                scope.launch { listState.scrollToItemRespectingMotion(0, motionInstant = listScrollInstant) }
             }
+            onDraftCommitted(submittedText, submittedEntities, submittedReply)
         }
     }
 
@@ -398,7 +510,9 @@ internal fun MessageThreadScreen(
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                items(messages.asReversed(), key = { it.id }) { message ->
+                items(visiblePending.map { it.toChatMessage() } + messages.asReversed(), key = { it.id }) { message ->
+                    val localAttempt = visiblePending.firstOrNull { -it.attemptId == message.id }
+                    val failedLocal = localAttempt?.takeIf { it.phase == TextSendAttemptPhase.Failed }
                     ThreadCommentRow(
                         message = message,
                         observeFile = observeFile,
@@ -406,8 +520,17 @@ internal fun MessageThreadScreen(
                         onOpenProfile = onOpenProfile,
                         onOpenMedia = { selectedMediaId = message.id; selectedMediaChatId = message.chatId; if (message.isViewOnce) retainedViewOnce = message },
                         onPlayed = { conversation.openMessageContent(message.chatId, message.id) },
-                        onRetry = { retryComment(message.chatId, message.id, sendNowConsent = false) },
-                        onActions = { reactionTarget = message.chatId to message },
+                        onRetry = {
+                            if (failedLocal != null) failedSendTarget = FailedSendTarget(message, failedLocal.attemptId)
+                            else if (localAttempt == null) retryComment(message.chatId, message.id, sendNowConsent = false)
+                        },
+                        onShowFailureDetails = if (message.isOutgoing && message.sendState == MessageSendState.Failed && (localAttempt == null || failedLocal != null)) {
+                            { failedSendTarget = FailedSendTarget(message, failedLocal?.attemptId) }
+                        } else null,
+                        onActions = {
+                            if (failedLocal != null) failedSendTarget = FailedSendTarget(message, failedLocal.attemptId)
+                            else if (localAttempt == null) reactionTarget = message.chatId to message
+                        },
                         onReplyClick = ::jump,
                         onReply = if (thread?.canReply == true) {
                             { target: Long ->
@@ -421,9 +544,11 @@ internal fun MessageThreadScreen(
                         onStickerOpen = { id -> stickerSetId = id },
                         observeCustomEmoji = conversation::observeCustomEmoji,
                         onPollVote = { chatId, messageId, choices ->
-                            scope.launch {
-                                conversation.votePoll(chatId, messageId, choices)
-                                    .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                            riskGuard.run {
+                                scope.launch {
+                                    conversation.votePoll(chatId, messageId, choices)
+                                        .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                                }
                             }
                         },
                         onPollStop = { chatId, messageId ->
@@ -477,9 +602,11 @@ internal fun MessageThreadScreen(
                                 onReaction = { _, option -> changeReaction(channelChatId, root, option, addToRecent = false) },
                                 observeCustomEmoji = conversation::observeCustomEmoji,
                                 onPollVote = { messageId, choices ->
-                                    scope.launch {
-                                        conversation.votePoll(channelChatId, messageId, choices)
-                                            .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                                    riskGuard.run {
+                                        scope.launch {
+                                            conversation.votePoll(channelChatId, messageId, choices)
+                                                .onFailure { sendError = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                                        }
                                     }
                                 },
                                 onPollStop = { messageId ->
@@ -516,6 +643,24 @@ internal fun MessageThreadScreen(
                     reactionTarget = null
                 }
             )
+        }
+        if (queueStorageCorrupt) Row(
+            Modifier.fillMaxWidth().background(palette.warningSurface).padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(stringResource(R.string.chat_send_queue_corrupt_notice), color = palette.warningText, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = {
+                sendQueue.launchMutation {
+                    try {
+                        sendQueue.quarantineAndReset()
+                        if (sendError == queueStorageFailureText) sendError = null
+                    } catch (_: TextSendStorageException) {
+                        sendError = queueStorageFailureText
+                    }
+                }
+            }) {
+                Text(stringResource(R.string.chat_send_queue_reset_action), color = palette.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
         sendError?.let { message ->
             Row(Modifier.fillMaxWidth().background(palette.warningSurface).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -556,7 +701,7 @@ internal fun MessageThreadScreen(
                             onChange = { text = it; onDraftChange(it, entities, replyTarget?.id ?: replyTargetId) },
                             onEntitiesChange = { entities = it; onDraftChange(text, it, replyTarget?.id ?: replyTargetId) },
                             placeholder = stringResource(R.string.thread_reply_placeholder),
-                            locked = sending,
+                            locked = false,
                             isError = false,
                             modifier = Modifier.weight(1f),
                             focusRequest = focusRequest
@@ -566,13 +711,12 @@ internal fun MessageThreadScreen(
                         val tonalSend = LocalDesignSystem.current.composerTonal
                         Box(
                             Modifier.size(40.dp).clip(CircleShape)
-                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank() && !sending) 1f else 0.4f))
-                                .clickable(enabled = text.isNotBlank() && !sending) { send() },
+                                .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank() && !writing) 1f else 0.4f))
+                                .clickable(enabled = text.isNotBlank() && !writing) { sendGuard.run { send() } },
                             contentAlignment = Alignment.Center
                         ) {
                             val sendInk = if (tonalSend) palette.accentInk else palette.onAccent
-                            if (sending) CircularProgressIndicator(Modifier.size(20.dp), color = sendInk, strokeWidth = 2.dp)
-                            else Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = sendInk, modifier = Modifier.size(21.dp))
+                            Icon(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.common_send), tint = sendInk, modifier = Modifier.size(21.dp))
                         }
                     }
                 }
@@ -611,13 +755,63 @@ internal fun MessageThreadScreen(
     }
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(it.chatId, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, it.chatId)) }
     stealthFallback.Dialog()
+    riskGuard.Dialog()
+    sendGuard.Dialog()
+    failedSendTarget?.let { target ->
+        val activeLocal = target.localAttemptId?.let { id ->
+            pending.firstOrNull { it.attemptId == id && it.phase == TextSendAttemptPhase.Failed }
+        }
+        if (target.localAttemptId != null && activeLocal == null) {
+            failedSendTarget = null
+        } else {
+            val dialogTarget = activeLocal?.let { FailedSendTarget(it.toChatMessage(), it.attemptId) } ?: target
+            FailedSendDetailsDialog(
+                target = dialogTarget,
+                onDismiss = { failedSendTarget = null },
+                onRetry = {
+                    val attemptId = dialogTarget.localAttemptId
+                    if (attemptId != null) {
+                        sendQueue.launchMutation { dispatchComment(attemptId) }
+                    } else {
+                        retryComment(dialogTarget.message.chatId, dialogTarget.message.id, sendNowConsent = false)
+                    }
+                },
+                onDiscard = {
+                    val attemptId = dialogTarget.localAttemptId
+                    if (attemptId != null) {
+                        sendQueue.launchMutation {
+                            try {
+                                sendQueue.discard(sendKey, attemptId)
+                            } catch (_: TextSendStorageException) {
+                                sendError = queueStorageFailureText
+                            }
+                        }
+                    } else {
+                        scope.launch {
+                            conversation.deleteMessages(
+                                dialogTarget.message.chatId,
+                                listOf(dialogTarget.message.id),
+                                DeleteMessageScope.ForSelf
+                            ).onSuccess {
+                                messages = messages.filterNot {
+                                    it.chatId == dialogTarget.message.chatId && it.id == dialogTarget.message.id
+                                }
+                            }.onFailure { failure ->
+                                sendError = failure.userMessage(context, R.string.err_chat_delete_failed)
+                            }
+                        }
+                    }
+                }
+            )
+        }
+    }
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(viewOnceAsked.chatId, viewOnceAsked.id) { selectedMediaId = null; selectedMediaChatId = 0L }
     if (viewed != null) {
         val viewedMedia = viewed.media
         if (viewedMedia != null && viewOnceAsked == null) {
             val viewerPages = MediaViewerPolicy.retainViewOncePage(
-                pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, viewed.chatId) } },
-                retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId)
+                pages = mediaMessages.mapNotNull { message -> message.media?.let { MediaViewerItem(message.id, it, message.isViewOnce, viewed.chatId, message.text) } },
+                retained = MediaViewerItem(viewed.id, viewedMedia, viewed.isViewOnce, viewed.chatId, viewed.text)
             )
             MediaViewer(
                 pages = viewOnceGate.swipeable(viewerPages, viewed.chatId, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, viewed.chatId)),
@@ -661,6 +855,7 @@ private fun ThreadCommentRow(
     onOpenMedia: () -> Unit,
     onPlayed: () -> Unit,
     onRetry: () -> Unit,
+    onShowFailureDetails: (() -> Unit)?,
     onActions: () -> Unit,
     onReplyClick: (MessageReply) -> Unit,
     onReply: ((Long) -> Unit)?,
@@ -709,6 +904,7 @@ private fun ThreadCommentRow(
                 onReaction = { _, option -> onReaction(option) },
                 observeCustomEmoji = observeCustomEmoji,
                 onRetry = onRetry,
+                onShowFailureDetails = onShowFailureDetails,
                 onSenderClick = openSender,
                 onPollVote = { messageId, choices -> onPollVote(message.chatId, messageId, choices) },
                 onPollStop = { messageId -> onPollStop(message.chatId, messageId) },
@@ -721,4 +917,33 @@ private fun ThreadCommentRow(
             )
         }
     }
+}
+
+internal fun visibleThreadPendingTextAttempts(
+    attempts: List<TextSendAttempt>,
+    discussionHistory: ChatHistory,
+    threadId: Long,
+    threadMessages: List<ChatMessage>,
+    confirmedMessageIdsByAttempt: Map<Long, Long> = emptyMap()
+): List<TextSendAttempt> {
+    if (attempts.isEmpty()) return emptyList()
+    val visibleMessageIds = threadMessages.mapTo(HashSet()) { it.id }
+    val preClaimedIds = HashSet<Long>()
+    val suppressedAttemptIds = HashSet<Long>()
+    for (attempt in attempts) {
+        if (attempt.phase != TextSendAttemptPhase.Sending) continue
+        val confirmedId = confirmedMessageIdsByAttempt[attempt.attemptId] ?: continue
+        if (confirmedId in visibleMessageIds) {
+            suppressedAttemptIds += attempt.attemptId
+            preClaimedIds += resolveMessageIdThroughReplacements(confirmedId, discussionHistory.recentReplacements)
+        }
+    }
+    val threadHistory = discussionHistory.copy(
+        messages = discussionHistory.messages.filter {
+            it.messageThreadId == threadId && !it.isChannelPost && it.id != threadId
+        }
+    )
+    val remaining = if (suppressedAttemptIds.isEmpty()) attempts
+    else attempts.filterNot { it.attemptId in suppressedAttemptIds }
+    return visiblePendingTextAttempts(remaining, threadHistory, preClaimedIds)
 }

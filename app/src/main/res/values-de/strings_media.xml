@@ -37,6 +37,7 @@
     <string name="recorder_camera_switch_aborted">Kamera konnte nicht gewechselt werden; Aufnahme gestoppt</string>
     <string name="recorder_camera_switch_failed">Kamera konnte nicht gewechselt werden; Aufnahme wird fortgesetzt</string>
     <string name="recorder_cancel">Abbrechen</string>
+    <string name="recorder_discard">Aufnahme löschen</string>
     <string name="recorder_delete">Löschen</string>
     <string name="recorder_file_name">Videonachricht.mp4</string>
     <string name="recorder_locked">Aufnahme gesperrt</string>

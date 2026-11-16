@@ -4,12 +4,15 @@ import android.content.Context
 import android.os.Build
 import com.beykus.beygram.notifications.TriggerIncoming
 import com.beykus.beygram.notifications.TriggerAlerts
+import com.beykus.beygram.media.bgwave.BgWaveHub
+import com.beykus.beygram.media.bgwave.waveNeedsStealthConsent
 import com.beykus.beygram.notifications.TriggerWordsStore
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
 import com.beykus.beygram.playback.MusicBotCache
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.paidTextCanConfirm
 import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.export.ChatExportMessage
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
@@ -35,6 +38,7 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MediaPosition
 import com.beykus.beygram.domain.model.MessageTextEntity
+import com.beykus.beygram.domain.model.TextStyleKind
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.MessageReportReason
 import com.beykus.beygram.domain.model.MessageTranslation
@@ -53,7 +57,9 @@ import com.beykus.beygram.domain.model.BotWebAppSource
 import com.beykus.beygram.domain.model.BotWebAppTheme
 import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.MusicBotTrack
-import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.SavedMusicBotTrack
+import com.beykus.beygram.domain.model.ForumTopicLastMessage
+import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.GroupAdministratorRights
 import com.beykus.beygram.domain.model.GroupInviteLink
 import com.beykus.beygram.domain.model.GroupInviteLinkDraft
@@ -80,6 +86,7 @@ import com.beykus.beygram.data.media.AutoDownloadTdlibMapping
 import com.beykus.beygram.data.media.TrafficUsageStore
 import com.beykus.beygram.data.media.currentAutoDownloadNetwork
 import com.beykus.beygram.data.delayed.DelayedSendQueue
+import com.beykus.beygram.ui.screens.chat.PendingTextSendSessions
 import com.beykus.beygram.data.media.decideAutoDownload
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.data.chatmemory.ChatMemoryChatFacts
@@ -123,6 +130,8 @@ import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftAuctionQuote
+import com.beykus.beygram.domain.model.GiftListingQuote
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.MessageLinkTarget
@@ -248,7 +257,8 @@ class TdLibTelegramRepository private constructor(
     @Volatile private var secretChatSession = 0L
     private val payments = TdPayments(tdRequests)
     private val paidReactions = TdPaidReactions { tdRequests(it) }
-    private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
+    private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests,
+        stealthActive = { stealthSettings.current.scheduledSendDelay != null })
     private val messageDrafts = TdChatDrafts(appContext, accountId) { client }
 
     // ---- Прокси Telegram -----------------------------------------------------
@@ -465,9 +475,9 @@ class TdLibTelegramRepository private constructor(
     // every message forever and later show a gap between them and its first loaded page.
     private val loadedTopics = ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
     // A newer jump or latest load of the same topic wins over a slower earlier response.
-    private val topicRequests = ConcurrentHashMap<Pair<Long, Long>, Long>()
+    private val topicRequests = RequestEpochMap<Pair<Long, Long>>()
     private fun nextTopicRequest(chatId: Long, topicId: Long): Long =
-        topicRequests.merge(chatId to topicId, 1L) { current, _ -> current + 1 } ?: 1L
+        topicRequests.next(chatId to topicId)
     private fun putForumMessage(message: TdApi.Message, replaces: Long? = null) {
         val topicId = forumId(message)
         if (topicId > 0L && (message.chatId to topicId) in loadedTopics) {
@@ -497,6 +507,20 @@ class TdLibTelegramRepository private constructor(
         autoDownloadNetworkMonitor.start()
     }
     private val serviceMessages = TdServiceMessageMapper(appContext)
+    private fun registerWaveSender() {
+        BgWaveHub.registerSender(accountId, needsStealthConsent = {
+            val stealth = stealthSettings.current
+            waveNeedsStealthConsent(stealth.scheduledSendDelay != null, stealth.hideOnline && stealth.warnRiskyActions)
+        }) { chatId, link, stealthConsent ->
+            if (!stealthConsent) return@registerSender Result.failure(IllegalStateException("no stealth consent"))
+            val label = appContext.getString(R.string.bgwave_service_label)
+            sendMessage(
+                chatId, label, null,
+                waveServiceEntities(label, link),
+                0L, false, MessageSendOptions(disableLinkPreview = true, sendNowConsent = stealthConsent),
+            )
+        }
+    }
     private val pendingServiceUserRequests = ConcurrentHashMap.newKeySet<Triple<Long, Long, Long>>()
 
     private fun hydrateServiceMember(message: TdApi.Message, userId: Long) {
@@ -1499,6 +1523,8 @@ class TdLibTelegramRepository private constructor(
         botFeatures.musicBotSearch(query, offset, contextChatId)
     override suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?> =
         botFeatures.musicBotTrack(queryId, resultId, musicBotCacheDir)
+    override suspend fun saveMusicBotTrack(queryId: Long, resultId: String): Result<SavedMusicBotTrack?> =
+        botFeatures.saveMusicBotTrack(queryId, resultId)
     override suspend fun sendInlineBotResult(
         chatId: Long,
         queryId: Long,
@@ -1530,6 +1556,7 @@ class TdLibTelegramRepository private constructor(
     }
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
+        mapLastMessage = { it.toForumTopicLastMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) },
         stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
     private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
@@ -1581,7 +1608,8 @@ class TdLibTelegramRepository private constructor(
 
     // ---- Канал подтверждения диагностических отчётов --------------------------
     // Pinning id бота задан публичной конфигурацией сборки; 0 — пиннинг выключен.
-    private val reportBotChannel = TdReportBotChannel({ client }, BuildConfig.REPORT_BOT_USER_ID)
+    private val reportBotChannel = TdReportBotChannel({ client }, BuildConfig.REPORT_BOT_USER_ID,
+        stealthActive = { stealthSettings.current.scheduledSendDelay != null })
     override suspend fun openBotChat(expectedBotUserId: Long, username: String) =
         reportBotChannel.openBotChat(expectedBotUserId, username)
     override suspend fun sendReportCommand(botChatId: Long, nonce: String) =
@@ -1666,6 +1694,7 @@ class TdLibTelegramRepository private constructor(
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
     override fun observeMessageEffect(effectId: Long) = messageEffects.observe(effectId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
+    override suspend fun singleMessage(chatId: Long, messageId: Long) = conversationActions.single(chatId, messageId)
     override suspend fun linkedDiscussionChatId(chatId: Long) = conversationActions.linkedDiscussionChatId(chatId)
     override suspend fun loadMessageThread(chatId: Long, messageId: Long) = conversationActions.messageThread(chatId, messageId)
     override suspend fun loadMessageThreadComments(discussionChatId: Long, threadId: Long, fromMessageId: Long) =
@@ -1763,7 +1792,15 @@ class TdLibTelegramRepository private constructor(
         payments.starsTopUpPayment(option)
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = payments.starTransactions(offset)
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)
+    override suspend fun giftAuctionQuote(auctionId: String, profileId: Long, isSelf: Boolean) =
+        payments.giftAuctionQuote(auctionId, profileId, isSelf)
+    override suspend fun giftAuctionHistory(giftId: Long) = payments.giftAuctionHistory(giftId)
+    override suspend fun submitGiftAuctionBid(quote: GiftAuctionQuote, profileId: Long, isSelf: Boolean, total: Long) =
+        payments.submitGiftAuctionBid(quote, profileId, isSelf, total)
     override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = payments.receivedGifts(offset)
+    override suspend fun resaleGifts(giftId: Long, offset: String) = payments.resaleGifts(giftId, offset)
+    override suspend fun buyResoldGift(profileId: Long, name: String, confirmedStars: Long) =
+        payments.buyResoldGift(profileId, name, confirmedStars)
     override suspend fun sendGift(
         profileId: Long,
         isSelf: Boolean,
@@ -1771,6 +1808,10 @@ class TdLibTelegramRepository private constructor(
         text: String,
         isPrivate: Boolean
     ): GiftSendOutcome = payments.sendGift(profileId, isSelf, giftId, text, isPrivate)
+
+    override suspend fun giftListingQuote(receivedId: String) = payments.giftListingQuote(receivedId)
+    override suspend fun updateGiftListing(quote: GiftListingQuote, newStars: Long?) =
+        payments.updateGiftListing(quote, newStars)
     override suspend fun paidContentPlan(chatId: Long, messageId: Long): PaidContentPlan =
         payments.paidContentPlan(chatId, messageId)
     override suspend fun payPaidContentWithStars(chatId: Long, messageId: Long, confirmedStarCount: Long): PaidContentPaymentOutcome =
@@ -1851,7 +1892,7 @@ class TdLibTelegramRepository private constructor(
     private val lastSenderUsers = ConcurrentHashMap<Long, Long>()
     private val muteState = ChatMuteState()
     // Each jump or latest load takes the next number; a jump answered after a newer one has started is dropped.
-    private val historyRequests = ConcurrentHashMap<Long, Long>()
+    private val historyRequests = RequestEpochMap<Long>()
     @Volatile private var secondaryDisposed = false
     /** The native TDLib owner remains responsible for Client/lease shutdown. */
     internal fun disposeSecondaryRepository() {
@@ -2204,8 +2245,6 @@ class TdLibTelegramRepository private constructor(
         store.beginLoad(chatId)?.let { requestForumHistory(chatId, forumTopicId, oldest, it) }
     }
 
-    override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> =
-        conversationActions.latestForumTopicPreview(chatId, forumTopicId)
 
     override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = requestResult {
         val store = topicStore(chatId, forumTopicId)
@@ -2215,7 +2254,7 @@ class TdLibTelegramRepository private constructor(
             this.chatId = chatId; this.forumTopicId = forumTopicId.toInt()
             fromMessageId = messageId; offset = -15; limit = 40
         })
-        if (topicRequests[chatId to forumTopicId] != request) false else {
+        if (!topicRequests.isCurrent(chatId to forumTopicId, request)) false else {
             store.replaceWithWindow(chatId, result.messages.orEmpty().filterNotNull().map { it.toChatMessage() }, reachesLatest = false)
             true
         }
@@ -2515,6 +2554,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>> =
         conversationActions.newerMessages(chatId, forumTopicId, afterMessageId)
 
+    override suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>> = conversationActions.peekMessages(chatId)
+
     override suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean> {
         // Taken before the wait, so a latest load or another jump that starts meanwhile supersedes this one.
         val request = nextHistoryRequest(chatId)
@@ -2522,7 +2563,7 @@ class TdLibTelegramRepository private constructor(
         if (chatMemory.enabled) withContext(Dispatchers.IO) { chatMemory.awaitWrites() }
         return conversationActions.window(chatId, messageId).map { messages ->
             // A newer jump or latest load started meanwhile, so this window must not replace its result.
-            if (historyRequests[chatId] != request) false else {
+            if (!historyRequests.isCurrent(chatId, request)) false else {
                 val newestId = chatCache[chatId]?.lastMessageId
                 val reachesLatest = messages.any { it.id == newestId }
                 messageHistory.replaceWithWindow(chatId, windowPage(chatId, messages, reachesLatest), reachesLatest = reachesLatest)
@@ -2532,12 +2573,17 @@ class TdLibTelegramRepository private constructor(
         }
     }
 
+    override fun cancelMessageJump(chatId: Long, forumTopicId: Long) {
+        if (forumTopicId > 0L) nextTopicRequest(chatId, forumTopicId)
+        else nextHistoryRequest(chatId)
+    }
+
     override fun loadLatestMessages(chatId: Long) {
         nextHistoryRequest(chatId)
         requestHistory(chatId, fromMessageId = 0L, remaining = 50, pagesLeft = 3, epoch = messageHistory.restartFromLatest(chatId))
     }
 
-    private fun nextHistoryRequest(chatId: Long): Long = historyRequests.merge(chatId, 1L) { current, _ -> current + 1 } ?: 1L
+    private fun nextHistoryRequest(chatId: Long): Long = historyRequests.next(chatId)
 
     /** Sending from a jump window first returns to the newest messages, so the sent message does not leave a gap. */
     private fun leaveJumpWindow(chatId: Long) {
@@ -2550,6 +2596,7 @@ class TdLibTelegramRepository private constructor(
             when (result) {
                 is TdApi.Messages -> {
                     val page = result.messages.orEmpty().filterNot { it.id == fromMessageId }
+                    if (fromMessageId == 0L) offerHistoryToWave(page.filterNotNull())
                     val nextFrom = page.lastOrNull()?.id ?: fromMessageId
                     val more = page.isNotEmpty()
                     val continueLoading = more && nextFrom != fromMessageId && remaining > page.size && pagesLeft > 1
@@ -2574,25 +2621,34 @@ class TdLibTelegramRepository private constructor(
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
 
-    override suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit): Result<List<ForumTopic>?> =
-        conversationActions.forumTopics(chatId, { partial ->
+    override suspend fun forumTopicsPage(chatId: Long, query: String, onPage: (ForumTopicsPage) -> Unit): Result<ForumTopicsPage?> =
+        conversationActions.forumTopicsPage(chatId, query) { page ->
             // A partially visible topic can be opened immediately: initialize its
             // read watermark before any UI callback can navigate into that topic.
-            partial.forEach { topic ->
+            // This runs for every emitted page, including the final snapshot, before any UI callback can navigate.
+            page.topics.forEach { topic ->
                 topicStore(chatId, topic.id).apply {
                     readInbox(chatId, topic.lastReadInboxMessageId)
                     readOutbox(chatId, topic.lastReadOutboxMessageId)
                 }
             }
-            onPage(partial)
-        }).onSuccess { topics ->
-            topics?.forEach { topic ->
-                topicStore(chatId, topic.id).apply {
-                    readInbox(chatId, topic.lastReadInboxMessageId)
-                    readOutbox(chatId, topic.lastReadOutboxMessageId)
-                }
-            }
+            onPage(page)
         }
+
+    override suspend fun paidTextPrice(chatId: Long) = conversationActions.paidTextPrice(chatId)
+
+    override suspend fun sendPaidTextMessage(
+        chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>,
+        confirmedStarCount: Long, disableNotification: Boolean, forumTopicId: Long, disableLinkPreview: Boolean
+    ): Result<Unit> {
+        val balance = payments.starBalance().getOrElse { return Result.failure(it) }
+        if (!paidTextCanConfirm(confirmedStarCount, balance)) {
+            return Result.failure(UserMessageException(UiText.Res(R.string.err_paid_reaction_balance_low)))
+        }
+        leaveJumpWindow(chatId)
+        conversationEffects.endActivity(chatId, ChatActivity.Typing)
+        return conversationActions.sendPaidText(chatId, text, replyToMessageId, entities, confirmedStarCount, disableNotification, forumTopicId, disableLinkPreview)
+    }
 
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)
@@ -2704,6 +2760,7 @@ class TdLibTelegramRepository private constructor(
                 updateForumMessage(update.chatId, update.messageId) { it.copy(media = it.media?.copy(isViewed = true)) }
             }
             is TdApi.UpdateMessageEdited -> {
+                onWaveMessageEdited(update.chatId, update.messageId)
                 messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
                 updateForumMessage(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
             }
@@ -2764,6 +2821,7 @@ class TdLibTelegramRepository private constructor(
                 reportBotChannel.onNewMessage(update.message)
                 handleNewMessage(update.message)
                 offerToTriggerWords(update.message)
+                offerToWave(update.message)
                 conversationEffects.uploadStarted(update.message)
                 if (update.message.isOutgoing && update.message.content is TdApi.MessageVideoNote &&
                     update.message.sendingState is TdApi.MessageSendingStatePending) {
@@ -2793,6 +2851,7 @@ class TdLibTelegramRepository private constructor(
                 VideoNoteSendTracking.tracker.onSucceeded(update.message.chatId, update.oldMessageId)
                 reportBotChannel.onSendSucceeded(update)
                 botFeatures.onSendSucceeded(update)
+                noteWaveOfferSent(update.message)
                 cleanupSentUploads(update.message)
                 if (update.message.schedulingState == null) {
                     messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
@@ -2805,6 +2864,7 @@ class TdLibTelegramRepository private constructor(
                 conversationEffects.uploadFinished(update.message.chatId, update.oldMessageId)
             }
             is TdApi.UpdateMessageSendFailed -> {
+                onWaveSendFailed(update.message)
                 videoNoteLossTransport.onSendFailed(update)
                 reportBotChannel.onSendFailed(update)
                 val sendError = (update.message.sendingState as? TdApi.MessageSendingStateFailed)?.error
@@ -2825,6 +2885,7 @@ class TdLibTelegramRepository private constructor(
             }
             is TdApi.UpdateDeleteMessages -> {
                 update.messageIds.forEach { conversationEffects.uploadFinished(update.chatId, it) }
+                if (update.isPermanent && !update.fromCache) onWaveMessagesDeleted(update.chatId, update.messageIds)
                 if (update.isPermanent) {
                     val ids = update.messageIds.toList()
                     // Chat Memory keeps incoming messages that the other side deleted: they stay on screen, marked.
@@ -2931,6 +2992,8 @@ class TdLibTelegramRepository private constructor(
                 // proxy and listener while network is forced OFF.
             }
             is TdApi.AuthorizationStateWaitPhoneNumber -> {
+                runCatching { PendingTextSendSessions.signedOut(appContext, accountId) }
+                    .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
                 if (!isLegacyAccount) secondaryAuthorizationLost = true
                 val restartQr = qrRetryAfterReopen
                 qrRetryAfterReopen = false
@@ -2970,6 +3033,9 @@ class TdLibTelegramRepository private constructor(
                 _authState.value = AuthState.WaitingForPassword(state.passwordHint.orEmpty())
             }
             is TdApi.AuthorizationStateReady -> {
+                registerWaveSender()
+                runCatching { PendingTextSendSessions.authorized(appContext, accountId) }
+                    .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
                 clearQrLoginState()
                 secondaryAuthorizationLost = false
                 _authState.value = AuthState.Ready
@@ -3015,6 +3081,8 @@ class TdLibTelegramRepository private constructor(
                 messageDrafts.connectionReady()
             }
             is TdApi.AuthorizationStateLoggingOut -> {
+                runCatching { PendingTextSendSessions.signedOut(appContext, accountId) }
+                    .onFailure { android.util.Log.w("BeyGramAccounts", "Pending text session cleanup incomplete") }
                 if (!isLegacyAccount) secondaryAuthorizationLost = true
                 autoDownloads.clear()
                 cancelledAutoDownloads.clear()
@@ -3062,8 +3130,10 @@ class TdLibTelegramRepository private constructor(
                     TriggerAlerts.cancelAccount(appContext, accountId)
                     TriggerWordsStore.get(appContext).forgetAccount(accountId)
                 }
+                BgWaveHub.forgetAccount(accountId)
             }
             is TdApi.AuthorizationStateClosed -> {
+                BgWaveHub.forgetAccount(accountId)
                 val reopeningLegacyClient = isLegacyAccount && isLegacyClientRecreatePending()
                 networkMonitor.stop()
                 autoDownloadNetworkMonitor.stop()
@@ -3342,6 +3412,120 @@ class TdLibTelegramRepository private constructor(
      * Trigger words look at every incoming message, including muted chats that TDLib never alerts for.
      * Runs in the update handler, so it only reads cached chat state and hands the text to the store.
      */
+    /** A BG Wave link from the peer of a private chat goes to the wave controller; every other message is left alone. */
+    private fun onWaveSendFailed(message: TdApi.Message) {
+        if (!message.isOutgoing) return
+        val link = waveLinkOf(message) ?: return
+        val decoded = com.beykus.beygram.media.bgwave.BgWaveNative.decodeUri(link, message.date.toLong())
+            as? com.beykus.beygram.media.bgwave.BgWaveDecodeResult.Ok ?: return
+        val current = BgWaveHub.controller.state.value ?: return
+        if (current.accountId != accountId || current.chatId != message.chatId || current.sidHex != decoded.sidHex) return
+        val now = BgWaveHub.nowSeconds()
+        when (decoded.type) {
+            com.beykus.beygram.media.bgwave.BgWaveController.TYPE_OFFER ->
+                BgWaveHub.controller.offerSent(decoded.sidHex, false, now)
+            com.beykus.beygram.media.bgwave.BgWaveController.TYPE_ANSWER ->
+                BgWaveHub.controller.answerSendFailed(decoded.sidHex, now)
+            else -> com.beykus.beygram.media.bgwave.BgWaveLog.w(
+                "send.failed.signal", null,
+                "type" to decoded.type,
+                "sid" to com.beykus.beygram.media.bgwave.BgWaveLog.sid(decoded.sidHex),
+            )
+        }
+    }
+
+    /** The outgoing OFFER that reached Telegram is remembered by message id, so deleting it cancels an unanswered offer. */
+    private fun noteWaveOfferSent(message: TdApi.Message) {
+        if (!message.isOutgoing) return
+        try {
+            val link = waveLinkOf(message) ?: return
+            val decoded = com.beykus.beygram.media.bgwave.BgWaveNative.decodeUri(link, message.date.toLong())
+                as? com.beykus.beygram.media.bgwave.BgWaveDecodeResult.Ok ?: return
+            if (decoded.type != com.beykus.beygram.media.bgwave.BgWaveController.TYPE_OFFER) return
+            BgWaveHub.controller.noteOfferMessage(accountId, message.chatId, message.id, decoded.sidHex)
+        } catch (_: Exception) {
+            // Bookkeeping only; a failure here must not disturb the update stream.
+        }
+    }
+
+    /** Deleted OFFER messages retire their pending invitation; a live session is never touched by a delete. */
+    private fun onWaveMessagesDeleted(chatId: Long, messageIds: LongArray) {
+        try {
+            val now = BgWaveHub.nowSeconds()
+            messageIds.forEach { BgWaveHub.controller.onOfferMessageGone(accountId, chatId, it, null, now) }
+        } catch (_: Exception) {
+        }
+    }
+
+    /** An edited OFFER message must still carry the same valid offer, otherwise the pending invitation is retired. */
+    private fun onWaveMessageEdited(chatId: Long, messageId: Long) {
+        if (!BgWaveHub.controller.hasOfferMessage(accountId, chatId, messageId)) return
+        val generation = secretChatSession
+        client.send(TdApi.GetMessage(chatId, messageId), Client.ResultHandler { result ->
+            if (generation != secretChatSession) return@ResultHandler
+            try {
+                val stillValid = (result as? TdApi.Message)?.let { message ->
+                    val link = waveLinkOf(message) ?: return@let null
+                    (com.beykus.beygram.media.bgwave.BgWaveNative.decodeUri(link, message.date.toLong())
+                        as? com.beykus.beygram.media.bgwave.BgWaveDecodeResult.Ok)
+                        ?.takeIf { it.type == com.beykus.beygram.media.bgwave.BgWaveController.TYPE_OFFER }
+                        ?.sidHex
+                }
+                BgWaveHub.controller.onOfferMessageGone(accountId, chatId, messageId, stillValid, BgWaveHub.nowSeconds())
+            } catch (_: Exception) {
+            }
+        })
+    }
+
+    /**
+     * Wave messages that arrived while the app was offline are in the loaded history. They go through the same intake,
+     * oldest first, so a later CANCEL lands on the offer it belongs to. Duplicates are ignored by the controller.
+     */
+    private fun offerHistoryToWave(page: List<TdApi.Message>) {
+        val now = BgWaveHub.nowSeconds()
+        val limit = com.beykus.beygram.media.bgwave.BgWaveController.OFFER_TTL_SECONDS +
+            com.beykus.beygram.media.bgwave.BgWaveController.CLOCK_SKEW_SECONDS
+        page.asReversed().forEach { message ->
+            if (!message.isOutgoing && now - message.date.toLong() < limit) offerToWave(message)
+        }
+    }
+
+    private fun offerToWave(message: TdApi.Message) {
+        if (message.isOutgoing) return
+        val link = waveLinkOf(message) ?: return
+        val sender = message.senderId as? TdApi.MessageSenderUser ?: return
+        if (sender.userId != message.chatId) return
+        val chat = profiles.chat(message.chatId)
+        if (chat != null) {
+            deliverWave(message, link, sender.userId, chat)
+            return
+        }
+        // UpdateNewMessage may precede UpdateNewChat. Resolve rather than discarding the invitation.
+        val authGeneration = secretChatSession
+        client.send(TdApi.GetChat(message.chatId), Client.ResultHandler { result ->
+            if (result is TdApi.Chat && authGeneration == secretChatSession && _authState.value == AuthState.Ready) {
+                deliverWave(message, link, sender.userId, result)
+            }
+        })
+    }
+
+    private fun deliverWave(message: TdApi.Message, link: String, senderId: Long, chat: TdApi.Chat) {
+        try {
+            BgWaveHub.controller.onMessage(
+                accountId = accountId,
+                chatId = message.chatId,
+                senderId = senderId,
+                outgoing = false,
+                privateChat = chat.type is TdApi.ChatTypePrivate,
+                uri = link,
+                nowSeconds = BgWaveHub.nowSeconds(),
+                messageId = message.id,
+            )
+        } catch (_: Exception) {
+            // A damaged wave message must never interrupt the update stream that the chat list depends on.
+        }
+    }
+
     private fun offerToTriggerWords(message: TdApi.Message) {
         if (message.isOutgoing) return
         val text = triggerWordText(message.content) ?: return
@@ -3395,6 +3579,31 @@ class TdLibTelegramRepository private constructor(
         }
     }
 
+    /**
+     * The topic list needs only a preview, sender and delivery state. Building a full [ChatMessage] here would register
+     * media files, resolve reactions/keyboards/link previews and hydrate service actors for every topic on every page.
+     */
+    private fun TdApi.Message.toForumTopicLastMessage(): ForumTopicLastMessage {
+        val attachment = mediaMapper.media(content)
+        val service = serviceMessages.text(content, isOutgoing)
+        val projection = forumTopicLastMessagePreview(
+            text = contentText(content, attachment != null),
+            fileName = attachment?.fileName.orEmpty(),
+            serviceText = service,
+            fallback = previewText(content)
+        )
+        return ForumTopicLastMessage(
+            messageId = id,
+            preview = projection.preview,
+            plainPreview = projection.plain,
+            senderName = profiles.senderName(senderId),
+            isOutgoing = isOutgoing,
+            dateSeconds = date.toLong(),
+            sendState = sendingState.toSendState(),
+            isService = service != null
+        )
+    }
+
     private fun TdApi.Message.toChatMessage(): ChatMessage {
         val attachment = mediaMapper.media(content)
         val secretChat = isSecretChat(chatId)
@@ -3410,7 +3619,18 @@ class TdLibTelegramRepository private constructor(
         time = scheduledAt?.let { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it * 1000L)) } ?: toTimeString(),
         isOutgoing = isOutgoing,
         dateSeconds = date.toLong(),
+        isForwarded = forwardInfo != null,
+        forwardedFromName = when (val origin = forwardInfo?.origin) {
+            is TdApi.MessageOriginUser -> profiles.senderName(TdApi.MessageSenderUser(origin.senderUserId))
+            is TdApi.MessageOriginHiddenUser -> origin.senderName.orEmpty()
+            is TdApi.MessageOriginChat -> profiles.senderName(TdApi.MessageSenderChat(origin.senderChatId))
+                .ifBlank { origin.authorSignature.orEmpty() }
+            is TdApi.MessageOriginChannel -> profiles.senderName(TdApi.MessageSenderChat(origin.chatId))
+                .ifBlank { origin.authorSignature.orEmpty() }
+            else -> ""
+        },
         sendState = sendingState.toSendState(),
+        sendError = (sendingState as? TdApi.MessageSendingStateFailed)?.error?.message?.takeIf { it.isNotBlank() },
         media = if (secretChat) attachment?.copy(isSecretChat = true) else attachment,
         special = special,
         mediaAlbumId = mediaAlbumId,
@@ -3617,7 +3837,10 @@ class TdLibTelegramRepository private constructor(
         // A just-resolved bot or user may arrive before its display name; a blank title must not hide the chat.
         val privateName = (type as? TdApi.ChatTypePrivate)?.let { profiles.senderName(TdApi.MessageSenderUser(it.userId)) }.orEmpty()
         val chatTitle = if (saved) appContext.getString(R.string.saved_messages_title)
-        else title.ifBlank { privateName }.ifBlank { appContext.getString(R.string.chat_unknown_title) }
+        else title.ifBlank { privateName }.ifBlank {
+            val deleted = (type as? TdApi.ChatTypePrivate)?.let { profiles.isDeletedUser(it.userId) } == true
+            appContext.getString(if (deleted) R.string.deleted_account_name else R.string.chat_unknown_title)
+        }
         val mainPosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListMain }
         val archivePosition = positions.orEmpty().firstOrNull { it.list is TdApi.ChatListArchive }
         val folderPositions = positions.orEmpty().mapNotNull { position ->
@@ -3682,7 +3905,8 @@ class TdLibTelegramRepository private constructor(
     }
 
     private fun TdApi.Message.toTextPreview(): UiText =
-        serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
+        if (waveLinkOf(this) != null) UiText.Res(R.string.bgwave_chat_preview)
+        else serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
             ?.let { UiText.Raw(it.text) } ?: previewText(content)
 
     private fun previewText(c: TdApi.MessageContent): UiText =
@@ -3701,6 +3925,9 @@ class TdLibTelegramRepository private constructor(
             is TdApi.MessageDice      -> UiText.Res(R.string.chat_preview_dice, listOf(c.emoji.orEmpty()))
             is TdApi.MessagePhoto     -> UiText.Res(R.string.chat_preview_photo)
             is TdApi.MessageVideo     -> UiText.Res(R.string.chat_preview_video)
+            is TdApi.MessageAnimation -> UiText.Res(R.string.chat_preview_animation)
+            is TdApi.MessageExpiredPhoto, is TdApi.MessageExpiredVideo,
+            is TdApi.MessageExpiredVoiceNote, is TdApi.MessageExpiredVideoNote -> UiText.Res(R.string.chat_preview_expired_media)
             is TdApi.MessageAudio     -> UiText.Res(R.string.chat_preview_audio)
             is TdApi.MessageDocument  -> UiText.Res(R.string.chat_preview_document)
             is TdApi.MessageSticker   -> UiText.Res(R.string.chat_preview_sticker, listOf(c.sticker.emoji))

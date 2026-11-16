@@ -27,6 +27,9 @@ interface ConversationRepository {
     suspend fun musicBotSearch(query: String, offset: String = "", contextChatId: Long = 0L): Result<InlineBotResults?>
     /** Downloads one music bot result for the shared player and removes the temporary message it was sent as. */
     suspend fun musicBotTrack(queryId: Long, resultId: String): Result<MusicBotTrack?>
+
+    /** Keeps the bot's track in Saved Messages and returns where it lives. Null when the bot did not return audio. */
+    suspend fun saveMusicBotTrack(queryId: Long, resultId: String): Result<SavedMusicBotTrack?>
     /** Sends one inline result with the composer's reply, forum topic and delivery options. */
     suspend fun sendInlineBotResult(
         chatId: Long,
@@ -66,7 +69,6 @@ interface ConversationRepository {
     fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory>
     fun loadForumTopicHistory(chatId: Long, forumTopicId: Long)
     fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long)
-    suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?>
     suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean>
     /** The linked discussion supergroup of a channel, or zero when the channel has none. */
     suspend fun linkedDiscussionChatId(chatId: Long): Result<Long>
@@ -99,14 +101,38 @@ interface ConversationRepository {
     fun loadOlderMessages(chatId: Long)
     /** Replaces the loaded history with messages around [messageId]; newer messages load on [loadLatestMessages]. False when a newer jump or latest load superseded it. */
     suspend fun loadMessagesAround(chatId: Long, messageId: Long): Result<Boolean>
+    /** Invalidates any in-flight [loadMessagesAround] or [loadForumTopicMessagesAround] window replacement for this chat or topic. */
+    fun cancelMessageJump(chatId: Long, forumTopicId: Long = 0L) {}
     /** One page of messages newer than [afterMessageId], oldest first; used to walk toward the first unread target. */
     suspend fun newerMessages(chatId: Long, forumTopicId: Long, afterMessageId: Long): Result<List<ChatMessage>>
+    /** Latest messages of a chat for the long-press preview. Reads history only: the chat is not opened and stays unread. */
+    suspend fun peekMessages(chatId: Long): Result<List<ChatMessage>>
     fun loadLatestMessages(chatId: Long)
     /** [clearDraft] false оставляет черновик чата нетронутым: нужно для текста из других приложений. */
     suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /** Current user's per-message fee for a private chat or ordinary supergroup. Zero means no fee. Does not send anything. */
+    suspend fun paidTextPrice(chatId: Long): Result<Long> = Result.success(0L)
+    /** Separate from regular send options and the persisted text queue. One explicit confirmation, one send. */
+    suspend fun sendPaidTextMessage(
+        chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>,
+        confirmedStarCount: Long, disableNotification: Boolean, forumTopicId: Long = 0L,
+        disableLinkPreview: Boolean = false
+    ): Result<Unit> = Result.failure(UnsupportedOperationException())
     suspend fun isForumChat(chatId: Long): Result<Boolean>
-    /** Темы группы с темами; null, если чат не группа с темами. Берётся первая страница, до 100 тем. */
-    suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit = {}): Result<List<ForumTopic>?>
+    /**
+     * Topics of a forum, fetched page by page; null when [chatId] is not a chat with topics. [onPage] receives every
+     * loaded page so the first 100 topics can be shown before the rest arrives, and the last call carries the final
+     * list, whose size is not limited to one page. This wrapper exists for callers that only need that list; prefer
+     * [forumTopicsPage] when the server's total count or the completeness of the listing matters.
+     */
+    suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit = {}): Result<List<ForumTopic>?> =
+        forumTopicsPage(chatId, onPage = { onPage(it.topics) }).map { it?.topics }
+    /**
+     * One forum topic page with the server's total count and whether the listing is exhausted. TDLib returns up to
+     * 100 topics per request, so several pages may be needed. [query] searches topic names on the server: this TDLib
+     * version has no other topic search, and an empty query returns the normal list. Null when the chat has no topics.
+     */
+    suspend fun forumTopicsPage(chatId: Long, query: String = "", onPage: (ForumTopicsPage) -> Unit = {}): Result<ForumTopicsPage?>
     suspend fun canCreateForumTopic(chatId: Long): Result<Boolean>
     suspend fun createForumTopic(chatId: Long, name: String): Result<Long>
     suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit>
@@ -265,6 +291,12 @@ interface ConversationRepository {
     /** The effect behind [effectId]. Only fresh-message overlays call this; the value stays null until TDLib answers. */
     fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?>
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>
+    /**
+     * One message by id, without the history around it; null when it is gone. Used where only the message itself matters,
+     * such as checking music queue entries before playback, so a long playlist does not wait on a history page per track.
+     */
+    suspend fun singleMessage(chatId: Long, messageId: Long): Result<ChatMessage?> =
+        messageContext(chatId, messageId).map { context -> context.messages.firstOrNull { it.chatId == chatId && it.id == messageId } }
     /**
      * Messages in one chat whose text matches [query] and whose sender/attachment type match [filter]. Pass 0 for the
      * first page, then the previous page's nextFromMessageId. [filter]'s date range is applied to each returned page

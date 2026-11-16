@@ -47,7 +47,9 @@ fun replacementCandidates(library: MusicLibrary, missing: MusicTrackRef): List<M
         .flatMap { it.tracks }
         .sortedByDescending { it.addedAt }
         .map { it.toTrackRef() }
+    // An entry that only holds a tempo was never started or added, so it is not a candidate.
     val fromStats = library.stats.values
+        .filter { it.hasHistory }
         .sortedWith(compareByDescending<MusicListenStats> { it.lastPlayedAt ?: 0L }.thenBy { it.trackKey })
         .map { it.track }
     return (fromPlaylists + fromStats)

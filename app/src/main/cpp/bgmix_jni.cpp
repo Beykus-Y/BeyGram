@@ -35,9 +35,16 @@
 #include "bgmedia/mix/MixSession.hpp"
 #endif
 
+#include "bgwave_session.h"
+
 namespace {
 
 constexpr std::uint32_t kMixSampleRate = 48000;
+constexpr std::uint64_t kMiB = 1024ull * 1024ull;
+constexpr std::uint64_t kMaxTrackPcmBytes = 128 * kMiB;
+// A current deck plus one source/output or reallocating decoder, with PCM scratch headroom.
+constexpr std::uint64_t kPreparationPcmReserve = 272 * kMiB;
+constexpr std::uint64_t kSessionPcmBudget = kMaxTrackPcmBytes + kPreparationPcmReserve;
 
 jbyteArray stringToBytes(JNIEnv* env, std::string_view text) {
     jbyteArray out = env->NewByteArray(static_cast<jsize>(text.size()));
@@ -118,8 +125,11 @@ struct MixHost {
                 bgmedia::MixTrackLoadOptions options;
                 options.cacheDirectory = cacheDirectory;
                 options.targetSampleRate = kMixSampleRate;
+                // Bound each full source/output buffer on mobile; oversized tracks stay on ExoPlayer.
+                options.maxPcmBytes = kMaxTrackPcmBytes;
                 return bgmedia::prepareMixTrack(path, options, out, error, progress);
-            });
+            }, bgmedia::mix::MixPlanner{}, bgmedia::mix::MixPcmBudget{
+                kMaxTrackPcmBytes, kPreparationPcmReserve, kSessionPcmBudget});
     }
 };
 
@@ -137,6 +147,12 @@ std::string statusJson(const MixSessionSnapshot& s, bool paused) {
     json << "\"transitionAvailable\":" << (s.transitionAvailable ? "true" : "false") << ",";
     json << "\"transitionType\":\"" << escapeJson(bgmedia::mix::transitionTypeShortName(s.engine.transitionType)) << "\",";
     json << "\"transitionProgress\":" << s.engine.transitionProgress << ",";
+    json << "\"preparedPcmBytes\":" << s.preparedPcmBytes << ",";
+    json << "\"retiredPcmBytes\":" << s.retiredPcmBytes << ",";
+    json << "\"preparationReservedBytes\":" << s.preparationReservedBytes << ",";
+    json << "\"pcmBudgetBytes\":" << s.pcmBudgetBytes << ",";
+    json << "\"preparedCount\":" << s.preparedCount << ",";
+    json << "\"preparingCount\":" << s.preparingCount << ",";
     json << "\"preparingNext\":" << (s.preparingNext ? "true" : "false") << ",";
     json << "\"preparingName\":\"" << escapeJson(s.preparingName) << "\",";
     json << "\"preparingProgress\":" << s.preparingProgress << ",";
@@ -147,6 +163,7 @@ std::string statusJson(const MixSessionSnapshot& s, bool paused) {
         const auto& deck = s.engine.decks[i];
         if (i > 0) json << ",";
         json << "{\"loaded\":" << (deck.loaded ? "true" : "false")
+             << ",\"trackId\":" << deck.trackId
              << ",\"playing\":" << (deck.playing ? "true" : "false")
              << ",\"ended\":" << (deck.ended ? "true" : "false")
              << ",\"positionSeconds\":" << deck.positionSeconds
@@ -298,6 +315,44 @@ Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeUpdate(JNIEnv*, jclass, jl
     host->session->update();
 #else
     (void)handle;
+#endif
+}
+
+
+// Attaches the live BG Wave session as the host PCM tap, or detaches it when sessionHandle is 0.
+// The engine then feeds the session's pipeline from its audio thread; no second pipeline is created.
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_beykus_beygram_media_bgmix_BgMixNative_nativeSetWaveTap(JNIEnv*, jclass, jlong handle,
+                                                                 jlong sessionHandle) {
+#if defined(HAVE_BGMEDIA) && HAVE_BGMEDIA
+    try {
+        MixHost* host = hostFrom(handle);
+        if (!host) return JNI_FALSE;
+        std::lock_guard lock(host->control);
+        if (sessionHandle == 0) {
+            host->engine.setPcmTap(nullptr);
+            return JNI_TRUE;
+        }
+#if defined(BGWAVE_P2P) && BGWAVE_P2P
+        auto pipeline = bgWaveSessionPipeline(sessionHandle);
+        if (!pipeline) return JNI_FALSE;
+        host->engine.setPcmTap(pipeline);
+        return JNI_TRUE;
+#else
+        (void)sessionHandle;
+        return JNI_FALSE;
+#endif
+    } catch (const std::exception& e) {
+        BGMIX_LOGW("nativeSetWaveTap failed: %s", e.what());
+        return JNI_FALSE;
+    } catch (...) {
+        BGMIX_LOGW("nativeSetWaveTap failed: unknown exception");
+        return JNI_FALSE;
+    }
+#else
+    (void)handle;
+    (void)sessionHandle;
+    return JNI_FALSE;
 #endif
 }
 

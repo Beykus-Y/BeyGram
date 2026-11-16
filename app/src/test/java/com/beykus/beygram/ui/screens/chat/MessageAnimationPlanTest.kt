@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.unit.LayoutDirection
 import com.beykus.beygram.data.appearance.MessageAnimationConfig
 import com.beykus.beygram.data.appearance.MessageAnimationDirection
 import com.beykus.beygram.data.appearance.MessageAnimationEasing
@@ -229,5 +231,156 @@ class MessageAnimationPlanTest {
         assertTrue(fast.durationMillis < slow.durationMillis)
         val extreme = messageAnimationPlan(direction(MessageAnimationPreset.Fade, MessageAnimationTuning(speed = 20f)), outgoing = true)!!
         assertEquals(110, extreme.durationMillis)
+    }
+
+    @Test fun activeEntranceRetainsItsOriginalPlanWhenPresetChanges() {
+        val initial = messageAnimationPlan(direction(MessageAnimationPreset.Pop), outgoing = true)
+        val replacement = messageAnimationPlan(direction(MessageAnimationPreset.Slide), outgoing = true)
+        assertNotNull(initial)
+        assertNotNull(replacement)
+        assertTrue(initial != replacement)
+        assertEquals(initial, retainMessageAnimationPlan(initial, replacement))
+    }
+
+    @Test fun disabledEntranceCannotReplayWhenMotionReturns() {
+        val config = MessageAnimationConfig(sent = direction(MessageAnimationPreset.Pop))
+        val initial = messageAnimationPlan(config, animate = true, outgoing = true, motionEnabled = true)
+        val disabled = messageAnimationPlan(config, animate = true, outgoing = true, motionEnabled = false)
+        assertNotNull(initial)
+        val cancelled = retainMessageAnimationPlan(initial, disabled)
+        assertNull(cancelled)
+        assertNull(retainMessageAnimationPlan(cancelled, initial))
+    }
+
+    @Test fun withdrawnArrivalOrDisabledConfigCancelsEntrance() {
+        val config = MessageAnimationConfig(sent = direction(MessageAnimationPreset.Pop))
+        val initial = messageAnimationPlan(config, animate = true, outgoing = true, motionEnabled = true)
+        assertNotNull(initial)
+        val withdrawn = messageAnimationPlan(config, animate = false, outgoing = true, motionEnabled = true)
+        val disabled = messageAnimationPlan(config.copy(enabled = false), animate = true, outgoing = true, motionEnabled = true)
+        assertNull(retainMessageAnimationPlan(initial, withdrawn))
+        assertNull(retainMessageAnimationPlan(initial, disabled))
+    }
+
+    @Test fun transformOriginAnchorsToBubbleSideInLtrAndFlipsInRtl() {
+        val ltrOutgoing = messageAnimationTransformOrigin(outgoing = true, layoutDirection = LayoutDirection.Ltr)
+        val ltrIncoming = messageAnimationTransformOrigin(outgoing = false, layoutDirection = LayoutDirection.Ltr)
+        val rtlOutgoing = messageAnimationTransformOrigin(outgoing = true, layoutDirection = LayoutDirection.Rtl)
+        val rtlIncoming = messageAnimationTransformOrigin(outgoing = false, layoutDirection = LayoutDirection.Rtl)
+
+        assertEquals(TransformOrigin(1f, 1f), ltrOutgoing)
+        assertEquals(TransformOrigin(0f, 1f), ltrIncoming)
+        assertEquals(TransformOrigin(0f, 1f), rtlOutgoing)
+        assertEquals(TransformOrigin(1f, 1f), rtlIncoming)
+    }
+
+    @Test fun transformOriginCentersCallAndServiceChipsInLtrAndRtl() {
+        listOf(LayoutDirection.Ltr, LayoutDirection.Rtl).forEach { direction ->
+            listOf(true, false).forEach { outgoing ->
+                assertEquals(
+                    TransformOrigin.Center,
+                    messageAnimationTransformOrigin(
+                        outgoing = outgoing,
+                        layoutDirection = direction,
+                        centered = true,
+                        sideInsetPx = 14f,
+                        containerWidthPx = 360f
+                    )
+                )
+            }
+        }
+    }
+
+    @Test fun transformOriginAccountsForBubbleSideInset() {
+        val ltrOutgoing = messageAnimationTransformOrigin(
+            outgoing = true,
+            layoutDirection = LayoutDirection.Ltr,
+            sideInsetPx = 14f,
+            containerWidthPx = 360f
+        )
+        val ltrIncoming = messageAnimationTransformOrigin(
+            outgoing = false,
+            layoutDirection = LayoutDirection.Ltr,
+            sideInsetPx = 14f,
+            containerWidthPx = 360f
+        )
+        val rtlOutgoing = messageAnimationTransformOrigin(
+            outgoing = true,
+            layoutDirection = LayoutDirection.Rtl,
+            sideInsetPx = 14f,
+            containerWidthPx = 360f
+        )
+        val rtlIncoming = messageAnimationTransformOrigin(
+            outgoing = false,
+            layoutDirection = LayoutDirection.Rtl,
+            sideInsetPx = 14f,
+            containerWidthPx = 360f
+        )
+
+        assertEquals(1f - 14f / 360f, ltrOutgoing.pivotFractionX, 0.0001f)
+        assertEquals(1f, ltrOutgoing.pivotFractionY, 0f)
+        assertEquals(14f / 360f, ltrIncoming.pivotFractionX, 0.0001f)
+        assertEquals(1f, ltrIncoming.pivotFractionY, 0f)
+        assertEquals(14f / 360f, rtlOutgoing.pivotFractionX, 0.0001f)
+        assertEquals(1f - 14f / 360f, rtlIncoming.pivotFractionX, 0.0001f)
+
+        // Zero or undersized container falls back cleanly to the outer row edge.
+        assertEquals(
+            TransformOrigin(1f, 1f),
+            messageAnimationTransformOrigin(
+                outgoing = true,
+                layoutDirection = LayoutDirection.Ltr,
+                sideInsetPx = 14f,
+                containerWidthPx = 0f
+            )
+        )
+        assertEquals(
+            TransformOrigin(0f, 1f),
+            messageAnimationTransformOrigin(
+                outgoing = false,
+                layoutDirection = LayoutDirection.Ltr,
+                sideInsetPx = 14f,
+                containerWidthPx = 28f
+            )
+        )
+    }
+
+    @Test fun scaleAndRotationPresetsUseSideAnchoredOriginAndRespectMotionOff() {
+        val presets = listOf(
+            MessageAnimationPreset.Fade,
+            MessageAnimationPreset.Spring,
+            MessageAnimationPreset.Pop,
+            MessageAnimationPreset.Flow,
+            MessageAnimationPreset.Drift,
+            MessageAnimationPreset.Quick,
+            MessageAnimationPreset.Tilt,
+            MessageAnimationPreset.Sway,
+            MessageAnimationPreset.Custom
+        )
+        presets.forEach { preset ->
+            val config = MessageAnimationConfig(
+                linkedDirections = false,
+                sent = direction(preset),
+                received = direction(preset)
+            )
+            listOf(true, false).forEach { outgoing ->
+                val plan = messageAnimationPlan(config, animate = true, outgoing = outgoing, motionEnabled = true)
+                assertNotNull("$preset (outgoing=$outgoing) should produce a plan when motion is enabled", plan)
+                assertTrue(
+                    "$preset (outgoing=$outgoing) should transform scale or rotation",
+                    plan!!.scaleFrom < 1f || plan.rotationYDegrees != 0f || plan.rotationZDegrees != 0f
+                )
+                assertNull(
+                    "$preset (outgoing=$outgoing) should skip plan when motion is off",
+                    messageAnimationPlan(config, animate = true, outgoing = outgoing, motionEnabled = false)
+                )
+            }
+        }
+        assertTrue(
+            messageAnimationTransformOrigin(outgoing = true, layoutDirection = LayoutDirection.Ltr) != TransformOrigin.Center
+        )
+        assertTrue(
+            messageAnimationTransformOrigin(outgoing = false, layoutDirection = LayoutDirection.Ltr) != TransformOrigin.Center
+        )
     }
 }

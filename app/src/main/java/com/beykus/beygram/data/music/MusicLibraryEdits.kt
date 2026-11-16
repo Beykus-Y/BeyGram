@@ -290,14 +290,21 @@ internal fun sortPlaylistEdit(
     now: Long
 ): MusicEditOutcome<Unit> {
     val target = library.playlist(playlistId) ?: return MusicOutcome.Failed(MusicFailure.NotFound)
-    val sorted = sortedTracks(target.tracks, mode)
+    val sorted = sortedTracks(target.tracks, mode, library.stats)
     if (sorted == target.tracks && mode == target.sortMode) return MusicOutcome.Done(MusicEdit(library, Unit))
     val updated = target.copy(tracks = sorted, sortMode = mode).touched(now)
     return MusicOutcome.Done(MusicEdit(library.replacing(updated), Unit))
 }
 
-/** Stable sort by the chosen key; the entry id breaks ties so the result never depends on the input order. */
-internal fun sortedTracks(tracks: List<PlaylistTrack>, mode: MusicSortMode): List<PlaylistTrack> = when (mode) {
+/**
+ * Stable sort by the chosen key; the entry id breaks ties so the result never depends on the input order. [MusicSortMode.Tempo]
+ * reads the stored tempo from [stats] and breaks no ties; see [sortedByTempo].
+ */
+internal fun sortedTracks(
+    tracks: List<PlaylistTrack>,
+    mode: MusicSortMode,
+    stats: Map<String, MusicListenStats>
+): List<PlaylistTrack> = when (mode) {
     MusicSortMode.Manual -> tracks
     MusicSortMode.Title -> tracks.sortedWith(
         compareBy<PlaylistTrack> { it.title.lowercase() }
@@ -318,7 +325,29 @@ internal fun sortedTracks(tracks: List<PlaylistTrack>, mode: MusicSortMode): Lis
             .thenBy { it.title.lowercase() }
             .thenBy { it.itemId }
     )
+    MusicSortMode.Tempo -> sortedByTempo(tracks) { stats[it.trackKey]?.bpm }
 }
+
+/**
+ * Ascending tempo: tracks with a known tempo come first, the slowest first. Equal tempos and the tracks without a known tempo keep
+ * their current relative order, so the sort never reorders what it cannot compare.
+ */
+internal fun sortedByTempo(tracks: List<PlaylistTrack>, tempoOf: (PlaylistTrack) -> Double?): List<PlaylistTrack> {
+    val known = ArrayList<Pair<Double, PlaylistTrack>>()
+    val unknown = ArrayList<PlaylistTrack>()
+    for (track in tracks) {
+        val bpm = tempoOf(track)
+        if (bpm == null) unknown.add(track) else known.add(bpm to track)
+    }
+    return known.sortedBy { it.first }.map { it.second } + unknown
+}
+
+/**
+ * Whether the Tempo sort is worth offering for [playlist]: at least [MUSIC_TEMPO_SORT_MIN_TRACKS] of its tracks have a known tempo
+ * in [stats].
+ */
+internal fun tempoSortOffered(playlist: MusicPlaylist, stats: Map<String, MusicListenStats>): Boolean =
+    playlist.tracks.count { stats[it.trackKey]?.bpm != null } >= MUSIC_TEMPO_SORT_MIN_TRACKS
 
 /**
  * Adds the track to favorites, or removes every favorites entry with the same identity. Returns whether the track is a
@@ -364,13 +393,31 @@ internal fun recordPlayEdit(library: MusicLibrary, track: MusicTrackRef, playedA
         track = track,
         playCount = (previous?.playCount ?: 0) + 1,
         lastPlayedAt = maxOf(previous?.lastPlayedAt ?: playedAt, playedAt),
-        firstAddedAt = previous?.firstAddedAt
+        firstAddedAt = previous?.firstAddedAt,
+        bpm = previous?.bpm
     )
     val recent = (listOf(MusicHistoryEntry(trackKey = key, playedAt = playedAt)) +
         library.recent.filterNot { it.trackKey == key })
         .take(MUSIC_MAX_RECENT_ENTRIES)
     val bounded = boundedStats(stats, library.playlists, keepKey = key)
     return MusicOutcome.Done(MusicEdit(library.copy(stats = bounded, recent = recent), Unit))
+}
+
+/**
+ * Keeps the tempo that BG Beat analysed for a track during playback. Only a Telegram origin of this account qualifies, and a tempo
+ * outside the valid range changes nothing. A tempo that is already stored changes nothing either, so a track that plays again does
+ * not rewrite the library. A track without stats gets an entry that holds only its tempo; that entry is not a listen.
+ */
+internal fun recordTempoEdit(library: MusicLibrary, track: MusicTrackRef, bpm: Double): MusicEditOutcome<Unit> {
+    val origin = track.origin ?: return MusicOutcome.Failed(MusicFailure.InvalidTrack)
+    if (origin.accountId != library.accountId) return MusicOutcome.Failed(MusicFailure.ForeignAccount)
+    if (!isValidMusicBpm(bpm)) return MusicOutcome.Done(MusicEdit(library, Unit))
+    val key = track.trackKey
+    val previous = library.stats[key]
+    if (previous?.bpm == bpm) return MusicOutcome.Done(MusicEdit(library, Unit))
+    val stats = library.stats.toMutableMap()
+    stats[key] = (previous ?: MusicListenStats(track = track)).copy(bpm = bpm)
+    return MusicOutcome.Done(MusicEdit(library.copy(stats = boundedStats(stats, library.playlists, keepKey = key)), Unit))
 }
 
 /**

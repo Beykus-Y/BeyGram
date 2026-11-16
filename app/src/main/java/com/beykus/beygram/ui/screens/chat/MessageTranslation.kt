@@ -7,22 +7,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -72,11 +69,11 @@ internal fun translationLanguageLabel(languageCode: String): Int =
 @Composable
 internal fun TranslationTargetDialog(currentLanguageCode: String, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
     val palette = beyGramPalette()
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.translation_target_title), color = palette.textPrimary) },
-        text = {
-            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+        title = stringResource(R.string.translation_target_title),
+        content = {
+            Column {
                 translationLanguageOptions.forEach { language ->
                     Row(
                         Modifier.fillMaxWidth()
@@ -93,9 +90,8 @@ internal fun TranslationTargetDialog(currentLanguageCode: String, onSelect: (Str
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = palette.accent) }
-        }
+        confirmText = stringResource(R.string.common_cancel),
+        onConfirm = onDismiss
     )
 }
 

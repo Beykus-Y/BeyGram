@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="chat_bot_copied">Text kopiert</string>
+    <string name="chat_bot_alert_title">Nachricht des Bots</string>
     <string name="chat_bot_failed">Die Bot-Aktion konnte nicht ausgeführt werden</string>
     <string name="chat_bot_hide">Bot-Schaltflächen ausblenden</string>
     <string name="chat_bot_show">Bot-Schaltflächen anzeigen</string>
@@ -172,6 +173,9 @@
     <string name="chat_reveal_spoiler">Verborgenen Text aufdecken</string>
     <string name="chat_search_description">Im Chat suchen</string>
     <string name="chat_search_failed">Die Suche ist fehlgeschlagen</string>
+    <string name="chat_search_match_position">%1$d von %2$d</string>
+    <string name="chat_search_previous_match">Vorheriger Treffer</string>
+    <string name="chat_search_next_match">Nächster Treffer</string>
     <string name="chat_send_later">Nachricht planen</string>
     <string name="chat_send_now">Jetzt senden</string>
     <string name="chat_send_options">Sendeoptionen</string>
@@ -256,4 +260,9 @@
     <string name="err_chat_export_protected_chat">Export nicht erlaubt: Der Chat schützt seinen Inhalt vor dem Speichern</string>
     <string name="err_chat_export_date_range">Prüfe den Zeitraum des Chat-Exports</string>
     <string name="message_action_react">Reaktion hinzufügen</string>
+    <string name="chat_status_waiting_network">wartet auf Netzwerk</string>
+    <string name="chat_send_failure_details">Details</string>
+    <string name="chat_send_failure_title">Nachricht konnte nicht gesendet werden</string>
+    <string name="chat_send_failure_discard">Löschen</string>
+    <string name="chat_send_failure_copy">Text kopieren</string>
 </resources>

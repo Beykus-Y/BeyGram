@@ -44,4 +44,29 @@ class SwipeTargetTest {
     @Test fun fastRightFlingClosesEvenPastHalf() {
         assertEquals(SwipeTarget.Closed, swipeTarget(offset = -120f, revealPx = revealPx, dismissPx = dismissPx, velocity = 1200f))
     }
+
+    @Test fun swipeRightRevealsItsOwnAction() {
+        assertEquals(
+            SwipeTarget.Revealed,
+            bidirectionalSwipeTarget(offset = 100f, revealPx = 84f, dismissPx = 216f, velocity = 0f)
+        )
+    }
+
+    @Test fun swipeRightCommitsAtThresholdAndBackFlingCloses() {
+        assertEquals(
+            SwipeTarget.Dismissed,
+            bidirectionalSwipeTarget(offset = 250f, revealPx = 84f, dismissPx = 216f, velocity = 0f)
+        )
+        assertEquals(
+            SwipeTarget.Closed,
+            bidirectionalSwipeTarget(offset = 90f, revealPx = 84f, dismissPx = 216f, velocity = -1200f)
+        )
+    }
+
+    @Test fun swipeDirectionCannotTriggerOtherSideWithZeroOffset() {
+        assertEquals(
+            SwipeTarget.Closed,
+            bidirectionalSwipeTarget(offset = 0f, revealPx = 84f, dismissPx = 216f, velocity = 1200f)
+        )
+    }
 }

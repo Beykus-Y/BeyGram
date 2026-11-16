@@ -28,7 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.WorkspacePremium
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -103,6 +103,9 @@ import com.beykus.beygram.domain.model.validatePremiumGiftCode
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.accessibility.statusAnnouncement
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionInstant
+import com.beykus.beygram.ui.motion.scrollToRespectingMotion
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
@@ -459,6 +462,7 @@ private fun PremiumContent(
 ) {
     val palette = beyGramPalette()
     val scrollState = rememberScrollState()
+    val listMotionInstant = rememberMotionInstant(MotionToken.ListReorder)
     val loadingProgress = stringResource(R.string.premium_loading_progress)
     val staleBody = stringResource(R.string.premium_stale_body)
     val refreshBody = stringResource(R.string.premium_refresh_failed_body)
@@ -470,7 +474,7 @@ private fun PremiumContent(
         checkout is PremiumCheckoutStep.LinkReady ||
         checkout is PremiumCheckoutStep.AwaitingReturn
     LaunchedEffect(notice) {
-        if (notice != null) scrollState.animateScrollTo(0)
+        if (notice != null) scrollState.scrollToRespectingMotion(0, motionInstant = listMotionInstant)
     }
     // A plain scroll container keeps the gift-code workflow and its coroutine composed while
     // the user inspects features and plans; a lazy item would discard both when scrolled away.
@@ -888,10 +892,10 @@ private fun GiftCodeConfirmationDialog(
         }
         stringResource(R.string.premium_gift_code_duration, parts.joinToString(" "))
     }
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = { if (!applying) onDismiss() },
-        title = { Text(stringResource(R.string.premium_gift_code_info_title)) },
-        text = {
+        title = stringResource(R.string.premium_gift_code_info_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(durationText, color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -952,27 +956,12 @@ private fun GiftCodeConfirmationDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                enabled = info.canActivate && !applying,
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                Text(
-                    if (applying) stringResource(R.string.premium_gift_code_applying)
-                    else stringResource(R.string.premium_gift_code_apply)
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !applying,
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        confirmText = if (applying) stringResource(R.string.premium_gift_code_applying) else stringResource(R.string.premium_gift_code_apply),
+        confirmEnabled = info.canActivate && !applying,
+        onConfirm = onConfirm,
+        dismissText = stringResource(R.string.common_cancel),
+        dismissEnabled = !applying,
+        onDismiss = onDismiss
     )
 }
 
@@ -1058,15 +1047,10 @@ private fun PremiumCheckoutDialog(
     onDismiss: () -> Unit
 ) {
     val palette = beyGramPalette()
-    AlertDialog(
+    BeyGramDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                stringResource(R.string.premium_purchase_confirm_title),
-                modifier = Modifier.semantics { heading() }
-            )
-        },
-        text = {
+        title = stringResource(R.string.premium_purchase_confirm_title),
+        content = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     stringResource(
@@ -1094,26 +1078,11 @@ private fun PremiumCheckoutDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                enabled = !preparing,
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                Text(
-                    if (preparing) stringResource(R.string.premium_purchase_preparing)
-                    else stringResource(R.string.premium_purchase_open)
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.heightIn(min = 48.dp)
-            ) {
-                Text(stringResource(R.string.common_cancel))
-            }
-        }
+        confirmText = if (preparing) stringResource(R.string.premium_purchase_preparing) else stringResource(R.string.premium_purchase_open),
+        confirmEnabled = !preparing,
+        onConfirm = onConfirm,
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss
     )
 }
 

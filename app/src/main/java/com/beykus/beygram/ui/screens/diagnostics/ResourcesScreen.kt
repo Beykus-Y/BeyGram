@@ -22,10 +22,9 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -116,10 +115,10 @@ fun ResourcesScreen(onBack: () -> Unit) {
     reportSamples?.let { recorded ->
         val report = formatResourceReport(recorded, cpuCores)
         val minutes = (recorded.last().counters.timestampMillis - recorded.first().counters.timestampMillis) / 60_000
-        AlertDialog(
+        BeyGramDialog(
             onDismissRequest = { reportSamples = null },
-            title = { Text(stringResource(R.string.resources_report_title)) },
-            text = {
+            title = stringResource(R.string.resources_report_title),
+            content = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(stringResource(R.string.resources_report_length, recorded.size, minutes.toInt()), fontSize = 14.sp)
                     Spacer(Modifier.height(8.dp))
@@ -128,18 +127,17 @@ fun ResourcesScreen(onBack: () -> Unit) {
                     Text(report, fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp)
                 }
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    val intent = Intent(Intent.ACTION_SEND)
-                        .setType("text/plain")
-                        .putExtra(Intent.EXTRA_TEXT, report)
-                    context.startActivity(Intent.createChooser(intent, context.getString(R.string.resources_share_chooser)))
-                    reportSamples = null
-                }) { Text(stringResource(R.string.resources_share)) }
+            scrollableContent = false,
+            confirmText = stringResource(R.string.resources_share),
+            onConfirm = {
+                val intent = Intent(Intent.ACTION_SEND)
+                    .setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, report)
+                context.startActivity(Intent.createChooser(intent, context.getString(R.string.resources_share_chooser)))
+                reportSamples = null
             },
-            dismissButton = {
-                TextButton(onClick = { reportSamples = null }) { Text(stringResource(R.string.diagnostics_view_close)) }
-            }
+            dismissText = stringResource(R.string.diagnostics_view_close),
+            onDismiss = { reportSamples = null }
         )
     }
 
