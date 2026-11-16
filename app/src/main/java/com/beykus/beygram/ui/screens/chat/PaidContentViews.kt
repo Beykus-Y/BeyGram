@@ -26,6 +26,7 @@ import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -44,7 +45,6 @@ import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageInvoiceInfo
-import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.domain.model.MessagePaidMediaInfo
 import com.beykus.beygram.domain.model.PaidContentKey
 import com.beykus.beygram.domain.model.TELEGRAM_STARS_CURRENCY
@@ -184,7 +184,7 @@ internal fun purchasedMediaPages(paid: MessagePaidMediaInfo): List<MediaViewerIt
 @Composable
 private fun PurchasedGallery(
     paid: MessagePaidMediaInfo,
-    key: PaidContentKey,
+    contentKey: PaidContentKey,
     actions: PaidContentActions?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
@@ -193,31 +193,33 @@ private fun PurchasedGallery(
     val accountId = LocalPlaybackAccountId.current
     val pages = purchasedMediaPages(paid)
     val item = pages.firstOrNull() ?: return
-    // A changed account, message or album invalidates the old selection rather than showing its files.
-    var selectedId by remember(accountId, key, actions, pages.map { it.media.fileId }) { mutableStateOf<Long?>(null) }
-    MediaPreview(
-        media = item.media,
-        observeFile = observeFile,
-        downloadFile = downloadFile,
-        onOpen = { selectedId = item.messageId },
-        autoDownloadFile = autoDownloadFile
-    )
-    selectedId?.let { selected ->
-        MediaViewer(
-            pages = pages,
-            selectedId = selected,
-            onSelect = { selectedId = it },
+    // Reset the whole subtree (including remembered file observers) across account/message/album changes.
+    key(accountId, contentKey, actions, pages.map { it.media.fileId }) {
+        var selectedId by remember { mutableStateOf<Long?>(null) }
+        MediaPreview(
+            media = item.media,
             observeFile = observeFile,
             downloadFile = downloadFile,
-            // These page IDs are album occurrences, not Telegram message IDs. Never send them to TDLib.
-            onViewed = {},
-            onClose = { selectedId = null },
-            canExport = false,
-            confirmExport = { false },
-            fullFileOnlyWhenActive = true,
-            autoDownloadFile = autoDownloadFile,
-            forceSecure = true
+            onOpen = { selectedId = item.messageId },
+            autoDownloadFile = autoDownloadFile
         )
+        selectedId?.let { selected ->
+            MediaViewer(
+                pages = pages,
+                selectedId = selected,
+                onSelect = { selectedId = it },
+                observeFile = observeFile,
+                downloadFile = downloadFile,
+                // These page IDs are album occurrences, not Telegram message IDs. Never send them to TDLib.
+                onViewed = {},
+                onClose = { selectedId = null },
+                canExport = false,
+                confirmExport = { false },
+                fullFileOnlyWhenActive = true,
+                autoDownloadFile = autoDownloadFile,
+                forceSecure = true
+            )
+        }
     }
 }
 
