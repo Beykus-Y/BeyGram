@@ -111,6 +111,13 @@ interface ConversationRepository {
     fun loadLatestMessages(chatId: Long)
     /** [clearDraft] false оставляет черновик чата нетронутым: нужно для текста из других приложений. */
     suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /** Current per-message fee for a private chat. Zero means no fee. Does not send anything. */
+    suspend fun paidTextPrice(chatId: Long): Result<Long> = Result.success(0L)
+    /** Separate from regular send options and the persisted text queue. One explicit confirmation, one send. */
+    suspend fun sendPaidTextMessage(
+        chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>,
+        confirmedStarCount: Long, disableNotification: Boolean
+    ): Result<Unit> = Result.failure(UnsupportedOperationException())
     suspend fun isForumChat(chatId: Long): Result<Boolean>
     /** Темы группы с темами; null, если чат не группа с темами. Берётся первая страница, до 100 тем. */
     suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit = {}): Result<List<ForumTopic>?>

@@ -250,6 +250,8 @@
     <string name="paid_reaction_balance_loading">Chargement du solde de Stars…</string>
     <string name="paid_reaction_dialog_body">Envoyer une réaction de %1$s Stars ?</string>
     <string name="paid_reaction_public">Votre nom sera affiché à côté de cette réaction.</string>
+    <string name="paid_reaction_anonymous">Envoyer anonymement</string>
+    <string name="paid_reaction_anonymous_hint">Votre nom ne figurera pas dans la liste des auteurs de réactions en Stars.</string>
     <string name="paid_reaction_not_enough">Stars insuffisantes pour ce montant</string>
     <string name="paid_reaction_sending">Envoi de la réaction…</string>
     <string name="paid_reaction_pick_description">Réaction en Stars, choisir un montant</string>
@@ -292,6 +294,11 @@
         <item quantity="one">%1$d élément</item>
         <item quantity="other">%1$d éléments</item>
     </plurals>
+    <string name="paid_text_title">Message payant</string>
+    <string name="paid_text_confirm">Envoyer ce message maintenant pour %1$s Stars ? Solde : %2$s Stars. Le délai d’envoi local ne s’applique pas.</string>
+    <string name="paid_text_price_changed">Le prix du message a changé. Vérifiez-le et confirmez à nouveau.</string>
+    <string name="paid_text_uncertain">Impossible de confirmer l’envoi du message payant. Vérifiez la conversation et votre solde avant de réessayer.</string>
+    <string name="paid_text_draft_changed">Le brouillon a changé. Vérifiez le message et appuyez de nouveau sur Envoyer.</string>
     <string name="gifts_resale_title">Revente</string>
     <string name="gifts_resale_summary">%1$s offres · dès %2$s Stars (équivalent)</string>
     <string name="gifts_resale_empty">Aucune offre de revente disponible</string>

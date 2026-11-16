@@ -2,7 +2,9 @@ package com.beykus.beygram.media.bgwave
 
 import android.content.Context
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.AudioProcessorChain
 import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -12,9 +14,11 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Passes ExoPlayer's decoded PCM through unchanged and, while a BG Wave host tap is open, also copies it to the tap
- * as interleaved stereo float at the track's own sample rate. Mono is duplicated, and more than two channels keep the
- * first two. Runs on the render thread, so it allocates only when the chunk buffer is first needed.
+ * Passes the PCM it receives through unchanged and, while a BG Wave host tap is open, also copies it to the tap as
+ * interleaved stereo float at the track's own sample rate. Mono is duplicated, and more than two channels keep the
+ * first two. It is the last processor in the chain (see [BgWaveTapProcessorChain]), so the copy already has the
+ * playback speed and silence skipping applied. Runs on the render thread, so it allocates only when the chunk buffer
+ * is first needed.
  */
 @UnstableApi
 internal class BgWaveTapProcessor(
@@ -110,7 +114,36 @@ internal class BgWaveTapProcessor(
     }
 }
 
-/** Renderers that route the decoded PCM through [BgWaveTapProcessor] before it reaches the audio track. */
+/**
+ * Adds [tap] after every processor of [delegate], so the tap sees the audio after ExoPlayer's speed/pitch and silence
+ * skipping, which is exactly what the track plays. The tap neither changes the duration nor drops frames, so the other
+ * calls are forwarded to [delegate] unchanged.
+ */
+@UnstableApi
+internal class BgWaveTapProcessorChain(
+    private val tap: AudioProcessor,
+    private val delegate: AudioProcessorChain = DefaultAudioSink.DefaultAudioProcessorChain(),
+) : AudioProcessorChain {
+    private val processors: Array<AudioProcessor> = delegate.getAudioProcessors() + tap
+
+    override fun getAudioProcessors(): Array<AudioProcessor> = processors
+
+    override fun applyPlaybackParameters(playbackParameters: PlaybackParameters): PlaybackParameters =
+        delegate.applyPlaybackParameters(playbackParameters)
+
+    override fun applySkipSilenceEnabled(skipSilenceEnabled: Boolean): Boolean =
+        delegate.applySkipSilenceEnabled(skipSilenceEnabled)
+
+    override fun getMediaDuration(playoutDuration: Long): Long = delegate.getMediaDuration(playoutDuration)
+
+    override fun getSkippedOutputFrameCount(): Long = delegate.getSkippedOutputFrameCount()
+}
+
+/**
+ * Renderers that route the PCM through [BgWaveTapProcessor] before it reaches the audio track. The tap runs last in
+ * the processor chain (see [BgWaveTapProcessorChain]), after ExoPlayer's speed/pitch and silence-skipping processors,
+ * so the listener gets exactly the audio rate the host plays.
+ */
 @UnstableApi
 internal class BgWaveRenderersFactory(
     context: Context,
@@ -124,7 +157,7 @@ internal class BgWaveRenderersFactory(
         .setEnableFloatOutput(enableFloatOutput)
         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
         .apply {
-            if (tapEnabled) setAudioProcessors(arrayOf<AudioProcessor>(BgWaveTapProcessor()))
+            if (tapEnabled) setAudioProcessorChain(BgWaveTapProcessorChain(BgWaveTapProcessor()))
         }
         .build()
 }

@@ -1,7 +1,10 @@
 package com.beykus.beygram.media.bgwave
 
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.AudioProcessorChain
+import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import com.beykus.beygram.data.music.provider.YANDEX_TRACK_KEY_PREFIX
 import com.beykus.beygram.domain.model.MediaKind
@@ -11,6 +14,7 @@ import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -387,5 +391,68 @@ class BgWaveTapProcessorTest {
         assertFalse(isWaveCaptureEligible(item(viewOnce = true)))
         assertTrue(isWaveCaptureEligible(item(key = "${YANDEX_TRACK_KEY_PREFIX}123456")))
         assertFalse(isWaveCaptureEligible(item(key = "${YANDEX_TRACK_KEY_PREFIX}123456", kind = MediaKind.Voice)))
+    }
+
+    private class PassThroughProcessor : BaseAudioProcessor() {
+        override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat =
+            inputAudioFormat
+
+        override fun queueInput(inputBuffer: ByteBuffer) {
+            replaceOutputBuffer(inputBuffer.remaining()).put(inputBuffer).flip()
+        }
+    }
+
+    private class FakeAudioProcessorChain(
+        private val processors: Array<AudioProcessor>,
+    ) : AudioProcessorChain {
+        var lastPlaybackParameters: PlaybackParameters? = null
+        var lastSkipSilence: Boolean? = null
+        var lastPlayoutDuration: Long? = null
+
+        override fun getAudioProcessors(): Array<AudioProcessor> = processors
+
+        override fun applyPlaybackParameters(playbackParameters: PlaybackParameters): PlaybackParameters {
+            lastPlaybackParameters = playbackParameters
+            return PlaybackParameters(1.5f)
+        }
+
+        override fun applySkipSilenceEnabled(skipSilenceEnabled: Boolean): Boolean {
+            lastSkipSilence = skipSilenceEnabled
+            return !skipSilenceEnabled
+        }
+
+        override fun getMediaDuration(playoutDuration: Long): Long {
+            lastPlayoutDuration = playoutDuration
+            return playoutDuration * 2
+        }
+
+        override fun getSkippedOutputFrameCount(): Long = 42L
+    }
+
+    @Test
+    fun tapChainRunsTapLastAndDelegatesEverythingElse() {
+        val first = PassThroughProcessor()
+        val second = PassThroughProcessor()
+        val delegate = FakeAudioProcessorChain(arrayOf<AudioProcessor>(first, second))
+        val tap = newProcessor(captured = mutableListOf())
+        val chain = BgWaveTapProcessorChain(tap, delegate)
+
+        val processors = chain.getAudioProcessors()
+        assertEquals(3, processors.size)
+        assertSame(first, processors[0])
+        assertSame(second, processors[1])
+        assertSame(tap, processors[2])
+        assertSame(processors, chain.getAudioProcessors())
+
+        val requested = PlaybackParameters(1.25f)
+        assertEquals(PlaybackParameters(1.5f), chain.applyPlaybackParameters(requested))
+        assertEquals(requested, delegate.lastPlaybackParameters)
+
+        assertFalse(chain.applySkipSilenceEnabled(true))
+        assertEquals(true, delegate.lastSkipSilence)
+
+        assertEquals(2_000L, chain.getMediaDuration(1_000L))
+        assertEquals(1_000L, delegate.lastPlayoutDuration)
+        assertEquals(42L, chain.getSkippedOutputFrameCount())
     }
 }

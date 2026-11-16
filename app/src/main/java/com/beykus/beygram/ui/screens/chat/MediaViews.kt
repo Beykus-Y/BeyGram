@@ -915,7 +915,9 @@ internal fun MediaViewer(
     /** Repository-backed automatic download; when absent the same local policy gates [downloadFile]. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     /** Screen bounds of the tapped thumbnail. When set, the page grows out of it and returns there on close. */
-    originBounds: Rect? = null
+    originBounds: Rect? = null,
+    /** Keep the entire viewer window protected, even when every page is ordinary media. */
+    forceSecure: Boolean = false
 ) {
     // The source can shrink asynchronously while LazyLayout still holds indices from the previous frame.
     // Keep the count, keys and content aligned to the same immutable snapshot for this composition.
@@ -1116,7 +1118,7 @@ internal fun MediaViewer(
             if (actions != null && actions.canForward) ViewerAction(stringResource(R.string.media_action_forward), Icons.AutoMirrored.Rounded.Forward, Color.White, onClick = actions.onForward)
         }
     }
-    Dialog(onDismissRequest = ::requestClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia, settledViewOnce)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
+    Dialog(onDismissRequest = ::requestClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, securePolicy = if (MediaViewerPolicy.secureWhileShowing(settledMedia, settledViewOnce, forceSecure)) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit)) {
         // Верхняя панель и нижние действия на фото лежат поверх страницы: тап по картинке или idle их прячет, крестик закрытия остаётся доступным.
         // На видео/аудио нижние действия стоят под страницей, чтобы не перекрывать полосу перемотки плеера.
         val pageSize = LocalWindowInfo.current.containerSize

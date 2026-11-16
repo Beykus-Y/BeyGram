@@ -252,6 +252,8 @@
     <string name="paid_reaction_balance_loading">Загружаем баланс Stars…</string>
     <string name="paid_reaction_dialog_body">Отправить реакцию за %1$s Stars?</string>
     <string name="paid_reaction_public">Ваше имя будет видно рядом с реакцией.</string>
+    <string name="paid_reaction_anonymous">Отправить анонимно</string>
+    <string name="paid_reaction_anonymous_hint">Ваше имя не будет показано в списке отправителей платной реакции.</string>
     <string name="paid_reaction_not_enough">Недостаточно Stars для этой суммы</string>
     <string name="paid_reaction_sending">Отправляем реакцию…</string>
     <string name="paid_reaction_pick_description">Платная реакция, выбрать количество Stars</string>
@@ -296,6 +298,11 @@
         <item quantity="many">%1$d файлов</item>
         <item quantity="other">%1$d файла</item>
     </plurals>
+    <string name="paid_text_title">Платное сообщение</string>
+    <string name="paid_text_confirm">Отправить это сообщение сейчас за %1$s Stars? Баланс: %2$s Stars. Локальная задержка отправки не применяется.</string>
+    <string name="paid_text_price_changed">Цена сообщения изменилась. Проверьте её и подтвердите заново.</string>
+    <string name="paid_text_uncertain">Не удалось подтвердить отправку платного сообщения. Проверьте чат и баланс перед повтором.</string>
+    <string name="paid_text_draft_changed">Черновик изменился. Проверьте сообщение и нажмите отправку снова.</string>
     <string name="gifts_resale_title">Перепродажа</string>
     <string name="gifts_resale_summary">%1$s предложений · от %2$s Stars (эквивалент)</string>
     <string name="gifts_resale_empty">На вторичном рынке пока нет предложений</string>

@@ -218,7 +218,7 @@ data class MessageDiceInfo(
 
 /**
  * A paid photo/video bundle. Until it is bought, TDLib sends only previews: the size and a blurred minithumbnail.
- * After the purchase, [firstPurchasedMedia] is the first photo or video, mapped like any other media.
+ * After the purchase, [purchasedMedia] contains the available photos and videos in server order.
  */
 data class MessagePaidMediaInfo(
     /** Price of the whole bundle in Telegram Stars. */
@@ -230,8 +230,13 @@ data class MessagePaidMediaInfo(
     val previewHeight: Int = 0,
     val previewDurationSeconds: Int = 0,
     val blurredMinithumbnail: ByteArray? = null,
-    val firstPurchasedMedia: MessageMedia? = null
-)
+    val firstPurchasedMedia: MessageMedia? = null,
+    val additionalPurchasedMedia: List<MessageMedia> = emptyList()
+) {
+    /** Never expose media through a locked bundle, even if a stale caller supplied an item. */
+    val purchasedMedia: List<MessageMedia>
+        get() = if (isPurchased) listOfNotNull(firstPurchasedMedia) + additionalPurchasedMedia else emptyList()
+}
 
 /** A payment request in a chat. [receiptMessageId] is non-zero once Telegram has created the receipt. */
 data class MessageInvoiceInfo(
