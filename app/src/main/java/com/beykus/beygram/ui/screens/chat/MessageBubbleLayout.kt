@@ -214,6 +214,7 @@ internal fun useInlineTextMetadata(message: ChatMessage, hasSenderHeader: Boolea
         message.inlineKeyboard.isEmpty() &&
         message.sendState != MessageSendState.Failed &&
         !hasSenderHeader &&
+        !message.isForwarded &&
         !hasTranslation
 
 /** Время, статус отправки и кнопка повтора. При [overlay] — белым на тёмной плашке поверх фото. */
