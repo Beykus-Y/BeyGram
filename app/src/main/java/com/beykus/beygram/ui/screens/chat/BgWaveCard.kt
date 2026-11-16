@@ -18,7 +18,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.beykus.beygram.ui.components.BeyGramDialog
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -170,6 +173,8 @@ private fun WaveCard(message: ChatMessage, invite: BgWaveCardState.Invite, accou
             }
         }
     }
+    var confirmJoin by remember { mutableStateOf(false) }
+    var joinStealth by remember { mutableStateOf(false) }
     val ownedInvite = invites[invite.sidHex]?.takeIf { it.accountId == accountId && it.chatId == message.chatId }
     val view = bgWaveCardView(invite.sidHex, invite.expiresAt, message.isOutgoing, ownedInvite, session, now)
     val actions = if (session?.sidHex == invite.sidHex &&
@@ -183,6 +188,21 @@ private fun WaveCard(message: ChatMessage, invite: BgWaveCardState.Invite, accou
     val routeText = if (view.directRoute) stringResource(R.string.bgwave_card_route_direct) else null
     val sourceText = if (view.sourceUnsupported) stringResource(R.string.bgwave_status_source_unsupported) else null
     val iconDescription = stringResource(R.string.bgwave_card_invite_title)
+    if (confirmJoin) {
+        BeyGramDialog(
+            onDismissRequest = { confirmJoin = false },
+            title = stringResource(R.string.bgwave_join_confirm_title),
+            message = stringResource(R.string.bgwave_join_confirm_body) +
+                if (joinStealth) "\n\n" + stringResource(R.string.bgwave_stealth_confirm_note) else "",
+            confirmText = stringResource(R.string.bgwave_action_join),
+            onConfirm = {
+                confirmJoin = false
+                scope.launch { BgWaveHub.join(invite.sidHex, stealthConsent = joinStealth) }
+            },
+            dismissText = stringResource(R.string.bgwave_share_confirm_cancel),
+            onDismiss = { confirmJoin = false },
+        )
+    }
     Column(
         Modifier.fillMaxWidth().padding(top = 6.dp)
             .clip(styledShape(8.dp))
@@ -207,7 +227,7 @@ private fun WaveCard(message: ChatMessage, invite: BgWaveCardState.Invite, accou
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (action in actions) {
                     when (action) {
-                        BgWaveCardAction.Join -> Button(onClick = { scope.launch { BgWaveHub.join(invite.sidHex) } }) {
+                        BgWaveCardAction.Join -> Button(onClick = { joinStealth = BgWaveHub.stealthNeedsConsent(accountId); confirmJoin = true }) {
                             Text(stringResource(R.string.bgwave_action_join))
                         }
                         BgWaveCardAction.Decline -> OutlinedButton(onClick = { scope.launch { BgWaveHub.decline(invite.sidHex) } }) {

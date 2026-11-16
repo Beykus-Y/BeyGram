@@ -42,6 +42,9 @@
     <string name="bgwave_share_confirm_body">Cette personne verra une invitation à écouter ce qui joue chez vous. Avec une connexion directe, votre adresse IP peut lui être visible. Le son n\'est pas enregistré et ne passe que pendant la vague.</string>
     <string name="bgwave_share_confirm_send">Envoyer</string>
     <string name="bgwave_share_confirm_cancel">Annuler</string>
+    <string name="bgwave_join_confirm_title">Rejoindre la vague ?</string>
+    <string name="bgwave_join_confirm_body">C\'est une connexion directe : la personne qui partage la vague peut voir votre adresse IP. Le son n\'est pas enregistré et ne passe que pendant la vague.</string>
+    <string name="bgwave_stealth_confirm_note">Le mode discret est activé : les signaux de la vague ne peuvent pas être envoyés discrètement. Ils partent immédiatement et Telegram peut vous afficher en ligne.</string>
     <string name="bgwave_mini_title">Onde</string>
     <string name="bgwave_mini_a11y">Vague : %1$s</string>
     <string name="bgwave_listener_channel_name">Écoute partagée</string>

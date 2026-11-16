@@ -42,6 +42,9 @@
     <string name="bgwave_share_confirm_body">They will see an invitation to listen to what is playing for you now. With a direct connection your IP address may be visible to them. The sound is not saved and plays only while the wave runs.</string>
     <string name="bgwave_share_confirm_send">Send</string>
     <string name="bgwave_share_confirm_cancel">Cancel</string>
+    <string name="bgwave_join_confirm_title">Join the wave?</string>
+    <string name="bgwave_join_confirm_body">This is a direct connection: the person sharing the wave may see your IP address. The sound is not saved and plays only while the wave runs.</string>
+    <string name="bgwave_stealth_confirm_note">Stealth mode is on: wave signals cannot be sent unnoticed. They go out at once, and Telegram may show you online.</string>
     <string name="bgwave_mini_title">Wave</string>
     <string name="bgwave_mini_a11y">Wave: %1$s</string>
     <string name="bgwave_listener_channel_name">Listening together</string>
