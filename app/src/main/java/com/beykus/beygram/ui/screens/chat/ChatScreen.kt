@@ -3363,13 +3363,14 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
-    val lastLineMeta = showText && useLastLineTextMetadata(message, hasTranslation = translation != null)
     val compactCollection = message.media?.let { com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument(it) } == true && !hasText && message.reply == null && renderedSpecial == null && message.linkPreview == null && translation == null
-    val inlineMeta = !lastLineMeta && useInlineTextMetadata(
+    val inlineMeta = useInlineTextMetadata(
         message,
         hasSenderHeader = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank(),
         hasTranslation = translation != null
     )
+    // Preserve the existing cheap one-line path; measure actual final lines only for the other plain text bubbles.
+    val lastLineMeta = showText && !inlineMeta && useLastLineTextMetadata(message, hasTranslation = translation != null)
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
     val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
     val longPressLabel = stringResource(if (longPressSelects) R.string.message_action_select else R.string.a11y_message_actions)
@@ -3505,7 +3506,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards,
                                 messageText = {
                                     if (lastLineMeta) {
-                                        PlainMessageWithMeta(message.text) {
+                                        PlainMessageWithMeta(message.text, modifier = if (message.reply != null) Modifier.fillMaxWidth() else Modifier) {
                                             BubbleMeta(message, isRead, retryAvailable = false, overlay = false,
                                                 onRetry = onRetry, inline = true, insideTextInsets = true)
                                         }
