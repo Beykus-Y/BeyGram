@@ -294,6 +294,11 @@
         <item quantity="one">%1$d item</item>
         <item quantity="other">%1$d items</item>
     </plurals>
+    <string name="paid_text_title">Paid message</string>
+    <string name="paid_text_confirm">Send this message now for %1$s Stars? Balance: %2$s Stars. Local send delay will not apply.</string>
+    <string name="paid_text_price_changed">The message price has changed. Check it and confirm again.</string>
+    <string name="paid_text_uncertain">Could not confirm that the paid message was sent. Check the chat and your balance before trying again.</string>
+    <string name="paid_text_draft_changed">The draft changed. Check the message and tap send again.</string>
     <string name="gift_listing_title">Sell gift</string>
     <string name="gift_listing_price">Price in Stars</string>
     <string name="gift_listing_range">Allowed price: %1$s–%2$s Stars</string>

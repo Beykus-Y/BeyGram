@@ -298,6 +298,11 @@
         <item quantity="many">%1$d файлов</item>
         <item quantity="other">%1$d файла</item>
     </plurals>
+    <string name="paid_text_title">Платное сообщение</string>
+    <string name="paid_text_confirm">Отправить это сообщение сейчас за %1$s Stars? Баланс: %2$s Stars. Локальная задержка отправки не применяется.</string>
+    <string name="paid_text_price_changed">Цена сообщения изменилась. Проверьте её и подтвердите заново.</string>
+    <string name="paid_text_uncertain">Не удалось подтвердить отправку платного сообщения. Проверьте чат и баланс перед повтором.</string>
+    <string name="paid_text_draft_changed">Черновик изменился. Проверьте сообщение и нажмите отправку снова.</string>
     <string name="gift_listing_title">Продать подарок</string>
     <string name="gift_listing_price">Цена в Stars</string>
     <string name="gift_listing_range">Допустимая цена: %1$s–%2$s Stars</string>
