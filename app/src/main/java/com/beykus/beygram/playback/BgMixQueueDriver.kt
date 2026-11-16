@@ -10,7 +10,7 @@ import java.io.File
  * Plays a music queue through BG Mix. The engine owns the Media state; this class owns the native session.
  *
  * Only complete local WAV, MP3 or FLAC files qualify (see [isEligible]). The session starts with the tapped track and the
- * finished files right after it; the rest of the queue joins the native queue in order as each file finishes downloading
+ * next finished file; the rest of the queue joins the native queue in order as playback advances
  * ([appendReady]). Streaming, secret and video media stay on the ExoPlayer path.
  *
  * A session can be staged first: it prepares its first track silently while ExoPlayer keeps playing, and only
@@ -115,18 +115,19 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         fileFor: (PlaybackItem) -> PlaybackItem? = { item -> item.takeIf { isEligible(it) } }
     ): Boolean {
         discardStaged()
-        val ready = items.map { fileFor(it) }
-        val tail = (if (single) listOf(startIndex).takeIf { startIndex in ready.indices && ready[startIndex] != null }
-        else bgMixReadyPrefix(ready, startIndex)) ?: return false
+        if (startIndex !in items.indices) return false
+        val end = bgMixWindowEndExclusive(items.size, startIndex, if (single) 0 else BG_MIX_NATIVE_AHEAD)
+        val ready = (startIndex until end).map { fileFor(items[it]) }
+        val tail = bgMixReadyPrefix(ready, 0)?.map { startIndex + it } ?: return false
         val created = BgMixPlayer(cacheDir)
         if (!created.start()) return false
-        val ids = created.setQueue(tail.map { File(ready[it]!!.path) })
+        val ids = created.setQueue(tail.map { File(ready[it - startIndex]!!.path) })
         // A file the decoder rejects would vanish from the queue without a word, so it refuses the session as a whole.
         if (ids.size != tail.size || ids.any { it == 0L }) {
             releaser.submit { created.release() }
             return false
         }
-        val resolved = items.mapIndexed { index, item -> ready[index] ?: item }
+        val resolved = items.mapIndexed { index, item -> ready.getOrNull(index - startIndex) ?: item }
         staged = Staged(
             player = created,
             items = resolved,
@@ -178,13 +179,14 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     /**
      * Adds the queue items that have become complete files since the session started, in queue order: an item that
      * is still downloading holds back the ones after it, so the native order never differs from the queue. Returns
-     * how many items joined.
+     * how many items joined, stopping at the current playback window even if the rest is cached.
      */
-    fun appendReady(fileFor: (PlaybackItem) -> PlaybackItem?): Int {
+    fun appendReady(currentIndex: Int, fileFor: (PlaybackItem) -> PlaybackItem?): Int {
         val session = player ?: return 0
         if (single) return 0
         var added = 0
-        while (appendedUntil < items.size) {
+        val end = bgMixWindowEndExclusive(items.size, currentIndex, BG_MIX_NATIVE_AHEAD)
+        while (appendedUntil < end) {
             val index = appendedUntil
             val file = fileFor(items[index]) ?: break
             val id = session.addTrack(File(file.path))
@@ -273,6 +275,15 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
                 item.path.substringAfterLast('.', "").lowercase() in EXTENSIONS &&
                 File(item.path).isFile
     }
+}
+
+/** Only one successor is decoded in advance; downloads have a separate window. */
+internal const val BG_MIX_NATIVE_AHEAD = 1
+
+/** Exclusive end of a window anchored to the current track, not to the prepared tail. */
+internal fun bgMixWindowEndExclusive(queueSize: Int, currentIndex: Int, ahead: Int): Int {
+    if (currentIndex !in 0 until queueSize || ahead < 0) return 0
+    return currentIndex + 1 + minOf(ahead, queueSize - currentIndex - 1)
 }
 
 /**

@@ -204,7 +204,7 @@ object PlaybackEngine {
     private const val PROGRESS_INTERVAL_MS = 250L
     private const val PROGRESS_FAST_INTERVAL_MS = 50L
     private const val BG_DUCK_VOLUME = 0.25f
-    /** How many queue items after the session's last track BG Mix downloads ahead. */
+    /** Maximum lookahead from the playing track, independent of native queue growth. */
     private const val BG_MIX_DOWNLOAD_AHEAD = 2
     private const val BG_MIX_FEED_INTERVAL_MS = 1_000L
     private const val BG_HANDOVER_POLL_MS = 500L
@@ -2036,14 +2036,15 @@ object PlaybackEngine {
             while (true) {
                 val driver = bgMix?.takeIf { it.isActive } ?: return@launch
                 if (driver.pendingIndex == null) return@launch
-                driver.appendReady(::bgMixFileFor)
+                val currentIndex = _state.value.queueIndex
+                driver.appendReady(currentIndex, ::bgMixFileFor)
                 val first = driver.pendingIndex ?: return@launch
                 // Only the track right after the playing one is part of playback; the rows after it follow the policy.
-                val playingNext = _state.value.queueIndex + 1
+                val playingNext = currentIndex + 1
                 val context = appContext
                 val source = queueSource
                 if (context != null) {
-                    for (index in first until minOf(first + BG_MIX_DOWNLOAD_AHEAD, driver.queueItems.size)) {
+                    for (index in first until bgMixWindowEndExclusive(driver.queueItems.size, currentIndex, BG_MIX_DOWNLOAD_AHEAD)) {
                         // Speculative traffic goes through the automatic-download policy, like the regular prefetch.
                         prefetchItem(context, source, driver.queueItems[index], playbackNext = index == playingNext)
                     }
@@ -2357,13 +2358,22 @@ object PlaybackEngine {
         updateWaveCaptureEligibility(item)
         val master = status.decks.getOrNull(status.master)
         val deckPlaying = master?.playing == true
-        val finished = status.queue.isNotEmpty() &&
-            status.queue.all { it.state == "played" || it.state == "failed" } &&
-            !status.transitionActive && !deckPlaying
+        val terminalQueue = status.queue.isNotEmpty() && status.queue.all { it.state == "played" || it.state == "failed" }
+        // Native keeps an ended master loaded (reported as playing in the queue). If no usable
+        // successor is admitted, resume the logical queue on Exo rather than strand playback at EOF.
+        val hasNativeSuccessor = status.queue.any {
+            (driver.indexOfNative(it.id) ?: -1) > index && it.state != "played" && it.state != "failed"
+        }
+        val masterEnded = master?.ended == true && !hasNativeSuccessor && !status.paused
+        val finished = (terminalQueue || masterEnded) && !status.transitionActive && !deckPlaying
         val pending = driver.pendingIndex
         if (finished && pending != null) {
             val items = driver.queueItems
-            scope.launch { continueBgMixQueueOnExo(items, pending) }
+            // Ignore a delayed fallback after a queue replacement or a new native session.
+            val sessionStatus = driver.status
+            scope.launch {
+                if (bgMix?.status === sessionStatus) continueBgMixQueueOnExo(items, pending)
+            }
             return
         }
         val playing = !status.paused && deckPlaying && !finished
@@ -2394,7 +2404,7 @@ object PlaybackEngine {
         }
         val repeat = _state.value.repeatMode
         val repeatsQueue = finished && !before.ended && repeat != PlaybackRepeatMode.Off &&
-            status.queue.any { it.state == "played" }
+            (masterEnded || status.queue.any { it.state == "played" })
         if (repeatsQueue) {
             // Repeat One plays the same track again, Repeat All starts the queue over; the mode stays BG Mix.
             val items = driver.queueItems
@@ -3548,6 +3558,8 @@ object PlaybackEngine {
      */
     @OptIn(UnstableApi::class)
     private fun prefetchNext() {
+        // BG Mix owns its own bounded feed; the ExoPlayer placeholder has no useful playback order.
+        if (bgMixActive()) return
         // A provider queue has no TDLib source, but its rows still prefetch through the same policy.
         val source = queueSource
         val context = appContext ?: return
