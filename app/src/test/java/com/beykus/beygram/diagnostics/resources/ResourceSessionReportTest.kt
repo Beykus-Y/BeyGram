@@ -1,5 +1,6 @@
 package com.beykus.beygram.diagnostics.resources
 
+import com.beykus.beygram.media.bgmix.BgMixMemorySnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,6 +29,20 @@ class ResourceSessionReportTest {
         assertTrue(report.contains("cpu_percent_max=20.0"))
         assertTrue(report.contains("rx_bytes_delta=4000"))
         assertTrue(report.contains("tx_bytes_delta=800"))
+    }
+
+    @Test
+    fun reportIncludesPcmAndHostPeaksAndFinalCount() {
+        val active = sample(0, null, null, null).copy(bgMixMemory = BgMixMemorySnapshot(
+            liveHosts = 1, preparedPcmBytes = 123L, retiredPcmBytes = 456L,
+            preparedTracks = 2, preparingTracks = 1,
+        ))
+        val stopped = sample(2000, null, null, null)
+        val report = formatResourceReport(listOf(active, stopped), cpuCores = 4)
+        assertTrue(report.contains("bgmix_prepared_pcm_max_bytes=123"))
+        assertTrue(report.contains("bgmix_retired_pcm_max_bytes=456"))
+        assertTrue(report.contains("bgmix_live_hosts_max=1"))
+        assertTrue(report.contains("bgmix_live_hosts_last=0"))
     }
 
     @Test

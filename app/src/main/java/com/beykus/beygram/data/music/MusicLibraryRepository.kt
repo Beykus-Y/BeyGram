@@ -309,6 +309,13 @@ class MusicLibraryRepository(
     suspend fun recordPlay(track: MusicTrackRef, playedAt: Long = clock()): MusicOutcome<Unit> =
         commit { current -> recordPlayEdit(current, track, playedAt) }
 
+    /**
+     * Keeps the tempo BG Beat analysed for [track]. Only the account that owns the track can store it; a tempo of another account
+     * is refused. See [recordTempoEdit].
+     */
+    suspend fun recordTempo(track: MusicTrackRef, bpm: Double): MusicOutcome<Unit> =
+        commit { current -> recordTempoEdit(current, track, bpm) }
+
     // ---- Imports -----------------------------------------------------------------------------------
 
     /**

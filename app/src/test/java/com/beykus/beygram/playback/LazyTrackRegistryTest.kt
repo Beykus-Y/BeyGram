@@ -8,11 +8,54 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 class LazyTrackRegistryTest {
     private fun row(key: String, path: String = "", sizeBytes: Long = 0L) = PlaybackItem(
         key = key, kind = MediaKind.Audio, path = path, title = "Song", durationSeconds = 200, sizeBytes = sizeBytes
     )
+
+    @Test fun obsoletePrefetchIsCancelledButPromotedPlaybackIsKept() = runBlocking {
+        val startedA = CompletableDeferred<Unit>()
+        val startedB = CompletableDeferred<Unit>()
+        val cancelledA = CompletableDeferred<Unit>()
+        val cancelledB = CompletableDeferred<Unit>()
+        val resolver = object : LazyTrackResolver<String>("fake:", maxConcurrentFetches = 2) {
+            override val restricted = false
+            override fun pathOf(track: String): String = track
+            override fun discardCopy(path: String) = Unit
+            override fun handOverCopy(path: String) = Unit
+            init {
+                setFetch { key ->
+                    val a = key == "fake:a"
+                    (if (a) startedA else startedB).complete(Unit)
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        (if (a) cancelledA else cancelledB).complete(Unit)
+                    }
+                }
+            }
+        }
+        try {
+            resolver.prefetch("fake:a")
+            resolver.prefetch("fake:b")
+            withTimeout(5000) { startedA.await(); startedB.await() }
+            resolver.request("fake:b")
+            resolver.cancelOutside(emptySet())
+            withTimeout(5000) { cancelledA.await() }
+            assertFalse(cancelledB.isCompleted)
+            assertEquals(setOf("fake:b"), resolver.fetchingKeys())
+            resolver.cancelOutside(emptySet(), includePlayback = true)
+            withTimeout(5000) { cancelledB.await() }
+            assertTrue(resolver.fetchingKeys().isEmpty())
+        } finally {
+            resolver.reset()
+        }
+    }
 
     @Test fun keysRouteToTheProviderThatOwnsThePrefix() {
         assertSame(BotTrackResolver, LazyTrackRegistry.sourceFor("bot:12:abc"))

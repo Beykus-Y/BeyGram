@@ -2392,6 +2392,7 @@
     <string name="music_sort_artist">По исполнителю</string>
     <string name="music_sort_duration">По длительности</string>
     <string name="music_sort_manual">Вручную</string>
+    <string name="music_sort_tempo">По темпу (BPM)</string>
     <string name="music_sort_title">По названию</string>
     <string name="music_storage_error">Не удалось прочитать библиотеку. Изменения не сохраняются.</string>
     <plurals name="music_track_count">

@@ -78,6 +78,7 @@ import com.beykus.beygram.data.music.MusicSortMode
 import com.beykus.beygram.data.music.PlaylistTrack
 import com.beykus.beygram.data.music.fromChat
 import com.beykus.beygram.data.music.resolvePlaylistTracks
+import com.beykus.beygram.data.music.tempoSortOffered
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -112,6 +113,8 @@ internal fun MusicPlaylistScreen(
     val chatId: Long? = remember(playlistId) { chatIdOfCollection(playlistId) }
     val nowMs = remember(library) { System.currentTimeMillis() }
     val stored: MusicPlaylist? = library?.playlist(playlistId)
+    // The Tempo sort is offered only once BG Beat has stored a tempo for enough tracks of this playlist.
+    val tempoOffered = stored != null && library != null && tempoSortOffered(stored, library.stats)
     val candidates = remember(library, collection, chatId) {
         when {
             library == null -> emptyList<PlaylistTrack>()
@@ -428,7 +431,7 @@ internal fun MusicPlaylistScreen(
         title = stringResource(R.string.music_sort),
         content = {
             Column {
-                MusicSortMode.entries.forEach { mode ->
+                MusicSortMode.entries.filter { it != MusicSortMode.Tempo || tempoOffered || stored.sortMode == MusicSortMode.Tempo }.forEach { mode ->
                     SortOption(
                         label = stringResource(sortLabelRes(mode)),
                         selected = stored.sortMode == mode,
@@ -551,4 +554,5 @@ private fun sortLabelRes(mode: MusicSortMode): Int = when (mode) {
     MusicSortMode.Artist -> R.string.music_sort_artist
     MusicSortMode.AddedAt -> R.string.music_sort_added
     MusicSortMode.Duration -> R.string.music_sort_duration
+    MusicSortMode.Tempo -> R.string.music_sort_tempo
 }

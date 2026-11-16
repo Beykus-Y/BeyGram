@@ -830,6 +830,7 @@
     <string name="music_sort_artist">Par artiste</string>
     <string name="music_sort_duration">Par durée</string>
     <string name="music_sort_manual">Manuel</string>
+    <string name="music_sort_tempo">Par tempo (BPM)</string>
     <string name="music_sort_title">Par titre</string>
     <string name="music_storage_error">La bibliothèque n’a pas pu être lue. Les modifications ne sont pas enregistrées.</string>
     <plurals name="music_track_count">

@@ -9,6 +9,7 @@ data class BgMixDeck(
     val positionSeconds: Double,
     val durationSeconds: Double,
     val bpm: Double,
+    val trackId: Long = 0L,
 )
 
 data class BgMixQueueItem(
@@ -37,6 +38,12 @@ data class BgMixStatus(
     val status: String,
     val decks: List<BgMixDeck>,
     val queue: List<BgMixQueueItem>,
+    val preparedPcmBytes: Long = 0,
+    val retiredPcmBytes: Long = 0,
+    val preparationReservedBytes: Long = 0,
+    val pcmBudgetBytes: Long = 0,
+    val preparedCount: Int = 0,
+    val preparingCount: Int = 0,
 ) {
     companion object {
         /** Returns null for malformed input instead of throwing, so one bad tick never stops playback. */
@@ -54,6 +61,12 @@ data class BgMixStatus(
                     transitionType = root.optString("transitionType", "off"),
                     transitionProgress = root.optDouble("transitionProgress", 0.0),
                     preparingNext = root.optBoolean("preparingNext", false),
+                    preparedPcmBytes = root.optLong("preparedPcmBytes", 0L),
+                    retiredPcmBytes = root.optLong("retiredPcmBytes", 0L),
+                    preparationReservedBytes = root.optLong("preparationReservedBytes", 0L),
+                    pcmBudgetBytes = root.optLong("pcmBudgetBytes", 0L),
+                    preparedCount = root.optInt("preparedCount", 0),
+                    preparingCount = root.optInt("preparingCount", 0),
                     preparingName = root.optString("preparingName", ""),
                     preparingProgress = root.optDouble("preparingProgress", 0.0).toFloat(),
                     lastError = root.optString("lastError", ""),
@@ -67,6 +80,7 @@ data class BgMixStatus(
                             positionSeconds = d.optDouble("positionSeconds", 0.0),
                             durationSeconds = d.optDouble("durationSeconds", 0.0),
                             bpm = d.optDouble("bpm", 0.0),
+                            trackId = d.optLong("trackId", 0L),
                         )
                     },
                     queue = List(queueJson?.length() ?: 0) { i ->

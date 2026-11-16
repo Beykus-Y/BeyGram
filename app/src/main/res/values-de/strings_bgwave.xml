@@ -47,4 +47,5 @@
     <string name="bgwave_listener_channel_name">Gemeinsam hören</string>
     <string name="bgwave_listener_notification_title">Du hörst eine Welle</string>
     <string name="bgwave_listener_notification_text">Der Ton läuft bei ausgeschaltetem Bildschirm weiter</string>
+    <string name="bgwave_chat_preview">Gemeinsames Hören</string>
 </resources>
