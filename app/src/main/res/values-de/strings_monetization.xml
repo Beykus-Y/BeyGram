@@ -292,4 +292,12 @@
         <item quantity="one">%1$d Datei</item>
         <item quantity="other">%1$d Dateien</item>
     </plurals>
+    <string name="gifts_resale_title">Weiterverkauf</string>
+    <string name="gifts_resale_summary">%1$s Angebote · ab %2$s Stars (Gegenwert)</string>
+    <string name="gifts_resale_empty">Keine Angebote zum Weiterverkauf</string>
+    <string name="gifts_resale_buy">Für %1$s Stars kaufen</string>
+    <string name="gifts_resale_confirm">%1$s für %2$s für bis zu %3$s Stars kaufen? Guthaben: %4$s Stars.</string>
+    <string name="gifts_resale_ton_unavailable">Käufe mit TON sind nicht verfügbar</string>
+    <string name="gifts_resale_changed">Der Preis hat sich geändert oder das Geschenk ist nicht verfügbar. Aktualisieren Sie die Liste.</string>
+    <string name="gifts_resale_market">Geschenkemarkt</string>
 </resources>

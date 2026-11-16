@@ -292,4 +292,12 @@
         <item quantity="one">%1$d item</item>
         <item quantity="other">%1$d items</item>
     </plurals>
+    <string name="gifts_resale_title">Resale</string>
+    <string name="gifts_resale_summary">%1$s listings · from %2$s Stars (equivalent)</string>
+    <string name="gifts_resale_empty">No resale listings available</string>
+    <string name="gifts_resale_buy">Buy for %1$s Stars</string>
+    <string name="gifts_resale_confirm">Buy %1$s for %2$s for up to %3$s Stars? Balance: %4$s Stars.</string>
+    <string name="gifts_resale_ton_unavailable">TON purchases are unavailable</string>
+    <string name="gifts_resale_changed">The price changed or the gift is unavailable. Refresh the list.</string>
+    <string name="gifts_resale_market">Gift marketplace</string>
 </resources>

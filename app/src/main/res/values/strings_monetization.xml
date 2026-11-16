@@ -296,4 +296,12 @@
         <item quantity="many">%1$d файлов</item>
         <item quantity="other">%1$d файла</item>
     </plurals>
+    <string name="gifts_resale_title">Перепродажа</string>
+    <string name="gifts_resale_summary">%1$s предложений · от %2$s Stars (эквивалент)</string>
+    <string name="gifts_resale_empty">На вторичном рынке пока нет предложений</string>
+    <string name="gifts_resale_buy">Купить за %1$s Stars</string>
+    <string name="gifts_resale_confirm">Купить «%1$s» для %2$s за сумму до %3$s Stars? Баланс: %4$s Stars.</string>
+    <string name="gifts_resale_ton_unavailable">Покупка за TON недоступна</string>
+    <string name="gifts_resale_changed">Цена изменилась или подарок недоступен. Обновите список.</string>
+    <string name="gifts_resale_market">Рынок подарков</string>
 </resources>

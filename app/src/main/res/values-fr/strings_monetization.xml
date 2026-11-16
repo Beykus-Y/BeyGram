@@ -292,4 +292,12 @@
         <item quantity="one">%1$d élément</item>
         <item quantity="other">%1$d éléments</item>
     </plurals>
+    <string name="gifts_resale_title">Revente</string>
+    <string name="gifts_resale_summary">%1$s offres · dès %2$s Stars (équivalent)</string>
+    <string name="gifts_resale_empty">Aucune offre de revente disponible</string>
+    <string name="gifts_resale_buy">Acheter pour %1$s Stars</string>
+    <string name="gifts_resale_confirm">Acheter %1$s pour %2$s pour un maximum de %3$s Stars ? Solde : %4$s Stars.</string>
+    <string name="gifts_resale_ton_unavailable">Les achats en TON ne sont pas disponibles</string>
+    <string name="gifts_resale_changed">Le prix a changé ou le cadeau est indisponible. Actualisez la liste.</string>
+    <string name="gifts_resale_market">Marché des cadeaux</string>
 </resources>
