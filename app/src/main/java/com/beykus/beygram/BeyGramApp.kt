@@ -2789,6 +2789,8 @@ GlobalSearchScreen(
                         loadAuction = repository::giftAuctionQuote,
                         loadAuctionHistory = repository::giftAuctionHistory,
                         submitBid = repository::submitGiftAuctionBid,
+                        loadResale = repository::resaleGifts,
+                        buyResale = repository::buyResoldGift,
                         send = { giftId, text, isPrivate ->
                             repository.sendGift(giftsProfileId, giftsProfileSelf, giftId, text, isPrivate)
                         },

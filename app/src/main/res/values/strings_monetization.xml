@@ -303,6 +303,14 @@
     <string name="paid_text_price_changed">Цена сообщения изменилась. Проверьте её и подтвердите заново.</string>
     <string name="paid_text_uncertain">Не удалось подтвердить отправку платного сообщения. Проверьте чат и баланс перед повтором.</string>
     <string name="paid_text_draft_changed">Черновик изменился. Проверьте сообщение и нажмите отправку снова.</string>
+    <string name="gifts_resale_title">Перепродажа</string>
+    <string name="gifts_resale_summary">%1$s предложений · от %2$s Stars (эквивалент)</string>
+    <string name="gifts_resale_empty">На вторичном рынке пока нет предложений</string>
+    <string name="gifts_resale_buy">Купить за %1$s Stars</string>
+    <string name="gifts_resale_confirm">Купить «%1$s» для %2$s за сумму до %3$s Stars? Баланс: %4$s Stars.</string>
+    <string name="gifts_resale_ton_unavailable">Покупка за TON недоступна</string>
+    <string name="gifts_resale_changed">Цена изменилась или подарок недоступен. Обновите список.</string>
+    <string name="gifts_resale_market">Рынок подарков</string>
     <string name="gift_auction_title">Аукцион</string>
     <string name="gift_auction_round">Раунд %1$d из %2$d</string>
     <string name="gift_auction_left">Осталось подарков: %1$d</string>

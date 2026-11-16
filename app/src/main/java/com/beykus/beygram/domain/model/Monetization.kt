@@ -526,7 +526,11 @@ data class GiftCatalogItem(
     val remainingCount: Int?,
     val isSoldOut: Boolean,
     val isAuctionOnly: Boolean,
-    val auctionId: String? = null
+    val auctionId: String? = null,
+    val resaleCount: Int = 0,
+    /** Minimum resale price in Stars equivalent; not a purchase quote. */
+    val minResaleStarCount: Long = 0L,
+    val resaleTitle: String = ""
 )
 
 data class ReceivedGiftItem(

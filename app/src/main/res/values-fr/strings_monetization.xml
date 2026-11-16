@@ -299,6 +299,14 @@
     <string name="paid_text_price_changed">Le prix du message a changé. Vérifiez-le et confirmez à nouveau.</string>
     <string name="paid_text_uncertain">Impossible de confirmer l’envoi du message payant. Vérifiez la conversation et votre solde avant de réessayer.</string>
     <string name="paid_text_draft_changed">Le brouillon a changé. Vérifiez le message et appuyez de nouveau sur Envoyer.</string>
+    <string name="gifts_resale_title">Revente</string>
+    <string name="gifts_resale_summary">%1$s offres · dès %2$s Stars (équivalent)</string>
+    <string name="gifts_resale_empty">Aucune offre de revente disponible</string>
+    <string name="gifts_resale_buy">Acheter pour %1$s Stars</string>
+    <string name="gifts_resale_confirm">Acheter %1$s pour %2$s pour un maximum de %3$s Stars ? Solde : %4$s Stars.</string>
+    <string name="gifts_resale_ton_unavailable">Les achats en TON ne sont pas disponibles</string>
+    <string name="gifts_resale_changed">Le prix a changé ou le cadeau est indisponible. Actualisez la liste.</string>
+    <string name="gifts_resale_market">Marché des cadeaux</string>
     <string name="gift_auction_title">Enchère</string>
     <string name="gift_auction_round">Tour %1$d sur %2$d</string>
     <string name="gift_auction_left">Cadeaux restants : %1$d</string>

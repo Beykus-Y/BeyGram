@@ -20,6 +20,7 @@ import com.beykus.beygram.domain.model.GiftAuctionWin
 import com.beykus.beygram.domain.model.GiftAuctionOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
+import com.beykus.beygram.domain.model.ResaleGiftsPage
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
@@ -199,6 +200,10 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
         Result.failure(UnsupportedOperationException())
     suspend fun submitGiftAuctionBid(quote: GiftAuctionQuote, profileId: Long, isSelf: Boolean, total: Long): GiftAuctionOutcome =
         GiftAuctionOutcome.Changed
+    suspend fun resaleGifts(giftId: Long, offset: String): Result<ResaleGiftsPage> =
+        Result.failure(UnsupportedOperationException())
+    suspend fun buyResoldGift(profileId: Long, name: String, confirmedStars: Long): GiftSendOutcome =
+        GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(com.beykus.beygram.R.string.err_gift_unavailable))
 
     /** Next page of the signed-in user's received gifts, from [GiftsInfo.receivedNextOffset]. */
     suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> =

@@ -14,6 +14,9 @@ import com.beykus.beygram.domain.model.sortAuctionWins
 import com.beykus.beygram.domain.model.GiftAuctionOutcome
 import com.beykus.beygram.domain.model.auctionBidDebit
 import com.beykus.beygram.domain.model.auctionQuoteMatches
+import com.beykus.beygram.domain.model.ResaleGiftItem
+import com.beykus.beygram.domain.model.ResaleGiftsPage
+import com.beykus.beygram.domain.model.resalePriceMatches
 import com.beykus.beygram.domain.model.GiftCollectionItem
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftTextValidation
@@ -397,6 +400,75 @@ internal class TdPayments(private val requests: TdRequests) {
             collectionsUnavailable = collectionsUnavailable,
             textMaxLength = readGiftTextLimit()
         )
+    }
+
+    /** Read-only market request. The listed price is specific to the collectible name and currency. */
+    suspend fun resaleGifts(giftId: Long, offset: String): Result<ResaleGiftsPage> = monetizationResult {
+        val page = requests(TdApi.SearchGiftsForResale().apply {
+            this.giftId = giftId
+            order = TdApi.GiftForResaleOrderPrice()
+            attributes = emptyArray()
+            this.offset = offset
+            limit = 20
+        })
+        ResaleGiftsPage(
+            items = page.gifts.orEmpty().mapNotNull { listing ->
+                val gift = listing.gift ?: return@mapNotNull null
+                val name = gift.name.orEmpty()
+                val price = gift.resaleParameters ?: return@mapNotNull null
+                if (name.isBlank() || gift.id <= 0L) return@mapNotNull null
+                ResaleGiftItem(
+                    id = gift.id,
+                    name = name,
+                    title = gift.title.orEmpty(),
+                    number = gift.number,
+                    emoji = gift.symbol?.sticker?.emoji.orEmpty(),
+                    starCount = price.starCount.takeIf { it > 0L && !price.toncoinOnly },
+                    isOwned = listing.receivedGiftId.orEmpty().isNotBlank()
+                )
+            }.distinctBy { it.name },
+            nextOffset = page.nextOffset.orEmpty()
+        )
+    }
+
+    /** One explicit Stars resale purchase. No TON, no retries, no authorization at an increased price. */
+    suspend fun buyResoldGift(profileId: Long, name: String, confirmedStars: Long): GiftSendOutcome {
+        fun blocked() = GiftSendOutcome.Blocked(UiText.Res(R.string.gifts_resale_changed))
+        if (name.isBlank() || confirmedStars <= 0L) return blocked()
+        if (!sendInFlight.compareAndSet(false, true)) {
+            return GiftSendOutcome.Blocked(UiText.Res(R.string.err_gift_send_busy))
+        }
+        var dispatched = false
+        return try {
+            val recipient = giftOwner(profileId)
+            val gift = requests(TdApi.GetUpgradedGift(name))
+            val price = gift.resaleParameters
+            val owner = gift.ownerId as? TdApi.MessageSenderUser
+            val ownId = myUserId()
+            if (gift.name != name || owner?.userId == ownId ||
+                !resalePriceMatches(confirmedStars, price?.starCount, price?.toncoinOnly != false)) {
+                return blocked()
+            }
+            val balance = currentBalanceOrNull()
+            if (balance == null || balance.starCount < confirmedStars) {
+                return GiftSendOutcome.Blocked(UiText.Res(R.string.err_gift_insufficient_stars))
+            }
+            dispatched = true
+            when (requests(TdApi.SendResoldGift(name, recipient, TdApi.GiftResalePriceStar(confirmedStars)),
+                timeoutMillis = GIFT_SEND_TIMEOUT_MS)) {
+                is TdApi.GiftResaleResultOk -> GiftSendOutcome.Sent
+                is TdApi.GiftResaleResultPriceIncreased -> blocked()
+                else -> GiftSendOutcome.Uncertain
+            }
+        } catch (timeout: TimeoutCancellationException) {
+            if (dispatched) GiftSendOutcome.Uncertain else GiftSendOutcome.Failed(failureText(timeout))
+        } catch (cancelled: CancellationException) {
+            if (dispatched) GiftSendOutcome.Uncertain else throw cancelled
+        } catch (error: Exception) {
+            if (dispatched) GiftSendOutcome.Uncertain else GiftSendOutcome.Failed(failureText(error))
+        } finally {
+            sendInFlight.set(false)
+        }
     }
 
     /** Next page of the signed-in user's received gifts; the screen owns the cursor and the merge. */
@@ -880,7 +952,10 @@ private fun TdApi.AvailableGift.toCatalogItem(): GiftCatalogItem? {
         remainingCount = remaining,
         isSoldOut = remaining != null && remaining <= 0,
         isAuctionOnly = value.auctionInfo != null,
-        auctionId = value.auctionInfo?.id?.takeIf { it.isNotBlank() }
+        auctionId = value.auctionInfo?.id?.takeIf { it.isNotBlank() },
+        resaleCount = resaleCount.coerceAtLeast(0),
+        minResaleStarCount = minResaleStarCount.coerceAtLeast(0L),
+        resaleTitle = title.orEmpty()
     )
 }
 
