@@ -67,6 +67,8 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.MediaFileState
@@ -83,8 +85,6 @@ import com.beykus.beygram.ui.motion.rememberMotionSpec
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.roundToInt
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -163,65 +163,65 @@ internal fun MessageActionsBar(
                         IconButton(onClick = { moreOpen = true }) {
                             Icon(Icons.Rounded.MoreVert, stringResource(R.string.message_action_more), tint = palette.accent)
                         }
-                        DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
-                            if (react != null && capabilities.canEdit) DropdownMenuItem(
-                                text = { Text(stringResource(if (isMedia) R.string.message_action_edit_caption else R.string.message_action_edit)) },
+                        BeyGramPopover(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                            if (react != null && capabilities.canEdit) BeyGramPopoverItem(
+                                text = stringResource(if (isMedia) R.string.message_action_edit_caption else R.string.message_action_edit),
                                 leadingIcon = { Icon(Icons.Rounded.Edit, null, tint = palette.accent) },
                                 onClick = { moreOpen = false; onEdit() }
                             )
                             react?.let { pick ->
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.message_action_react)) },
+                                BeyGramPopoverItem(
+                                    text = stringResource(R.string.message_action_react),
                                     leadingIcon = { Icon(Icons.Rounded.AddReaction, null, tint = palette.accent) },
                                     onClick = { moreOpen = false; pick() }
                                 )
                             }
                             onCopyEntity?.let { copy ->
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.message_action_copy_entity)) },
+                                BeyGramPopoverItem(
+                                    text = stringResource(R.string.message_action_copy_entity),
                                     onClick = { moreOpen = false; copy() }
                                 )
                             }
-                            if (canPin) DropdownMenuItem(
-                                text = { Text(stringResource(if (isPinned) R.string.message_action_unpin else R.string.message_action_pin)) },
+                            if (canPin) BeyGramPopoverItem(
+                                text = stringResource(if (isPinned) R.string.message_action_unpin else R.string.message_action_pin),
                                 onClick = { moreOpen = false; onTogglePin() }
                             )
-                            if (capabilities.canGetLink) DropdownMenuItem(
-                                text = { Text(stringResource(R.string.message_action_copy_link)) },
+                            if (capabilities.canGetLink) BeyGramPopoverItem(
+                                text = stringResource(R.string.message_action_copy_link),
                                 onClick = { moreOpen = false; onCopyLink() }
                             )
-                            if (capabilities.canForward) DropdownMenuItem(
-                                text = { Text(stringResource(R.string.message_action_forward)) },
+                            if (capabilities.canForward) BeyGramPopoverItem(
+                                text = stringResource(R.string.message_action_forward),
                                 onClick = { moreOpen = false; onForward() }
                             )
-                            if (capabilities.canForward) DropdownMenuItem(
-                                text = { Text(stringResource(R.string.message_action_forward_copy)) },
+                            if (capabilities.canForward) BeyGramPopoverItem(
+                                text = stringResource(R.string.message_action_forward_copy),
                                 onClick = { moreOpen = false; onForwardCopy() }
                             )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.message_action_select)) },
+                            BeyGramPopoverItem(
+                                text = stringResource(R.string.message_action_select),
                                 onClick = { moreOpen = false; onSelect() }
                             )
-                            if (translate != null) DropdownMenuItem(
-                                text = { Text(stringResource(R.string.message_action_translate), color = palette.textPrimary) },
+                            if (translate != null) BeyGramPopoverItem(
+                                text = stringResource(R.string.message_action_translate),
                                 leadingIcon = { Icon(Icons.Rounded.Translate, null, tint = palette.accent) },
                                 onClick = { moreOpen = false; translate() }
                             )
-                            onPlayNext?.let { next -> DropdownMenuItem(
-                                text = { Text(stringResource(R.string.queue_play_next)) },
+                            onPlayNext?.let { next -> BeyGramPopoverItem(
+                                text = stringResource(R.string.queue_play_next),
                                 onClick = { moreOpen = false; next() }
                             ) }
-                            onEnqueue?.let { enqueue -> DropdownMenuItem(
-                                text = { Text(stringResource(R.string.queue_add_to_end)) },
+                            onEnqueue?.let { enqueue -> BeyGramPopoverItem(
+                                text = stringResource(R.string.queue_add_to_end),
                                 onClick = { moreOpen = false; enqueue() }
                             ) }
-                            onAddToPlaylist?.let { add -> DropdownMenuItem(
-                                text = { Text(stringResource(R.string.music_add_to_playlist)) },
+                            onAddToPlaylist?.let { add -> BeyGramPopoverItem(
+                                text = stringResource(R.string.music_add_to_playlist),
                                 leadingIcon = { Icon(Icons.Rounded.Add, null, tint = palette.accent) },
                                 onClick = { moreOpen = false; add() }
                             ) }
-                            onReport?.let { report -> DropdownMenuItem(
-                                text = { Text(stringResource(R.string.message_action_report)) },
+                            onReport?.let { report -> BeyGramPopoverItem(
+                                text = stringResource(R.string.message_action_report),
                                 onClick = { moreOpen = false; report() }
                             ) }
                         }
