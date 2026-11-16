@@ -132,7 +132,7 @@ class BgWaveListenerService : Service() {
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setShowWhen(false)
-            .addAction(0, getString(R.string.bgwave_listener_notification_stop), leave)
+            .addAction(0, getString(R.string.bgwave_action_stop_wave), leave)
         // Tapping the notification opens the app; without a launch intent the notification simply has no tap action.
         packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
             builder.setContentIntent(

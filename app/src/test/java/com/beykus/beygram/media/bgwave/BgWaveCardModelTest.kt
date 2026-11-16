@@ -42,4 +42,39 @@ class BgWaveCardModelTest {
     @Test fun ordinaryTextIsNotTouched() {
         assertNull(bgWaveCardStateFor(BgWaveDecodeResult.Rejected("NOT_WAVE")))
     }
+
+    private fun session(role: BgWaveRole, phase: BgWavePhase, route: String = "None", unsupported: Boolean = false) =
+        BgWaveSessionState(role, "a", 7L, 7L, sid, phase, route = route, sourceUnsupported = unsupported)
+
+    @Test fun liveHostCardShowsListenerRouteAndRole() {
+        val view = bgWaveCardView(sid, 0L, true, null, session(BgWaveRole.Host, BgWavePhase.Live, "Direct"), 1L)
+        assertEquals(BgWaveRole.Host, view.role)
+        assertEquals(1, view.listeners)
+        assertEquals(true, view.directRoute)
+        assertEquals(false, view.sourceUnsupported)
+    }
+
+    @Test fun waitingHostCardHasNoListenerYet() {
+        val view = bgWaveCardView(sid, 0L, true, null, session(BgWaveRole.Host, BgWavePhase.AwaitingAnswer), 1L)
+        assertEquals(0, view.listeners)
+        assertEquals(false, view.directRoute)
+    }
+
+    @Test fun listenerCardHasNoListenerCount() {
+        val view = bgWaveCardView(sid, 0L, false, null, session(BgWaveRole.Listener, BgWavePhase.Live, "Direct"), 1L)
+        assertEquals(BgWaveRole.Listener, view.role)
+        assertNull(view.listeners)
+    }
+
+    @Test fun unsupportedSourceIsShownToTheLiveHostOnly() {
+        assertEquals(true, bgWaveCardView(sid, 0L, true, null, session(BgWaveRole.Host, BgWavePhase.Live, unsupported = true), 1L).sourceUnsupported)
+        assertEquals(false, bgWaveCardView(sid, 0L, false, null, session(BgWaveRole.Listener, BgWavePhase.Live, unsupported = true), 1L).sourceUnsupported)
+        assertEquals(false, bgWaveCardView(sid, 0L, true, null, session(BgWaveRole.Host, BgWavePhase.Ended, unsupported = true), 1L).sourceUnsupported)
+    }
+
+    @Test fun failedHostKeepsItsErrorKey() {
+        val failed = BgWaveSessionState(BgWaveRole.Host, "a", 7L, 7L, "", BgWavePhase.Failed, errorKey = BgWaveErrors.OFFER_TOO_LARGE)
+        val view = bgWaveCardView("", 0L, true, null, failed, 1L)
+        assertEquals(BgWaveErrors.OFFER_TOO_LARGE, view.errorKey)
+    }
 }
