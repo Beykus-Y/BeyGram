@@ -591,7 +591,8 @@ private fun NavigationBarContent(
             if (selectedIndex < 0) return@LaunchedEffect
             if (!spec.showSelectionPill) return@LaunchedEffect
             if (indicator.placed) {
-                indicator.x.animateTo(targetX.value, indicatorSpec.animationSpec())
+                // A reversal starts at the current position, without carrying momentum toward the old tab.
+                indicator.x.animateTo(targetX.value, indicatorSpec.animationSpec(), initialVelocity = 0f)
             } else {
                 indicator.x.snapTo(targetX.value)
                 indicator.placed = true
@@ -712,6 +713,9 @@ internal fun MainTabsHost(
     )
     // The persistent bar already has a live selection; the old incoming-bar handoff is only for separate slots.
     CompositionLocalProvider(LocalMainTabTransitionOrigin provides null) {
+        // Only this route host owns the opaque screen background. The legacy list-pane scaffold
+        // must remain transparent (its rows and parent choose their own surfaces).
+        Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
         MainTabsChrome(selected, visibility, onSelect, contentUnderDock = true, player = player) {
             AnimatedContent(
                 targetState = selected,
@@ -725,6 +729,7 @@ internal fun MainTabsHost(
                     }
                 }
             }
+        }
         }
     }
 }
@@ -754,7 +759,7 @@ private fun MainTabsChrome(
     // Drawing the dock anyway shows it for a frame above the keyboard while it opens and doubles the bottom space, so
     // the dock and the reserve for it step aside while the keyboard is up.
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
-    BoxWithConstraints(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
         // The class is read from this scaffold's own box: inside the list pane of a split layout it is a phone-width
         // box (bottom bar), and across a whole short window it is the slim rail.
         val windowLayout = WindowLayout(maxWidth.value, maxHeight.value)

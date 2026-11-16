@@ -300,12 +300,18 @@ class NavigationMotionUiTest {
         assertTrue(positionX(MainTabSelectionIndicatorTag) > initialIndicator)
         val interruptedIndicator = positionX(MainTabSelectionIndicatorTag)
 
-        // Reverse before the first animation is finished. The same bar and indicator survive.
+        // Reverse before the first animation is finished. The first recomposition/frame may still
+        // advance the previous tween; check the retarget within the 200ms TabSelect duration rather
+        // than requiring the first few frames to be monotonic relative to the pre-click sample.
         commitState { selectedTab = MainTab.Chats }
-        compose.mainClock.advanceTimeBy(64)
+        compose.mainClock.advanceTimeBy(128)
         compose.waitForIdle()
         assertStableDock()
-        assertTrue(positionX(MainTabSelectionIndicatorTag) < interruptedIndicator)
+        val returningIndicator = positionX(MainTabSelectionIndicatorTag)
+        assertTrue("Indicator did not retarget: $returningIndicator vs $interruptedIndicator",
+            returningIndicator < interruptedIndicator)
+        assertTrue("Indicator snapped instead of returning smoothly: $returningIndicator vs $initialIndicator",
+            returningIndicator > initialIndicator)
 
         compose.mainClock.advanceTimeBy(500)
         compose.waitForIdle()
