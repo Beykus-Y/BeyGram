@@ -159,6 +159,7 @@ object BgWaveHub {
             if (!live) BgWaveHostTap.close()
             val tap = hostTap
             if (tap == null) {
+                if (live) controller.setHostSourceUnsupported(state.sidHex, true)
                 if (live && !hostTapMissingLogged) {
                     BgWaveLog.w("host.bgmix.tap", null, "reason" to "no-provider")
                     hostTapMissingLogged = true
@@ -171,6 +172,12 @@ object BgWaveHub {
                 BgWaveLog.i("host.bgmix.tap", "attached" to attached)
             }
             bgMixTapAttached = attached && live
+            // The tap is refused for a source that must not be broadcast (a private or non-file track), and BG Mix owns the
+            // audio then, so the host is told instead of the listener silently getting nothing.
+            if (live) {
+                val unsupported = !BgWaveHostTap.captureEligible || (!attached && BgWaveHostTap.exoSuppressedForBgMix)
+                controller.setHostSourceUnsupported(state.sidHex, unsupported)
+            }
             return
         }
         if (live && listenerAudio == null && focusLostSid != state.sidHex) {

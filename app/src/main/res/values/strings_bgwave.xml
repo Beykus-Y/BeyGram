@@ -13,6 +13,11 @@
     <string name="bgwave_status_awaiting">Ждём ответа…</string>
     <string name="bgwave_status_connecting">Подключаемся…</string>
     <string name="bgwave_status_live">Волна играет</string>
+    <string name="bgwave_card_role_host">Вы ведущий</string>
+    <string name="bgwave_card_role_listener">Вы слушатель</string>
+    <string name="bgwave_card_listeners">Слушателей: %1$d/1</string>
+    <string name="bgwave_card_route_direct">Прямое соединение</string>
+    <string name="bgwave_status_source_unsupported">Этот источник нельзя транслировать в волну</string>
     <string name="bgwave_status_reconnecting">Переподключаемся…</string>
     <string name="bgwave_status_failed">Не удалось подключиться</string>
     <string name="bgwave_status_ended">Волна закончилась</string>
@@ -28,6 +33,7 @@
     <string name="bgwave_error_busy">Уже идёт другая волна. Сначала остановите её.</string>
     <string name="bgwave_error_expired">Приглашение истекло.</string>
     <string name="bgwave_error_rejected">Ответ не подошёл к этой волне.</string>
+    <string name="bgwave_error_offer_too_large">Не удалось подготовить приглашение: слишком много данных соединения. Попробуйте другую сеть.</string>
     <string name="bgwave_share_action">Делиться волной</string>
     <string name="bgwave_action_stop_wave">Остановить волну</string>
     <string name="bgwave_share_one_person">Выберите одного человека: волна идёт только для одного слушателя.</string>
@@ -37,8 +43,9 @@
     <string name="bgwave_share_confirm_send">Отправить</string>
     <string name="bgwave_share_confirm_cancel">Отмена</string>
     <string name="bgwave_mini_title">Волна</string>
+    <string name="bgwave_mini_a11y">Волна: %1$s</string>
     <string name="bgwave_listener_channel_name">Совместное прослушивание</string>
     <string name="bgwave_listener_notification_title">Вы слушаете волну</string>
     <string name="bgwave_listener_notification_text">Звук продолжит играть с выключенным экраном</string>
-    <string name="bgwave_listener_notification_stop">Выйти</string>
+    <string name="bgwave_chat_preview">Совместное прослушивание</string>
 </resources>
