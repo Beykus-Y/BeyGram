@@ -250,6 +250,8 @@
     <string name="paid_reaction_balance_loading">Chargement du solde de Stars…</string>
     <string name="paid_reaction_dialog_body">Envoyer une réaction de %1$s Stars ?</string>
     <string name="paid_reaction_public">Votre nom sera affiché à côté de cette réaction.</string>
+    <string name="paid_reaction_anonymous">Envoyer anonymement</string>
+    <string name="paid_reaction_anonymous_hint">Votre nom ne figurera pas dans la liste des auteurs de réactions en Stars.</string>
     <string name="paid_reaction_not_enough">Stars insuffisantes pour ce montant</string>
     <string name="paid_reaction_sending">Envoi de la réaction…</string>
     <string name="paid_reaction_pick_description">Réaction en Stars, choisir un montant</string>
