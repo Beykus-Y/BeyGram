@@ -17,6 +17,8 @@ import java.net.URL
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 private const val YANDEX_KEY_PREFIX = "ym:"
 
@@ -86,7 +88,7 @@ internal data class YandexAudioLink(val url: String, val codec: String)
  *
  * Tracks of this source are restricted: they may not be forwarded, shared, exported or put on a profile.
  */
-internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFIX) {
+internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFIX, maxConcurrentFetches = 2) {
     const val PREFIX = YANDEX_KEY_PREFIX
     const val DIR_NAME = "music-yandex"
 
@@ -165,6 +167,8 @@ internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFI
         trackId: String,
         linkOf: suspend (String) -> YandexAudioLink?,
     ): String? {
+        val coroutine = currentCoroutineContext()
+        coroutine.ensureActive()
         val progress = YandexDownload()
         downloads[key] = progress
         try {
@@ -173,12 +177,13 @@ internal object YandexTrackResolver : LazyTrackResolver<String>(YANDEX_KEY_PREFI
             val linkedAt = SystemClock.elapsedRealtime()
             var retried = false
             val path = try {
-                YandexAudioDownloader.download(first, dir, progress)
+                YandexAudioDownloader.download(first, dir, progress) { coroutine.ensureActive() }
             } catch (expired: YandexAudioDownloader.LinkExpired) {
                 // The link lived less than the download took: one fresh link, then give up for this attempt.
                 retried = true
+                coroutine.ensureActive()
                 val fresh = linkOf(trackId) ?: return null
-                YandexAudioDownloader.download(fresh, dir, progress)
+                YandexAudioDownloader.download(fresh, dir, progress) { coroutine.ensureActive() }
             }
             recordFetchTiming(linkMs = linkedAt - startedAt, totalMs = SystemClock.elapsedRealtime() - startedAt, path.length(), retried)
             return path.absolutePath
@@ -253,7 +258,8 @@ internal object YandexAudioDownloader {
      * filled in as the bytes arrive, so the player can start from the readable start of the file.
      * The connection bypasses the local proxy: the service answers only inside its own region.
      */
-    fun download(link: YandexAudioLink, dir: File, progress: YandexDownload? = null): File {
+    fun download(link: YandexAudioLink, dir: File, progress: YandexDownload? = null, checkCancelled: () -> Unit = {}): File {
+        checkCancelled()
         dir.mkdirs()
         val target = File(dir, "${UUID.randomUUID()}.${extensionFor(link.codec)}")
         reserved += target.absolutePath
@@ -266,7 +272,9 @@ internal object YandexAudioDownloader {
         try {
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
+            checkCancelled()
             val code = connection.responseCode
+            checkCancelled()
             if (code == HttpURLConnection.HTTP_FORBIDDEN || code == HttpURLConnection.HTTP_GONE) throw LinkExpired()
             if (code !in HttpURLConnection.HTTP_OK..299) throw IOException("Audio download answered $code")
             progress?.start(target, connection.contentLengthLong)
@@ -275,7 +283,9 @@ internal object YandexAudioDownloader {
                     val buffer = ByteArray(COPY_BUFFER_BYTES)
                     var total = 0L
                     while (true) {
+                        checkCancelled()
                         val read = input.read(buffer)
+                        checkCancelled()
                         if (read < 0) break
                         output.write(buffer, 0, read)
                         // Flushed per chunk, so a reader following the file sees the bytes at once.
@@ -285,6 +295,7 @@ internal object YandexAudioDownloader {
                     }
                 }
             }
+            checkCancelled()
             if (target.length() == 0L) throw IOException("Audio download was empty")
             progress?.finish()
             return target

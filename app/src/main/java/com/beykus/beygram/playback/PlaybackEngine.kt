@@ -989,6 +989,7 @@ object PlaybackEngine {
         offerBgMix: Boolean = true
     ) {
         val selected = queue.items.getOrNull(queue.index) ?: return
+        YandexTrackResolver.cancelOutside(queue.items.mapTo(HashSet()) { it.key }, includePlayback = true)
         restoredRadioStart = null
         // The queue always starts on ExoPlayer, which plays a local file at once and streams one that is still downloading.
         // With BG Mix on, the handover below moves the queue into BG Mix once the track is ready for it (see
@@ -1672,6 +1673,7 @@ object PlaybackEngine {
         queuePageJob = null
         prefetchedKeys.clear()
         haltPlayer()
+        YandexTrackResolver.cancelOutside(emptySet(), includePlayback = true)
     }
 
     /** Any new playback or an explicit stop ends the chance to undo the last close. */
@@ -2039,6 +2041,10 @@ object PlaybackEngine {
                 val driver = bgMix?.takeIf { it.isActive } ?: return@launch
                 if (driver.pendingIndex == null) return@launch
                 val currentIndex = _state.value.queueIndex
+                val end = bgMixWindowEndExclusive(driver.queueItems.size, currentIndex, BG_MIX_DOWNLOAD_AHEAD)
+                if (currentIndex in driver.queueItems.indices) {
+                    YandexTrackResolver.cancelOutside(driver.queueItems.subList(currentIndex, end).mapTo(HashSet()) { it.key })
+                }
                 driver.appendReady(currentIndex, ::bgMixFileFor)
                 val first = driver.pendingIndex ?: return@launch
                 // Only the track right after the playing one is part of playback; the rows after it follow the policy.
@@ -3612,7 +3618,11 @@ object PlaybackEngine {
         // bandwidth and the request queue with it and pushed the first sound back by seconds. The resolve of the
         // current row calls this again (publishResolvedSource).
         val currentPending = state.item?.let(::lazyRowPending) == true
-        prefetchCandidates(state, playbackOrder).forEachIndexed { index, item ->
+        val candidates = prefetchCandidates(state, playbackOrder)
+        val keep = candidates.mapTo(HashSet()) { it.key }
+        state.item?.let { keep.add(it.key) }
+        YandexTrackResolver.cancelOutside(keep)
+        candidates.forEachIndexed { index, item ->
             if (currentPending && LazyTrackRegistry.isLazyKey(item.key)) return@forEachIndexed
             prefetchItem(context, source, item, playbackNext = index == 0)
         }
@@ -3652,7 +3662,7 @@ object PlaybackEngine {
                         AutoDownloadRuntime.decision(context, request, prefetchAccountFor(item)) == AutoDownloadDecision.Allowed
                     }
                 }.getOrDefault(false)
-                if (allowed) lazySource.request(item.key)
+                if (allowed) lazySource.prefetch(item.key)
                 return@run
             }
             val fileId = item.fileId ?: return@run
