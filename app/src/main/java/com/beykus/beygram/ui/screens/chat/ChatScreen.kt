@@ -150,6 +150,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -185,6 +186,8 @@ fun ChatScreen(
     recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore,
     chatOverrides: ChatOverridesStore, focusMessageId: Long = 0L, onFocusHandled: () -> Unit = {},
     forumTopicId: Long = 0L, forumTopicTitle: String? = null, topicCanPost: Boolean = true, topicUnreadCount: Int = 0,
+    /** The topic row the chat was opened from; its server icon and closed state identify the conversation. */
+    forumTopic: ForumTopic? = null,
     onServiceUser: (Long) -> Unit = {},
     /** Current account's Premium status; free-recognition quota hints are hidden for Premium accounts. */
     isPremiumAccount: Boolean = false,
@@ -1858,6 +1861,8 @@ fun ChatScreen(
         ) else ChatTopBar(
             chat, info, lastSeenStyle, onBack, { scrollPosition.visitContinues = true; onChatInfo() }, { searching = true },
             observeFile, onDownloadFile, forumTopicTitle,
+            observeCustomEmoji = conversation::observeCustomEmoji,
+            forumTopic = forumTopic,
             hasUnread = (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0,
             onSelectMessages = { enterSelection() },
             onMarkUnread = {
@@ -3033,10 +3038,16 @@ private fun ReadOnlyChatBar(message: String) {
     }
 }
 
+/** A caller without custom-emoji delivery still gets a stable flow instead of a fresh one on every recomposition. */
+private val NoCustomEmoji: StateFlow<CustomEmoji?> = MutableStateFlow(null)
+private val NoCustomEmojiLookup: (Long) -> StateFlow<CustomEmoji?> = { NoCustomEmoji }
+
 @Composable
 private fun ChatTopBar(
     chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, onBack: () -> Unit, onInfo: () -> Unit, onSearch: () -> Unit,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit, forumTopicTitle: String? = null,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?> = NoCustomEmojiLookup,
+    forumTopic: ForumTopic? = null,
     hasUnread: Boolean = false, onSelectMessages: () -> Unit = {}, onMarkUnread: () -> Unit = {}, onJumpUnread: () -> Unit = {},
     onScheduled: () -> Unit = {}, onChatSettings: () -> Unit = {}, onStatistics: (() -> Unit)? = null,
     onExport: () -> Unit = {}, secretChat: SecretChatDetails? = null,
@@ -3074,15 +3085,47 @@ private fun ChatTopBar(
                     .semantics(mergeDescendants = true) { role = Role.Button },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val statusText = if (chat.isSecret) secretChatStatusLine(secretChat)
-                else chatPresenceLine(chat, info, lastSeenStyle, now).resolve()
-                ChatAvatar(chat, if (compact) 32.dp else 40.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+                // A topic is identified by its own server icon; the parent group moves into the subtitle instead of
+                // pretending that the group's presence is the topic's status.
+                val statusText = when {
+                    forumTopic != null -> stringResource(R.string.forum_topic_in_group, chat.title)
+                    chat.isSecret -> secretChatStatusLine(secretChat)
+                    else -> chatPresenceLine(chat, info, lastSeenStyle, now).resolve()
+                }
+                val avatarSize = if (compact) 32.dp else 40.dp
+                if (forumTopic != null) {
+                    ForumTopicIcon(
+                        topic = forumTopic,
+                        size = avatarSize,
+                        observeFile = observeFile,
+                        downloadFile = downloadFile,
+                        observeCustomEmoji = observeCustomEmoji,
+                        modifier = Modifier.clearAndSetSemantics {}
+                    )
+                } else {
+                    ChatAvatar(chat, avatarSize, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+                }
                 Spacer(Modifier.width(if (compact) 10.dp else 12.dp))
                 // At a large font the compact line gives up the status before it cuts the title.
                 val statusInline = compact && LocalDensity.current.fontScale < 1.3f
+                val topicTitle = forumTopic?.let { topic ->
+                    topic.title.ifBlank {
+                        stringResource(if (topic.isGeneral) R.string.forum_topic_general else R.string.forum_topic_regular)
+                    }
+                }
+                val titleText = topicTitle ?: forumTopicTitle?.takeIf { it.isNotBlank() } ?: chat.title
                 val titleRow: @Composable () -> Unit = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(forumTopicTitle ?: chat.title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        Text(titleText, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (forumTopic?.isClosed == true) {
+                            Spacer(Modifier.width(6.dp))
+                            Icon(
+                                Icons.Rounded.Lock,
+                                contentDescription = stringResource(R.string.forum_topic_closed),
+                                tint = palette.textSecondary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                         if (chat.isSecret && forumTopicTitle == null) {
                             Spacer(Modifier.width(6.dp))
                             Icon(

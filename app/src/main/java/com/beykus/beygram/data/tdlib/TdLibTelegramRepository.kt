@@ -56,7 +56,7 @@ import com.beykus.beygram.domain.model.BotWebAppTheme
 import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.MusicBotTrack
 import com.beykus.beygram.domain.model.SavedMusicBotTrack
-import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.GroupAdministratorRights
 import com.beykus.beygram.domain.model.GroupInviteLink
 import com.beykus.beygram.domain.model.GroupInviteLinkDraft
@@ -1548,6 +1548,7 @@ class TdLibTelegramRepository private constructor(
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) },
+        senderName = profiles::senderName,
         stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
     private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
@@ -2223,8 +2224,6 @@ class TdLibTelegramRepository private constructor(
         store.beginLoad(chatId)?.let { requestForumHistory(chatId, forumTopicId, oldest, it) }
     }
 
-    override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> =
-        conversationActions.latestForumTopicPreview(chatId, forumTopicId)
 
     override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = requestResult {
         val store = topicStore(chatId, forumTopicId)
@@ -2600,24 +2599,18 @@ class TdLibTelegramRepository private constructor(
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
 
-    override suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit): Result<List<ForumTopic>?> =
-        conversationActions.forumTopics(chatId, { partial ->
+    override suspend fun forumTopicsPage(chatId: Long, query: String, onPage: (ForumTopicsPage) -> Unit): Result<ForumTopicsPage?> =
+        conversationActions.forumTopicsPage(chatId, query) { page ->
             // A partially visible topic can be opened immediately: initialize its
             // read watermark before any UI callback can navigate into that topic.
-            partial.forEach { topic ->
+            // This runs for every page, including the final one, exactly as for the old list API.
+            page.topics.forEach { topic ->
                 topicStore(chatId, topic.id).apply {
                     readInbox(chatId, topic.lastReadInboxMessageId)
                     readOutbox(chatId, topic.lastReadOutboxMessageId)
                 }
             }
-            onPage(partial)
-        }).onSuccess { topics ->
-            topics?.forEach { topic ->
-                topicStore(chatId, topic.id).apply {
-                    readInbox(chatId, topic.lastReadInboxMessageId)
-                    readOutbox(chatId, topic.lastReadOutboxMessageId)
-                }
-            }
+            onPage(page)
         }
 
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean, options: MessageSendOptions): Result<Unit> {

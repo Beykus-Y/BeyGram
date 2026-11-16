@@ -69,7 +69,6 @@ interface ConversationRepository {
     fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory>
     fun loadForumTopicHistory(chatId: Long, forumTopicId: Long)
     fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long)
-    suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?>
     suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean>
     /** The linked discussion supergroup of a channel, or zero when the channel has none. */
     suspend fun linkedDiscussionChatId(chatId: Long): Result<Long>
@@ -112,8 +111,20 @@ interface ConversationRepository {
     /** [clearDraft] false оставляет черновик чата нетронутым: нужно для текста из других приложений. */
     suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     suspend fun isForumChat(chatId: Long): Result<Boolean>
-    /** Темы группы с темами; null, если чат не группа с темами. Берётся первая страница, до 100 тем. */
-    suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit = {}): Result<List<ForumTopic>?>
+    /**
+     * Topics of a forum, fetched page by page; null when [chatId] is not a chat with topics. [onPage] receives every
+     * loaded page so the first 100 topics can be shown before the rest arrives, and the last call carries the final
+     * list, whose size is not limited to one page. This wrapper exists for callers that only need that list; prefer
+     * [forumTopicsPage] when the server's total count or the completeness of the listing matters.
+     */
+    suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit = {}): Result<List<ForumTopic>?> =
+        forumTopicsPage(chatId, onPage = { onPage(it.topics) }).map { it?.topics }
+    /**
+     * One forum topic page with the server's total count and whether the listing is exhausted. TDLib returns up to
+     * 100 topics per request, so several pages may be needed. [query] searches topic names on the server: this TDLib
+     * version has no other topic search, and an empty query returns the normal list. Null when the chat has no topics.
+     */
+    suspend fun forumTopicsPage(chatId: Long, query: String = "", onPage: (ForumTopicsPage) -> Unit = {}): Result<ForumTopicsPage?>
     suspend fun canCreateForumTopic(chatId: Long): Result<Boolean>
     suspend fun createForumTopic(chatId: Long, name: String): Result<Long>
     suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit>
