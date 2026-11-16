@@ -5,6 +5,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.*
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -36,15 +38,17 @@ internal fun ChatInfoMenu(
         IconButton(onClick = { expanded = true }) {
             Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textPrimary)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            if (canBlock) DropdownMenuItem(
-                text = { Text(stringResource(if (isBlocked) R.string.feature_unblock_user else R.string.feature_block_user)) },
+        BeyGramPopover(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (canBlock) BeyGramPopoverItem(
+                text = stringResource(if (isBlocked) R.string.feature_unblock_user else R.string.feature_block_user),
                 onClick = { expanded = false; confirmation = if (isBlocked) "unblock" else "block" })
-            if (canReport) DropdownMenuItem(
-                text = { Text(stringResource(R.string.feature_report_spam), color = palette.danger) },
+            if (canReport) BeyGramPopoverItem(
+                text = stringResource(R.string.feature_report_spam),
+                danger = true,
                 onClick = { expanded = false; confirmation = "report" })
-            if (canDelete) DropdownMenuItem(
-                text = { Text(stringResource(R.string.feature_delete_chat), color = palette.danger) },
+            if (canDelete) BeyGramPopoverItem(
+                text = stringResource(R.string.feature_delete_chat),
+                danger = true,
                 onClick = { expanded = false; confirmation = "delete" })
         }
     }

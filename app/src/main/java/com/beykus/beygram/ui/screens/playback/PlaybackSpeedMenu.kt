@@ -4,10 +4,13 @@ import androidx.compose.foundation.background
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,6 +29,8 @@ import com.beykus.beygram.playback.PLAYBACK_SPEED_OPTIONS
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.inlineVoiceSpeed
 import com.beykus.beygram.playback.speedLabel
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.beyGramPalette
 
 /** Inline voice/circular-video speed choice; it always edits the voice preference and never musicSpeed. */
@@ -44,15 +49,14 @@ internal fun PlaybackSpeedMenu(modifier: Modifier = Modifier) {
             modifier = Modifier.clip(styledShape(10.dp)).background(palette.accentSoft)
                 .clickable { expanded = true }.padding(horizontal = 8.dp, vertical = 5.dp)
         )
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        BeyGramPopover(expanded = expanded, onDismissRequest = { expanded = false }) {
             PLAYBACK_SPEED_OPTIONS.forEach { speed ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            stringResource(R.string.player_speed_option, speedLabel(speed)),
-                            color = if (selectedSpeed == speed) palette.accent else palette.textPrimary,
-                            fontWeight = if (selectedSpeed == speed) FontWeight.Bold else FontWeight.Normal
-                        )
+                val selected = selectedSpeed == speed
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.player_speed_option, speedLabel(speed)),
+                    // The chosen speed carries a check mark, so the choice does not depend on colour alone.
+                    leadingIcon = {
+                        if (selected) Icon(Icons.Rounded.Check, null, tint = palette.accent) else Spacer(Modifier.size(24.dp))
                     },
                     onClick = {
                         PlaybackEngine.setVoiceSpeed(speed)
