@@ -116,7 +116,9 @@ fun ProfileScreen(
     /** Own profile music: removes one track from the account list. Other profiles never call it. */
     removeProfileAudio: suspend (Int) -> Result<Unit> = { Result.failure(IllegalStateException("Profile music unavailable")) },
     /** Own profile music: moves one track to the first place of the account list. */
-    moveProfileAudioToFront: suspend (Int) -> Result<Unit> = { Result.failure(IllegalStateException("Profile music unavailable")) }
+    moveProfileAudioToFront: suspend (Int) -> Result<Unit> = { Result.failure(IllegalStateException("Profile music unavailable")) },
+    loadForwardTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
+    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -149,7 +151,8 @@ fun ProfileScreen(
         sharedMessages = sharedMessages, confirmExport = confirmExport,
         messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage, autoDownloadFile = autoDownloadFile,
-        chatLibrary = chatLibrary, onOpenMessageEntity = onOpenMessageEntity
+        chatLibrary = chatLibrary, onOpenMessageEntity = onOpenMessageEntity,
+        loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic
     ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
             if (!isOwnProfile) ChatInfoMenu(
@@ -297,7 +300,7 @@ fun ProfileScreen(
                 if (info.administrators.isNotEmpty()) AdministratorsSection(info.administrators, onOpenUser)
                 if (info.canListMembers && info.memberPreview.isNotEmpty()) MembersSection(info, observeFile, downloadFile, onMembers, onOpenUser)
                 chatLibrary?.let { link -> ChatLibraryMusicRow(info.id, link.accountId) { link.onOpen(info.id) } }
-                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile, protectedContent = protectedContent, onOpenMessageEntity = onOpenMessageEntity)
+                if (sharedMessages != null) SharedMediaSection(info.id, info.sharedCounts, sharedMessages, observeFile, downloadFile, confirmExport, messageRights, forwardMessage, chats, onContentOpened, onOpenMessage, autoDownloadFile = autoDownloadFile, protectedContent = protectedContent, onOpenMessageEntity = onOpenMessageEntity, loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic)
                 if (isOwnProfile && hiddenTabs.isNotEmpty()) HiddenTabsSection(hiddenTabs, onOpenTab)
                 // A settings-style row in its own card, not a bare accent link that reads as a section header.
                 if (isOwnProfile) Column(Modifier.profileCardSurface().padding(vertical = 4.dp)) {

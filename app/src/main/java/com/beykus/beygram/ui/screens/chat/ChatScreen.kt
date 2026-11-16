@@ -2740,65 +2740,65 @@ fun ChatScreen(
         val delivery = remember(accountId, chat.id, forwardId, selectionForwardOpen, forwardAsCopy) { ForwardDeliveryLedger() }
         val pendingIds = remember(delivery) { forwardIds.toList() }
         ForwardChatDialog(
-        chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
-        commentLimit = limits.text,
-        loadTopics = { conversation.forumTopics(it) },
-        // Track confirmed delivery per destination and message; a comment failure must not re-forward content.
-        onSend = { targets, comment ->
-            forwardBusy = true; forwardError = null
-            val failed = mutableListOf<ForwardTarget>()
-            var lastError: String? = null
-            try {
-                for (target in targets) {
-                    val topic = target.topicId.takeIf { it > 0L }
-                    if (delivery.isComplete(target)) continue
-                    val remaining = delivery.pendingIds(target, pendingIds)
-                    if (remaining.isNotEmpty()) {
-                        val forwarded = conversation.forwardMessages(
-                            chat.id, remaining, target.chatId, asCopy = forwardAsCopy, messageThreadId = topic
-                        )
-                        forwarded.getOrNull()?.let { delivery.recordForwarded(target, it.forwardedIds) }
-                        if (delivery.pendingIds(target, pendingIds).isNotEmpty()) {
-                            failed += target
-                            lastError = forwarded.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
-                            continue
+            chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
+            commentLimit = limits.text,
+            loadTopics = { conversation.forumTopics(it) },
+            // Track confirmed delivery per destination and message; a comment failure must not re-forward content.
+            onSend = { targets, comment ->
+                forwardBusy = true; forwardError = null
+                val failed = mutableListOf<ForwardTarget>()
+                var lastError: String? = null
+                try {
+                    for (target in targets) {
+                        val topic = target.topicId.takeIf { it > 0L }
+                        if (delivery.isComplete(target)) continue
+                        val remaining = delivery.pendingIds(target, pendingIds)
+                        if (remaining.isNotEmpty()) {
+                            val forwarded = conversation.forwardMessages(
+                                chat.id, remaining, target.chatId, asCopy = forwardAsCopy, messageThreadId = topic
+                            )
+                            forwarded.getOrNull()?.let { delivery.recordForwarded(target, it.forwardedIds) }
+                            if (delivery.pendingIds(target, pendingIds).isNotEmpty()) {
+                                failed += target
+                                lastError = forwarded.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                                continue
+                            }
                         }
-                    }
-                    if (comment.isNotEmpty()) {
-                        // The draft belongs to the destination composer, which this forward must not clear.
-                        val result = conversation.sendMessage(target.chatId, comment, forumTopicId = target.topicId, clearDraft = false)
-                        if (result.isFailure) {
-                            failed += target
-                            lastError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
-                            continue
+                        if (comment.isNotEmpty()) {
+                            // The draft belongs to the destination composer, which this forward must not clear.
+                            val result = conversation.sendMessage(target.chatId, comment, forumTopicId = target.topicId, clearDraft = false)
+                            if (result.isFailure) {
+                                failed += target
+                                lastError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                                continue
+                            }
                         }
+                        delivery.markComplete(target)
                     }
-                    delivery.markComplete(target)
+                } finally {
+                    forwardBusy = false
                 }
-            } finally {
-                forwardBusy = false
-            }
-            if (failed.isEmpty()) {
-                val copied = forwardAsCopy
-                forwardError = null
-                if (selectionMode) exitSelection()
-                Toast.makeText(
-                    context,
-                    when {
-                        targets.size > 1 -> context.getString(R.string.forward_sent_to_chats, targets.size)
-                        pendingIds.size > 1 -> context.getString(R.string.message_selection_forwarded, pendingIds.size)
-                        copied -> context.getString(R.string.message_forwarded_without_author)
-                        else -> context.getString(R.string.chat_message_forwarded)
-                    },
-                    Toast.LENGTH_SHORT
-                ).show()
-            } else {
-                // Only failed targets stay selected; confirmed message IDs are excluded from retry.
-                forwardError = context.getString(R.string.forward_failed_chats, failed.size) + lastError?.let { "\n$it" }.orEmpty()
-            }
-            failed
-        },
-        onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
+                if (failed.isEmpty()) {
+                    val copied = forwardAsCopy
+                    forwardError = null
+                    if (selectionMode) exitSelection()
+                    Toast.makeText(
+                        context,
+                        when {
+                            targets.size > 1 -> context.getString(R.string.forward_sent_to_chats, targets.size)
+                            pendingIds.size > 1 -> context.getString(R.string.message_selection_forwarded, pendingIds.size)
+                            copied -> context.getString(R.string.message_forwarded_without_author)
+                            else -> context.getString(R.string.chat_message_forwarded)
+                        },
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    // Only failed targets stay selected; confirmed message IDs are excluded from retry.
+                    forwardError = context.getString(R.string.forward_failed_chats, failed.size) + lastError?.let { "\n$it" }.orEmpty()
+                }
+                failed
+            },
+            onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
         )
     }
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, riskGuard, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }

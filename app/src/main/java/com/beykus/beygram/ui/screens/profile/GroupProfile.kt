@@ -95,7 +95,9 @@ internal fun GroupProfileScreen(
     /** The chat's library tracks, shown as a row when there are some. Null hides the row. */
     chatLibrary: ChatLibraryLink? = null,
     /** Opens a Yandex Music link from the links tab natively; null keeps it in the browser. */
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    loadForwardTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
+    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -183,7 +185,8 @@ internal fun GroupProfileScreen(
         chatId = info.id,
         observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
-        onContentOpened = onContentOpened, autoDownloadFile = autoDownloadFile)
+        onContentOpened = onContentOpened, autoDownloadFile = autoDownloadFile,
+        loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic)
 }
 
 /** Entry point shown only when TDLib's canGetStatistics allowed the current admin to open stats. */

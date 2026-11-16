@@ -67,6 +67,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
@@ -105,7 +106,9 @@ fun ContactsScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onChatOpened: (chatId: Long) -> Unit,
-    accountId: String = "legacy"
+    accountId: String = "legacy",
+    loadShareTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
+    sendContactToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -291,6 +294,8 @@ fun ContactsScreen(
             contact = contact,
             chats = shareChats,
             sendContact = sendContact,
+            loadTopics = loadShareTopics,
+            sendContactToTopic = sendContactToTopic,
             observeFile = observeFile,
             downloadFile = downloadFile,
             onDismiss = { sharingContact = null },
@@ -555,7 +560,9 @@ private fun ShareContactDialog(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onDismiss: () -> Unit,
-    onSent: () -> Unit
+    onSent: () -> Unit,
+    loadTopics: (suspend (Long) -> Result<List<ForumTopic>?>)?,
+    sendContactToTopic: (suspend (Long, Long, Long) -> Result<Unit>)?
 ) {
     val context = LocalContext.current
     var sending by remember { mutableStateOf(false) }
@@ -569,6 +576,7 @@ private fun ShareContactDialog(
         downloadFile = downloadFile,
         allowComment = false,
         singleRecipient = true,
+        loadTopics = loadTopics.takeIf { sendContactToTopic != null },
         titleOverride = stringResource(R.string.contacts_share_title),
         previewText = displayName,
         sendLabel = stringResource(R.string.share_send),
@@ -577,7 +585,9 @@ private fun ShareContactDialog(
             sending = true
             error = null
             try {
-                val result = sendContact(target.chatId, contact.userId)
+                val result = if (target.topicId == 0L) sendContact(target.chatId, contact.userId)
+                    else sendContactToTopic?.invoke(target.chatId, contact.userId, target.topicId)
+                        ?: Result.failure(IllegalStateException())
                 if (result.isSuccess) {
                     onSent()
                     emptyList()

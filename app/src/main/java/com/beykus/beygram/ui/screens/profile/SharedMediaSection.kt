@@ -59,6 +59,7 @@ import com.beykus.beygram.deeplink.yandexMusicNativeReady
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageCapabilities
@@ -122,7 +123,9 @@ internal fun SharedMediaSection(
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     protectedContent: Boolean = false,
     /** Opens a Yandex Music link natively; null keeps the link in the browser. */
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    loadForwardTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
+    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -157,7 +160,8 @@ internal fun SharedMediaSection(
         chatId = chatId,
         observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
-        onContentOpened = onContentOpened, autoDownloadFile = autoDownloadFile)
+        onContentOpened = onContentOpened, autoDownloadFile = autoDownloadFile,
+        loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic)
 }
 
 /** A forum message opens in its own topic, not in the topic list. */
@@ -194,7 +198,9 @@ internal fun SharedMediaViewer(
     onContentOpened: (Long) -> Unit = {},
     chatId: Long = 0L,
     /** Repository-backed automatic download; keeps viewer preview/full requests cancellable by policy. */
-    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    loadForwardTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
+    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -230,13 +236,16 @@ internal fun SharedMediaViewer(
     forwardId?.let { id ->
         ForwardChatDialog(
             chats, forwardBusy, forwardError, observeFile, downloadFile, allowComment = false,
+            loadTopics = loadForwardTopics.takeIf { forwardToTopic != null },
             onSend = { targets, _ ->
                 forwardBusy = true; forwardError = null
                 val failed = mutableListOf<ForwardTarget>()
                 var lastError: String? = null
                 try {
                     targets.forEach { target ->
-                        forwardMessage(id, target.chatId).onFailure {
+                        val result = if (target.topicId == 0L) forwardMessage(id, target.chatId)
+                            else forwardToTopic?.invoke(id, target.chatId, target.topicId) ?: Result.failure(IllegalStateException())
+                        result.onFailure {
                             failed += target
                             lastError = it.userMessage(context, R.string.chat_forward_failed)
                         }
