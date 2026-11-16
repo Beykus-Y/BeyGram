@@ -1639,12 +1639,49 @@ fun ChatScreen(
     // A plain text send that came before the account's delay was read. It is sent again once that is known, if the composer still
     // holds it; see below.
     var sendWaitingForDelay by remember(chat.id, forumTopicId) { mutableStateOf<HeldDelayedSend?>(null) }
+    var paidTextConfirmation by remember(conversation, chat.id, forumTopicId) { mutableStateOf<PaidTextConfirmation?>(null) }
+    val paidTextContext by rememberUpdatedState(Triple(conversation, chat.id, forumTopicId))
     /**
      * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
      * the choice applies to this send only and is not kept for the next one.
      */
-    fun sendCurrentDraft(options: MessageSendOptions) {
-        if (secretChatClosed || editId != null || inlineSending || textSendQueue.isComposerWriting(textSendScopeKey)) return
+    fun sendCurrentDraft(options: MessageSendOptions, priceChecked: Boolean = false) {
+        if (secretChatClosed || editId != null || inlineSending || sending || paidTextConfirmation != null || textSendQueue.isComposerWriting(textSendScopeKey)) return
+        // Check only ordinary private text. Every other send retains a zero Stars authorization.
+        if (!priceChecked && allowViewOnce && forumTopicId == 0L && pendingSticker == null && !attachments.active && draft.isNotBlank()) {
+            val submitted = composerDraft
+            val target = Triple(conversation, chat.id, forumTopicId)
+            sending = true
+            scope.launch {
+                var ordinary = false
+                try {
+                    // If the read fails, TDLib can still accept a regular message with a zero Stars authorization.
+                    // Never translate a failed lookup into permission to spend.
+                    val price = conversation.paidTextPrice(chat.id).getOrNull()
+                    if (paidTextContext != target || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
+                    if (price == null || price <= 0L) {
+                        ordinary = true
+                    } else {
+                        if (options.scheduledAtSeconds != null || conversation.stealthHoldsSends()) {
+                            error = context.getString(R.string.stealth_schedule_unavailable_paid)
+                            return@launch
+                        }
+                        val balance = conversation.starBalance().getOrElse {
+                            error = it.userMessage(context, R.string.stars_load_error)
+                            return@launch
+                        }
+                        if (paidTextContext != target || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
+                        paidTextConfirmation = PaidTextConfirmation(submitted, price, balance, options.disableNotification)
+                    }
+                } finally {
+                    sending = false
+                }
+                if (ordinary && paidTextContext == target && composerDraft == submitted && !attachments.active && pendingSticker == null) {
+                    sendCurrentDraft(options, priceChecked = true)
+                }
+            }
+            return
+        }
         pendingSticker?.let { sticker ->
             pendingSticker = null
             attachments.sendStickerWithOptions(sticker, options)
@@ -2855,6 +2892,53 @@ fun ChatScreen(
         dismissText = stringResource(R.string.common_cancel),
         onDismiss = { pinConfirm = false }
     )
+    paidTextConfirmation?.let { confirmation ->
+        BeyGramDialog(
+            onDismissRequest = { paidTextConfirmation = null },
+            title = stringResource(R.string.paid_text_title),
+            message = stringResource(
+                R.string.paid_text_confirm,
+                formatStarAmount(confirmation.price),
+                formatStarAmount(confirmation.balance.starCount, confirmation.balance.nanostarCount)
+            ),
+            confirmText = stringResource(R.string.common_send),
+            confirmEnabled = paidTextCanConfirm(confirmation.price, confirmation.balance),
+            onConfirm = {
+                // Ignore a second callback from a dialog that already consumed its confirmation.
+                if (paidTextConfirmation === confirmation) {
+                    paidTextConfirmation = null
+                    if (composerDraft != confirmation.draft || attachments.active || pendingSticker != null || editId != null) {
+                        error = context.getString(R.string.paid_text_draft_changed)
+                    } else if (!conversation.stealthHoldsSends() && !textSendQueue.isComposerWriting(textSendScopeKey)) {
+                        val outgoing = composerLaunchPayload(confirmation.draft.text, confirmation.draft.entities, limits.text)
+                        val forceReply = botKeyboard?.takeIf { it.forceReply }?.messageId
+                        // Process-scoped composer mutex, but no queued/persisted retryable payment authorization.
+                        textSendQueue.launchComposerWrite(textSendScopeKey) {
+                            val result = conversation.sendPaidTextMessage(
+                                chat.id, outgoing.text, confirmation.draft.replyToMessageId, outgoing.entities,
+                                confirmation.price, confirmation.disableNotification
+                            )
+                            if (result.isSuccess) {
+                                updateDraft { if (it == confirmation.draft) MessageDraft() else it }
+                                forceReply?.let { conversation.dismissBotKeyboard(chat.id, it) }
+                            } else {
+                                val reason = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed).orEmpty()
+                                Toast.makeText(
+                                    context.applicationContext,
+                                    reason + "\n" + context.getString(R.string.paid_text_uncertain),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    } else {
+                        error = context.getString(R.string.stealth_schedule_unavailable_paid)
+                    }
+                }
+            },
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { paidTextConfirmation = null }
+        )
+    }
     sendGuard.Dialog()
     riskGuard.Dialog()
     attachments.stealthFallback.Dialog()

@@ -11,6 +11,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.playback.MusicBotCache
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
+import com.beykus.beygram.domain.model.paidTextCanConfirm
 import com.beykus.beygram.analytics.AnalyticsSync
 import com.beykus.beygram.data.export.ChatExportMessage
 import com.beykus.beygram.diagnostics.MultiAccountDiagnostics
@@ -1783,6 +1784,9 @@ class TdLibTelegramRepository private constructor(
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = payments.starTransactions(offset)
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)
     override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = payments.receivedGifts(offset)
+    override suspend fun resaleGifts(giftId: Long, offset: String) = payments.resaleGifts(giftId, offset)
+    override suspend fun buyResoldGift(profileId: Long, name: String, confirmedStars: Long) =
+        payments.buyResoldGift(profileId, name, confirmedStars)
     override suspend fun sendGift(
         profileId: Long,
         isSelf: Boolean,
@@ -2619,6 +2623,21 @@ class TdLibTelegramRepository private constructor(
                 }
             }
         }
+
+    override suspend fun paidTextPrice(chatId: Long) = conversationActions.paidTextPrice(chatId)
+
+    override suspend fun sendPaidTextMessage(
+        chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>,
+        confirmedStarCount: Long, disableNotification: Boolean
+    ): Result<Unit> {
+        val balance = payments.starBalance().getOrElse { return Result.failure(it) }
+        if (!paidTextCanConfirm(confirmedStarCount, balance)) {
+            return Result.failure(UserMessageException(UiText.Res(R.string.err_paid_reaction_balance_low)))
+        }
+        leaveJumpWindow(chatId)
+        conversationEffects.endActivity(chatId, ChatActivity.Typing)
+        return conversationActions.sendPaidText(chatId, text, replyToMessageId, entities, confirmedStarCount, disableNotification)
+    }
 
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)

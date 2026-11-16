@@ -525,7 +525,11 @@ data class GiftCatalogItem(
     /** Smallest remaining purchase limit reported by TDLib; null means unlimited. */
     val remainingCount: Int?,
     val isSoldOut: Boolean,
-    val isAuctionOnly: Boolean
+    val isAuctionOnly: Boolean,
+    val resaleCount: Int = 0,
+    /** Minimum resale price in Stars equivalent; not a purchase quote. */
+    val minResaleStarCount: Long = 0L,
+    val resaleTitle: String = ""
 )
 
 data class ReceivedGiftItem(

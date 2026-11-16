@@ -23,13 +23,14 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 
 /**
- * Only the user's own music may be relayed: a source track (such as a streaming service) is never offered, nor is a
- * track from a secret, view-once or content-protected origin. [originUnprotected] is true only when the track's chat is
- * known not to protect its content.
+ * Music that may be offered as a wave. A provider track (Yandex) is always allowed, since it is relayed as live sound
+ * only. Any other track must be the user's own and not restricted, and its origin must be [originUnprotected], which is
+ * true only when the track's chat is known not to protect its content. Secret, view-once and system-private items are
+ * never offered.
  */
 internal fun canShareWave(item: PlaybackItem, originUnprotected: Boolean, isProviderTrack: Boolean): Boolean =
-    !isProviderTrack && item.isMusic && !item.secret && !item.isSecretChat && !item.viewOnce &&
-        !item.isRestrictedCatalog && !item.systemPrivate && originUnprotected
+    item.isMusic && !item.secret && !item.isSecretChat && !item.viewOnce && !item.systemPrivate &&
+        (isProviderTrack || (!item.isRestrictedCatalog && originUnprotected))
 
 /** A wave goes to one person: a private chat that is not Saved Messages, a secret chat or a group, and where the user may write. */
 internal fun waveTargetChats(chats: List<ChatPreview>): List<ChatPreview> =

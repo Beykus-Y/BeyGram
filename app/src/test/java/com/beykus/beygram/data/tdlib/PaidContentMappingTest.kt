@@ -38,6 +38,7 @@ class PaidContentMappingTest {
         assertEquals(12, paid.previewDurationSeconds)
         assertArrayEquals(byteArrayOf(1, 2, 3), paid.blurredMinithumbnail)
         assertNull(paid.firstPurchasedMedia)
+        assertTrue(paid.purchasedMedia.isEmpty())
     }
 
     @Test
@@ -82,6 +83,53 @@ class PaidContentMappingTest {
         assertEquals(31, first.fileId)
         assertEquals(9, first.durationSeconds)
         assertTrue(first.supportsStreaming)
+    }
+
+    @Test
+    fun purchasedBundleMapsAllItemsInServerOrderIncludingDuplicates() {
+        val content = TdApi.MessagePaidMedia().apply {
+            starCount = 5
+            media = arrayOf<TdApi.PaidMedia>(
+                TdApi.PaidMediaPhoto().apply {
+                    photo = TdApi.Photo(false, null, arrayOf(TdApi.PhotoSize("x", file(21), 1280, 960, intArrayOf())))
+                },
+                TdApi.PaidMediaVideo().apply {
+                    video = TdApi.Video().apply {
+                        this.video = file(31)
+                        width = 720
+                        height = 1280
+                        mimeType = "video/mp4"
+                    }
+                },
+                TdApi.PaidMediaPhoto().apply {
+                    photo = TdApi.Photo(false, null, arrayOf(TdApi.PhotoSize("x", file(21), 1280, 960, intArrayOf())))
+                }
+            )
+        }
+        val paid = (TdMediaMapper(MediaFileStore()).special(content) as MessageSpecialContent.PaidMedia).media
+
+        assertTrue(paid.isPurchased)
+        assertEquals(listOf(21, 31, 21), paid.purchasedMedia.map { it.fileId })
+        assertEquals(listOf(MediaKind.Photo, MediaKind.Video, MediaKind.Photo), paid.purchasedMedia.map { it.kind })
+        assertEquals(paid.firstPurchasedMedia, paid.purchasedMedia.first())
+    }
+
+    @Test
+    fun anyLockedPreviewBlocksAllRealItemsInTheBundle() {
+        val content = TdApi.MessagePaidMedia().apply {
+            media = arrayOf<TdApi.PaidMedia>(
+                TdApi.PaidMediaPhoto().apply {
+                    photo = TdApi.Photo(false, null, arrayOf(TdApi.PhotoSize("x", file(21), 1280, 960, intArrayOf())))
+                },
+                TdApi.PaidMediaPreview().apply { width = 640 }
+            )
+        }
+        val paid = (TdMediaMapper(MediaFileStore()).special(content) as MessageSpecialContent.PaidMedia).media
+
+        assertFalse(paid.isPurchased)
+        assertTrue(paid.purchasedMedia.isEmpty())
+        assertNull(paid.firstPurchasedMedia)
+        assertTrue(paid.additionalPurchasedMedia.isEmpty())
     }
 
     @Test
