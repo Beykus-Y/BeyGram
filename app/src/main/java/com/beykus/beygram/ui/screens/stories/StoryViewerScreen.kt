@@ -77,6 +77,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.screens.chat.StealthScheduleFallback
 import com.beykus.beygram.ui.screens.chat.rememberStealthRiskGuard
+import com.beykus.beygram.ui.screens.chat.rememberStealthSendGuard
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ReactionOption
@@ -528,6 +529,8 @@ fun StoryViewerScreen(
     val storyStealthFallback = remember { StealthScheduleFallback() }
     // A story reaction asks first while hidden presence warns about risky actions; asked once per story poster (see StealthRiskGuard).
     val riskGuard = rememberStealthRiskGuard(posterChatId) { repository.stealthWarnsBeforeSending() }
+    // A story reply asks first while hidden presence warns about sending; asked once per story poster (see StealthSendGuard).
+    val sendGuard = rememberStealthSendGuard(posterChatId, repository)
     var deleting by remember { mutableStateOf(false) }
 
     val entry = snapshot
@@ -825,11 +828,12 @@ fun StoryViewerScreen(
     }
     storyStealthFallback.Dialog()
     riskGuard.Dialog()
+    sendGuard.Dialog()
     if (showReply) {
         StoryReplyDialog(
             sending = replySending,
             onDismiss = { if (!replySending) showReply = false },
-            onSend = { text -> sendStoryReply(text, sendNowConsent = false) }
+            onSend = { text -> sendGuard.run { sendStoryReply(text, sendNowConsent = false) } }
         )
     }
 

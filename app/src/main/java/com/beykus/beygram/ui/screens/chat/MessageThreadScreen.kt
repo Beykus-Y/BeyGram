@@ -148,6 +148,8 @@ internal fun MessageThreadScreen(
     val paidReactions = rememberPaidReactions(conversation) { reloadPost() }
     // Reactions, poll votes and bot buttons ask first while hidden presence warns about risky actions; asked once per thread (see StealthRiskGuard).
     val riskGuard = rememberStealthRiskGuard(channelChatId to postId) { conversation.stealthWarnsBeforeSending() }
+    // Comments ask first while hidden presence warns about sending; asked once per thread (see StealthSendGuard).
+    val sendGuard = rememberStealthSendGuard(channelChatId, conversation)
     var selectedMediaId by remember { mutableStateOf<Long?>(null) }
     var selectedMediaChatId by remember { mutableStateOf(0L) }
     var stickerSetId by remember { mutableStateOf<Long?>(null) }
@@ -710,7 +712,7 @@ internal fun MessageThreadScreen(
                         Box(
                             Modifier.size(40.dp).clip(CircleShape)
                                 .background((if (tonalSend) palette.accentSoft else palette.accent).copy(alpha = if (text.isNotBlank() && !writing) 1f else 0.4f))
-                                .clickable(enabled = text.isNotBlank() && !writing) { send() },
+                                .clickable(enabled = text.isNotBlank() && !writing) { sendGuard.run { send() } },
                             contentAlignment = Alignment.Center
                         ) {
                             val sendInk = if (tonalSend) palette.accentInk else palette.onAccent
@@ -754,6 +756,7 @@ internal fun MessageThreadScreen(
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(it.chatId, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, it.chatId)) }
     stealthFallback.Dialog()
     riskGuard.Dialog()
+    sendGuard.Dialog()
     failedSendTarget?.let { target ->
         val activeLocal = target.localAttemptId?.let { id ->
             pending.firstOrNull { it.attemptId == id && it.phase == TextSendAttemptPhase.Failed }
