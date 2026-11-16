@@ -5,7 +5,6 @@ import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackOrigin
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -20,7 +19,7 @@ class BgMusicSourceResolverTest {
         val found = resolveWith(manifest, chats, origins)
 
         assertEquals(setOf(testTrackId(1)), found.keys)
-        val track = assertNotNull(found[testTrackId(1)])
+        val track = found.getValue(testTrackId(1))
         val expected = origin(chatId = 100L, post = 5L)
         assertEquals(testTrackId(1), track.trackId)
         assertEquals(expected, track.origin)
