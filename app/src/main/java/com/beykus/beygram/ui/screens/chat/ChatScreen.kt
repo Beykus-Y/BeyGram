@@ -3498,9 +3498,15 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     paidContent = paidContent
                                 )
                             }
-                            if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
                             if (isWave && waveAccountId != null) BgWaveMessageCard(message, waveAccountId)
-                            else MessageMusicLinkCard(message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards)
+                            else MessageMusicLinkCard(
+                                message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile,
+                                onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards,
+                                messageText = {
+                                    if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile,
+                                        onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
+                                }
+                            )
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,
