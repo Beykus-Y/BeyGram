@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.CircularProgressIndicator
@@ -176,9 +177,9 @@ private fun BgMusicPlaylistCard(
                 onClick = tap,
                 onLongClick = onLongPress,
             )
-            .padding(top = 4.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             CollectionCover(playlist.coverPath)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -200,17 +201,26 @@ private fun BgMusicPlaylistCard(
         }
         Spacer(Modifier.height(8.dp))
         // Not clickable of its own: the card takes the tap and the long press, so both reach it from the whole card.
-        Box(
+        Row(
             Modifier
+                .fillMaxWidth()
                 .clip(styledShape(10.dp))
-                .background(palette.accentSoft)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .background(palette.accent)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 openLabel,
-                color = palette.accentInk,
+                modifier = Modifier.weight(1f),
+                color = palette.onAccent,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
+            )
+            Icon(
+                Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = palette.onAccent,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -226,7 +236,7 @@ private fun CollectionCover(coverPath: String?) {
     if (cover != null) {
         LocalMediaImage(
             path = cover,
-            modifier = Modifier.size(44.dp).clip(shape),
+            modifier = Modifier.size(56.dp).clip(shape),
             maxDimension = 256,
         )
     } else {
@@ -234,7 +244,7 @@ private fun CollectionCover(coverPath: String?) {
             Icons.Rounded.MusicNote,
             contentDescription = null,
             tint = palette.accentInk,
-            modifier = Modifier.size(44.dp).background(palette.accentSoft, shape).padding(10.dp),
+            modifier = Modifier.size(56.dp).background(palette.accentSoft, shape).padding(13.dp),
         )
     }
 }
