@@ -34,6 +34,7 @@ class YandexMusicProviderAccountTest {
     private class FakeApi : YandexApi(YandexHttp()) {
         val likedTokens = CopyOnWriteArrayList<String>()
         val lyricsTokens = CopyOnWriteArrayList<String>()
+        val waveTokens = CopyOnWriteArrayList<String>()
         @Volatile var likedHandler: (String) -> ProviderResult<Unit> = { ProviderResult.Success(Unit) }
         @Volatile var lyricsHandler: (String, String) -> ProviderResult<ProviderLyrics> =
             { token, _ -> ProviderResult.Success(lyricsOf(token)) }
@@ -46,6 +47,11 @@ class YandexMusicProviderAccountTest {
             return likedHandler(token)
         }
 
+        override fun waveNext(token: String, sessionId: String, queue: List<String>): ProviderResult<YandexWaveBatch> {
+            waveTokens.add(token)
+            return ProviderResult.Failure(MusicProviderFailure.Unknown)
+        }
+
         override fun lyricsWithReport(token: String, trackId: String): Pair<ProviderResult<ProviderLyrics>, String> {
             lyricsTokens.add(token)
             return lyricsHandler(token, trackId) to "report"
@@ -54,6 +60,8 @@ class YandexMusicProviderAccountTest {
 
     private class FakeAuth : YandexAuth(YandexHttp()) {
         @Volatile var codes = 0
+        /** Called inside requestDeviceCode with the number of that request; may block. */
+        @Volatile var codeGate: ((Int) -> Unit)? = null
         val refreshCalls = CopyOnWriteArrayList<String>()
         /** Token of the next successful poll. */
         @Volatile var pollToken: String = "tokA"
@@ -61,8 +69,9 @@ class YandexMusicProviderAccountTest {
         @Volatile var pollGate: (() -> Unit)? = null
 
         override fun requestDeviceCode(deviceId: String): ProviderResult<YandexDeviceCode> {
-            codes += 1
-            return ProviderResult.Success(YandexDeviceCode("device-code-$codes", "user", "https://example.test", 300, 5))
+            val n = synchronized(this) { ++codes }
+            codeGate?.invoke(n)
+            return ProviderResult.Success(YandexDeviceCode("device-code-$n", "user", "https://example.test", 300, 5))
         }
 
         override fun pollToken(deviceCode: String): YandexPollOutcome {
@@ -275,6 +284,118 @@ class YandexMusicProviderAccountTest {
         assertNull(f.storage.session)
         assertEquals(MusicProviderState.SignedOut, f.provider.state.value)
         assertEquals(newCode, f.provider.pendingSignIn()?.code)
+    }
+
+    @Test
+    fun waveCallOfOldSignInIsRefusedBeforeAnyRequest() = runBlocking {
+        val f = Fixture()
+        f.signIn("tokA", refresh = null)
+        val genA = f.provider.accountGeneration()!!
+
+        f.provider.signOut()
+        assertNull(f.provider.accountGeneration())
+        f.signIn("tokB", refresh = null)
+        val result = f.provider.waveNext(genA, "session", emptyList())
+
+        assertEquals(ProviderResult.Failure(MusicProviderFailure.NotSignedIn), result)
+        assertTrue("no request with any token", f.api.waveTokens.isEmpty())
+        // The same call under the current generation reaches the service with the current token.
+        f.provider.waveNext(f.provider.accountGeneration()!!, "session", emptyList())
+        assertEquals(listOf("tokB"), f.api.waveTokens.toList())
+    }
+
+    @Test
+    fun reSignInOfTheSameAccountChangesTheGeneration() = runBlocking {
+        val f = Fixture()
+        f.signIn("tokA", refresh = null)
+        val first = f.provider.accountGeneration()!!
+        f.provider.signOut()
+        f.signIn("tokA", refresh = null)
+
+        assertTrue(f.provider.accountGeneration()!! != first)
+        assertEquals(ProviderResult.Failure(MusicProviderFailure.NotSignedIn), f.provider.waveNext(first, "s", emptyList()))
+        assertTrue(f.api.waveTokens.isEmpty())
+    }
+
+    @Test
+    fun startSignInsAnsweringInReverseOrderKeepTheNewerAttempt() = runBlocking {
+        val f = Fixture()
+        val firstStarted = CountDownLatch(1)
+        val releaseFirst = CountDownLatch(1)
+        f.auth.codeGate = { n ->
+            if (n == 1) {
+                firstStarted.countDown()
+                await(releaseFirst)
+            }
+        }
+        val older = async(Dispatchers.Default) { f.provider.startSignIn() }
+        await(firstStarted)
+
+        val newer = f.provider.startSignIn() as ProviderResult.Success
+        releaseFirst.countDown()
+        val olderResult = older.await()
+
+        assertEquals(ProviderResult.Failure(MusicProviderFailure.NotSignedIn), olderResult)
+        assertEquals(newer.value, f.provider.pendingSignIn()?.code)
+    }
+
+    @Test
+    fun identityPairsUidWithItsOwnGeneration() = runBlocking {
+        val f = Fixture()
+        assertNull(f.provider.accountIdentity())
+        f.signIn("tokA", refresh = null)
+        val identity = f.provider.accountIdentity()!!
+        assertEquals((f.provider.state.value as MusicProviderState.SignedIn).account.uid, identity.uid)
+        assertEquals(f.provider.accountGeneration(), identity.generation)
+        f.provider.signOut()
+        assertNull(f.provider.accountIdentity())
+        assertNull(f.provider.accountGeneration())
+    }
+
+    @Test
+    fun codeRequestInFlightDuringSignInLeavesNothingPending() = runBlocking {
+        val f = Fixture()
+        f.auth.pollToken = "tokA"
+        f.auth.pollRefresh = null
+        val code = (f.provider.startSignIn() as ProviderResult.Success).value
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        f.auth.codeGate = { n ->
+            if (n == 2) {
+                started.countDown()
+                await(release)
+            }
+        }
+        val second = async(Dispatchers.Default) { f.provider.startSignIn() }
+        await(started)
+
+        // The first code is confirmed while the second request is still on the network.
+        assertTrue(f.provider.pollSignIn(code) is YandexSignInPoll.Signed)
+        release.countDown()
+
+        assertEquals(ProviderResult.Failure(MusicProviderFailure.NotSignedIn), second.await())
+        assertNull(f.provider.pendingSignIn())
+        assertTrue(f.provider.state.value is MusicProviderState.SignedIn)
+    }
+
+    @Test
+    fun clearPendingSignInDuringTheCodeRequestLeavesNothingPending() = runBlocking {
+        val f = Fixture()
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        f.auth.codeGate = {
+            started.countDown()
+            await(release)
+        }
+        val attempt = async(Dispatchers.Default) { f.provider.startSignIn() }
+        await(started)
+
+        f.provider.clearPendingSignIn()
+        release.countDown()
+        val result = attempt.await()
+
+        assertEquals(ProviderResult.Failure(MusicProviderFailure.NotSignedIn), result)
+        assertNull(f.provider.pendingSignIn())
     }
 }
 

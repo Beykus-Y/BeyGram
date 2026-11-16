@@ -1,42 +1,30 @@
 package com.beykus.beygram.data.yandex
 
-import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviderState
-import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Decides when a «Моя волна» may act for an account. A wave and its saved place belong to the account that started
- * them: once the source is signed out or signed in as someone else, the wave ends, nothing is written for it, and
- * nothing is restored from it. Pure functions, so they can be tested without the player.
+ * Decides when a «Моя волна» may act for an account. A running wave is bound to the sign-in generation it started under
+ * (see [YandexMusicProvider.accountGeneration]): signing out, or signing in again, even as the same account, ends it,
+ * nothing is written for it, and its requests are refused. The saved place on disk is bound to the account uid, so it
+ * can be restored after a restart. Pure functions, so they can be tested without the player.
  */
 internal object YandexWaveAccountGuard {
     /** The uid of the signed-in account, or null when signed out or the state is unknown. */
     fun uidOf(state: MusicProviderState?): String? = (state as? MusicProviderState.SignedIn)?.account?.uid
 
-    /** True when the wave of [activeUid] must end: the source is signed out, or signed in as another account. */
-    fun shouldEndWave(activeUid: String?, state: MusicProviderState?): Boolean =
-        activeUid != null && uidOf(state) != activeUid
+    /** True when the wave of [activeGeneration] must end: the source is signed out, or the sign-in changed. */
+    fun shouldEndWave(activeGeneration: Long?, currentGeneration: Long?): Boolean =
+        activeGeneration != null && currentGeneration != activeGeneration
 
-    /** True when the wave of [activeUid] may write its place: the source is signed in as the same account. */
-    fun canSave(activeUid: String?, state: MusicProviderState?): Boolean =
-        activeUid != null && uidOf(state) == activeUid
+    /** True when the wave of [activeGeneration] may write its place: the sign-in is still the same one. */
+    fun canSave(activeGeneration: Long?, currentGeneration: Long?): Boolean =
+        activeGeneration != null && currentGeneration == activeGeneration
 
     /** True when a saved wave of [savedUid] may be restored: the source is signed in as the same account. */
     fun canRestore(savedUid: String, state: MusicProviderState?): Boolean = uidOf(state) == savedUid
-
-    /**
-     * Runs a request of the wave of [uid] only while the source is still signed in as that account. A stale wave never
-     * reaches the service through another account: it gets [MusicProviderFailure.NotSignedIn] instead.
-     */
-    suspend fun <T> request(
-        uid: String,
-        state: MusicProviderState?,
-        call: suspend () -> ProviderResult<T>,
-    ): ProviderResult<T> =
-        if (uidOf(state) == uid) call() else ProviderResult.Failure(MusicProviderFailure.NotSignedIn)
 }
 
 /** Reads and writes a saved wave as a JSON string. A record of another version, or without an account, is rejected. */

@@ -138,23 +138,21 @@ internal object YandexWaveFeedback {
      * reports its last track as skipped or finished, and ends by itself.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun start(provider: YandexMusicProvider, uid: String, session: YandexWaveSession, radio: PlaybackRadio) =
-        start(provider, uid, { session }, radio)
+    fun start(provider: YandexMusicProvider, generation: Long, session: YandexWaveSession, radio: PlaybackRadio) =
+        start(provider, generation, { session }, radio)
 
     /**
      * Like the function above, for a radio whose session can change: the session is asked on each event. Events are sent
-     * only while the source is signed in as [uid], the account the radio started under.
+     * only under [generation], the sign-in the radio started under; the provider checks it under its lock.
      */
-    fun start(provider: YandexMusicProvider, uid: String, sessionOf: () -> YandexWaveSession, radio: PlaybackRadio) {
+    fun start(provider: YandexMusicProvider, generation: Long, sessionOf: () -> YandexWaveSession, radio: PlaybackRadio) {
         val outbox = Channel<YandexWaveEvent>(Channel.UNLIMITED)
         val sender = scope.launch(Dispatchers.IO) {
             for (event in outbox) {
                 val sessionId = sessionOf().currentSessionId ?: continue
                 val batch = event.trackId?.let { id -> sessionOf().batchOfTrack(id) }
-                // An event queued under one account never goes out through another: it is dropped.
-                val result = YandexWaveAccountGuard.request(uid, provider.state.value) {
-                    provider.waveFeedback(sessionId, event, batch)
-                }
+                // An event queued under one sign-in never goes out through another: it is dropped.
+                val result = provider.waveFeedback(generation, sessionId, event, batch)
                 if (result is ProviderResult.Failure) Log.i(TAG, "feedback ${event.type} failed: ${result.failure}")
             }
         }

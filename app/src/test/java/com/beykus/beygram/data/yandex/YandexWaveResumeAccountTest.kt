@@ -1,11 +1,8 @@
 package com.beykus.beygram.data.yandex
 
 import com.beykus.beygram.data.music.provider.MusicProviderAccount
-import com.beykus.beygram.data.music.provider.MusicProviderFailure
 import com.beykus.beygram.data.music.provider.MusicProviderState
-import com.beykus.beygram.data.music.provider.ProviderResult
 import com.beykus.beygram.data.music.provider.ProviderTrack
-import kotlinx.coroutines.test.runTest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -38,27 +35,28 @@ class YandexWaveResumeAccountTest {
 
     @Test
     fun activeWaveEndsAtSignOutAndNothingIsSaved() {
-        assertTrue(YandexWaveAccountGuard.shouldEndWave("A", signedOut))
-        assertFalse(YandexWaveAccountGuard.canSave("A", signedOut))
+        assertTrue(YandexWaveAccountGuard.shouldEndWave(1L, null))
+        assertFalse(YandexWaveAccountGuard.canSave(1L, null))
     }
 
     @Test
-    fun activeWaveEndsWhenAnotherAccountSignsIn() {
-        assertTrue(YandexWaveAccountGuard.shouldEndWave("A", signedIn("B")))
-        assertFalse(YandexWaveAccountGuard.canSave("A", signedIn("B")))
+    fun activeWaveEndsWhenTheSignInChangesEvenForTheSameUid() {
+        // Sign-out and a quick sign-in as the same account may skip SignedOut, but the generation still differs.
+        assertTrue(YandexWaveAccountGuard.shouldEndWave(1L, 2L))
+        assertFalse(YandexWaveAccountGuard.canSave(1L, 2L))
     }
 
     @Test
-    fun waveOfTheSameAccountKeepsPlayingAndSaving() {
-        assertFalse(YandexWaveAccountGuard.shouldEndWave("A", signedIn("A")))
-        assertTrue(YandexWaveAccountGuard.canSave("A", signedIn("A")))
+    fun waveOfTheSameSignInKeepsPlayingAndSaving() {
+        assertFalse(YandexWaveAccountGuard.shouldEndWave(1L, 1L))
+        assertTrue(YandexWaveAccountGuard.canSave(1L, 1L))
     }
 
     @Test
     fun noWaveNeverEndsAndNeverSaves() {
-        assertFalse(YandexWaveAccountGuard.shouldEndWave(null, signedOut))
-        assertFalse(YandexWaveAccountGuard.canSave(null, signedIn("A")))
-        assertFalse(YandexWaveAccountGuard.canSave("A", null))
+        assertFalse(YandexWaveAccountGuard.shouldEndWave(null, null))
+        assertFalse(YandexWaveAccountGuard.canSave(null, 1L))
+        assertFalse(YandexWaveAccountGuard.canSave(1L, null))
     }
 
     @Test
@@ -97,20 +95,8 @@ class YandexWaveResumeAccountTest {
     }
 
     @Test
-    fun staleWaveRequestIsRefusedForAnotherAccount() = runTest {
-        var calls = 0
-        val call: suspend () -> ProviderResult<String> = {
-            calls++
-            ProviderResult.Success("ok")
-        }
-        val other = YandexWaveAccountGuard.request("A", signedIn("B"), call)
-        assertEquals(ProviderResult.Failure(MusicProviderFailure.NotSignedIn), other)
-        val out = YandexWaveAccountGuard.request("A", signedOut, call)
-        assertEquals(ProviderResult.Failure(MusicProviderFailure.NotSignedIn), out)
-        assertEquals(0, calls)
-        val same = YandexWaveAccountGuard.request("A", signedIn("A"), call)
-        assertEquals(ProviderResult.Success("ok"), same)
-        assertEquals(1, calls)
+    fun uidOfReadsOnlyASignedInState() {
         assertNull(YandexWaveAccountGuard.uidOf(signedOut))
+        assertEquals("A", YandexWaveAccountGuard.uidOf(signedIn("A")))
     }
 }

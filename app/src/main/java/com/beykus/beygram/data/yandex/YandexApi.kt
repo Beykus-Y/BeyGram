@@ -126,7 +126,7 @@ internal open class YandexApi(private val http: YandexHttp) {
      * Starts a radio session («Моя волна» for [YandexWave.MY_WAVE_SEED]). [queue] lists tracks already heard, as
      * `id:albumId`, so a replacement session does not repeat them.
      */
-    fun waveStart(token: String, seeds: List<String>, queue: List<String>): ProviderResult<YandexWaveBatch> {
+    open fun waveStart(token: String, seeds: List<String>, queue: List<String>): ProviderResult<YandexWaveBatch> {
         val body = JSONObject()
             .put("seeds", JSONArray(seeds))
             .put("includeTracksInResponse", true)
@@ -135,7 +135,7 @@ internal open class YandexApi(private val http: YandexHttp) {
     }
 
     /** The next batch of a radio session. [queue] lists the tracks the session already gave, as `id:albumId`. */
-    fun waveNext(token: String, sessionId: String, queue: List<String>): ProviderResult<YandexWaveBatch> {
+    open fun waveNext(token: String, sessionId: String, queue: List<String>): ProviderResult<YandexWaveBatch> {
         val body = JSONObject().put("queue", JSONArray(queue.takeLast(YandexWave.QUEUE_HINT)))
         return call(token, "/rotor/session/${encode(sessionId)}/tracks", json = body) { root ->
             parseWaveBatch(root, sessionId)
@@ -146,7 +146,7 @@ internal open class YandexApi(private val http: YandexHttp) {
      * One listening event of a radio session, so the wave learns from it. [trackId] is `id:albumId`; [playedSeconds]
      * is required for finished and skipped tracks. Answers are ignored beyond success or failure.
      */
-    fun waveFeedback(token: String, sessionId: String, event: YandexWaveEvent, batchId: String?): ProviderResult<Unit> {
+    open fun waveFeedback(token: String, sessionId: String, event: YandexWaveEvent, batchId: String?): ProviderResult<Unit> {
         val body = JSONObject().put("event", event.toJson())
         if (batchId != null) body.put("batchId", batchId)
         if (event.type == YandexWaveEvent.RADIO_STARTED) body.put("from", YandexWave.FROM)
