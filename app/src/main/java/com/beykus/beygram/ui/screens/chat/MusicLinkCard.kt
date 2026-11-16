@@ -44,6 +44,7 @@ import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MessageLinkPreview
+import com.beykus.beygram.domain.model.TextStyleKind
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackState
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -99,19 +100,22 @@ internal fun MessageMusicLinkCard(
     onDownloadFile: (Int) -> Unit,
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)?,
     onOpenEntity: ((MessageEntityLink) -> Unit)?,
-    enabled: Boolean
+    enabled: Boolean,
+    messageText: @Composable () -> Unit = {},
 ) {
     val preview = message.linkPreview
     val musicLink = remember(message.text, message.entities, preview) { musicLinkOf(message) }
     val signedIn = rememberYandexSignedIn()
     // Secret chats and signed-out accounts never reach the service: the link keeps its usual card.
     if (!enabled || !signedIn || musicLink == null) {
+        messageText()
         preview?.let { MessageLinkPreviewCard(it, observeFile, onDownloadFile, autoDownloadFile = autoDownloadFile, onOpenEntity = onOpenEntity) }
         return
     }
     // Keyed by the link, so an edited message that links elsewhere starts again with that link's own data.
     key(musicLink.url) {
-        MusicLinkBody(musicLink, preview, observeFile, onDownloadFile, autoDownloadFile, onOpenEntity)
+        MusicLinkBody(musicLink, preview, observeFile, onDownloadFile, autoDownloadFile, onOpenEntity,
+            hideRedundantText = isStandaloneMusicUrl(message, musicLink), messageText = messageText)
     }
 }
 
@@ -126,7 +130,9 @@ private fun MusicLinkBody(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)?,
-    onOpenEntity: ((MessageEntityLink) -> Unit)?
+    onOpenEntity: ((MessageEntityLink) -> Unit)?,
+    hideRedundantText: Boolean,
+    messageText: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
     val data by produceState<MusicLinkData?>(initialValue = MusicLinkCache.get(link.url), link) {
@@ -155,7 +161,10 @@ private fun MusicLinkBody(
     }
     // Opens the link's own screen in the chat's handler: the album screen, or the browser for a track without one.
     val onOpen: (() -> Unit)? = onOpenEntity?.let { open -> { open(link) } }
-    when (val shown = data) {
+    val shown = data
+    // The raw URL remains while loading, on failure, and whenever the card cannot be opened.
+    if (!hideRedundantText || onOpen == null || shown == null || shown == MusicLinkData.Failed) messageText()
+    when (shown) {
         null -> if (preview != null) {
             MessageLinkPreviewCard(preview, observeFile, onDownloadFile, autoDownloadFile = autoDownloadFile, onOpenEntity = onOpenEntity)
         } else {
@@ -178,6 +187,19 @@ private fun MusicLinkBody(
         is MusicLinkData.Album -> MusicAlbumCard(album = shown.album, tracks = shown.tracks, onOpen = onOpen)
         is MusicLinkData.Playlist -> MusicPlaylistCard(shown.playlist, onOpen)
     }
+}
+
+/** Only an unformatted, standalone URL can be replaced by its own successfully loaded card. */
+internal fun isStandaloneMusicUrl(message: ChatMessage, link: MessageEntityLink.YandexMusic): Boolean {
+    val raw = message.text.trim()
+    if (raw != link.url && "https://$raw" != link.url) return false
+    if (yandexMusicEntityLink(raw)?.target != link.target) return false
+    // An explicit text link may point elsewhere; spoilers and formatting also remain visible as authored.
+    return message.entities.isEmpty() || message.entities.singleOrNull()?.let { entity ->
+        entity.kind == TextStyleKind.Url &&
+            entity.offset == message.text.indexOf(raw) && entity.length == raw.length &&
+            (entity.argument.isBlank() || entity.argument.trim() == raw || entity.argument.trim() == link.url)
+    } == true
 }
 
 /** The Yandex Music link of a message: the first one in its text, otherwise the one its link card carries. */
