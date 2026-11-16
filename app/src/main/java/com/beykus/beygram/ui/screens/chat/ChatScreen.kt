@@ -3364,7 +3364,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
-    val inlineMeta = useInlineTextMetadata(
+    val lastLineMeta = showText && useLastLineTextMetadata(message, hasTranslation = translation != null)
+    val compactCollection = message.media?.let { com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument(it) } == true && !hasText && message.reply == null && renderedSpecial == null && translation == null
+    val inlineMeta = !lastLineMeta && useInlineTextMetadata(
         message,
         hasSenderHeader = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank(),
         hasTranslation = translation != null
@@ -3469,7 +3471,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         }
                         message.expiredMediaKind?.let { kind -> ExpiredMediaCard(kind) }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
-                        if (showText || renderedSpecial != null || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
+                        if (showText || renderedSpecial != null || message.reply != null || (!overlayMeta && !compactCollection)) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
                                 // Liquid Glass: the quote is a tint of its own bubble, not a second outline inside it.
                                 val quoteShape = RoundedCornerShape(metrics.replyRadius)
@@ -3503,7 +3505,12 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                 message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile,
                                 onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards,
                                 messageText = {
-                                    if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile,
+                                    if (lastLineMeta) {
+                                        PlainMessageWithMeta(message.text) {
+                                            BubbleMeta(message, isRead, retryAvailable = false, overlay = false,
+                                                onRetry = onRetry, inline = true, insideTextInsets = true)
+                                        }
+                                    } else if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile,
                                         onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
                                 }
                             )
@@ -3523,10 +3530,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     }
                 },
                 meta = {
-                    if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
+                    if (!inCircle && !lastLineMeta) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
                         overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta,
                         onShowVersions = if (onLoadVersions != null) openVersions else null,
-                        connectionState = connectionState, onShowFailureDetails = onShowFailureDetails)
+                        connectionState = connectionState, onShowFailureDetails = onShowFailureDetails, compactDocument = compactCollection)
                 },
                 footer = {
                     // Inline keyboards and reactions must stack, never paint over one another.
