@@ -435,8 +435,9 @@ internal class TdPayments(private val requests: TdRequests) {
             val recipient = giftOwner(profileId)
             val gift = requests(TdApi.GetUpgradedGift(name))
             val price = gift.resaleParameters
-            if (gift.name != name || gift.ownerId is TdApi.MessageSenderUser &&
-                (gift.ownerId as TdApi.MessageSenderUser).userId == myUserId() ||
+            val owner = gift.ownerId as? TdApi.MessageSenderUser
+            val ownId = myUserId()
+            if (gift.name != name || owner?.userId == ownId ||
                 !resalePriceMatches(confirmedStars, price?.starCount, price?.toncoinOnly != false)) {
                 return blocked()
             }

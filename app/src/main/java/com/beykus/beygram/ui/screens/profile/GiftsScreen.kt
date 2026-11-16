@@ -110,7 +110,7 @@ fun GiftsScreen(
     onOpenStars: () -> Unit,
     onBack: () -> Unit,
     loadResale: suspend (Long, String) -> Result<ResaleGiftsPage> = { _, _ -> Result.failure(UnsupportedOperationException()) },
-    buyResale: suspend (String, Long) -> GiftSendOutcome = { _, _ -> GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(R.string.err_gift_unavailable)) }
+    buyResale: suspend (Long, String, Long) -> GiftSendOutcome = { _, _, _ -> GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(R.string.err_gift_unavailable)) }
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -549,7 +549,7 @@ fun GiftsScreen(
                     if (price != null && !isSelf && !sending && pendingGiftId == 0L &&
                         resaleCanBuy(listing, info?.balance) &&
                         RetainedGiftSendStore.start(accountId, profileId, isSelf, listing.id) {
-                            buyResale(listing.name, price)
+                            buyResale(profileId, listing.name, price)
                         }) {
                         pendingGiftId = listing.id
                         resaleCatalog = null
