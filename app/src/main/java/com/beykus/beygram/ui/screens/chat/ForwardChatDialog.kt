@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -49,7 +50,8 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
-import com.beykus.beygram.ui.components.ChatAvatar
+import com.beykus.beygram.ui.components.SearchField
+import com.beykus.beygram.ui.screens.share.ShareRecipientGrid
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import com.beykus.beygram.ui.screens.share.shareTargetCandidates
@@ -209,10 +211,10 @@ internal fun ForwardChatDialog(
                     Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     if (targets.isNotEmpty()) {
-                        LazyColumn(Modifier.heightIn(max = 96.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(targets, key = { "${it.chatId}:${it.topicId}" }) { target ->
                                 Box(
-                                    Modifier.fillMaxWidth().clip(styledShape(12.dp)).background(palette.accentSoft)
+                                    Modifier.widthIn(max = 180.dp).clip(styledShape(12.dp)).background(palette.accentSoft)
                                         .clickable(enabled = !locked, role = Role.Button) { toggle(target) }
                                         .padding(horizontal = 12.dp, vertical = 8.dp)
                                 ) {
@@ -295,29 +297,23 @@ internal fun ForwardChatDialog(
                         }
                     }
                     else -> {
-                        OutlinedTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            singleLine = true,
-                            placeholder = { Text(stringResource(R.string.forward_search_hint)) },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            SearchField(query, { query = it }, stringResource(R.string.forward_search_hint))
+                        }
                         if (visibleChats.isEmpty()) Text(
                             stringResource(R.string.forward_no_results),
                             color = palette.textSecondary,
                             modifier = Modifier.fillMaxWidth().padding(16.dp)
                         )
-                        LazyColumn(Modifier.weight(1f)) {
-                            items(visibleChats, key = { it.id }) { item ->
-                                ForwardRow(
-                                    title = item.title,
-                                    selected = targets.any { it.chatId == item.id },
-                                    enabled = !locked,
-                                    onClick = { chooseChat(item) },
-                                    leading = { ChatAvatar(item, 44.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {}) }
-                                )
-                            }
-                        }
+                        ShareRecipientGrid(
+                            chats = visibleChats,
+                            observeFile = observeFile,
+                            downloadFile = downloadFile,
+                            modifier = Modifier.weight(1f),
+                            enabled = !locked,
+                            selectedIds = targets.map { it.chatId }.toSet(),
+                            onChoose = ::chooseChat
+                        )
                     }
                 }
             }

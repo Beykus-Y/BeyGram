@@ -46,6 +46,9 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.BeyGramApplication
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.ui.components.SearchField
+import kotlinx.coroutines.flow.StateFlow
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.OutgoingMedia
@@ -72,6 +75,8 @@ internal fun ShareTargetScreen(
     session: ShareSession,
     chats: List<ChatPreview>,
     captionLimit: Int,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
     loadTopics: suspend (chatId: Long) -> Result<List<ForumTopic>?>,
     sendText: suspend (chatId: Long, topicId: Long, text: String) -> Result<Unit>,
     sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>,
@@ -179,95 +184,19 @@ internal fun ShareTargetScreen(
                 if (session.staging) Text(stringResource(R.string.share_preparing), style = MaterialTheme.typography.bodyMedium)
                 session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }
-                val quickSaved = if (query.isBlank()) chats.firstOrNull { it.isSavedMessages && it.canPost } else null
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text(stringResource(R.string.share_search)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                val shown = shareTargetCandidates(chats, query, excludeSaved = quickSaved != null)
-                if (shown.isEmpty() && quickSaved == null) {
+                SearchField(query, { query = it }, stringResource(R.string.share_search))
+                val shown = shareTargetCandidates(chats, query)
+                if (shown.isEmpty()) {
                     Text(stringResource(R.string.share_no_chats), style = MaterialTheme.typography.bodyMedium)
-                }
-                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    if (quickSaved != null) {
-                        item(key = "quick-saved") {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                shape = styledShape(16.dp),
-                                modifier = Modifier.fillMaxWidth().clip(styledShape(16.dp))
-                                    .clickable {
-                                        targetId = quickSaved.id
-                                        topicId = 0L
-                                        session.error = null
-                                    }
-                            ) {
-                                Row(
-                                    Modifier.fillMaxWidth().padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Box(
-                                        Modifier.size(46.dp).clip(styledShape(15.dp))
-                                            .background(MaterialTheme.colorScheme.primary),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("★", color = MaterialTheme.colorScheme.onPrimary,
-                                            style = MaterialTheme.typography.titleMedium)
-                                    }
-                                    Column(Modifier.weight(1f)) {
-                                        Text(stringResource(R.string.share_saved_quick_action),
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            style = MaterialTheme.typography.titleSmall)
-                                        Text(stringResource(R.string.share_saved_target),
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (shown.isNotEmpty() && query.isBlank()) {
-                        item(key = "recent-heading") {
-                            Text(stringResource(R.string.share_recent_destinations),
-                                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                    items(shown, key = { it.id }) { chat ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth()
-                                .clickable { targetId = chat.id; topicId = 0L; session.error = null }
-                                .padding(horizontal = 4.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(
-                                Modifier.size(46.dp)
-                                    .clip(styledShape(16.dp))
-                                    .background(if (chat.isSavedMessages) palette.accentSoft else MaterialTheme.colorScheme.surfaceContainerHighest),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    if (chat.isSavedMessages) "★" else chat.initials.take(2).ifBlank { chat.title.take(1) },
-                                    color = if (chat.isSavedMessages) palette.accentInk else MaterialTheme.colorScheme.onSurface,
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                            }
-                            Column(Modifier.weight(1f)) {
-                                Text(chat.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    stringResource(if (chat.isSavedMessages) R.string.share_saved_target else R.string.share_select_chat),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = 62.dp))
-                    }
+                } else {
+                    ShareRecipientGrid(
+                        chats = shown,
+                        observeFile = observeFile,
+                        downloadFile = downloadFile,
+                        modifier = Modifier.weight(1f),
+                        enabled = !session.sending,
+                        onChoose = { chat -> targetId = chat.id; topicId = 0L; session.error = null }
+                    )
                 }
             } else if (!topicsReady) {
                 Text(stringResource(R.string.share_send_to, target.title), style = MaterialTheme.typography.titleSmall)

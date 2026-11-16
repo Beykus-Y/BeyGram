@@ -114,7 +114,9 @@ internal fun ShareTrackDialog(repository: TelegramRepository, item: PlaybackItem
         error = failure,
         observeFile = repository::observeFile,
         downloadFile = repository::downloadFile,
-        asCopy = true,
+        titleOverride = stringResource(R.string.player_share),
+        previewText = item.trackTitle,
+        sendLabel = stringResource(R.string.share_send),
         allowComment = false,
         loadTopics = { chatId -> repository.forumTopics(chatId) },
         onSend = { targets, _ ->

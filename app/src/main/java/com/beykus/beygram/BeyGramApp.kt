@@ -1539,6 +1539,8 @@ private fun BeyGramAppContent(
                     uris = incomingShare.uris,
                     session = shareSession,
                     captionLimit = shareCaptionLimit,
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile,
                     chats = shareChats + shareArchivedChats,
                     loadTopics = { chatId -> repository.forumTopics(chatId) },
                     sendText = { chatId, topicId, text ->
