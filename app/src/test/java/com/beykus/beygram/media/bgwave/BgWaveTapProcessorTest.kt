@@ -395,6 +395,10 @@ class BgWaveTapProcessorTest {
     private class PassThroughProcessor : BaseAudioProcessor() {
         override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat =
             inputAudioFormat
+
+        override fun queueInput(inputBuffer: ByteBuffer) {
+            replaceOutputBuffer(inputBuffer.remaining()).put(inputBuffer).flip()
+        }
     }
 
     private class FakeAudioProcessorChain(
