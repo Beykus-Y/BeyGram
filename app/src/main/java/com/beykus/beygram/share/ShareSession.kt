@@ -139,7 +139,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
             try {
                 for (destination in delivery.pending()) {
                     if (released || retryBlocked) break
-                    val validation = validateDestination(destination)
+                    val validation = withContext(Dispatchers.Default) { validateDestination(destination) }
                     if (validation.isFailure) {
                         error = (validation.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.share_unavailable_recipient)
                         continue
@@ -147,7 +147,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
                     for (index in delivery.nextBatch(destination) until delivery.batchCount) {
                         if (released) break
                         val result = if (frozenBatches.isEmpty()) {
-                            sendText(destination.chatId, destination.topicId, frozenDraft)
+                            withContext(Dispatchers.Default) { sendText(destination.chatId, destination.topicId, frozenDraft) }
                         } else {
                             val owner = checkNotNull(importer)
                             val copies = mutableListOf<OutgoingMedia>()
@@ -167,7 +167,9 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
                                 break
                             } else {
                                 // From this point TDLib owns these paths, even when its response is uncertain.
-                                sendMedia(destination.chatId, destination.topicId, copies, if (index == 0) frozenDraft else "")
+                                withContext(Dispatchers.Default) {
+                                    sendMedia(destination.chatId, destination.topicId, copies, if (index == 0) frozenDraft else "")
+                                }
                             }
                         }
                         if (result.isFailure) {
@@ -176,6 +178,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
                             break
                         }
                         delivery.confirm(destination, index)
+                        pendingDestinations = delivery.pending()
                     }
                 }
                 pendingDestinations = delivery.pending()

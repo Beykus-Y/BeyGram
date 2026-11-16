@@ -66,6 +66,7 @@ import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.screens.share.ShareRecipientBrowser
 import com.beykus.beygram.ui.screens.share.rememberShareRecipientDirectory
 import com.beykus.beygram.domain.repository.TelegramRepository
+import com.beykus.beygram.share.isShareTopicValid
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.flow.StateFlow
@@ -220,8 +221,7 @@ internal fun ForwardChatDialog(
                         candidatePolicy((it.chats.value + it.archivedChats.value + it.folderChats.value.values.flatten()).distinctBy { chat -> chat.id })
                     } ?: directory.chats
                     val writable = currentChats.any { it.id == target.chatId && it.canPost }
-                    !writable || if (result == null) target.topicId != 0L else !result.isSuccess ||
-                        !(result.getOrNull()?.any { it.id == target.topicId && it.canWrite } ?: (target.topicId == 0L))
+                    !writable || !isShareTopicValid(target.topicId, result)
                 }
                 if (invalid) {
                     topicError = context.getString(R.string.forward_topics_failed)

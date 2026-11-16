@@ -307,7 +307,8 @@ internal class OutgoingMediaImporter(context: Context, private val accountId: St
         val directory = newUploadDirectory()
         try {
             val source = File(media.path)
-            val destination = directory.resolve(source.name)
+            // Keep incoming filenames separate from owner and sent-marker metadata.
+            val destination = directory.resolve("payload").apply { check(mkdirs()) }.resolve(source.name)
             source.inputStream().use { from -> destination.outputStream().use { to -> copyActive(from, to) } }
             val thumbnail = media.thumbnailPath?.let { path ->
                 val thumb = File(path)

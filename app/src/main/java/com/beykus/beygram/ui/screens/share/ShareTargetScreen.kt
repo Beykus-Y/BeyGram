@@ -67,6 +67,7 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.share.IncomingShareParser
 import com.beykus.beygram.share.ShareSession
 import com.beykus.beygram.share.ShareDestination
+import com.beykus.beygram.share.isShareTopicValid
 import com.beykus.beygram.ui.text.resolve
 
 /**
@@ -147,8 +148,7 @@ internal fun ShareTargetScreen(
         } else directory.chats.firstOrNull { it.id == destination.chatId }
         if (current?.canPost != true) Result.failure(UserMessageException(UiText.Res(R.string.share_unavailable_recipient)))
         else loadTopics(destination.chatId).mapCatching { loaded ->
-            if (loaded == null && destination.topicId != 0L ||
-                loaded != null && loaded.none { it.id == destination.topicId && it.canWrite }) {
+            if (!isShareTopicValid(destination.topicId, Result.success(loaded))) {
                 throw UserMessageException(UiText.Res(R.string.share_topics_failed))
             }
         }
@@ -294,7 +294,7 @@ internal fun ShareTargetScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(stringResource(R.string.forward_selected_count, destinations.size), style = MaterialTheme.typography.titleMedium)
-                    val shownDestinations = if (session.deliveryStarted) session.pendingDestinations.ifEmpty { destinations } else destinations
+                    val shownDestinations = if (session.deliveryStarted) session.pendingDestinations else destinations
                     shownDestinations.forEach { destination ->
                         Text(destination.title, style = MaterialTheme.typography.bodyMedium)
                     }
