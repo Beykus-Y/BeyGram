@@ -4,8 +4,8 @@
 # Idempotent: exits at once when the prefix already holds libssl.a and libcrypto.a, so CI can cache it.
 set -euo pipefail
 
-readonly OPENSSL_VERSION="3.4.0"
-readonly OPENSSL_SHA256="e15dda82fe2fe8139dc2ac21a36d4ca01d5313c75f99f46c4e8a27709b7294bf"
+readonly OPENSSL_VERSION="3.5.9"
+readonly OPENSSL_SHA256="603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
 readonly ANDROID_API="29"
 
 abi="${1:?abi}"
