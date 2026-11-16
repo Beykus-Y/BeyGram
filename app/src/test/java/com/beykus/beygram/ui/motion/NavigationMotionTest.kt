@@ -6,6 +6,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.unit.LayoutDirection
 import com.beykus.beygram.RouteTransitionFrame
 import com.beykus.beygram.navigation.AppRoute
+import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.routeContentKey
 import com.beykus.beygram.routeHostContentKey
 import com.beykus.beygram.routeHostTransitionMove

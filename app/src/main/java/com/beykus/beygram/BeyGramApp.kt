@@ -2589,8 +2589,8 @@ GlobalSearchScreen(
                 AnimatedContent(
                     targetState = RouteTransitionFrame(route, routeTwoPane),
                     modifier = Modifier.fillMaxSize().clipToBounds(),
-                    // Two panes: the list and the open chat share one slot, so selecting a chat never remounts the list.
-                    // Phones: a comment thread stays in its chat's slot, since it is the same open conversation.
+                    // Phones: all four roots share one stable chrome slot; the inner viewport owns their slide.
+                    // Threads keep the chat slot; on wide screens preserve the existing list/detail slot.
                     contentKey = ::routeHostContentKey,
                     transitionSpec = routeTransitionSpec,
                     label = "routeTransition"

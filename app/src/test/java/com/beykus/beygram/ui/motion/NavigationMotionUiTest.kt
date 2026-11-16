@@ -46,7 +46,6 @@ import com.beykus.beygram.ui.components.MainTabsHost
 import com.beykus.beygram.ui.components.MainTabDockTag
 import com.beykus.beygram.ui.components.MainTabRail
 import com.beykus.beygram.ui.components.MainTabSelectionIndicatorTag
-import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.designFor
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import org.junit.Assert.assertEquals
@@ -220,13 +219,20 @@ class NavigationMotionUiTest {
     }
 
     @Test
-    fun rootTabSlideKeepsSingleDockAndRetargetsIndicatorDuringRapidSwitch() {
+    fun pinnedRootTabSlideKeepsSingleDockAndRetargetsIndicatorDuringRapidSwitch() =
+        assertPersistentDock(DesignStyle.Default, NavigationPlacement.Pinned)
+
+    @Test
+    fun floatingGlassRootTabSlideKeepsSingleDockAndPlayer() =
+        assertPersistentDock(DesignStyle.LiquidGlass, NavigationPlacement.Floating)
+
+    private fun assertPersistentDock(style: DesignStyle, placement: NavigationPlacement) {
         compose.mainClock.autoAdvance = false
         var selectedTab by mutableStateOf(MainTab.Chats)
         val history = routeHistory(AppRoute.Chats)
 
         compose.setContent {
-            val design = designFor(DesignStyle.Default, GlassQuality.Balanced, NavigationPlacement.Pinned)
+            val design = designFor(style, GlassQuality.Balanced, placement)
             BeyGramTheme(darkTheme = false, design = design) {
                 CompositionLocalProvider(
                     LocalSystemReducedMotion provides false,
@@ -254,7 +260,8 @@ class NavigationMotionUiTest {
                                 onSelect = { selectedTab = it },
                                 stateHolder = holder,
                                 tabMotion = tabSpec,
-                                tabDirection = history.tabDirection
+                                tabDirection = history.tabDirection,
+                                player = { _, _ -> Box(Modifier.size(40.dp).testTag("test-player")) }
                             ) { page ->
                                 Box(Modifier.fillMaxSize().testTag("tab-page-${page.name}"))
                             }
@@ -269,6 +276,7 @@ class NavigationMotionUiTest {
 
         val initialDock = compose.onNodeWithTag(MainTabDockTag).fetchSemanticsNode()
         val initialPosition = initialDock.positionInRoot
+        val initialPlayer = compose.onNodeWithTag("test-player").fetchSemanticsNode()
         val initialIndicator = positionX(MainTabSelectionIndicatorTag)
         fun assertStableDock() {
             val bar = compose.onNodeWithTag(MainTabDockTag).fetchSemanticsNode()
@@ -277,6 +285,10 @@ class NavigationMotionUiTest {
             assertEquals(initialPosition.x, bar.positionInRoot.x, 1f)
             assertEquals(initialPosition.y, bar.positionInRoot.y, 1f)
             assertEquals(1, compose.onAllNodesWithTag(MainTabSelectionIndicatorTag).fetchSemanticsNodes().size)
+            val player = compose.onNodeWithTag("test-player").fetchSemanticsNode()
+            assertEquals(initialPlayer.id, player.id)
+            assertEquals(initialPlayer.positionInRoot.x, player.positionInRoot.x, 1f)
+            assertEquals(initialPlayer.positionInRoot.y, player.positionInRoot.y, 1f)
         }
 
         commitState { selectedTab = MainTab.Settings }
