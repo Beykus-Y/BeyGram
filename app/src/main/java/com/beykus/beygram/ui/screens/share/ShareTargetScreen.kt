@@ -123,7 +123,9 @@ internal fun ShareTargetScreen(
     // Без готовых файлов текст уйдёт, только если файлов не было или пользователь убрал их все сам; при сбое подготовки не отправляем.
     val topicsReady = topicsReadyFor == targetId && targetId != 0L
     val validTopic = topicsReady && (topics?.any { it.id == topicId } ?: (topicId == 0L))
-    val canSend = !session.sending && !session.staging && !session.stagingFailed && !session.retryBlocked && !tooLong && target != null && validTopic &&
+    val lockedDestinationMatches = session.lockedChatId == null ||
+        (session.lockedChatId == targetId && session.lockedTopicId == topicId)
+    val canSend = !session.sending && !session.staging && !session.stagingFailed && !session.retryBlocked && !tooLong && target != null && validTopic && lockedDestinationMatches &&
         (session.staged.isNotEmpty() || (session.draft.isNotBlank() && (!hasFiles || session.error == null)))
 
     LaunchedEffect(session) { session.startStaging(context, appScope) }
@@ -144,7 +146,7 @@ internal fun ShareTargetScreen(
             .onFailure { topicsError = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_topics_failed) }
     }
     // Отправка могла закончиться, пока экрана не было (поворот): тогда открываем чат, куда ушло сообщение.
-    LaunchedEffect(session.sent) { if (session.sent) onSent(session.sentChatId, topicId) }
+    LaunchedEffect(session.sent) { if (session.sent) onSent(session.sentChatId, session.sentTopicId) }
     LaunchedEffect(session.lockedChatId) {
         session.lockedChatId?.let { targetId = it; topicId = session.lockedTopicId }
     }

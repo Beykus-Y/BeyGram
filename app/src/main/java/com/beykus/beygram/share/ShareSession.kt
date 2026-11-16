@@ -31,6 +31,8 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     /** Всё отправлено: экран закрывается и открывает чат. */
     var sent by mutableStateOf(false)
     var sentChatId by mutableStateOf(0L)
+    var sentTopicId by mutableStateOf(0L)
+        private set
     var retryBlocked by mutableStateOf(false)
         private set
     /** A partial delivery can only be resumed for its original recipient and topic. */
@@ -115,6 +117,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
                 result
                     .onSuccess {
                         sentChatId = chatId
+                        sentTopicId = topicId
                         sent = true
                         recordAppEvent(EventKind.UI, "share_send_done", "Отправка из «Поделиться» завершена", attrs = mapOf("mode" to mode, "sent" to sentItems.toString()))
                     }
