@@ -4,12 +4,11 @@ import android.content.Context
 import com.beykus.beygram.ui.design.styledShape
 import android.widget.Toast
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,9 +16,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import com.beykus.beygram.ui.components.OutlinedButton
@@ -39,6 +42,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -221,12 +226,13 @@ fun BgMusicPreviewScreen(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         Surface(
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f).padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight * 0.92f),
             shape = styledShape(20.dp),
             color = palette.surface,
         ) {
-            Column(Modifier.fillMaxSize().padding(20.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (shownCover != null) {
                         LocalMediaImage(
@@ -259,6 +265,9 @@ fun BgMusicPreviewScreen(
                             )
                         }
                     }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.bgmusic_close), tint = palette.textSecondary)
+                    }
                 }
                 manifest?.description?.takeIf { it.isNotBlank() }?.let { description ->
                     Spacer(Modifier.height(10.dp))
@@ -279,7 +288,7 @@ fun BgMusicPreviewScreen(
                     }
                     Text(statusText, color = palette.textSecondary, fontSize = 13.sp)
                     Spacer(Modifier.height(6.dp))
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                    LazyColumn(Modifier.weight(1f, fill = false).fillMaxWidth()) {
                         items(manifest.tracks, key = { it.id }) { track ->
                             TrackRow(
                                 track = track,
@@ -328,13 +337,8 @@ fun BgMusicPreviewScreen(
                         fontSize = 14.sp,
                     )
                 }
-                Spacer(Modifier.height(4.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) {
-                        Text(stringResource(R.string.bgmusic_close))
-                    }
-                }
             }
+        }
         }
     }
 
@@ -397,7 +401,11 @@ private fun TrackRow(
     onAdd: () -> Unit,
 ) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    val unavailableLabel = if (!available && !searching) stringResource(R.string.bgmusic_track_unavailable) else null
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            .then(if (unavailableLabel != null) Modifier.semantics { stateDescription = unavailableLabel } else Modifier)
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
@@ -423,17 +431,13 @@ private fun TrackRow(
                 Spacer(Modifier.width(8.dp))
                 Text(bgMusicDurationText(track.durationSec), color = palette.textSecondary, fontSize = 12.sp)
             }
-        }
-        when {
-            available -> TextButton(onClick = onAdd) {
-                Text(stringResource(R.string.bgmusic_add_to_playlist), fontSize = 13.sp)
+            if (unavailableLabel != null) {
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Rounded.Block, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(18.dp))
             }
-            !searching -> Text(
-                stringResource(R.string.bgmusic_track_unavailable),
-                color = palette.textSecondary,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(start = 12.dp, top = 2.dp),
-            )
+        }
+        if (available) TextButton(onClick = onAdd) {
+            Text(stringResource(R.string.bgmusic_add_to_playlist), fontSize = 13.sp)
         }
     }
 }
