@@ -2479,4 +2479,6 @@
     <string name="share_unavailable_recipient">Один или несколько получателей недоступны. Снимите их выделение.</string>
     <string name="share_remove_caption">Скрыть подпись медиа</string>
     <string name="share_send_count">Отправить (%1$d)</string>
+    <string name="share_add_recipient">Добавить получателя</string>
+    <string name="share_delivery_progress">Отправлено получателям: %1$d из %2$d. Остались неотправленные части.</string>
 </resources>

@@ -884,4 +884,6 @@
     <string name="share_unavailable_recipient">Ein oder mehrere Empfänger sind nicht verfügbar. Entferne sie aus der Auswahl.</string>
     <string name="share_remove_caption">Medienbeschriftung ausblenden</string>
     <string name="share_send_count">Senden (%1$d)</string>
+    <string name="share_add_recipient">Empfänger hinzufügen</string>
+    <string name="share_delivery_progress">An %1$d von %2$d Empfängern gesendet. Einige Teile stehen noch aus.</string>
 </resources>

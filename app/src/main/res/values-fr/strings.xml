@@ -910,4 +910,6 @@
     <string name="share_unavailable_recipient">Un ou plusieurs destinataires ne sont pas disponibles. Retirez-les de la sélection.</string>
     <string name="share_remove_caption">Masquer la légende du média</string>
     <string name="share_send_count">Envoyer (%1$d)</string>
+    <string name="share_add_recipient">Ajouter un destinataire</string>
+    <string name="share_delivery_progress">Envoyé à %1$d destinataires sur %2$d. Certains éléments restent à envoyer.</string>
 </resources>

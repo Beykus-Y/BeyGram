@@ -469,7 +469,10 @@ internal class TdConversationActions(
             }
         }) }
         // A scheduled album belongs to TDLib's schedule queue, not to the visible chat history.
-        messages.messages.orEmpty().filterNotNull().filter { it.schedulingState == null }.forEach { message -> history.put(map(message)); hydrateReply(message) }
+        val returned = messages.messages.orEmpty()
+        returned.filterNotNull().filter { it.schedulingState == null }.forEach { message -> history.put(map(message)); hydrateReply(message) }
+        if (options.shareDelivery && (returned.size != media.size || returned.any { it == null }))
+            throw com.beykus.beygram.share.ShareOutcomeUncertainException()
     }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
 
     suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L): Result<PinnedMessagePage> = conversationResult {

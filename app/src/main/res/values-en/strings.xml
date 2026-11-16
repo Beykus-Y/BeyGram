@@ -884,4 +884,6 @@
     <string name="share_unavailable_recipient">One or more recipients are unavailable. Remove them from the selection.</string>
     <string name="share_remove_caption">Hide media caption</string>
     <string name="share_send_count">Send (%1$d)</string>
+    <string name="share_add_recipient">Add recipient</string>
+    <string name="share_delivery_progress">Sent to %1$d of %2$d recipients. Some parts remain unsent.</string>
 </resources>

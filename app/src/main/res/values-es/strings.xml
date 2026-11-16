@@ -884,4 +884,6 @@
     <string name="share_unavailable_recipient">Uno o varios destinatarios no están disponibles. Quítalos de la selección.</string>
     <string name="share_remove_caption">Ocultar el pie del archivo multimedia</string>
     <string name="share_send_count">Enviar (%1$d)</string>
+    <string name="share_add_recipient">Añadir destinatario</string>
+    <string name="share_delivery_progress">Enviado a %1$d de %2$d destinatarios. Quedan partes por enviar.</string>
 </resources>

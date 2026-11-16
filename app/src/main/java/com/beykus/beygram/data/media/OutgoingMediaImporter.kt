@@ -298,6 +298,30 @@ internal class OutgoingMediaImporter(context: Context, private val accountId: St
         } finally { if (thumb !== bitmap) thumb.recycle() }
     }
 
+    /**
+     * Independent ownership for a single delivery. Copy encoded bytes without recompression;
+     * TDLib/upload cleanup must never remove the share session's master copy.
+     */
+    suspend fun copyForShareDelivery(media: OutgoingMedia): OutgoingMedia = withContext(Dispatchers.IO) {
+        require(media.remoteFileId == 0 && File(media.path).isFile)
+        val directory = newUploadDirectory()
+        try {
+            val source = File(media.path)
+            val destination = directory.resolve(source.name)
+            source.inputStream().use { from -> destination.outputStream().use { to -> copyActive(from, to) } }
+            val thumbnail = media.thumbnailPath?.let { path ->
+                val thumb = File(path)
+                directory.resolve("share-thumbnail").apply { check(mkdirs()) }.resolve(thumb.name).also { copy ->
+                    thumb.inputStream().use { from -> copy.outputStream().use { to -> copyActive(from, to) } }
+                }
+            }
+            media.copy(path = destination.absolutePath, thumbnailPath = thumbnail?.absolutePath)
+        } catch (error: Throwable) {
+            directory.deleteRecursively()
+            throw error
+        }
+    }
+
     private fun newUploadDirectory(): File = uploads.resolve(UUID.randomUUID().toString()).apply {
         if (!mkdirs()) throw UserMessageException(UiText.Res(R.string.err_media_directory_failed))
         try { markUploadDirectoryOwner(this, accountId) }

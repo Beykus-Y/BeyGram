@@ -21,7 +21,9 @@ data class MessageSendOptions(
     /** Sends text without a web-page preview; used for the hidden service links that carry no page worth showing. */
     val disableLinkPreview: Boolean = false,
     /** ForwardMessages only; removing a media caption implicitly sends a copy without author. */
-    val removeForwardCaption: Boolean = false
+    val removeForwardCaption: Boolean = false,
+    /** Share sessions must not retry a partially acknowledged album blindly. */
+    val shareDelivery: Boolean = false
 ) {
     companion object {
         /**
