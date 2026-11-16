@@ -107,7 +107,7 @@ internal fun ShareTargetScreen(
     // TDLib chat list arrives asynchronously on a cold start: apply the Direct Share
     // target only when it becomes an actual writable chat. Never override user choice.
     LaunchedEffect(initialChatId, directory.chats) {
-        if (!shortcutApplied && targetId == 0L && initialChatId != 0L &&
+        if (!shortcutApplied && !session.deliveryStarted && targetId == 0L && initialChatId != 0L &&
             directory.chats.any { it.id == initialChatId && it.canPost }) {
             targetId = initialChatId
             shortcutApplied = true
@@ -133,17 +133,17 @@ internal fun ShareTargetScreen(
     }
     val destinations = if (session.deliveryStarted) session.selectedDestinations else
         (session.selectedDestinations + listOfNotNull(currentDestination)).distinctBy { it.chatId to it.topicId }
-    val canSend = !session.sending && !session.staging && !session.stagingFailed && !session.retryBlocked && !tooLong &&
+    val canSend = !session.sending && !session.staging && !session.stagingFailed && !session.invalidFileCount && !session.retryBlocked && !tooLong &&
         destinations.isNotEmpty() && (session.deliveryStarted || destinations.all { destination ->
             directory.chats.any { it.id == destination.chatId && it.canPost }
         }) &&
         (session.staged.isNotEmpty() || session.draft.isNotBlank())
 
     val validateDestination: suspend (ShareDestination) -> Result<Unit> = { destination ->
-        val current = recipientRepository?.let { repository ->
-            (repository.chats.value + repository.archivedChats.value + repository.folderChats.value.values.flatten())
+        val current = if (recipientRepository != null) {
+            (recipientRepository.chats.value + recipientRepository.archivedChats.value + recipientRepository.folderChats.value.values.flatten())
                 .firstOrNull { it.id == destination.chatId }
-        } ?: directory.chats.firstOrNull { it.id == destination.chatId }
+        } else directory.chats.firstOrNull { it.id == destination.chatId }
         if (current?.canPost != true) Result.failure(UserMessageException(UiText.Res(R.string.share_unavailable_recipient)))
         else loadTopics(destination.chatId).mapCatching { loaded ->
             if (loaded == null && destination.topicId != 0L ||
@@ -340,7 +340,7 @@ internal fun ShareTargetScreen(
                         onClick = { session.send(destinations, appScope, validateDestination, sendText, sendMedia) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(stringResource(R.string.share_send_count, destinations.size))
+                        Text(stringResource(R.string.share_send_count, if (session.deliveryStarted) session.pendingDestinations.size else destinations.size))
                     }
                 }
             }

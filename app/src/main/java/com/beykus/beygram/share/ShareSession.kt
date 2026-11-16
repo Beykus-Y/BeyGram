@@ -7,9 +7,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
-import com.beykus.beygram.diagnostics.recordAppEvent
-import com.beykus.beygram.diagnostics.report.EventKind
-import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MediaKind
@@ -58,6 +55,8 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     /** Подготовка файлов не удалась: её можно повторить на месте, без нового запроса из «Поделиться». */
     var stagingFailed by mutableStateOf(false)
     private var started = false
+    var invalidFileCount by mutableStateOf(false)
+        private set
     private var released = false
     private var importer: OutgoingMediaImporter? = null
 
@@ -83,6 +82,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     private suspend fun stage(importer: OutgoingMediaImporter, context: Context, scope: CoroutineScope) {
         if (uris.size > IncomingShareParser.MAX_FILES) {
             error = UiText.Res(R.string.composer_too_many_attachments)
+            invalidFileCount = true
             staging = false
             return
         }
@@ -106,7 +106,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     }
 
     /**
-     * Отправляет подготовленные файлы или текст. [topicId] — тема группы с темами, 0 для остальных чатов.
+     * Отправляет подготовленные файлы или текст в выбранные чаты и темы.
      * Отправка идёт в [scope], переживает поворот экрана и не запускается дважды.
      */
     fun send(
@@ -116,7 +116,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         sendText: suspend (chatId: Long, topicId: Long, text: String) -> Result<Unit>,
         sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>
     ) {
-        if (sending || sent || retryBlocked || staging || stagingFailed || released) return
+        if (sending || sent || retryBlocked || staging || stagingFailed || invalidFileCount || released) return
         if (ledger == null) {
             if (destinations.isEmpty() || (staged.isEmpty() && draft.isBlank())) return
             frozenDraft = draft.trim()
@@ -159,7 +159,10 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
                                 Result.failure(failure)
                             }
                             if (preparation.isFailure) preparation
-                            else {
+                            else if (released) {
+                                copies.forEach { owner.discard(it) }
+                                break
+                            } else {
                                 // From this point TDLib owns these paths, even when its response is uncertain.
                                 sendMedia(destination.chatId, destination.topicId, copies, if (index == 0) frozenDraft else "")
                             }
