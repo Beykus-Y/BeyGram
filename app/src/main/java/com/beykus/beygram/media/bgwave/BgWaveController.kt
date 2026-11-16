@@ -75,6 +75,7 @@ class BgWaveController(
     private val decode: (uri: String, nowSeconds: Long) -> BgWaveDecodeResult,
     private val encodeControl: (type: Int, sidHex: String, nowSeconds: Long, nonce: Long) -> String,
     private val maxInvites: Int = 50,
+    private val maxClosed: Int = MAX_CLOSED,
 ) {
     private val lock = Any()
     private var session: BgWaveSessionPort? = null
@@ -85,8 +86,18 @@ class BgWaveController(
     private val invites = LinkedHashMap<String, BgWaveInvite>()
     /** Highest nonce accepted per session and direction; a repeat or an older one is a replay. */
     private val lastNonce = HashMap<String, Long>()
-    /** Sessions that ended or were cancelled; bounded FIFO so long-running sessions cannot grow it unboundedly. */
-    private val closed = LinkedHashSet<String>()
+    /**
+     * Sessions that ended or were cancelled, each with the time until which it must be remembered (its offer expiry plus
+     * clock skew). Only expired tombstones are ever dropped; when the table is full of live ones, new invitations are
+     * refused instead, so an unexpired OFFER can never revive a closed session.
+     */
+    private val closed = LinkedHashMap<String, Long>()
+    /** Latest clock reading seen by any entry point; used as the base for tombstones whose offer expiry is unknown. */
+    private var lastNow = 0L
+    /** Telegram message of an OFFER (received or sent) to the wave session it carries. */
+    private val offerMessages = LinkedHashMap<Triple<String, Long, Long>, String>()
+    /** Per peer (account and sender): when its recent new invitations arrived, for the rate limit. */
+    private val peerInvites = HashMap<String, ArrayDeque<Long>>()
 
     private val _state = MutableStateFlow<BgWaveSessionState?>(null)
     val state: StateFlow<BgWaveSessionState?> = _state.asStateFlow()
@@ -100,6 +111,7 @@ class BgWaveController(
      */
     fun startHosting(accountId: String, chatId: Long, peerId: Long, nowSeconds: Long): String? {
         val gen = synchronized(lock) {
+            tick(nowSeconds)
             if (starting) return fail(BgWaveErrors.BUSY, keepSession = true)
             if (session != null) {
                 val previousPhase = _state.value?.phase
@@ -184,7 +196,9 @@ class BgWaveController(
         privateChat: Boolean,
         uri: String,
         nowSeconds: Long,
+        messageId: Long = 0L,
     ): Unit = synchronized(lock) {
+        tick(nowSeconds)
         if (!privateChat || outgoing) {
             BgWaveLog.i("msg.ignored", "reason" to (if (outgoing) "outgoing" else "not-private"))
             return
@@ -198,7 +212,7 @@ class BgWaveController(
             return
         }
         BgWaveLog.i("msg.received", "type" to msg.type, "sid" to BgWaveLog.sid(msg.sidHex))
-        if (msg.sidHex in closed) return
+        if (closed.containsKey(msg.sidHex)) return
         // A signal for a session this device never heard of is dropped, so strangers cannot fill the nonce table.
         if (msg.type != TYPE_OFFER && !invites.containsKey(msg.sidHex) && _state.value?.sidHex != msg.sidHex) {
             BgWaveLog.i("msg.unknown-session", "sid" to BgWaveLog.sid(msg.sidHex))
@@ -217,7 +231,7 @@ class BgWaveController(
             return
         }
         when (msg.type) {
-            TYPE_OFFER -> onOffer(accountId, chatId, senderId, uri, msg, nowSeconds)
+            TYPE_OFFER -> onOffer(accountId, chatId, senderId, uri, msg, nowSeconds, messageId)
             TYPE_ANSWER -> onAnswer(accountId, chatId, senderId, uri, msg, nowSeconds)
             TYPE_CANCEL, TYPE_END -> onTeardown(accountId, chatId, senderId, msg)
             else -> Unit
@@ -227,6 +241,7 @@ class BgWaveController(
     /** Listener taps «Присоединиться». Returns the https ANSWER link to send, or null with the reason in [state]. */
     fun join(sidHex: String, nowSeconds: Long): String? {
         val (invite, gen) = synchronized(lock) {
+            tick(nowSeconds)
             val found = invites[sidHex]
             if (found == null || found.status != BgWaveInviteStatus.Pending) return null
             if (starting) return fail(BgWaveErrors.BUSY, keepSession = true)
@@ -311,6 +326,7 @@ class BgWaveController(
      * (the invitation is unknown or already settled).
      */
     fun decline(sidHex: String, nowSeconds: Long): String? = synchronized(lock) {
+        tick(nowSeconds)
         val invite = invites[sidHex] ?: return null
         if (invite.status != BgWaveInviteStatus.Pending) return null
         markClosed(sidHex)
@@ -324,6 +340,7 @@ class BgWaveController(
      * nothing is running. The wave is closed either way.
      */
     fun stop(nowSeconds: Long): String? = synchronized(lock) {
+        tick(nowSeconds)
         val current = _state.value ?: run {
             if (starting) {
                 generation++
@@ -403,6 +420,7 @@ class BgWaveController(
 
     /** Polls the native session; call about once a second while a wave is running. Returns outbound links to send. */
     fun poll(nowSeconds: Long): List<String> = synchronized(lock) {
+        tick(nowSeconds)
         val current = _state.value ?: return emptyList()
         val active = session ?: return emptyList()
         if (current.phase == BgWavePhase.AwaitingAnswer && offerExpiresAt > 0L && nowSeconds >= offerExpiresAt) {
@@ -457,6 +475,8 @@ class BgWaveController(
         invites.clear()
         lastNonce.clear()
         closed.clear()
+        offerMessages.clear()
+        peerInvites.clear()
         _invites.value = emptyMap()
     }
 
@@ -466,6 +486,7 @@ class BgWaveController(
         if (removed.isNotEmpty()) {
             for (sidHex in removed) {
                 invites.remove(sidHex)
+                forgetOfferMessages(sidHex)
                 lastNonce.keys.removeAll { it.startsWith("$sidHex:") }
             }
             _invites.update { invites.toMap() }
@@ -548,7 +569,7 @@ class BgWaveController(
         val aborted = synchronized(lock) {
             val latestInvite = invites[sidHex]
             if (generation != gen || !starting || session != null ||
-                latestInvite == null || latestInvite.status != BgWaveInviteStatus.Pending || sidHex in closed
+                latestInvite == null || latestInvite.status != BgWaveInviteStatus.Pending || closed.containsKey(sidHex)
             ) {
                 if (generation == gen && starting) {
                     starting = false
@@ -578,7 +599,9 @@ class BgWaveController(
 
     // The private handlers below run with [lock] held.
 
-    private fun onOffer(accountId: String, chatId: Long, senderId: Long, uri: String, msg: BgWaveDecodeResult.Ok, nowSeconds: Long) {
+    private fun onOffer(
+        accountId: String, chatId: Long, senderId: Long, uri: String, msg: BgWaveDecodeResult.Ok, nowSeconds: Long, messageId: Long,
+    ) {
         val current = _state.value
         val active = session
         if (current != null && current.sidHex == msg.sidHex) {
@@ -592,7 +615,12 @@ class BgWaveController(
             }
             return
         }
-        rememberInvite(accountId, chatId, senderId, uri, msg)
+        rememberInvite(accountId, chatId, senderId, uri, msg, nowSeconds)
+        val remembered = invites[msg.sidHex]
+        if (messageId != 0L && remembered != null && remembered.accountId == accountId &&
+            remembered.chatId == chatId && remembered.senderId == senderId) {
+            rememberOfferMessage(accountId, chatId, messageId, msg.sidHex)
+        }
     }
 
     private fun onAnswer(accountId: String, chatId: Long, senderId: Long, uri: String, msg: BgWaveDecodeResult.Ok, nowSeconds: Long) {
@@ -635,12 +663,29 @@ class BgWaveController(
         _state.value = current.copy(phase = BgWavePhase.Ended)
     }
 
-    private fun rememberInvite(accountId: String, chatId: Long, senderId: Long, uri: String, msg: BgWaveDecodeResult.Ok) {
+    private fun rememberInvite(accountId: String, chatId: Long, senderId: Long, uri: String, msg: BgWaveDecodeResult.Ok, nowSeconds: Long) {
         if (invites.containsKey(msg.sidHex)) return
+        pruneClosed()
+        if (closed.size >= maxClosed) {
+            BgWaveLog.w("invite.refused", null, "reason" to "tombstones-full", "sid" to BgWaveLog.sid(msg.sidHex))
+            return
+        }
+        val peerKey = "$accountId:$senderId"
+        val recent = peerInvites.getOrPut(peerKey) { ArrayDeque() }
+        while (recent.isNotEmpty() && recent.first() <= nowSeconds - PEER_INVITE_WINDOW_SECONDS) recent.removeFirst()
+        if (recent.size >= MAX_PEER_INVITES) {
+            BgWaveLog.w("invite.rate-limited", null, "sid" to BgWaveLog.sid(msg.sidHex))
+            return
+        }
+        recent.addLast(nowSeconds)
+        if (peerInvites.size > MAX_PEER_KEYS) {
+            peerInvites.entries.removeAll { entry -> entry.value.isEmpty() || entry.value.last() <= nowSeconds - PEER_INVITE_WINDOW_SECONDS }
+        }
         while (invites.size >= maxInvites) {
             val eldest = invites.keys.first()
+            markClosed(eldest)
             invites.remove(eldest)
-            lastNonce.keys.removeAll { it.startsWith("$eldest:") }
+            forgetOfferMessages(eldest)
         }
         setInvite(msg.sidHex, BgWaveInvite(accountId, chatId, senderId, uri, msg.expiresAt, BgWaveInviteStatus.Pending))
     }
@@ -650,15 +695,78 @@ class BgWaveController(
         _invites.update { invites.toMap() }
     }
 
-    private fun markClosed(sidHex: String) {
-        if (sidHex.isEmpty() || closed.contains(sidHex)) return
-        while (closed.size >= MAX_CLOSED) {
-            val eldest = closed.iterator().next()
-            closed.remove(eldest)
-            if (!invites.containsKey(eldest)) lastNonce.keys.removeAll { it.startsWith("$eldest:") }
-        }
-        closed.add(sidHex)
+    private fun tick(nowSeconds: Long) {
+        if (nowSeconds > lastNow) lastNow = nowSeconds
     }
+
+    /** Remembers [sidHex] as closed until its offer is expired for good. The table is bounded by refusing new invitations. */
+    private fun markClosed(sidHex: String) {
+        if (sidHex.isEmpty() || closed.containsKey(sidHex)) return
+        pruneClosed()
+        val offerExpiry = invites[sidHex]?.expiresAt
+            ?: offerExpiresAt.takeIf { it > 0L && _state.value?.sidHex == sidHex }
+            ?: (lastNow + OFFER_TTL_SECONDS)
+        closed[sidHex] = offerExpiry + CLOCK_SKEW_SECONDS
+    }
+
+    /** Drops only tombstones whose offer can no longer be accepted by the decoder. */
+    private fun pruneClosed() {
+        if (closed.isEmpty()) return
+        val iterator = closed.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (entry.value > lastNow) continue
+            iterator.remove()
+            if (!invites.containsKey(entry.key)) lastNonce.keys.removeAll { key -> key.startsWith("${entry.key}:") }
+        }
+    }
+
+    private fun rememberOfferMessage(accountId: String, chatId: Long, messageId: Long, sidHex: String) {
+        offerMessages[Triple(accountId, chatId, messageId)] = sidHex
+        while (offerMessages.size > MAX_OFFER_MESSAGES) offerMessages.remove(offerMessages.keys.first())
+    }
+
+    private fun forgetOfferMessages(sidHex: String) {
+        offerMessages.values.removeAll { it == sidHex }
+    }
+
+    /** Remembers that the OFFER of [sidHex] is the Telegram message [messageId], so deleting or editing it can retire the offer. */
+    fun noteOfferMessage(accountId: String, chatId: Long, messageId: Long, sidHex: String): Unit = synchronized(lock) {
+        if (messageId == 0L || sidHex.isEmpty()) return
+        rememberOfferMessage(accountId, chatId, messageId, sidHex)
+    }
+
+    fun hasOfferMessage(accountId: String, chatId: Long, messageId: Long): Boolean =
+        synchronized(lock) { offerMessages.containsKey(Triple(accountId, chatId, messageId)) }
+
+    /**
+     * An OFFER message was deleted, or edited so it no longer carries a valid offer ([stillValidSidHex] is the session the
+     * message carries now, or null). A pending invitation is retired and a host offer nobody answered yet is cancelled
+     * locally. A session that is already connecting or live is independent of the message and is left alone.
+     */
+    fun onOfferMessageGone(accountId: String, chatId: Long, messageId: Long, stillValidSidHex: String?, nowSeconds: Long): Unit =
+        synchronized(lock) {
+            tick(nowSeconds)
+            val key = Triple(accountId, chatId, messageId)
+            val sid = offerMessages[key] ?: return
+            if (sid == stillValidSidHex) return
+            offerMessages.remove(key)
+            BgWaveLog.i("offer.message.gone", "sid" to BgWaveLog.sid(sid))
+            val invite = invites[sid]
+            if (invite != null && invite.accountId == accountId && invite.chatId == chatId &&
+                invite.status == BgWaveInviteStatus.Pending) {
+                markClosed(sid)
+                setInvite(sid, invite.copy(status = BgWaveInviteStatus.Cancelled))
+            }
+            val current = _state.value ?: return
+            if (!starting && current.sidHex == sid && current.role == BgWaveRole.Host &&
+                current.accountId == accountId && current.chatId == chatId &&
+                (current.phase == BgWavePhase.Offering || current.phase == BgWavePhase.AwaitingAnswer)) {
+                markClosed(sid)
+                closeSession(emitEnd = false, nowSeconds = nowSeconds)
+                _state.value = current.copy(phase = BgWavePhase.Ended, errorKey = null)
+            }
+        }
 
     private fun acceptNonce(sidHex: String, type: Int, nonce: Long): Boolean {
         val key = "$sidHex:$type"
@@ -716,6 +824,13 @@ class BgWaveController(
         private const val ABORT_CANCEL_NONCE = 3L
         private const val MAX_POLLED = 8
         private const val MAX_CLOSED = 512
+        private const val MAX_OFFER_MESSAGES = 256
+        private const val MAX_PEER_KEYS = 256
+        /** Added to an offer's expiry before its tombstone may be dropped; matches the decoder's tolerated clock skew. */
+        const val CLOCK_SKEW_SECONDS = 300L
+        /** At most this many new invitations per peer within [PEER_INVITE_WINDOW_SECONDS]; the rest are ignored. */
+        const val MAX_PEER_INVITES = 5
+        const val PEER_INVITE_WINDOW_SECONDS = 600L
 
         /** Maps exact native pipeline state names onto the phase the UI shows. Unknown names change nothing. */
         internal fun phaseOf(nativeState: String, fallback: BgWavePhase): BgWavePhase =

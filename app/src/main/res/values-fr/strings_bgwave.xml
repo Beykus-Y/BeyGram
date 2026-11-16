@@ -41,4 +41,5 @@
     <string name="bgwave_listener_notification_title">Vous écoutez une vague</string>
     <string name="bgwave_listener_notification_text">Le son continue, écran éteint</string>
     <string name="bgwave_listener_notification_stop">Quitter</string>
+    <string name="bgwave_chat_preview">Écoute partagée</string>
 </resources>
