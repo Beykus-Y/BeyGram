@@ -37,4 +37,8 @@
     <string name="bgwave_share_confirm_send">Envoyer</string>
     <string name="bgwave_share_confirm_cancel">Annuler</string>
     <string name="bgwave_mini_title">Onde</string>
+    <string name="bgwave_listener_channel_name">Écoute partagée</string>
+    <string name="bgwave_listener_notification_title">Vous écoutez une vague</string>
+    <string name="bgwave_listener_notification_text">Le son continue, écran éteint</string>
+    <string name="bgwave_listener_notification_stop">Quitter</string>
 </resources>
