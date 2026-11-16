@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -75,6 +76,8 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ArchiveSettings
 import com.beykus.beygram.domain.model.AuthState
 import com.beykus.beygram.domain.model.ChatInvitePreview
+import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForumTopicIcon
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageTextEntity
 import com.beykus.beygram.domain.model.TelegramConnectionState
@@ -133,6 +136,7 @@ import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
+import com.beykus.beygram.ui.screens.chat.ForumTopicsFailureScreen
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.chats.ChatsDetailPlaceholder
 import com.beykus.beygram.ui.screens.chats.ChatsTwoPaneScaffold
@@ -1552,6 +1556,7 @@ private fun BeyGramAppContent(
                         onIncomingShareHandled(incomingShare.requestId)
                         selectedTopicChatId = chatId
                         selectedForumTopicId = topicId
+                        trustedForumTopicId = topicId
                         selectedChatId = chatId
                         linkReturnChatId = 0L
                         chatBackRouteName = AppRoute.Chats.name
@@ -1881,8 +1886,13 @@ private fun BeyGramAppContent(
                 mutableStateOf<Result<com.beykus.beygram.domain.model.ForumTopicsPage?>?>(null)
             }
             // A topic found through server search may not be in the loaded pages yet. Keep the tapped row so the
-            // chat header still has its title, icon and closed state while the background list catches up.
-            var selectedTopicSnapshot by remember(repository, selectedChatId) {
+            // chat header still has its title, icon and closed state while the background list catches up, including
+            // across configuration changes.
+            var selectedTopicSnapshot by rememberSaveable(
+                selectedAccountId,
+                selectedChatId,
+                stateSaver = ForumTopicHeaderSaver
+            ) {
                 mutableStateOf<com.beykus.beygram.domain.model.ForumTopic?>(null)
             }
             // A removed topic or a forum turned into a regular group must fall back to the parent chat.
@@ -1935,11 +1945,30 @@ private fun BeyGramAppContent(
                     } finally { forumBusy = false }
                 }
             }
+            /** Same action path, but reports the outcome so the name dialog can close on success or keep the input. */
+            fun forumActionWithResult(action: suspend () -> Result<Unit>, onResult: (String?) -> Unit) {
+                if (forumBusy) {
+                    onResult(context.getString(R.string.forum_action_failed))
+                    return
+                }
+                forumBusy = true; forumActionError = null
+                forumScope.launch {
+                    var error: String? = null
+                    try {
+                        if (action().isSuccess) topicsReload++
+                        else error = context.getString(R.string.forum_action_failed)
+                    } finally {
+                        forumBusy = false
+                        forumActionError = error
+                        onResult(error)
+                    }
+                }
+            }
             LaunchedEffect(repository, selectedChatId, topicsReload) {
                 topicsLoading = true
                 topicsLoadError = false
                 try {
-                    // No total cap: every TDLib page has its own request timeout, so a large but slow forum is not reported as failed.
+                    // The page cap is a safety stop, not a failure: isComplete stays false so the header can say the load is partial.
                     val completed = repository.forumTopicsPage(selectedChatId) { partial ->
                         // The user can open a topic as soon as the first page arrives. A reload merges into the list on
                         // screen, so a retry does not shrink it to the first page.
@@ -1987,13 +2016,13 @@ private fun BeyGramAppContent(
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile
                 )
-                topicsResult?.isFailure == true && activeTopicId == 0L -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(stringResource(R.string.forum_topics_load_failed))
-                        Text(stringResource(R.string.forum_topics_load_failed_hint))
-                        TextButton(onClick = { topicsReload++ }) { Text(stringResource(R.string.common_retry)) }
-                    }
-                }
+                topicsResult?.isFailure == true && activeTopicId == 0L -> ForumTopicsFailureScreen(
+                    chat = chat,
+                    onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName },
+                    onRetry = { topicsReload++ },
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile
+                )
                 topics != null && activeTopicId == 0L -> ForumTopicsScreen(
                     accountId = selectedAccountId,
                     chatId = selectedChatId,
@@ -2024,33 +2053,49 @@ private fun BeyGramAppContent(
                         trustedForumTopicId = topic.id
                         selectedTopicSnapshot = topic
                     },
-                    onCreate = { name ->
+                    onCreate = { name, done ->
                         if (!forumBusy) {
+                            // The user may switch chats while the request is in flight; never apply the new id elsewhere.
+                            val targetChatId = selectedChatId
+                            val targetAccountId = selectedAccountId
                             forumBusy = true; forumActionError = null
                             forumScope.launch {
+                                var error: String? = null
                                 try {
-                                    repository.createForumTopic(selectedChatId, name)
+                                    repository.createForumTopic(targetChatId, name)
                                         .onSuccess { newId ->
-                                            selectedTopicChatId = selectedChatId
-                                            selectedForumTopicId = newId
-                                            // Open the newly created topic at once; the list reload catches up in the background.
-                                            trustedForumTopicId = newId
-                                            selectedTopicSnapshot = com.beykus.beygram.domain.model.ForumTopic(
-                                                id = newId,
-                                                title = name,
-                                                canWrite = true,
-                                                canManage = true,
-                                                canPin = true,
-                                                isOutgoing = true
-                                            )
-                                            topicsReload++
+                                            if (selectedAccountId == targetAccountId && selectedChatId == targetChatId) {
+                                                selectedTopicChatId = targetChatId
+                                                selectedForumTopicId = newId
+                                                // Open the newly created topic at once; the list reload catches up later.
+                                                trustedForumTopicId = newId
+                                                selectedTopicSnapshot = com.beykus.beygram.domain.model.ForumTopic(
+                                                    id = newId,
+                                                    title = name,
+                                                    canWrite = true,
+                                                    canManage = true,
+                                                    canPin = true,
+                                                    isOutgoing = true
+                                                )
+                                                topicsReload++
+                                            }
                                         }
-                                        .onFailure { forumActionError = context.getString(R.string.forum_action_failed) }
-                                } finally { forumBusy = false }
+                                        .onFailure { error = context.getString(R.string.forum_action_failed) }
+                                } finally {
+                                    forumBusy = false
+                                    if (selectedAccountId == targetAccountId && selectedChatId == targetChatId) {
+                                        forumActionError = error
+                                    }
+                                    done(error)
+                                }
                             }
+                        } else {
+                            done(context.getString(R.string.forum_action_failed))
                         }
                     },
-                    onRename = { topic, name -> forumAction { repository.renameForumTopic(selectedChatId, topic.id, name) } },
+                    onRename = { topic, name, done ->
+                        forumActionWithResult({ repository.renameForumTopic(selectedChatId, topic.id, name) }, done)
+                    },
                     onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(selectedChatId, topic.id, closed) } },
                     onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(selectedChatId, topic.id, pinned) } },
                     onDelete = { topic -> forumAction { repository.deleteForumTopic(selectedChatId, topic.id) } },
@@ -3410,12 +3455,47 @@ private data class DeepLinkProxyPrompt(
         "DeepLinkProxyPrompt(token=$token, account=$accountId, server=${draft.server}:${draft.port})"
 }
 
-/** Fresh topics first, then topics already on screen that a reload has not returned yet. */
+/** Only the header fields are persisted; the list reload restores the rest of the topic. */
+private val ForumTopicHeaderSaver = listSaver<ForumTopic?, Any?>(
+    save = { topic ->
+        if (topic == null) emptyList() else listOf(
+            topic.id,
+            topic.title,
+            topic.isGeneral,
+            topic.isNameImplicit,
+            topic.isClosed,
+            topic.canWrite,
+            topic.unreadCount,
+            topic.icon?.colorArgb ?: 0,
+            topic.icon?.customEmojiId ?: 0L
+        )
+    },
+    restore = { values ->
+        if (values.isEmpty()) null else ForumTopic(
+            id = values[0] as Long,
+            title = values[1] as String,
+            isGeneral = values[2] as Boolean,
+            isNameImplicit = values[3] as Boolean,
+            isClosed = values[4] as Boolean,
+            canWrite = values[5] as Boolean,
+            unreadCount = values[6] as Int,
+            icon = ForumTopicIcon(
+                colorArgb = values[7] as Int,
+                customEmojiId = values[8] as Long
+            )
+        )
+    }
+)
+
+/**
+ * Fresh topics first, then topics already on screen that an incomplete reload has not returned yet. A complete page is
+ * the server's final answer: dropping stale rows there is what makes a deleted topic disappear immediately.
+ */
 private fun mergeForumTopics(
     shown: com.beykus.beygram.domain.model.ForumTopicsPage?,
     fresh: com.beykus.beygram.domain.model.ForumTopicsPage
 ): com.beykus.beygram.domain.model.ForumTopicsPage {
-    if (shown == null || shown.topics.isEmpty()) return fresh
+    if (fresh.isComplete || shown == null || shown.topics.isEmpty()) return fresh
     val freshIds = fresh.topics.mapTo(HashSet()) { it.id }
     return fresh.copy(topics = fresh.topics + shown.topics.filter { it.id !in freshIds })
 }

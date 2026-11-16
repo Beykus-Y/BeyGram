@@ -3107,12 +3107,9 @@ private fun ChatTopBar(
                 }
                 Spacer(Modifier.width(if (compact) 10.dp else 12.dp))
                 // At a large font the compact line gives up the status before it cuts the title.
-                val statusInline = compact && LocalDensity.current.fontScale < 1.3f
-                val topicTitle = forumTopic?.let { topic ->
-                    topic.title.ifBlank {
-                        stringResource(if (topic.isGeneral) R.string.forum_topic_general else R.string.forum_topic_regular)
-                    }
-                }
+                // The parent group is the topic's only context; it keeps its own line even in the compact header.
+                val statusInline = compact && forumTopic == null && LocalDensity.current.fontScale < 1.3f
+                val topicTitle = forumTopic?.let { forumTopicDisplayTitle(it) }
                 val titleText = topicTitle ?: forumTopicTitle?.takeIf { it.isNotBlank() } ?: chat.title
                 val titleRow: @Composable () -> Unit = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -3149,7 +3146,7 @@ private fun ChatTopBar(
                 }
                 Column(Modifier.weight(1f)) {
                     titleRow()
-                    if (!compact) {
+                    if (!compact || forumTopic != null) {
                         Text(
                             statusText,
                             color = palette.textSecondary,

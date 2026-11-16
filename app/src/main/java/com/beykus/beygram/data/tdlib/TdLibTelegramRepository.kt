@@ -56,6 +56,7 @@ import com.beykus.beygram.domain.model.BotWebAppTheme
 import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.MusicBotTrack
 import com.beykus.beygram.domain.model.SavedMusicBotTrack
+import com.beykus.beygram.domain.model.ForumTopicLastMessage
 import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.GroupAdministratorRights
 import com.beykus.beygram.domain.model.GroupInviteLink
@@ -1547,8 +1548,8 @@ class TdLibTelegramRepository private constructor(
     }
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
+        mapLastMessage = { it.toForumTopicLastMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) },
-        senderName = profiles::senderName,
         stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
     private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
@@ -2603,7 +2604,7 @@ class TdLibTelegramRepository private constructor(
         conversationActions.forumTopicsPage(chatId, query) { page ->
             // A partially visible topic can be opened immediately: initialize its
             // read watermark before any UI callback can navigate into that topic.
-            // This runs for every page, including the final one, exactly as for the old list API.
+            // This runs for every emitted page, including the final snapshot, before any UI callback can navigate.
             page.topics.forEach { topic ->
                 topicStore(chatId, topic.id).apply {
                     readInbox(chatId, topic.lastReadInboxMessageId)
@@ -3475,6 +3476,31 @@ class TdLibTelegramRepository private constructor(
                 returningFromArchive -= message.chatId
             }
         }
+    }
+
+    /**
+     * The topic list needs only a preview, sender and delivery state. Building a full [ChatMessage] here would register
+     * media files, resolve reactions/keyboards/link previews and hydrate service actors for every topic on every page.
+     */
+    private fun TdApi.Message.toForumTopicLastMessage(): ForumTopicLastMessage {
+        val attachment = mediaMapper.media(content)
+        val service = serviceMessages.text(content, isOutgoing)
+        val projection = forumTopicLastMessagePreview(
+            text = contentText(content, attachment != null),
+            fileName = attachment?.fileName.orEmpty(),
+            serviceText = service,
+            fallback = previewText(content)
+        )
+        return ForumTopicLastMessage(
+            messageId = id,
+            preview = projection.preview,
+            plainPreview = projection.plain,
+            senderName = profiles.senderName(senderId),
+            isOutgoing = isOutgoing,
+            dateSeconds = date.toLong(),
+            sendState = sendingState.toSendState(),
+            isService = service != null
+        )
     }
 
     private fun TdApi.Message.toChatMessage(): ChatMessage {

@@ -46,6 +46,20 @@ internal fun forumTopicIconInk(background: Color): Color =
 /** The General topic is the forum's root and cannot be deleted, even by someone who may manage topics. */
 internal fun canDeleteForumTopic(topic: ForumTopic): Boolean = topic.canManage && !topic.isGeneral
 
+/**
+ * TDLib may send the General topic with an implicit English name ("General"). The UI owns that name locally so it
+ * matches the current language, and every list/header/sheet uses the same fallback.
+ */
+@Composable
+internal fun forumTopicDisplayTitle(topic: ForumTopic): String {
+    if (topic.isGeneral && (topic.isNameImplicit || topic.title.isBlank())) {
+        return stringResource(R.string.forum_topic_general)
+    }
+    return topic.title.ifBlank {
+        stringResource(if (topic.isGeneral) R.string.forum_topic_general else R.string.forum_topic_regular)
+    }
+}
+
 /** A row-sized representation of the last message time. [Empty] is a topic whose last message time is unknown. */
 internal sealed interface ForumTopicMoment {
     data object Empty : ForumTopicMoment

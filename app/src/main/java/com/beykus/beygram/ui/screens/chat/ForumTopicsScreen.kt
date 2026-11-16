@@ -174,6 +174,43 @@ fun ForumTopicsLoadingScreen(
     }
 }
 
+/** The first topic page failed: keep the parent header, Back and a retry instead of stranding the user on a blank screen. */
+@Composable
+fun ForumTopicsFailureScreen(
+    chat: ChatPreview,
+    onBack: () -> Unit,
+    onRetry: () -> Unit,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit
+) {
+    val palette = beyGramPalette()
+    BackHandler(onBack = onBack)
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(palette.screen)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+    ) {
+        ForumTopicsHeader(
+            chat = chat,
+            subtitle = stringResource(R.string.forum_topics_load_failed_hint),
+            onBack = onBack,
+            onOpenInfo = null,
+            observeFile = observeFile,
+            downloadFile = downloadFile,
+            actions = {}
+        )
+        ForumStateMessage(
+            icon = Icons.Rounded.ErrorOutline,
+            title = stringResource(R.string.forum_topics_load_failed),
+            body = stringResource(R.string.forum_topics_load_failed_hint),
+            actionLabel = stringResource(R.string.common_retry),
+            onAction = onRetry,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
 /** The forum topic list: a dense chat-like list with in-place search, unread filtering and long-press management. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -198,8 +235,9 @@ fun ForumTopicsScreen(
     onBack: () -> Unit,
     onOpenGroupInfo: () -> Unit,
     onTopic: (ForumTopic) -> Unit,
-    onCreate: (String) -> Unit,
-    onRename: (ForumTopic, String) -> Unit,
+    /** Reports null on success or a user-visible error while keeping the dialog and its input open. */
+    onCreate: (String, (String?) -> Unit) -> Unit,
+    onRename: (ForumTopic, String, (String?) -> Unit) -> Unit,
     onClosed: (ForumTopic, Boolean) -> Unit,
     onPinned: (ForumTopic, Boolean) -> Unit,
     onDelete: (ForumTopic) -> Unit,
@@ -219,10 +257,11 @@ fun ForumTopicsScreen(
     var deleting by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
     var managing by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
     var submitting by remember(accountId, chatId) { mutableStateOf(false) }
-    var sawBusy by remember(accountId, chatId) { mutableStateOf(false) }
     var dialogError by remember(accountId, chatId) { mutableStateOf<String?>(null) }
     var searchAttempt by remember(accountId, chatId) { mutableIntStateOf(0) }
     var searchState by remember(accountId, chatId) { mutableStateOf<TopicSearchState>(TopicSearchState.Idle) }
+    var searchDebouncing by remember(accountId, chatId) { mutableStateOf(false) }
+    var searchPaging by remember(accountId, chatId) { mutableStateOf(false) }
     val normalizedQuery = query.trim()
     val searchActive = searchOpen && normalizedQuery.isNotEmpty()
     val page = remember(topics, totalCount, topicsComplete) {
@@ -251,41 +290,33 @@ fun ForumTopicsScreen(
             savedPosition.firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
         }
     }
-    LaunchedEffect(searchActive) {
+    LaunchedEffect(searchActive, normalizedQuery) {
+        // A new query starts at the top; keeping the old index would land the user in the middle of new results.
         if (searchActive) searchListState.scrollToItem(0)
     }
     LaunchedEffect(accountId, chatId, searchActive, normalizedQuery, searchAttempt) {
         if (!searchActive) {
             searchState = TopicSearchState.Idle
+            searchDebouncing = false
+            searchPaging = false
             return@LaunchedEffect
         }
-        searchState = TopicSearchState.Loading
+        // Keep the previous results visible while the user is still typing; only a real request shows the skeleton.
+        searchDebouncing = true
         delay(ForumTopicSearchDelayMillis)
-        searchState = searchTopics(normalizedQuery) { progressive ->
-            // Show the first server page while the rest of a broad query is still being fetched.
-            searchState = TopicSearchState.Loaded(progressive)
-        }.fold(
-            onSuccess = { TopicSearchState.Loaded(it) },
-            onFailure = { TopicSearchState.Failed }
-        )
-    }
-    LaunchedEffect(busy, actionError) {
-        if (!submitting) return@LaunchedEffect
-        if (busy) {
-            sawBusy = true
-            return@LaunchedEffect
-        }
-        if (!sawBusy) return@LaunchedEffect
-        submitting = false
-        sawBusy = false
-        if (actionError == null) {
-            // A rename changes the row in an open search result; reload it once the server accepted the new name.
-            if (editing != null) searchAttempt++
-            creating = false
-            editing = null
-        } else {
-            // Keep the dialog and the typed name: a failed save must not throw away the user's input.
-            dialogError = actionError
+        searchDebouncing = false
+        searchState = TopicSearchState.Loading
+        searchPaging = true
+        try {
+            searchState = searchTopics(normalizedQuery) { progressive ->
+                // Show the first server page while the rest of a broad query is still being fetched.
+                searchState = TopicSearchState.Loaded(progressive)
+            }.fold(
+                onSuccess = { TopicSearchState.Loaded(it) },
+                onFailure = { TopicSearchState.Failed }
+            )
+        } finally {
+            searchPaging = false
         }
     }
     LaunchedEffect(searchOpen) {
@@ -295,6 +326,8 @@ fun ForumTopicsScreen(
         searchOpen = false
         query = ""
         searchState = TopicSearchState.Idle
+        searchDebouncing = false
+        searchPaging = false
         keyboard?.hide()
         focusManager.clearFocus()
     }
@@ -365,7 +398,9 @@ fun ForumTopicsScreen(
                     onClick = { unreadOnly = true }
                 )
             }
-            if (busy || loadingTopics || searchState is TopicSearchState.Loading) {
+            if (busy || loadingTopics || searchDebouncing || searchPaging ||
+                searchState is TopicSearchState.Loading
+            ) {
                 LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
             }
         }
@@ -414,7 +449,8 @@ fun ForumTopicsScreen(
                         body = stringResource(R.string.forum_topics_load_failed_hint),
                         actionLabel = stringResource(R.string.common_retry),
                         actionEnabled = !loadingTopics,
-                        onAction = onRetryLoad
+                        onAction = onRetryLoad,
+                        announce = true
                     )
                     else -> ForumStateMessage(
                         icon = Icons.Rounded.Forum,
@@ -490,8 +526,19 @@ fun ForumTopicsScreen(
             onConfirm = {
                 dialogError = null
                 submitting = true
-                sawBusy = false
-                if (creating) onCreate(name.trim()) else editing?.let { onRename(it, name.trim()) }
+                val done: (String?) -> Unit = { error ->
+                    submitting = false
+                    if (error == null) {
+                        // A rename changes the row in an open search result; reload it once the server accepted it.
+                        if (!creating) searchAttempt++
+                        creating = false
+                        editing = null
+                    } else {
+                        // Keep the dialog and the typed name: a failed save must not throw away the user's input.
+                        dialogError = error
+                    }
+                }
+                if (creating) onCreate(name.trim(), done) else editing?.let { onRename(it, name.trim(), done) }
             },
             dismissText = stringResource(R.string.common_cancel),
             onDismiss = dismissDialog,
@@ -520,9 +567,7 @@ fun ForumTopicsScreen(
     managing?.let { topic ->
         BeyGramSheet(
             onDismissRequest = { managing = null },
-            title = topic.title.ifBlank {
-                stringResource(if (topic.isGeneral) R.string.forum_topic_general else R.string.forum_topic_regular)
-            }
+            title = forumTopicDisplayTitle(topic)
         ) {
             if (topic.canManage) {
                 SheetActionRow(
@@ -601,7 +646,8 @@ private fun SearchContent(
             title = stringResource(R.string.forum_topics_search_failed),
             body = stringResource(R.string.forum_topics_search_failed_hint),
             actionLabel = stringResource(R.string.common_retry),
-            onAction = onRetry
+            onAction = onRetry,
+            announce = true
         )
         is TopicSearchState.Loaded -> when {
             state.topics.isEmpty() -> ForumStateMessage(
@@ -800,6 +846,7 @@ private fun ForumTopicsHeader(
             Row(
                 Modifier
                     .weight(1f)
+                    .heightIn(min = 48.dp)
                     .clip(styledShape(14.dp))
                     .then(
                         if (onOpenInfo != null) {
@@ -879,7 +926,11 @@ private fun RowScope.ForumHeaderActions(
     }
     if (canCreate) {
         IconButton(enabled = !busy, onClick = onCreate) {
-            Icon(Icons.Rounded.Add, stringResource(R.string.forum_create), tint = palette.accent)
+            Icon(
+                Icons.Rounded.Add,
+                stringResource(R.string.forum_create),
+                tint = if (busy) palette.disabled else palette.accent
+            )
         }
     }
 }
@@ -900,12 +951,12 @@ private fun ForumFilterChip(
     val tone = main.chipSelection
     val container = when {
         !selected -> when (tone) {
-            ChipSelectionTone.Ink, ChipSelectionTone.Filter -> Color.Transparent
+            ChipSelectionTone.Ink, ChipSelectionTone.Filter, ChipSelectionTone.Underlined -> Color.Transparent
             else -> palette.surface2
         }
         tone == ChipSelectionTone.Tonal || tone == ChipSelectionTone.Filter -> palette.accentSoft
         tone == ChipSelectionTone.Ink -> lerp(palette.textPrimary, palette.accent, 0.18f)
-        tone == ChipSelectionTone.Underlined -> palette.surface2
+        tone == ChipSelectionTone.Underlined -> Color.Transparent
         else -> palette.accent
     }
     val content = when {
@@ -1035,11 +1086,13 @@ private fun ForumStateMessage(
     body: String,
     actionLabel: String? = null,
     actionEnabled: Boolean = true,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    announce: Boolean = false
 ) {
     val palette = beyGramPalette()
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().then(if (announce) Modifier.errorAnnouncement() else Modifier),
         contentPadding = PaddingValues(horizontal = 36.dp, vertical = 48.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally

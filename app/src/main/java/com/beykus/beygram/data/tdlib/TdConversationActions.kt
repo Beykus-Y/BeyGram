@@ -17,8 +17,8 @@ import java.util.concurrent.ConcurrentHashMap
 internal class TdConversationActions(
     client: () -> Client, private val history: MessageHistoryStore,
     private val map: (TdApi.Message) -> ChatMessage,
+    private val mapLastMessage: (TdApi.Message) -> ForumTopicLastMessage? = { null },
     private val onTopicDraft: (Long, Int, TdApi.DraftMessage?) -> Unit = { _, _, _ -> },
-    private val senderName: (TdApi.MessageSender?) -> String = { "" },
     stealthDelaySeconds: () -> Int? = { null }
 ) {
     private val request = TdRequests(client)
@@ -232,7 +232,8 @@ internal class TdConversationActions(
         var pages = 0
         var hasMorePages = true
         var cursorRepeated = false
-        var finalPage: ForumTopicsPage? = null
+        // The first cursor is always unique, so the loop overwrites this before it can be returned.
+        var finalPage = ForumTopicsPage(topics = emptyList(), totalCount = 0, isComplete = false)
         val visitedCursors = mutableSetOf<Triple<Int, Long, Int>>()
         while (true) {
             if (!visitedCursors.add(Triple(offsetDate, offsetMessageId, offsetTopicId))) {
@@ -264,19 +265,15 @@ internal class TdConversationActions(
             offsetMessageId = page.nextOffsetMessageId
             offsetTopicId = page.nextOffsetForumTopicId
         }
-        // A repeated cursor before the first page (pathological server answer) still returns an explicit page.
-        finalPage ?: ForumTopicsPage(
-            topics = uniqueForumTopics(topics),
-            totalCount = totalCount,
-            isComplete = false
-        )
+        finalPage
     }
 
     /** One topic of a page, including notification, unread and last-message details the list can render directly. */
     private fun forumTopic(topic: TdApi.ForumTopic, manageTopics: Boolean): ForumTopic {
         val info = topic.info
-        // GetForumTopics can omit lastMessage for long-inactive topics; map the one it did send exactly once.
-        val mapped = topic.lastMessage?.let(map)
+        // GetForumTopics can omit lastMessage for long-inactive topics. The dedicated projection avoids building a
+        // full ChatMessage (media registration, reactions, keyboard, service-user hydration) for every topic row.
+        val lastMessage = topic.lastMessage?.let(mapLastMessage)
         return ForumTopic(
             id = info.forumTopicId.toLong(),
             title = info.name,
@@ -287,7 +284,7 @@ internal class TdConversationActions(
             canManage = info.isOutgoing || manageTopics,
             canPin = manageTopics,
             order = topic.order,
-            lastMessagePreview = mapped?.let(::forumTopicMessagePreview).orEmpty(),
+            lastMessagePreview = lastMessage?.plainPreview.orEmpty(),
             lastReadInboxMessageId = topic.lastReadInboxMessageId,
             lastReadOutboxMessageId = topic.lastReadOutboxMessageId,
             icon = info.icon?.let { ForumTopicIcon(colorArgb = it.color, customEmojiId = it.customEmojiId) },
@@ -295,7 +292,6 @@ internal class TdConversationActions(
             isOutgoing = info.isOutgoing,
             isNameImplicit = info.isNameImplicit,
             creationDate = info.creationDate,
-            creatorName = senderName(info.creatorId),
             unreadMentionCount = topic.unreadMentionCount,
             unreadReactionCount = topic.unreadReactionCount,
             unreadPollVoteCount = topic.unreadPollVoteCount,
@@ -303,17 +299,7 @@ internal class TdConversationActions(
             muteFor = topic.notificationSettings?.muteFor ?: 0,
             hasDraft = hasDraftContent(topic.draftMessage),
             draftPreview = forumTopicDraftPreview(topic.draftMessage),
-            lastMessage = mapped?.let { message ->
-                ForumTopicLastMessage(
-                    messageId = message.id,
-                    preview = forumTopicLastMessagePreview(message),
-                    senderName = message.senderName,
-                    isOutgoing = message.isOutgoing,
-                    dateSeconds = message.dateSeconds,
-                    sendState = message.sendState,
-                    isService = message.serviceText != null
-                )
-            }
+            lastMessage = lastMessage
         )
     }
 
@@ -1183,7 +1169,6 @@ internal fun redactedTdlibMessage(message: String?): String? {
         .ifBlank { null }
 }
 
-/** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */
 /**
  * The listing is complete only when the server has no next page and did not send us back to a page we have.
  * Hitting the page cap keeps `hasMorePages` true, so it never masquerades as a complete list. A terminal empty
@@ -1192,24 +1177,30 @@ internal fun redactedTdlibMessage(message: String?): String? {
 internal fun forumTopicsPageComplete(hasMorePages: Boolean, cursorRepeated: Boolean): Boolean =
     !hasMorePages && !cursorRepeated
 
+/** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */
 internal fun uniqueForumTopics(topics: List<ForumTopic>): List<ForumTopic> =
     topics.distinctBy(ForumTopic::id).sortedByDescending(ForumTopic::order)
 
-/** A blank string means a message exists but has no textual snippet (for example a photo). */
-internal fun forumTopicMessagePreview(message: ChatMessage): String =
-    message.text.trim().ifBlank {
-        message.media?.fileName?.trim().orEmpty().ifBlank { message.serviceText?.trim().orEmpty() }
-    }
+/** A resolved topic-row preview plus the plain string legacy topic pickers keep using. */
+internal data class ForumTopicPreviewProjection(val preview: UiText, val plain: String)
 
 /**
  * The topic-list preview keeps the chat-list rule of showing the actual text first and a file name for an attachment
  * without a caption; when neither exists, it falls back to the same media/service labels the chat list uses.
  */
-internal fun forumTopicLastMessagePreview(message: ChatMessage): UiText =
-    message.text.trim().takeIf { it.isNotEmpty() }?.let(UiText::Raw)
-        ?: message.media?.fileName?.trim()?.takeIf { it.isNotEmpty() }?.let(UiText::Raw)
-        ?: message.serviceText?.trim()?.takeIf { it.isNotEmpty() }?.let(UiText::Raw)
-        ?: message.preview()
+internal fun forumTopicLastMessagePreview(
+    text: String,
+    fileName: String,
+    serviceText: String?,
+    fallback: UiText
+): ForumTopicPreviewProjection {
+    val plain = serviceText?.trim().orEmpty()
+        .ifEmpty { text.trim().ifEmpty { fileName.trim() } }
+    return ForumTopicPreviewProjection(
+        preview = plain.takeIf { it.isNotEmpty() }?.let(UiText::Raw) ?: fallback,
+        plain = plain
+    )
+}
 
 /**
  * A reply without text is a real draft in this app, so it must keep the topic's Draft marker. Other draft content

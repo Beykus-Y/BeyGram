@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -105,12 +104,9 @@ internal fun ForumTopicRow(
     val titleMaxLines = if (fontScale >= 1.3f) 2 else 1
     val muted = topic.isMutedIn(parentMuted)
     val unread = topic.hasUnread
-    val title = topic.title.ifBlank {
-        stringResource(if (topic.isGeneral) R.string.forum_topic_general else R.string.forum_topic_regular)
-    }
+    val title = forumTopicDisplayTitle(topic)
     val preview = forumTopicPreview(topic)
     val previewColor = when {
-        topic.hasDraft -> palette.accent
         topic.lastMessage?.sendState == MessageSendState.Failed -> palette.warningText
         unread && !muted && main.unreadPreviewEmphasis -> palette.textPrimary
         else -> palette.textSecondary
@@ -184,8 +180,7 @@ internal fun ForumTopicRow(
                             fontSize = 12.sp,
                             fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 96.dp)
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -417,7 +412,8 @@ private fun forumTopicStateDescription(topic: ForumTopic, muted: Boolean): Strin
     val mentionLabel = if (topic.unreadMentionCount > 0) stringResource(R.string.forum_topic_mentions, topic.unreadMentionCount) else null
     val reactionLabel = if (topic.unreadReactionCount > 0) stringResource(R.string.forum_topic_reactions, topic.unreadReactionCount) else null
     val pollLabel = if (topic.unreadPollVoteCount > 0) stringResource(R.string.forum_topic_poll_votes, topic.unreadPollVoteCount) else null
-    val sendLabel = forumTopicSendStatusLabel(topic)
+    // The row hides delivery ticks while a badge or a draft marker owns the trailing edge; TalkBack must match.
+    val sendLabel = if (topic.hasUnread || topic.hasDraft) null else forumTopicSendStatusLabel(topic)
     return listOfNotNull(
         pinned.takeIf { topic.isPinned },
         closed.takeIf { topic.isClosed },

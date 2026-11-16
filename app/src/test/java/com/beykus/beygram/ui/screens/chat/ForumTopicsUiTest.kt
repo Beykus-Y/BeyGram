@@ -102,8 +102,8 @@ class ForumTopicsUiTest {
                     onBack = {},
                     onOpenGroupInfo = {},
                     onTopic = {},
-                    onCreate = {},
-                    onRename = { _, _ -> },
+                    onCreate = { _, done -> done(null) },
+                    onRename = { _, _, done -> done(null) },
                     onClosed = { _, _ -> },
                     onPinned = { _, _ -> },
                     onDelete = {}

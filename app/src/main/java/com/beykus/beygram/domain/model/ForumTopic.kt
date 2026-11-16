@@ -17,6 +17,8 @@ data class ForumTopicIcon(
 data class ForumTopicLastMessage(
     val messageId: Long = 0L,
     val preview: UiText = UiText.Raw(""),
+    /** The same preview as plain text for callers that only need a string; empty for media without a caption. */
+    val plainPreview: String = "",
     val senderName: String = "",
     val isOutgoing: Boolean = false,
     val dateSeconds: Long = 0L,
