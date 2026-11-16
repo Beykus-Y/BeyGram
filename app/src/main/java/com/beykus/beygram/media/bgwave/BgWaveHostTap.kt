@@ -11,7 +11,10 @@ internal object BgWaveHostTap {
     @Volatile var tapId: Long = 0L
         private set
 
-    /** True only while the active playback item is eligible public music (never voice, video note, secret, or catalog). */
+    /**
+     * True only while the active playback item is eligible music: never voice, video note, secret, or restricted
+     * non-provider tracks. Yandex tracks are allowed.
+     */
     @Volatile var captureEligible: Boolean = false
         private set
 

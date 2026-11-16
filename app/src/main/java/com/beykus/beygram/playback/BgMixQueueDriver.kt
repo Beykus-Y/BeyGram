@@ -41,7 +41,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     fun attachWaveTap(sessionHandle: Long): Boolean {
         val active = player ?: return false
         // Native crossfades start before the UI reports the next deck as current. Never attach
-        // a tap to a queue that may mix a private or provider track into an otherwise eligible one.
+        // a tap to a queue that may mix a private track into an otherwise eligible one.
         if (sessionHandle != 0L && (items.isEmpty() || items.any { !isWaveCaptureEligible(it) })) {
             active.attachWaveSession(0L)
             return false

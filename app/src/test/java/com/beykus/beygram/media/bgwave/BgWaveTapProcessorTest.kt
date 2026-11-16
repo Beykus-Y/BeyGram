@@ -360,7 +360,7 @@ class BgWaveTapProcessorTest {
     }
 
     @Test
-    fun isWaveCaptureEligibleBlocksPrivateRestrictedProviderAndNonMusic() {
+    fun isWaveCaptureEligibleBlocksPrivateAndNonMusicButAllowsYandex() {
         fun item(
             key: String = "tg|acc|chat:1:message:2|Audio|7",
             kind: MediaKind = MediaKind.Audio,
@@ -385,6 +385,7 @@ class BgWaveTapProcessorTest {
         assertFalse(isWaveCaptureEligible(item(secret = true)))
         assertFalse(isWaveCaptureEligible(item(isSecretChat = true)))
         assertFalse(isWaveCaptureEligible(item(viewOnce = true)))
-        assertFalse(isWaveCaptureEligible(item(key = "${YANDEX_TRACK_KEY_PREFIX}123456")))
+        assertTrue(isWaveCaptureEligible(item(key = "${YANDEX_TRACK_KEY_PREFIX}123456")))
+        assertFalse(isWaveCaptureEligible(item(key = "${YANDEX_TRACK_KEY_PREFIX}123456", kind = MediaKind.Voice)))
     }
 }
