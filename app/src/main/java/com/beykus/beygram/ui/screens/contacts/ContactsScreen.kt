@@ -527,8 +527,6 @@ private fun DeleteContactDialog(
     val scope = rememberCoroutineScope()
     var deleting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var retryBlocked by rememberSaveable { mutableStateOf(false) }
-    val completed = rememberSaveable { arrayListOf<String>() }
     val displayName = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
     val shownError = error
     val errorContent: @Composable () -> Unit = {
@@ -574,6 +572,8 @@ private fun ShareContactDialog(
     val context = LocalContext.current
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var retryBlocked by rememberSaveable { mutableStateOf(false) }
+    val completed = rememberSaveable { arrayListOf<String>() }
     val displayName = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
     ForwardChatDialog(
         chats = chats,
