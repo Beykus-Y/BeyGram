@@ -509,7 +509,7 @@ class TdLibTelegramRepository private constructor(
             val label = appContext.getString(R.string.bgwave_service_label)
             sendMessage(
                 chatId, label, null,
-                listOf(MessageTextEntity(0, label.length, TextStyleKind.Url, link)),
+                waveServiceEntities(label, link),
                 0L, false, MessageSendOptions(disableLinkPreview = true, sendNowConsent = true),
             )
         }
