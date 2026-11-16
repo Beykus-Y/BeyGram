@@ -33,8 +33,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -71,6 +69,8 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
@@ -371,33 +371,30 @@ private fun ContactRow(
         }
         // The row itself owns the long-press and TalkBack actions; no repeated overflow icon on every contact.
         Box(Modifier.width(1.dp)) {
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.contacts_action_edit)) },
+            BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.contacts_action_edit),
                     onClick = { menuOpen = false; onEdit() }
                 )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.contacts_action_share)) },
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.contacts_action_share),
                     onClick = { menuOpen = false; onShare() }
                 )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            stringResource(
-                                if (contact.phone.isBlank()) R.string.contacts_number_hidden else R.string.contacts_action_copy
-                            )
-                        )
-                    },
+                BeyGramPopoverItem(
+                    text = stringResource(
+                        if (contact.phone.isBlank()) R.string.contacts_number_hidden else R.string.contacts_action_copy
+                    ),
                     enabled = contact.phone.isNotBlank(),
                     onClick = { menuOpen = false; onCopy() }
                 )
                 // The subtitle is @username only when the contact has one; otherwise it shows the phone number.
-                if (contact.subtitle.startsWith("@")) DropdownMenuItem(
-                    text = { Text(stringResource(R.string.contacts_action_copy_username)) },
+                if (contact.subtitle.startsWith("@")) BeyGramPopoverItem(
+                    text = stringResource(R.string.contacts_action_copy_username),
                     onClick = { menuOpen = false; onCopyUsername() }
                 )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.contacts_action_delete), color = palette.danger) },
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.contacts_action_delete),
+                    danger = true,
                     onClick = { menuOpen = false; onDelete() }
                 )
             }
