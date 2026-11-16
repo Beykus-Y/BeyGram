@@ -12,8 +12,8 @@ set(BGMEDIA_BUILD_MINIAUDIO ON CACHE BOOL "" FORCE)
 set(BGMEDIA_BUILD_DESKTOP OFF CACHE BOOL "" FORCE)
 set(BGMEDIA_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
-# Pinned commit of BG Media dev (BG Mix 0.3, BG Beat, BG Wave Foundation: WaveSignaling). Bump deliberately.
-set(BGMEDIA_PINNED_COMMIT "28a54a8affe6e96a7231854127e312d8455ac578")
+# Pinned commit of BG Media dev (fallback when the submodule is absent). Keep equal to the third_party/bg-media pointer.
+set(BGMEDIA_PINNED_COMMIT "74d309d9bd7aa09b7343b3ecd7bfa0df783adfdf")
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media/CMakeLists.txt")
     set(BGMEDIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bg-media")
