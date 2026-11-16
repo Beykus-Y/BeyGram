@@ -24,9 +24,9 @@ internal sealed interface YandexPollOutcome {
 }
 
 /** OAuth device flow against the Yandex OAuth service. */
-internal class YandexAuth(private val http: YandexHttp, private val now: () -> Long = { System.currentTimeMillis() }) {
+internal open class YandexAuth(private val http: YandexHttp, private val now: () -> Long = { System.currentTimeMillis() }) {
 
-    fun requestDeviceCode(deviceId: String): ProviderResult<YandexDeviceCode> {
+    open fun requestDeviceCode(deviceId: String): ProviderResult<YandexDeviceCode> {
         val response = try {
             http.post(
                 "${YandexConfig.OAUTH_BASE}/device/code",
@@ -55,7 +55,7 @@ internal class YandexAuth(private val http: YandexHttp, private val now: () -> L
     }
 
     /** One poll of the token endpoint. Call again after the interval while the outcome is Pending or SlowDown. */
-    fun pollToken(deviceCode: String): YandexPollOutcome {
+    open fun pollToken(deviceCode: String): YandexPollOutcome {
         val response = try {
             http.post(
                 "${YandexConfig.OAUTH_BASE}/token",
@@ -82,7 +82,7 @@ internal class YandexAuth(private val http: YandexHttp, private val now: () -> L
         }
     }
 
-    fun refresh(refreshToken: String): ProviderResult<YandexTokens> {
+    open fun refresh(refreshToken: String): ProviderResult<YandexTokens> {
         val response = try {
             http.post(
                 "${YandexConfig.OAUTH_BASE}/token",
