@@ -1863,7 +1863,8 @@ private fun BeyGramAppContent(
         val myAccount by repository.myProfile.collectAsStateWithLifecycle()
         val accountLabel = myAccount.info?.title?.takeIf { it.isNotBlank() } ?: myAccount.info?.phone.orEmpty()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
-        val chat = selectedChat ?: chats.firstOrNull { it.id == selectedChatId }
+        // The collected state can still hold the previous selection for a composition after a chat switch.
+        val chat = selectedChat?.takeIf { it.id == selectedChatId } ?: chats.firstOrNull { it.id == selectedChatId }
         // A secret or protected chat must not appear in screenshots or a screen recording.
         // The Activity owns the window flag; this effect only reports the current screen policy.
         val chatSecure = chat != null && (chat.isSecret || chat.hasProtectedContent)
@@ -1884,6 +1885,10 @@ private fun BeyGramAppContent(
         if (chat == null) {
             if (twoPane) ChatsDetailPlaceholder() else chatsTab()
         } else {
+            // Capture this screen's destination, rather than reading the mutable selection inside a suspended action.
+            val forumChatId = chat.id
+            val forumAccountId = selectedAccountId
+            fun isCurrentForum(): Boolean = selectedAccountId == forumAccountId && selectedChatId == forumChatId
             var topicsResult by remember(repository, selectedChatId) {
                 mutableStateOf<Result<com.beykus.beygram.domain.model.ForumTopicsPage?>?>(null)
             }
@@ -1937,7 +1942,7 @@ private fun BeyGramAppContent(
                 canCreateTopic = repository.canCreateForumTopic(selectedChatId).getOrDefault(false)
             }
             fun forumAction(action: suspend () -> Result<Unit>) {
-                if (forumBusy) return
+                if (forumBusy || !isCurrentForum()) return
                 forumBusy = true; forumActionError = null
                 forumScope.launch {
                     try {
@@ -1949,7 +1954,7 @@ private fun BeyGramAppContent(
             }
             /** Same action path, but reports the outcome so the name dialog can close on success or keep the input. */
             fun forumActionWithResult(action: suspend () -> Result<Unit>, onResult: (String?) -> Unit) {
-                if (forumBusy) {
+                if (forumBusy || !isCurrentForum()) {
                     onResult(context.getString(R.string.forum_action_failed))
                     return
                 }
@@ -1971,14 +1976,20 @@ private fun BeyGramAppContent(
                 topicsLoadError = false
                 try {
                     // The page cap is a safety stop, not a failure: isComplete stays false so the header can say the load is partial.
-                    val completed = repository.forumTopicsPage(selectedChatId) { partial ->
+                    val completed = repository.forumTopicsPage(forumChatId) { partial ->
                         // The user can open a topic as soon as the first page arrives. A reload merges into the list on
                         // screen, so a retry does not shrink it to the first page.
-                        topicsResult = Result.success(mergeForumTopics(topicsResult?.getOrNull(), partial))
+                        if (isCurrentForum()) topicsResult = Result.success(mergeForumTopics(topicsResult?.getOrNull(), partial))
                     }
                     // Keep rendered pages on a late failure but clearly offer retry.
-                    if (completed.isSuccess || topicsResult == null) topicsResult = completed
-                    if (completed.isFailure && topicsResult?.isSuccess == true) topicsLoadError = true
+                    if (isCurrentForum()) {
+                        if (completed.isSuccess) {
+                            // A safety-capped/repeated-cursor load is still partial. Keep previously visible rows
+                            // until the server supplies a complete snapshot; a null result is a non-forum chat.
+                            topicsResult = Result.success(completed.getOrNull()?.let { mergeForumTopics(topicsResult?.getOrNull(), it) })
+                        } else if (topicsResult == null) topicsResult = completed
+                        if (completed.isFailure && topicsResult?.isSuccess == true) topicsLoadError = true
+                    }
                 } finally {
                     topicsLoading = false
                 }
@@ -2034,7 +2045,9 @@ private fun BeyGramAppContent(
                     totalCount = topicsPage?.effectiveTotalCount ?: topics.size,
                     topicsComplete = topicsPage?.isComplete == true,
                     searchTopics = { query, onPage ->
-                        repository.forumTopicsPage(selectedChatId, query) { page -> onPage(page.topics) }
+                        repository.forumTopicsPage(forumChatId, query) { page ->
+                            if (isCurrentForum()) onPage(page.topics)
+                        }
                             .map { it?.topics.orEmpty() }
                     },
                     canCreate = canCreateTopic,
@@ -2049,17 +2062,19 @@ private fun BeyGramAppContent(
                     onOpenGroupInfo = { routeName = AppRoute.ChatInfo.name },
                     onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName },
                     onTopic = { topic ->
-                        selectedTopicChatId = selectedChatId
-                        selectedForumTopicId = topic.id
-                        // Server search can return a topic outside the loaded pages; trust the user's explicit choice.
-                        trustedForumTopicId = topic.id
-                        selectedTopicSnapshot = topic
+                        if (isCurrentForum()) {
+                            selectedTopicChatId = forumChatId
+                            selectedForumTopicId = topic.id
+                            // Server search can return a topic outside the loaded pages; trust the user's explicit choice.
+                            trustedForumTopicId = topic.id
+                            selectedTopicSnapshot = topic
+                        }
                     },
                     onCreate = { name, done ->
-                        if (!forumBusy) {
+                        if (!forumBusy && isCurrentForum()) {
                             // The user may switch chats while the request is in flight; never apply the new id elsewhere.
-                            val targetChatId = selectedChatId
-                            val targetAccountId = selectedAccountId
+                            val targetChatId = forumChatId
+                            val targetAccountId = forumAccountId
                             forumBusy = true; forumActionError = null
                             forumScope.launch {
                                 var error: String? = null
@@ -2096,11 +2111,11 @@ private fun BeyGramAppContent(
                         }
                     },
                     onRename = { topic, name, done ->
-                        forumActionWithResult({ repository.renameForumTopic(selectedChatId, topic.id, name) }, done)
+                        forumActionWithResult({ repository.renameForumTopic(forumChatId, topic.id, name) }, done)
                     },
-                    onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(selectedChatId, topic.id, closed) } },
-                    onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(selectedChatId, topic.id, pinned) } },
-                    onDelete = { topic -> forumAction { repository.deleteForumTopic(selectedChatId, topic.id) } },
+                    onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(forumChatId, topic.id, closed) } },
+                    onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(forumChatId, topic.id, pinned) } },
+                    onDelete = { topic -> forumAction { repository.deleteForumTopic(forumChatId, topic.id) } },
                     onDismissActionError = { forumActionError = null }
                 )
                 else -> key(selectedAccountId, selectedChatId, activeTopicId) {
