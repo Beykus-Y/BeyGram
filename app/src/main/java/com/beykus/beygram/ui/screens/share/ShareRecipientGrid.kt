@@ -1,6 +1,5 @@
 package com.beykus.beygram.ui.screens.share
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -70,7 +69,7 @@ internal fun ShareRecipientGrid(
                 Box(Modifier.size(62.dp), contentAlignment = Alignment.Center) {
                     ChatAvatar(chat, 54.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
                     if (selected) Box(Modifier.matchParentSize().border(2.dp, palette.accent, CircleShape))
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = selected,
                         modifier = Modifier.align(Alignment.BottomEnd),
                         enter = if (feedback.isInstant) androidx.compose.animation.EnterTransition.None else fadeIn(feedback.animationSpec()),
