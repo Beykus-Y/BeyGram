@@ -2791,6 +2791,8 @@ GlobalSearchScreen(
                         send = { giftId, text, isPrivate ->
                             repository.sendGift(giftsProfileId, giftsProfileSelf, giftId, text, isPrivate)
                         },
+                        loadListing = repository::giftListingQuote,
+                        updateListing = repository::updateGiftListing,
                         onOpenStars = { openStars(AppRoute.Gifts) },
                         onBack = { routeName = giftsReturnRouteName }
                     )
