@@ -252,7 +252,8 @@ class TdLibTelegramRepository private constructor(
     @Volatile private var secretChatSession = 0L
     private val payments = TdPayments(tdRequests)
     private val paidReactions = TdPaidReactions { tdRequests(it) }
-    private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests)
+    private val videoNoteLossTransport = TdVideoNoteLossTransport(tdRequests,
+        stealthActive = { stealthSettings.current.scheduledSendDelay != null })
     private val messageDrafts = TdChatDrafts(appContext, accountId) { client }
 
     // ---- Прокси Telegram -----------------------------------------------------
@@ -1597,7 +1598,8 @@ class TdLibTelegramRepository private constructor(
 
     // ---- Канал подтверждения диагностических отчётов --------------------------
     // Pinning id бота задан публичной конфигурацией сборки; 0 — пиннинг выключен.
-    private val reportBotChannel = TdReportBotChannel({ client }, BuildConfig.REPORT_BOT_USER_ID)
+    private val reportBotChannel = TdReportBotChannel({ client }, BuildConfig.REPORT_BOT_USER_ID,
+        stealthActive = { stealthSettings.current.scheduledSendDelay != null })
     override suspend fun openBotChat(expectedBotUserId: Long, username: String) =
         reportBotChannel.openBotChat(expectedBotUserId, username)
     override suspend fun sendReportCommand(botChatId: Long, nonce: String) =

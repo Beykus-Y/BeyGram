@@ -27,4 +27,5 @@
     <string name="stealth_schedule_dialog_error">Gib eine ganze Zahl von 15 bis 3600 ein</string>
     <string name="stealth_schedule_short_warning">Die gespeicherte Verzögerung liegt unter 15 Sekunden. Wähle mindestens 15 Sekunden. Ohne ausdrückliche Zustimmung bleibt normales Senden bis dahin gesperrt.</string>
     <string name="stealth_schedule_music_bot_blocked">Der Musikbot sendet sofort eine Nachricht an Gespeicherte Nachrichten. Bei aktivem unsichtbarem Senden ist diese Aktion nicht verfügbar.</string>
+    <string name="stealth_diagnostic_send_blocked">Diese Prüfung ist im Unsichtbar-Modus nicht verfügbar, weil sie sofort eine Nachricht sendet. Schalte das unsichtbare Senden aus und versuche es erneut.</string>
 </resources>
