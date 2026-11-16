@@ -1,6 +1,7 @@
 package com.beykus.beygram.media.bgwave
 
 import android.media.AudioManager
+import android.net.ConnectivityManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +34,7 @@ object BgWaveHub {
 
     private val senders = ConcurrentHashMap<String, BgWaveSender>()
     @Volatile private var audioManager: AudioManager? = null
+    @Volatile private var appContext: android.content.Context? = null
     @Volatile private var listenerAudio: BgWaveListenerAudio? = null
     private var bgMixTapAttached = false
     private var hostTapMissingLogged = false
@@ -45,10 +47,19 @@ object BgWaveHub {
     @Volatile var hostTap: ((sessionHandle: Long, attach: Boolean) -> Boolean)? = null
 
     /** Called once from the application, so the listener can take audio focus and play. */
-    fun attachAudioManager(manager: AudioManager) {
+    fun attachAudioManager(manager: AudioManager, context: android.content.Context? = null) {
         audioManager = manager
+        appContext = context?.applicationContext
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var networkWatcher: BgWaveNetworkWatcher? = null
+
+    /** Called once from the application: a network switch during a failed wave then triggers one automatic retry. */
+    @Synchronized
+    fun attachConnectivityManager(manager: ConnectivityManager) {
+        if (networkWatcher != null) return
+        networkWatcher = BgWaveNetworkWatcher(manager, scope, controller.state, { retry() }).also { it.start() }
+    }
     @Volatile private var ticker: Job? = null
 
     fun nowSeconds(): Long = System.currentTimeMillis() / 1000L
@@ -184,7 +195,7 @@ object BgWaveHub {
             val source = controller.activeSession()
             val manager = audioManager
             if (source != null && manager != null) {
-                val output = BgWaveListenerAudio(source, manager) {
+                val output = BgWaveListenerAudio(source, manager, appContext) {
                     focusLostSid = state.sidHex
                     scope.launch {
                         val link = controller.stopIfCurrent(state, nowSeconds())
