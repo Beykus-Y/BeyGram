@@ -296,4 +296,18 @@
     <string name="gifts_resale_ton_unavailable">Las compras con TON no están disponibles</string>
     <string name="gifts_resale_changed">El precio cambió o el regalo no está disponible. Actualiza la lista.</string>
     <string name="gifts_resale_market">Mercado de regalos</string>
+    <string name="gift_listing_title">Vender regalo</string>
+    <string name="gift_listing_price">Precio en Stars</string>
+    <string name="gift_listing_range">Precio permitido: %1$s–%2$s Stars</string>
+    <string name="gift_listing_proceeds">Ingreso estimado: %1$s Stars</string>
+    <string name="gift_listing_submit">Poner a la venta por %1$s Stars</string>
+    <string name="gift_listing_remove">Retirar de la venta</string>
+    <string name="gift_listing_remove_confirm">¿Retirar este regalo del mercado?</string>
+    <string name="gift_listing_confirm">¿Poner este regalo a la venta por %1$s Stars? Cambiará de propietario si alguien lo compra.</string>
+    <string name="gift_listing_updated">Oferta actualizada</string>
+    <string name="gift_listing_uncertain">No se confirmó el cambio. Actualiza el regalo antes de intentarlo de nuevo.</string>
+    <string name="gift_listing_changed">El precio o las condiciones cambiaron. Abre el regalo de nuevo.</string>
+    <string name="gift_listing_unavailable">Reventa no disponible u oferta en TON.</string>
+    <string name="gift_listing_current">En venta por %1$s Stars</string>
+    <string name="gift_listing_manage">Gestionar venta</string>
 </resources>

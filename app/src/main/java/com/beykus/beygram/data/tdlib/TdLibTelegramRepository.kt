@@ -128,6 +128,7 @@ import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftListingQuote
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.MessageLinkTarget
@@ -1794,6 +1795,10 @@ class TdLibTelegramRepository private constructor(
         text: String,
         isPrivate: Boolean
     ): GiftSendOutcome = payments.sendGift(profileId, isSelf, giftId, text, isPrivate)
+
+    override suspend fun giftListingQuote(receivedId: String) = payments.giftListingQuote(receivedId)
+    override suspend fun updateGiftListing(quote: GiftListingQuote, newStars: Long?) =
+        payments.updateGiftListing(quote, newStars)
     override suspend fun paidContentPlan(chatId: Long, messageId: Long): PaidContentPlan =
         payments.paidContentPlan(chatId, messageId)
     override suspend fun payPaidContentWithStars(chatId: Long, messageId: Long, confirmedStarCount: Long): PaidContentPaymentOutcome =
@@ -2628,7 +2633,7 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun sendPaidTextMessage(
         chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>,
-        confirmedStarCount: Long, disableNotification: Boolean
+        confirmedStarCount: Long, disableNotification: Boolean, forumTopicId: Long, disableLinkPreview: Boolean
     ): Result<Unit> {
         val balance = payments.starBalance().getOrElse { return Result.failure(it) }
         if (!paidTextCanConfirm(confirmedStarCount, balance)) {
@@ -2636,7 +2641,7 @@ class TdLibTelegramRepository private constructor(
         }
         leaveJumpWindow(chatId)
         conversationEffects.endActivity(chatId, ChatActivity.Typing)
-        return conversationActions.sendPaidText(chatId, text, replyToMessageId, entities, confirmedStarCount, disableNotification)
+        return conversationActions.sendPaidText(chatId, text, replyToMessageId, entities, confirmedStarCount, disableNotification, forumTopicId, disableLinkPreview)
     }
 
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean, options: MessageSendOptions): Result<Unit> {

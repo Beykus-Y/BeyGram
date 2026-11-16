@@ -62,6 +62,8 @@ import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftBlockReason
 import com.beykus.beygram.domain.model.GiftCatalogItem
 import com.beykus.beygram.domain.model.GiftCollectionItem
+import com.beykus.beygram.domain.model.GiftListingQuote
+import com.beykus.beygram.domain.model.GiftListingOutcome
 import com.beykus.beygram.domain.model.GiftSendEvent
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftSendStep
@@ -107,6 +109,8 @@ fun GiftsScreen(
     load: suspend () -> Result<GiftsInfo>,
     loadMoreReceived: suspend (offset: String) -> Result<ReceivedGiftsPage>,
     send: suspend (giftId: Long, text: String, isPrivate: Boolean) -> GiftSendOutcome,
+    loadListing: suspend (String) -> Result<GiftListingQuote> = { Result.failure(UnsupportedOperationException()) },
+    updateListing: suspend (GiftListingQuote, Long?) -> GiftListingOutcome = { _, _ -> GiftListingOutcome.Changed },
     onOpenStars: () -> Unit,
     onBack: () -> Unit,
     loadResale: suspend (Long, String) -> Result<ResaleGiftsPage> = { _, _ -> Result.failure(UnsupportedOperationException()) },
@@ -114,6 +118,9 @@ fun GiftsScreen(
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
+    var listingGift by remember(accountId, profileId) { mutableStateOf<ReceivedGiftItem?>(null) }
+    val listingState by GiftListingStore.state.collectAsState()
+    val listingOperation = listingState[accountId]
     var info by remember { mutableStateOf<GiftsInfo?>(null) }
     var loading by remember { mutableStateOf(true) }
     var unsupported by remember { mutableStateOf(false) }
@@ -130,7 +137,7 @@ fun GiftsScreen(
     val retainedByAccount by RetainedGiftSendStore.states.collectAsState()
     val retained = retainedByAccount[accountId]
     val retainedRelevant = retained?.let { it.profileId == profileId && it.isSelf == isSelf } == true
-    val sending = step is GiftSendStep.Sending || retained?.inFlight == true
+    val sending = step is GiftSendStep.Sending || retained?.inFlight == true || listingOperation?.inFlight == true
     val scope = rememberCoroutineScope()
     // The token drops a "load more" response that arrives after a refresh started.
     var generation by remember { mutableIntStateOf(0) }
@@ -142,6 +149,9 @@ fun GiftsScreen(
     var hideSenderName by rememberSaveable { mutableStateOf(false) }
 
     BackHandler { if (!sending) onBack() }
+    LaunchedEffect(listingOperation, isSelf) {
+        if (isSelf && listingOperation != null && listingOperation?.outcome != null) reload++
+    }
     LaunchedEffect(Unit) {
         if (RetainedGiftSendStore.states.value[accountId] == null && pendingGiftId != 0L) {
             notice = context.getString(R.string.gifts_send_uncertain)
@@ -386,6 +396,24 @@ fun GiftsScreen(
                         )
                     }
                     if (isSelf) {
+                        if (listingGift == null && listingOperation != null) item("listing_status") {
+                            val result = listingOperation?.outcome
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                                Text(
+                                    when (result) {
+                                        GiftListingOutcome.Updated -> stringResource(R.string.gift_listing_updated)
+                                        GiftListingOutcome.Changed -> stringResource(R.string.gift_listing_changed)
+                                        GiftListingOutcome.Uncertain -> stringResource(R.string.gift_listing_uncertain)
+                                        is GiftListingOutcome.Failed -> result.reason.resolve(context)
+                                        null -> stringResource(R.string.gifts_sending)
+                                    },
+                                    color = palette.textPrimary
+                                )
+                                if (result != null) TextButton(onClick = { GiftListingStore.acknowledge(accountId); reload++ }) {
+                                    Text(stringResource(R.string.common_close))
+                                }
+                            }
+                        }
                         item("received_header") {
                             MonetizationSectionHeader(stringResource(R.string.gifts_received_title))
                         }
@@ -409,7 +437,16 @@ fun GiftsScreen(
                                 )
                             }
                         } else {
-                            items(gifts.received, key = { it.id }) { gift -> ReceivedGiftRow(gift) }
+                            items(gifts.received, key = { it.id }) { gift ->
+                                ReceivedGiftRow(gift)
+                                if (gift.isUpgraded && !gift.wasRefunded && gift.id.isNotBlank()) {
+                                    TextButton(
+                                        onClick = { listingGift = gift },
+                                        enabled = !sending && pendingGiftId == 0L && listingOperation?.inFlight != true,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                    ) { Text(stringResource(R.string.gift_listing_manage)) }
+                                }
+                            }
                             if (receivedNextOffset.isNotBlank()) item("received_more") {
                                 TextButton(
                                     onClick = ::requestMoreReceived,
@@ -555,6 +592,17 @@ fun GiftsScreen(
                         resaleCatalog = null
                     }
                 }
+            )
+        }
+    }
+    listingGift?.takeIf { isSelf }?.let { gift ->
+        key(accountId, gift.id) {
+            GiftListingDialog(
+                accountId = accountId,
+                gift = gift,
+                load = loadListing,
+                update = updateListing,
+                onDismiss = { listingGift = null }
             )
         }
     }

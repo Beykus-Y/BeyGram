@@ -332,26 +332,39 @@ internal class TdConversationActions(
     }.onFailure { recordSendFailure("text", it) }
 
     suspend fun paidTextPrice(chatId: Long): Result<Long> = conversationResult {
-        val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypePrivate ?: return@conversationResult 0L
-        // GetUser is local for known users; do not fetch full info for every free message.
-        if (request(TdApi.GetUser(type.userId)).paidMessageStarCount <= 0L) return@conversationResult 0L
-        request(TdApi.GetUserFullInfo(type.userId)).outgoingPaidMessageStarCount
+        when (val type = request(TdApi.GetChat(chatId)).type) {
+            is TdApi.ChatTypePrivate -> {
+                if (request(TdApi.GetUser(type.userId)).paidMessageStarCount <= 0L) 0L
+                else request(TdApi.GetUserFullInfo(type.userId)).outgoingPaidMessageStarCount
+            }
+            is TdApi.ChatTypeSupergroup -> {
+                val group = request(TdApi.GetSupergroup(type.supergroupId))
+                // The advertised group fee applies to non-admins; use the current user's actual fee.
+                // Channel direct-message groups have a separate per-topic pricing model.
+                if (group.isChannel || group.isDirectMessagesGroup || group.paidMessageStarCount <= 0L) 0L
+                else request(TdApi.GetSupergroupFullInfo(type.supergroupId)).outgoingPaidMessageStarCount
+            }
+            else -> 0L
+        }
     }
 
     suspend fun sendPaidText(
         chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity>,
-        confirmedStarCount: Long, disableNotification: Boolean
+        confirmedStarCount: Long, disableNotification: Boolean,
+        forumTopicId: Long = 0L, disableLinkPreview: Boolean = false
     ): Result<Unit> = conversationResult {
         require(confirmedStarCount > 0L)
         val bounded = boundTelegramText(text, entities, limits.value.text)
         if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
         send(
-            chatId, replyId, options = MessageSendOptions(disableNotification = disableNotification),
+            chatId, replyId, forumTopicId,
+            options = MessageSendOptions(disableNotification = disableNotification, disableLinkPreview = disableLinkPreview),
             confirmedPaidStars = confirmedStarCount
         ) {
             TdApi.InputMessageText().apply {
                 this.text = formattedText(bounded.text, bounded.entities)
                 clearDraft = false
+                if (disableLinkPreview) linkPreviewOptions = TdApi.LinkPreviewOptions().apply { isDisabled = true }
             }
         }
     }
@@ -541,6 +554,13 @@ internal class TdConversationActions(
         }
         // Never persist a payment authorization or turn it into a scheduled send.
         if (confirmedPaidStars > 0L) {
+            if (forumTopicId !in 0L..Int.MAX_VALUE.toLong() ||
+                (replyTarget != null && !com.beykus.beygram.domain.model.paidTextReplyTopicMatches(
+                    forumTopicId, (replyTarget.topicId as? TdApi.MessageTopicForum)?.forumTopicId?.toLong(),
+                    replyTarget.topicId != null
+                ))) {
+                throw UserMessageException(UiText.Res(R.string.paid_text_draft_changed))
+            }
             if (stealth.active() || options.scheduledAtSeconds != null) {
                 throw UserMessageException(UiText.Res(R.string.stealth_schedule_unavailable_paid))
             }
