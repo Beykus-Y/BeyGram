@@ -13,12 +13,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import com.beykus.beygram.ui.components.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -176,10 +176,10 @@ private fun CategoryRuleCard(
             TextButton(onClick = { menuOpen = true }, enabled = rule.enabled) {
                 Text(limitLabel(rule.maxBytes))
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 SIZE_LIMITS.forEach { limit ->
-                    DropdownMenuItem(
-                        text = { Text(limitLabel(limit)) },
+                    BeyGramPopoverItem(
+                        text = limitLabel(limit),
                         onClick = {
                             menuOpen = false
                             if (limit != rule.maxBytes) onLimit(limit)
