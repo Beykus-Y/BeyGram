@@ -804,6 +804,7 @@
     <string name="music_sort_artist">Nach Interpret</string>
     <string name="music_sort_duration">Nach Dauer</string>
     <string name="music_sort_manual">Manuell</string>
+    <string name="music_sort_tempo">Nach Tempo (BPM)</string>
     <string name="music_sort_title">Nach Titel</string>
     <string name="music_storage_error">Die Bibliothek konnte nicht gelesen werden. Änderungen werden nicht gespeichert.</string>
     <plurals name="music_track_count">

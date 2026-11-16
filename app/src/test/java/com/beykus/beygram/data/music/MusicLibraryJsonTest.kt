@@ -217,4 +217,54 @@ class MusicLibraryJsonTest {
         assertTrue(playlist.tracks.isEmpty())
         assertFalse(playlist.isFavorites)
     }
+
+    @Test
+    fun statsKeepTheirTempoAndAStatsEntryWithoutOneRoundTrips() {
+        val fast = MusicTrackRef(trackKey = "item:fast", title = "Fast")
+        val unknown = MusicTrackRef(trackKey = "item:unknown", title = "Unknown")
+        val library = MusicLibrary(
+            accountId = TEST_ACCOUNT,
+            playlists = listOf(favoritesPlaylist(1L)),
+            stats = mapOf(
+                fast.trackKey to MusicListenStats(track = fast, playCount = 2, lastPlayedAt = 5L, bpm = 128.5),
+                unknown.trackKey to MusicListenStats(track = unknown, playCount = 1, lastPlayedAt = 6L)
+            )
+        )
+        val decoded = MusicLibraryJson.decode(MusicLibraryJson.encode(library))
+        assertEquals(MusicLibraryDecodeResult.Decoded(library), decoded)
+        val stats = (decoded as MusicLibraryDecodeResult.Decoded).library.stats
+        assertEquals(128.5, stats.getValue("item:fast").bpm!!, 0.0)
+        assertNull(stats.getValue("item:unknown").bpm)
+    }
+
+    @Test
+    fun aStatsEntryWrittenBeforeTheTempoFieldLoadsWithANullTempo() {
+        val text = """
+            {"schemaVersion": 1, "accountId": "acc", "playlists": [],
+             "stats": [{"track": {"trackKey": "item:old", "title": "Old"}, "playCount": 4, "lastPlayedAt": 9}]}
+        """.trimIndent()
+        val decoded = MusicLibraryJson.decode(text) as MusicLibraryDecodeResult.Decoded
+        val stats = decoded.library.stats.getValue("item:old")
+        assertEquals(4, stats.playCount)
+        assertNull(stats.bpm)
+        assertEquals(0, decoded.skippedCount)
+    }
+
+    @Test
+    fun anInvalidTempoReadsAsNullAndTheStatsEntryIsKept() {
+        val text = """
+            {"schemaVersion": 1, "accountId": "acc", "playlists": [], "stats": [
+              {"track": {"trackKey": "item:text", "title": "A"}, "playCount": 1, "bpm": "128"},
+              {"track": {"trackKey": "item:negative", "title": "B"}, "playCount": 1, "bpm": -4},
+              {"track": {"trackKey": "item:zero", "title": "C"}, "playCount": 1, "bpm": 0},
+              {"track": {"trackKey": "item:huge", "title": "D"}, "playCount": 1, "bpm": 1e9},
+              {"track": {"trackKey": "item:flag", "title": "E"}, "playCount": 1, "bpm": true},
+              {"track": {"trackKey": "item:null", "title": "F"}, "playCount": 1, "bpm": null}
+            ]}
+        """.trimIndent()
+        val decoded = MusicLibraryJson.decode(text) as MusicLibraryDecodeResult.Decoded
+        assertEquals(6, decoded.library.stats.size)
+        assertTrue(decoded.library.stats.values.all { it.bpm == null && it.playCount == 1 })
+        assertEquals(0, decoded.skippedCount)
+    }
 }

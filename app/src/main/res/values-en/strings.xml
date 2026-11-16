@@ -804,6 +804,7 @@
     <string name="music_sort_artist">By artist</string>
     <string name="music_sort_duration">By duration</string>
     <string name="music_sort_manual">Manual</string>
+    <string name="music_sort_tempo">By tempo (BPM)</string>
     <string name="music_sort_title">By title</string>
     <string name="music_storage_error">The library couldn’t be read. Changes aren’t saved.</string>
     <plurals name="music_track_count">
