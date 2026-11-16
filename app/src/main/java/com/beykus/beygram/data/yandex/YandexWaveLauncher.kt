@@ -26,10 +26,11 @@ internal object YandexWaveLauncher {
     @Volatile
     private var activeRadio: PlaybackRadio? = null
 
-    private fun openSession(provider: YandexMusicProvider, seeds: List<String>, given: Collection<String>) = YandexWaveSession(
+    /** A session whose requests run only while the source is signed in as [uid], the account the wave started under. */
+    private fun openSession(provider: YandexMusicProvider, uid: String, seeds: List<String>, given: Collection<String>) = YandexWaveSession(
         seeds = seeds,
-        start = { s, queue -> provider.waveStart(s, queue) },
-        next = { id, queue -> provider.waveNext(id, queue) },
+        start = { s, queue -> YandexWaveAccountGuard.request(uid, provider.state.value) { provider.waveStart(s, queue) } },
+        next = { id, queue -> YandexWaveAccountGuard.request(uid, provider.state.value) { provider.waveNext(id, queue) } },
         initialGiven = given,
     )
 
@@ -83,12 +84,19 @@ internal object YandexWaveLauncher {
         keepPositionMs: Long? = null,
     ) {
         val app = context.applicationContext
+        val uid = YandexWaveAccountGuard.uidOf(provider.state.value)
+        if (uid == null) {
+            onDone(MusicProviderFailure.NotSignedIn)
+            return
+        }
         scope.launch {
-            val session = openSession(provider, seeds, emptyList())
+            val session = openSession(provider, uid, seeds, emptyList())
             when (val first = session.first()) {
                 is ProviderResult.Failure -> onDone(first.failure)
                 is ProviderResult.Success -> when {
                     !isCurrent() -> onDone(null)
+                    // Signed out, or signed in as someone else, while the first batch loaded: the wave is not played.
+                    YandexWaveAccountGuard.uidOf(provider.state.value) != uid -> onDone(MusicProviderFailure.NotSignedIn)
                     first.value.none { it.isAvailable } -> onDone(MusicProviderFailure.NotFound)
                     else -> {
                         // Stable sort: the chosen track moves to the front, the rest keep the service's order.
@@ -103,7 +111,7 @@ internal object YandexWaveLauncher {
                             title = app.getString(R.string.yandex_wave_title),
                             subtitle = subtitle,
                         )
-                        val router = YandexWaveRouter(session) { s, given -> openSession(provider, s, given) }
+                        val router = YandexWaveRouter(session) { s, given -> openSession(provider, uid, s, given) }
                         active = router
                         activeRadio = radio
                         ProviderArtwork.playTracks(app, leading, 0, { router.more() }, radio, keepPositionMs)

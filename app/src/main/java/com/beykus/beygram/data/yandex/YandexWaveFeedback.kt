@@ -8,6 +8,7 @@ import com.beykus.beygram.playback.PlaybackRadio
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.combine
@@ -116,6 +117,22 @@ internal class WaveListenTracker(private val isRadioTrack: (String) -> Boolean) 
 internal object YandexWaveFeedback {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    /** The jobs of a running radio: the sender and the tracker. */
+    private class Running(val radio: PlaybackRadio, val jobs: List<Job>)
+
+    private val running = ArrayList<Running>()
+
+    /**
+     * Stops following [radio] at once, for example when the account signed out: no event is created or sent after this,
+     * and the events still queued are dropped. Does nothing when the radio is not followed.
+     */
+    fun stop(radio: PlaybackRadio) {
+        val ended = synchronized(running) {
+            running.filter { it.radio === radio }.also { running.removeAll(it) }
+        }
+        ended.forEach { entry -> entry.jobs.forEach { it.cancel() } }
+    }
+
     /**
      * Follows [radio] until the player leaves it. A previous radio's tracker is not cancelled: it sees the new queue,
      * reports its last track as skipped or finished, and ends by itself.
@@ -127,7 +144,7 @@ internal object YandexWaveFeedback {
     /** Like the function above, for a radio whose session can change: the session is asked on each event. */
     fun start(provider: YandexMusicProvider, sessionOf: () -> YandexWaveSession, radio: PlaybackRadio) {
         val outbox = Channel<YandexWaveEvent>(Channel.UNLIMITED)
-        scope.launch(Dispatchers.IO) {
+        val sender = scope.launch(Dispatchers.IO) {
             for (event in outbox) {
                 val sessionId = sessionOf().currentSessionId ?: continue
                 val batch = event.trackId?.let { id -> sessionOf().batchOfTrack(id) }
@@ -137,7 +154,7 @@ internal object YandexWaveFeedback {
         }
         outbox.trySend(YandexWaveEvent(YandexWaveEvent.RADIO_STARTED, System.currentTimeMillis()))
         val tracker = WaveListenTracker { key -> sessionOf().trackOf(key) != null }
-        scope.launch {
+        val follower = scope.launch {
             try {
                 var likes = ProviderTracks.liked.value
                 combine(PlaybackEngine.state, ProviderTracks.liked) { state, liked -> state to liked }
@@ -185,6 +202,9 @@ internal object YandexWaveFeedback {
                 outbox.close()
             }
         }
+        val entry = Running(radio, listOf(sender, follower))
+        synchronized(running) { running.add(entry) }
+        follower.invokeOnCompletion { synchronized(running) { running.remove(entry) } }
     }
 
     private const val TAG = "BeyGramYandexWave"

@@ -22,25 +22,26 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * Keeps «Моя волна» across restarts. While a wave plays, its seeds, current track, place and the tracks it already gave
  * are saved. After a restart the wave comes back paused on the same track and place, and «Продолжить» on the wave card
  * starts it again from there. Only one music session is kept, the last one played: another track or queue replaces it,
  * closing the player removes it, and so does signing out of the source. A saved wave older than a week is dropped.
+ *
+ * A wave belongs to the account it was started under. Signing out, or signing in as another account, ends the playing
+ * wave (player queue and feedback), removes its save and forbids any further write; a save of another account is never
+ * restored. The rules live in [YandexWaveAccountGuard].
  */
 internal object YandexWaveResume {
     private const val PREFS = "yandex_wave_resume_v1"
     private const val KEY = "wave"
-    private const val VERSION = 1
     private const val SAVE_INTERVAL_MS = 12_000L
     private const val POSITION_STEP_MS = 1_000L
-    private const val MAX_POSITION_MS = 86_400_000L
 
-    /** A saved wave: what it was built from, the current track and place, and the tracks it already gave. */
+    /** A saved wave: the account it belongs to, what it was built from, the current track and place, and the tracks it already gave. */
     data class Saved(
+        val uid: String,
         val seeds: List<String>,
         val subtitle: String,
         val track: ProviderTrack,
@@ -49,8 +50,9 @@ internal object YandexWaveResume {
         val savedAtMs: Long,
     )
 
-    /** The wave that plays. [sessionOf] gives the live session, which a settings change replaces. */
+    /** The wave that plays, for the account [uid]. [sessionOf] gives the live session, which a settings change replaces. */
     private class Active(
+        val uid: String,
         val sessionOf: () -> YandexWaveSession,
         val radio: PlaybackRadio,
         var seeds: List<String>,
@@ -95,9 +97,13 @@ internal object YandexWaveResume {
         scope.launch {
             var signedIn = false
             provider.state.collect { state ->
+                // First: a wave of another account (or of nobody) ends before anything else can write or restore.
+                if (YandexWaveAccountGuard.shouldEndWave(active?.uid, state)) endActiveWave()
                 when (state) {
                     is MusicProviderState.SignedIn -> {
                         signedIn = true
+                        val foreign = savedState.value?.takeIf { it.uid != state.account.uid }
+                        if (foreign != null) clearSaved()
                         restoreIfIdle()
                     }
                     is MusicProviderState.SignedOut -> {
@@ -111,8 +117,10 @@ internal object YandexWaveResume {
 
     /** Called when a wave starts: from now on its place is saved while it plays. */
     fun attach(context: Context, sessionOf: () -> YandexWaveSession, radio: PlaybackRadio, seeds: List<String>, subtitle: String) {
+        // The wave belongs to the account signed in now; without one nothing is attached.
+        val uid = YandexWaveAccountGuard.uidOf(provider?.state?.value) ?: return
         appContext = context.applicationContext
-        active = Active(sessionOf, radio, seeds, subtitle)
+        active = Active(uid, sessionOf, radio, seeds, subtitle)
         ensureWatching()
     }
 
@@ -131,6 +139,20 @@ internal object YandexWaveResume {
         PlaybackEngine.resume(key) {}
     }
 
+    /**
+     * Ends the wave of the account that is gone: no more saves first, then the saved place, the feedback and the
+     * player's radio queue (so it asks for no more tracks). Feedback stops before the player does, so the queue
+     * closing is not reported to the service as a skip.
+     */
+    private fun endActiveWave() {
+        val current = active ?: return
+        active = null
+        wasInWave = false
+        clearSaved()
+        YandexWaveFeedback.stop(current.radio)
+        if (PlaybackEngine.activeRadio === current.radio) PlaybackEngine.stop()
+    }
+
     private fun ensureWatching() {
         if (watching) return
         watching = true
@@ -147,6 +169,10 @@ internal object YandexWaveResume {
         }
         val current = active
         if (current != null && PlaybackEngine.activeRadio === current.radio) {
+            if (YandexWaveAccountGuard.shouldEndWave(current.uid, provider?.state?.value)) {
+                endActiveWave()
+                return
+            }
             wasInWave = true
             save(current, state, item)
         } else if (item.isMusic) {
@@ -157,6 +183,7 @@ internal object YandexWaveResume {
     }
 
     private fun save(current: Active, state: PlaybackState, item: PlaybackItem) {
+        if (!YandexWaveAccountGuard.canSave(current.uid, provider?.state?.value)) return
         val track = ProviderTracks.byKey(item.key) ?: return
         val now = System.currentTimeMillis()
         val second = state.positionMs / POSITION_STEP_MS
@@ -170,10 +197,11 @@ internal object YandexWaveResume {
         lastWriteAt = now
         val context = appContext ?: return
         val value = Saved(
+            uid = current.uid,
             seeds = current.seeds,
             subtitle = current.subtitle,
             track = track,
-            positionMs = state.positionMs.coerceIn(0L, MAX_POSITION_MS),
+            positionMs = state.positionMs.coerceIn(0L, YandexWaveSavedCodec.MAX_POSITION_MS),
             given = current.sessionOf().givenIds(),
             savedAtMs = now,
         )
@@ -186,6 +214,11 @@ internal object YandexWaveResume {
         val app = appContext ?: return
         val yandex = provider ?: return
         val saved = savedState.value ?: return
+        if (!YandexWaveAccountGuard.canRestore(saved.uid, yandex.state.value)) {
+            // Another account's wave is never offered: it goes away. Signed out, it waits for the sign-in.
+            if (YandexWaveAccountGuard.uidOf(yandex.state.value) != null) clearSaved()
+            return
+        }
         if (PlaybackEngine.state.value.item != null) return
         restoredThisProcess = true
         if (!saved.track.isAvailable) {
@@ -195,13 +228,13 @@ internal object YandexWaveResume {
         ProviderTracks.remember(listOf(saved.track))
         val session = YandexWaveSession(
             seeds = saved.seeds,
-            start = { s, queue -> yandex.waveStart(s, queue) },
-            next = { id, queue -> yandex.waveNext(id, queue) },
+            start = { s, queue -> YandexWaveAccountGuard.request(saved.uid, yandex.state.value) { yandex.waveStart(s, queue) } },
+            next = { id, queue -> YandexWaveAccountGuard.request(saved.uid, yandex.state.value) { yandex.waveNext(id, queue) } },
             initialGiven = saved.given,
         )
         session.seed(saved.track)
         val radio = PlaybackRadio(title = app.getString(R.string.yandex_wave_title), subtitle = saved.subtitle)
-        active = Active({ session }, radio, saved.seeds, saved.subtitle)
+        active = Active(saved.uid, { session }, radio, saved.seeds, saved.subtitle)
         // Paused: nothing plays and no request goes out until the person presses Play.
         PlaybackEngine.restoreYandexRadio(app, saved.track, saved.positionMs, { session.more() }, radio)
         YandexWaveFeedback.start(yandex, session, radio)
@@ -219,67 +252,17 @@ internal object YandexWaveResume {
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     private fun write(context: Context, value: Saved) {
-        val json = JSONObject()
-            .put("version", VERSION)
-            .put("saved_at", value.savedAtMs)
-            .put("seeds", JSONArray(value.seeds))
-            .put("subtitle", value.subtitle)
-            .put("track", trackToJson(value.track))
-            .put("position", value.positionMs)
-            .put("given", JSONArray(value.given.takeLast(YandexWave.QUEUE_HINT)))
-        prefs(context).edit().putString(KEY, json.toString()).apply()
+        prefs(context).edit().putString(KEY, YandexWaveSavedCodec.serialize(value)).apply()
     }
 
     /** The saved wave, or null. A record that cannot be read or is too old is removed. */
     private fun read(context: Context): Saved? {
         val raw = prefs(context).getString(KEY, null) ?: return null
-        val saved = runCatching { parse(raw) }.getOrNull()
+        val saved = runCatching { YandexWaveSavedCodec.parse(raw) }.getOrNull()
         if (saved == null || !musicSessionFresh(saved.savedAtMs, System.currentTimeMillis())) {
             prefs(context).edit().remove(KEY).apply()
             return null
         }
         return saved
     }
-
-    private fun parse(raw: String): Saved {
-        val json = JSONObject(raw)
-        require(json.getInt("version") == VERSION)
-        val seeds = json.getJSONArray("seeds").strings()
-        require(seeds.isNotEmpty())
-        return Saved(
-            seeds = seeds,
-            subtitle = json.getString("subtitle"),
-            track = trackFromJson(json.getJSONObject("track")),
-            positionMs = json.getLong("position").coerceIn(0L, MAX_POSITION_MS),
-            given = json.getJSONArray("given").strings().takeLast(YandexWave.QUEUE_HINT),
-            savedAtMs = json.getLong("saved_at"),
-        )
-    }
-
-    private fun trackToJson(track: ProviderTrack): JSONObject = JSONObject()
-        .put("id", track.trackId)
-        .put("title", track.title)
-        .put("artists", JSONArray(track.artists))
-        .put("duration", track.durationMs)
-        .put("available", track.isAvailable)
-        .apply {
-            track.albumTitle?.let { put("album", it) }
-            track.albumId?.let { put("albumId", it) }
-            track.coverUrl?.let { put("cover", it) }
-        }
-
-    private fun trackFromJson(json: JSONObject): ProviderTrack = ProviderTrack(
-        trackId = json.getString("id"),
-        title = json.getString("title"),
-        artists = json.getJSONArray("artists").strings(),
-        albumTitle = json.optStringOrNull("album"),
-        durationMs = json.getLong("duration"),
-        coverUrl = json.optStringOrNull("cover"),
-        isAvailable = json.getBoolean("available"),
-        albumId = json.optStringOrNull("albumId"),
-    )
-
-    private fun JSONArray.strings(): List<String> = List(length()) { getString(it) }
-
-    private fun JSONObject.optStringOrNull(name: String): String? = if (has(name)) getString(name) else null
 }
