@@ -128,6 +128,7 @@ import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftAuctionQuote
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.MessageLinkTarget
@@ -1783,6 +1784,10 @@ class TdLibTelegramRepository private constructor(
         payments.starsTopUpPayment(option)
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = payments.starTransactions(offset)
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)
+    override suspend fun giftAuctionQuote(auctionId: String, profileId: Long, isSelf: Boolean) =
+        payments.giftAuctionQuote(auctionId, profileId, isSelf)
+    override suspend fun submitGiftAuctionBid(quote: GiftAuctionQuote, profileId: Long, isSelf: Boolean, total: Long) =
+        payments.submitGiftAuctionBid(quote, profileId, isSelf, total)
     override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = payments.receivedGifts(offset)
     override suspend fun sendGift(
         profileId: Long,

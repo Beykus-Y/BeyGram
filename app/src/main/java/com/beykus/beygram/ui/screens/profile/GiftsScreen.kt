@@ -61,6 +61,8 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftBlockReason
 import com.beykus.beygram.domain.model.GiftCatalogItem
+import com.beykus.beygram.domain.model.GiftAuctionQuote
+import com.beykus.beygram.domain.model.GiftAuctionOutcome
 import com.beykus.beygram.domain.model.GiftCollectionItem
 import com.beykus.beygram.domain.model.GiftSendEvent
 import com.beykus.beygram.domain.model.GiftSendOutcome
@@ -104,7 +106,11 @@ fun GiftsScreen(
     loadMoreReceived: suspend (offset: String) -> Result<ReceivedGiftsPage>,
     send: suspend (giftId: Long, text: String, isPrivate: Boolean) -> GiftSendOutcome,
     onOpenStars: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    loadAuction: suspend (String, Long, Boolean) -> Result<GiftAuctionQuote> =
+        { _, _, _ -> Result.failure(UnsupportedOperationException()) },
+    submitBid: suspend (GiftAuctionQuote, Long, Boolean, Long) -> GiftAuctionOutcome =
+        { _, _, _, _ -> GiftAuctionOutcome.Changed }
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -115,6 +121,9 @@ fun GiftsScreen(
     var reload by remember { mutableIntStateOf(0) }
     var step by remember { mutableStateOf<GiftSendStep>(GiftSendStep.Idle) }
     var selectedGift by remember { mutableStateOf<GiftCatalogItem?>(null) }
+    var auctionGift by remember(accountId, profileId, isSelf) { mutableStateOf<GiftCatalogItem?>(null) }
+    val auctionOperations by GiftAuctionStore.states.collectAsState()
+    val auctionOperation = auctionOperations[accountId]
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeIsError by remember { mutableStateOf(false) }
     // A send runs in the process-scoped store below, so rotation and navigation cannot
@@ -123,7 +132,7 @@ fun GiftsScreen(
     val retainedByAccount by RetainedGiftSendStore.states.collectAsState()
     val retained = retainedByAccount[accountId]
     val retainedRelevant = retained?.let { it.profileId == profileId && it.isSelf == isSelf } == true
-    val sending = step is GiftSendStep.Sending || retained?.inFlight == true
+    val sending = step is GiftSendStep.Sending || retained?.inFlight == true || auctionOperation?.inFlight == true
     val scope = rememberCoroutineScope()
     // The token drops a "load more" response that arrives after a refresh started.
     var generation by remember { mutableIntStateOf(0) }
@@ -370,6 +379,15 @@ fun GiftsScreen(
                             }
                         }
                     }
+                    if (auctionGift == null && auctionOperation != null) item("auction_operation") {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                            val outcome = auctionOperation?.outcome
+                            Text(auctionOutcomeText(outcome), color = palette.textPrimary)
+                            if (outcome != null) TextButton(onClick = { GiftAuctionStore.acknowledge(accountId); reload++ }) {
+                                Text(stringResource(R.string.common_close))
+                            }
+                        }
+                    }
                     item("balance") {
                         GiftsBalanceCard(
                             balance = gifts.balance,
@@ -481,7 +499,8 @@ fun GiftsScreen(
                                     blockReason = null,
                                     enabled = false,
                                     showSend = false,
-                                    onSend = {}
+                                    onSend = {},
+                                    onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift }
                                 )
                             }
                         }
@@ -511,7 +530,8 @@ fun GiftsScreen(
                                     gift = gift,
                                     blockReason = blockReason,
                                     enabled = !sending && pendingGiftId == 0L,
-                                    onSend = { chooseGift(gift) }
+                                    onSend = { chooseGift(gift) },
+                                    onAuction = { if (!sending && pendingGiftId == 0L) auctionGift = gift }
                                 )
                             }
                         }
@@ -526,6 +546,16 @@ fun GiftsScreen(
         }
     }
 
+    auctionGift?.let { catalog ->
+        androidx.compose.runtime.key(accountId, profileId, isSelf, catalog.id) {
+            GiftAuctionDialog(
+                accountId, profileId, profileTitle, isSelf, catalog,
+                loadAuction, submitBid,
+                purchaseEnabled = retained == null && pendingGiftId == 0L,
+                onDismiss = { auctionGift = null; reload++ }
+            )
+        }
+    }
     val dialogGift = selectedGift
     if (dialogGift != null && (step is GiftSendStep.Confirming || step is GiftSendStep.Sending)) {
         val textMaxLength = info?.textMaxLength ?: GIFT_TEXT_MAX_LENGTH_DEFAULT
@@ -668,7 +698,8 @@ private fun GiftCatalogRow(
     blockReason: GiftBlockReason?,
     enabled: Boolean,
     showSend: Boolean = true,
-    onSend: () -> Unit
+    onSend: () -> Unit,
+    onAuction: () -> Unit
 ) {
     val palette = beyGramPalette()
     Column(
@@ -704,7 +735,11 @@ private fun GiftCatalogRow(
                     )
                 }
             }
-            if (blockReason == null && showSend) {
+            if (!gift.auctionId.isNullOrBlank()) {
+                TextButton(onClick = onAuction, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(stringResource(R.string.gift_auction_title))
+                }
+            } else if (blockReason == null && showSend) {
                 TextButton(
                     onClick = onSend,
                     enabled = enabled,

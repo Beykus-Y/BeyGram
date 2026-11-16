@@ -303,4 +303,26 @@
     <string name="paid_text_price_changed">Цена сообщения изменилась. Проверьте её и подтвердите заново.</string>
     <string name="paid_text_uncertain">Не удалось подтвердить отправку платного сообщения. Проверьте чат и баланс перед повтором.</string>
     <string name="paid_text_draft_changed">Черновик изменился. Проверьте сообщение и нажмите отправку снова.</string>
+    <string name="gift_auction_title">Аукцион</string>
+    <string name="gift_auction_round">Раунд %1$d из %2$d</string>
+    <string name="gift_auction_left">Осталось подарков: %1$d</string>
+    <string name="gift_auction_won">Получено вами: %1$d</string>
+    <string name="gift_auction_minimum">Минимальная ставка: %1$s Stars</string>
+    <string name="gift_auction_own_bid">Ваша ставка: %1$s Stars</string>
+    <string name="gift_auction_returned">Ставка возвращена. Повторное участие пока недоступно в BeyGram.</string>
+    <string name="gift_auction_other_recipient">Ставка относится к другому получателю. Откройте аукцион в его профиле.</string>
+    <string name="gift_auction_starts">Начало: %1$s</string>
+    <string name="gift_auction_ends">Окончание раунда: %1$s</string>
+    <string name="gift_auction_finished">Аукцион завершён</string>
+    <string name="gift_auction_average">Средняя цена: %1$s Stars</string>
+    <string name="gift_auction_amount">Общая ставка в Stars</string>
+    <string name="gift_auction_place">Сделать ставку</string>
+    <string name="gift_auction_raise">Повысить ставку</string>
+    <string name="gift_auction_confirm">Подтвердить ставку %1$s Stars для %2$s? Отменить ставку нельзя. Победа не гарантирована.</string>
+    <string name="gift_auction_debit">Ожидаемая доплата: %1$s Stars. Максимальная согласованная сумма: %2$s Stars.</string>
+    <string name="gift_auction_submitted">Ставка принята. Обновите данные аукциона.</string>
+    <string name="gift_auction_changed">Условия изменились. Обновите аукцион перед новой ставкой.</string>
+    <string name="gift_auction_uncertain">Не удалось подтвердить ставку. Проверьте аукцион и баланс перед повтором.</string>
+    <string name="gift_auction_unavailable">Ставка сейчас недоступна</string>
+    <string name="gift_auction_rank">Место %1$d: %2$s Stars</string>
 </resources>

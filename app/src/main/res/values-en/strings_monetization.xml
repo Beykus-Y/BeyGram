@@ -299,4 +299,26 @@
     <string name="paid_text_price_changed">The message price has changed. Check it and confirm again.</string>
     <string name="paid_text_uncertain">Could not confirm that the paid message was sent. Check the chat and your balance before trying again.</string>
     <string name="paid_text_draft_changed">The draft changed. Check the message and tap send again.</string>
+    <string name="gift_auction_title">Auction</string>
+    <string name="gift_auction_round">Round %1$d of %2$d</string>
+    <string name="gift_auction_left">Gifts remaining: %1$d</string>
+    <string name="gift_auction_won">Acquired by you: %1$d</string>
+    <string name="gift_auction_minimum">Minimum bid: %1$s Stars</string>
+    <string name="gift_auction_own_bid">Your bid: %1$s Stars</string>
+    <string name="gift_auction_returned">Bid returned. Re-entering is not yet supported in BeyGram.</string>
+    <string name="gift_auction_other_recipient">This bid belongs to another recipient. Open the auction from their profile.</string>
+    <string name="gift_auction_starts">Starts: %1$s</string>
+    <string name="gift_auction_ends">Round ends: %1$s</string>
+    <string name="gift_auction_finished">Auction finished</string>
+    <string name="gift_auction_average">Average price: %1$s Stars</string>
+    <string name="gift_auction_amount">Total bid in Stars</string>
+    <string name="gift_auction_place">Place bid</string>
+    <string name="gift_auction_raise">Increase bid</string>
+    <string name="gift_auction_confirm">Confirm a bid of %1$s Stars for %2$s? Bids cannot be canceled. Winning is not guaranteed.</string>
+    <string name="gift_auction_debit">Expected additional charge: %1$s Stars. Maximum authorized amount: %2$s Stars.</string>
+    <string name="gift_auction_submitted">Bid accepted. Refresh the auction.</string>
+    <string name="gift_auction_changed">Conditions changed. Refresh the auction before bidding again.</string>
+    <string name="gift_auction_uncertain">Could not confirm the bid. Check the auction and balance before retrying.</string>
+    <string name="gift_auction_unavailable">Bidding is currently unavailable</string>
+    <string name="gift_auction_rank">Rank %1$d: %2$s Stars</string>
 </resources>

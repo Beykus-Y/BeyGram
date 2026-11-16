@@ -288,4 +288,26 @@
     <string name="paid_text_price_changed">El precio del mensaje ha cambiado. Compruébalo y vuelve a confirmar.</string>
     <string name="paid_text_uncertain">No se pudo confirmar el envío del mensaje de pago. Revisa el chat y el saldo antes de intentarlo de nuevo.</string>
     <string name="paid_text_draft_changed">El borrador ha cambiado. Revisa el mensaje y pulsa enviar de nuevo.</string>
+    <string name="gift_auction_title">Subasta</string>
+    <string name="gift_auction_round">Ronda %1$d de %2$d</string>
+    <string name="gift_auction_left">Regalos restantes: %1$d</string>
+    <string name="gift_auction_won">Adquiridos por ti: %1$d</string>
+    <string name="gift_auction_minimum">Puja mínima: %1$s Stars</string>
+    <string name="gift_auction_own_bid">Tu puja: %1$s Stars</string>
+    <string name="gift_auction_returned">Puja devuelta. Todavía no se admite participar de nuevo.</string>
+    <string name="gift_auction_other_recipient">Esta puja pertenece a otro destinatario. Abre su perfil.</string>
+    <string name="gift_auction_starts">Inicio: %1$s</string>
+    <string name="gift_auction_ends">Fin de la ronda: %1$s</string>
+    <string name="gift_auction_finished">Subasta finalizada</string>
+    <string name="gift_auction_average">Precio medio: %1$s Stars</string>
+    <string name="gift_auction_amount">Puja total en Stars</string>
+    <string name="gift_auction_place">Pujar</string>
+    <string name="gift_auction_raise">Aumentar puja</string>
+    <string name="gift_auction_confirm">¿Confirmar una puja de %1$s Stars para %2$s? No se puede cancelar. No se garantiza ganar.</string>
+    <string name="gift_auction_debit">Cargo adicional estimado: %1$s Stars. Máximo autorizado: %2$s Stars.</string>
+    <string name="gift_auction_submitted">Puja aceptada. Actualiza la subasta.</string>
+    <string name="gift_auction_changed">Las condiciones cambiaron. Actualiza la subasta.</string>
+    <string name="gift_auction_uncertain">No se confirmó la puja. Revisa la subasta y tu saldo antes de reintentar.</string>
+    <string name="gift_auction_unavailable">No se puede pujar ahora</string>
+    <string name="gift_auction_rank">Puesto %1$d: %2$s Stars</string>
 </resources>

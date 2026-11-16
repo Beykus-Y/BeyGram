@@ -6,6 +6,12 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ExternalPaymentMethod
 import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftCatalogItem
+import com.beykus.beygram.domain.model.GiftAuctionQuote
+import com.beykus.beygram.domain.model.GiftAuctionOwnBid
+import com.beykus.beygram.domain.model.GiftAuctionRank
+import com.beykus.beygram.domain.model.GiftAuctionOutcome
+import com.beykus.beygram.domain.model.auctionBidDebit
+import com.beykus.beygram.domain.model.auctionQuoteMatches
 import com.beykus.beygram.domain.model.GiftCollectionItem
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftTextValidation
@@ -606,6 +612,69 @@ internal class TdPayments(private val requests: TdRequests) {
         else -> PaidContentFormKind.Unknown
     }
 
+    /** The recipient is resolved by the account's repository, not by a display name. */
+    suspend fun giftAuctionQuote(auctionId: String, profileId: Long, isSelf: Boolean): Result<GiftAuctionQuote> =
+        monetizationResult {
+            require(auctionId.isNotBlank())
+            val recipient = if (isSelf) myUserId() else (giftOwner(profileId) as? TdApi.MessageSenderUser)?.userId
+                ?: throw UserMessageException(UiText.Res(R.string.gift_auction_unavailable))
+            val response = requests(TdApi.GetGiftAuctionState(auctionId))
+            val gift = response.gift ?: throw UserMessageException(UiText.Res(R.string.gift_auction_unavailable))
+            val now = (requests(TdApi.GetOption("unix_time")) as? TdApi.OptionValueInteger)?.value ?: 0L
+            val balance = readBalanceOrNull()
+            when (val state = response.state) {
+                is TdApi.AuctionStateActive -> GiftAuctionQuote(
+                    auctionId, gift.id, recipient, now, state.startDate, state.endDate,
+                    state.currentRoundNumber, state.totalRoundCount, state.currentRoundEndDate,
+                    state.leftItemCount, state.acquiredItemCount, state.minBid,
+                    state.userBid?.let { bid ->
+                        GiftAuctionOwnBid(bid.starCount, bid.bidDate, bid.nextBidStarCount,
+                            (bid.ownerId as? TdApi.MessageSenderUser)?.userId, bid.wasReturned)
+                    },
+                    state.bidLevels.orEmpty().map { GiftAuctionRank(it.position, it.starCount) },
+                    balance, null, false
+                )
+                is TdApi.AuctionStateFinished -> GiftAuctionQuote(
+                    auctionId, gift.id, recipient, now, state.startDate, state.endDate,
+                    0, 0, 0, 0, state.acquiredItemCount, 0L, null, emptyList(),
+                    balance, state.averagePrice, true
+                )
+                else -> throw UserMessageException(UiText.Res(R.string.gift_auction_unavailable))
+            }
+        }
+
+    /** Confirms a total bid, never automatically follows an increased minimum. */
+    suspend fun submitGiftAuctionBid(quote: GiftAuctionQuote, profileId: Long, isSelf: Boolean, total: Long): GiftAuctionOutcome {
+        if (auctionBidDebit(quote, total) == null) return GiftAuctionOutcome.Changed
+        if (!sendInFlight.compareAndSet(false, true)) {
+            return GiftAuctionOutcome.Failed(UiText.Res(R.string.err_gift_send_busy))
+        }
+        var dispatched = false
+        return try {
+            val current = giftAuctionQuote(quote.auctionId, profileId, isSelf).getOrThrow()
+            if (!auctionQuoteMatches(quote, current) || auctionBidDebit(current, total) == null) {
+                return GiftAuctionOutcome.Changed
+            }
+            dispatched = true
+            if (current.ownBid == null) {
+                requests(TdApi.PlaceGiftAuctionBid(current.giftId, total, current.recipientId,
+                    TdApi.FormattedText("", emptyArray()), true), timeoutMillis = GIFT_SEND_TIMEOUT_MS)
+            } else {
+                // The recipient and text of the original bid are immutable.
+                requests(TdApi.IncreaseGiftAuctionBid(current.giftId, total), timeoutMillis = GIFT_SEND_TIMEOUT_MS)
+            }
+            GiftAuctionOutcome.Submitted
+        } catch (timeout: TimeoutCancellationException) {
+            if (dispatched) GiftAuctionOutcome.Uncertain else GiftAuctionOutcome.Failed(failureText(timeout))
+        } catch (cancelled: CancellationException) {
+            if (dispatched) GiftAuctionOutcome.Uncertain else throw cancelled
+        } catch (error: Exception) {
+            if (dispatched) GiftAuctionOutcome.Uncertain else GiftAuctionOutcome.Failed(failureText(error))
+        } finally {
+            sendInFlight.set(false)
+        }
+    }
+
     private suspend fun availableGift(giftId: Long): TdApi.Gift? =
         requests(TdApi.GetAvailableGifts()).gifts.orEmpty()
             .firstOrNull { it.gift?.id == giftId }
@@ -785,7 +854,8 @@ private fun TdApi.AvailableGift.toCatalogItem(): GiftCatalogItem? {
         isPremiumOnly = value.isPremium,
         remainingCount = remaining,
         isSoldOut = remaining != null && remaining <= 0,
-        isAuctionOnly = value.auctionInfo != null
+        isAuctionOnly = value.auctionInfo != null,
+        auctionId = value.auctionInfo?.id?.takeIf { it.isNotBlank() }
     )
 }
 
