@@ -205,24 +205,33 @@ internal fun ForwardChatDialog(
 
     fun send() {
         if (busy || sending || loadingTopics || interrupted || retryBlocked || targets.isEmpty() || unavailableTarget || commentOverLimit) return
-        attempted = true
         sending = true
         attemptInFlight = true
         scope.launch {
             val failed = try {
                 val requested = targets.toList()
-                val invalid = mutableListOf<ForwardTarget>()
-                val ready = requested.filter { target ->
-                    val result = loadTopics?.invoke(target.chatId)
-                    val valid = if (result == null) target.topicId == 0L else result.isSuccess &&
-                        (result.getOrNull()?.any { it.id == target.topicId && it.canWrite } ?: (target.topicId == 0L))
-                    if (!valid) invalid += target
-                    valid
+                // Validate each distinct forum once. Never let a successful subset close the calling
+                // screen while another target failed preflight.
+                val topicsByChat = mutableMapOf<Long, Result<List<ForumTopic>?>?>()
+                val invalid = requested.any { target ->
+                    val result = if (topicsByChat.containsKey(target.chatId)) topicsByChat[target.chatId]
+                        else loadTopics?.invoke(target.chatId).also { topicsByChat[target.chatId] = it }
+                    val currentChats = recipientRepository?.let {
+                        candidatePolicy((it.chats.value + it.archivedChats.value + it.folderChats.value.values.flatten()).distinctBy { chat -> chat.id })
+                    } ?: directory.chats
+                    val writable = currentChats.any { it.id == target.chatId && it.canPost }
+                    !writable || if (result == null) target.topicId != 0L else !result.isSuccess ||
+                        !(result.getOrNull()?.any { it.id == target.topicId && it.canWrite } ?: (target.topicId == 0L))
                 }
-                val failedDelivery = if (ready.isNotEmpty()) onSend(ready, if (allowComment) comment.trim() else "") else emptyList()
-                topicError = if (invalid.isNotEmpty()) context.getString(R.string.forward_topics_failed) else null
-                attemptInFlight = false
-                invalid + failedDelivery
+                if (invalid) {
+                    topicError = context.getString(R.string.forward_topics_failed)
+                    attemptInFlight = false
+                    requested
+                } else {
+                    attempted = true
+                    topicError = null
+                    onSend(requested, if (allowComment) comment.trim() else "").also { attemptInFlight = false }
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {

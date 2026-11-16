@@ -46,7 +46,7 @@ internal fun rememberShareRecipientDirectory(
     val folders by repository.chatFolders.collectAsStateWithLifecycle()
     val folderLists by repository.folderChats.collectAsStateWithLifecycle()
     val loadStates by repository.folderLoadStates.collectAsStateWithLifecycle()
-    val known = (chats + folderLists.values.flatten()).distinctBy { it.id }
+    val known = remember(chats, folderLists) { (chats + folderLists.values.flatten()).distinctBy { it.id } }
     return ShareRecipientDirectory(candidatePolicy(known), folders, folderLists, loadStates)
 }
 
@@ -56,7 +56,10 @@ internal fun folderShareCandidates(directory: ShareRecipientDirectory, folderId:
     val chats = if (folderId == null) directory.chats else directory.chats.filter {
         it.id in members.orEmpty() || it.isInFolder(folderId)
     }
-    return shareTargetCandidates(chats, query)
+    val candidates = shareTargetCandidates(chats, query)
+    if (folderId == null) return candidates
+    val positions = directory.folderLists[folderId].orEmpty().mapIndexed { index, chat -> chat.id to index }.toMap()
+    return candidates.sortedWith(compareBy<ChatPreview> { positions[it.id] ?: Int.MAX_VALUE })
 }
 
 @Composable
@@ -73,7 +76,7 @@ internal fun ShareRecipientBrowser(
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
-    var pickedFolder by rememberSaveable { mutableStateOf<Int?>(null) }
+    var pickedFolder by rememberSaveable(repository) { mutableStateOf<Int?>(null) }
     val folderId = pickedFolder?.takeIf { id -> directory.folders.folders.any { it.id == id } }
     LaunchedEffect(directory.folders.initialized, folderId) {
         if (directory.folders.initialized && folderId == null) pickedFolder = null

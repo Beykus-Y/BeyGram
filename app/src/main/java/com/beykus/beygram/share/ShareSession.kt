@@ -66,12 +66,12 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         started = true
         val staging = OutgoingMediaImporter(context, accountId)
         importer = staging
-        scope.launch { stage(staging, context, scope) }
+        scope.launch(Dispatchers.Main.immediate) { stage(staging, context, scope) }
     }
 
     /** Повторяет копирование после сбоя: файлы уже переданы приложению, поэтому системный «Поделиться» не нужен. */
     fun retryStaging(context: Context, scope: CoroutineScope) {
-        if (!stagingFailed) return
+        if (!stagingFailed || released || deliveryStarted) return
         stagingFailed = false
         error = null
         started = false
@@ -135,7 +135,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         val delivery = checkNotNull(ledger)
         sending = true
         error = null
-        scope.launch {
+        scope.launch(Dispatchers.Main.immediate) {
             try {
                 for (destination in delivery.pending()) {
                     if (released || retryBlocked) break
@@ -234,6 +234,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
 /** Единственный активный запрос «Поделиться»: держит его состояние между поворотами экрана. */
 internal object ShareSessions {
     private var current: ShareSession? = null
+    // All mutations are invoked by the UI; asynchronous staging and send also resume on Main.
 
     fun of(context: Context, requestId: Long, uris: List<Uri>, text: String, accountId: String = "legacy"): ShareSession {
         current?.takeIf { it.requestId == requestId && it.accountId == accountId }?.let { return it }
