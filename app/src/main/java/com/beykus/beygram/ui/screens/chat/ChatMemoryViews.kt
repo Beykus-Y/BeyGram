@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,6 +28,7 @@ import java.text.DateFormat
 import java.util.Date
 
 /** The earlier texts that Chat Memory kept for [message], oldest first. Opened from the bubble's versions link. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ChatMemoryVersionsSheet(
     message: ChatMessage,
