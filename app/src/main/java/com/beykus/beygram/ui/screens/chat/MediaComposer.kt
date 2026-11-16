@@ -2,6 +2,8 @@ package com.beykus.beygram.ui.screens.chat
 
 import android.content.Context
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.design.styledShape
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -53,8 +55,6 @@ import androidx.compose.material.icons.rounded.Poll
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilterChip
@@ -1640,17 +1640,18 @@ private fun CompactVisualAttachmentTray(
                             color = Color.White, strokeWidth = 2.dp
                         )
                     }
-                    DropdownMenu(
+                    BeyGramPopover(
                         expanded = enabled && menuItemKey == itemKey,
-                        onDismissRequest = { menuItemKey = null }
+                        onDismissRequest = { menuItemKey = null },
+                        alignEnd = false
                     ) {
-                        DropdownMenuItem(
-                            text = { Text(moveLeft) },
+                        BeyGramPopoverItem(
+                            text = moveLeft,
                             enabled = index > 0,
                             onClick = { menuItemKey = null; state.movePending(item, -1) }
                         )
-                        DropdownMenuItem(
-                            text = { Text(moveRight) },
+                        BeyGramPopoverItem(
+                            text = moveRight,
                             enabled = index < state.pending.lastIndex,
                             onClick = { menuItemKey = null; state.movePending(item, 1) }
                         )
