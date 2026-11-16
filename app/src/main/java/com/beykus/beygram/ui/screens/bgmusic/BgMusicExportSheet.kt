@@ -20,7 +20,6 @@ import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -44,7 +43,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.beykus.beygram.ui.components.sheetSurfaceColor
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.MainActivity
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MUSIC_COVER_DIRECTORY
@@ -140,7 +139,7 @@ fun BgMusicExportSheet(playlist: MusicPlaylist, onDismiss: () -> Unit) {
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = sheetSurfaceColor()) {
+    BeyGramSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 24.dp)) {
             Text(
                 stringResource(R.string.bgmusic_export_title),
