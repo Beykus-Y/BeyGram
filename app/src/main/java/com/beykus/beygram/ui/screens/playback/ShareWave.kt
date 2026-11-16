@@ -58,7 +58,9 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
     var failure by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf<Pair<ForwardTarget, CompletableDeferred<Boolean>>?>(null) }
     ForwardChatDialog(
-        chats = waveTargetChats(chats + archivedChats),
+        chats = chats + archivedChats,
+        recipientRepository = repository,
+        candidatePolicy = ::waveTargetChats,
         busy = sending,
         error = failure,
         observeFile = repository::observeFile,
@@ -70,7 +72,7 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
         onSend = { targets, _ ->
             failure = null
             val target = targets.singleOrNull()
-            if (target == null) {
+            if (target == null || waveTargetChats((repository.chats.value + repository.archivedChats.value + repository.folderChats.value.values.flatten()).distinctBy { it.id }).none { it.id == target.chatId }) {
                 failure = onePersonText
                 return@ForwardChatDialog targets
             }

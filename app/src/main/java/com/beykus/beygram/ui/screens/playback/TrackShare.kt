@@ -109,7 +109,9 @@ internal fun ShareTrackDialog(repository: TelegramRepository, item: PlaybackItem
     var sending by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
     ForwardChatDialog(
-        chats = shareTargetChats(chats + archivedChats),
+        chats = chats + archivedChats,
+        recipientRepository = repository,
+        candidatePolicy = ::shareTargetChats,
         busy = sending,
         error = failure,
         observeFile = repository::observeFile,
@@ -127,7 +129,7 @@ internal fun ShareTrackDialog(repository: TelegramRepository, item: PlaybackItem
                 shareItem,
                 originUnprotected = item.origin == null || originChatNow(repository, item)?.hasProtectedContent == false
             )
-            val allowedChats = shareTargetChats(repository.chats.value + repository.archivedChats.value)
+            val allowedChats = shareTargetChats((repository.chats.value + repository.archivedChats.value + repository.folderChats.value.values.flatten()).distinctBy { it.id })
                 .map { it.id }
                 .toSet()
             val media = if (trackAllowed) trackOutgoingMedia(shareItem) else null

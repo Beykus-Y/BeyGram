@@ -2475,4 +2475,5 @@
     <string name="share_search_topics">Поиск тем</string>
     <string name="share_interrupted_warning">Отправка была прервана. Проверьте чат получателя перед повторной отправкой.</string>
     <string name="share_forward_message_count">Сообщений к пересылке: %1$d</string>
+    <string name="share_load_more_chats">Загрузить ещё чаты</string>
 </resources>

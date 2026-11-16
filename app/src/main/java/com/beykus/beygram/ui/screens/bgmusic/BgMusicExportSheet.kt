@@ -296,6 +296,7 @@ private fun ChatSendDialog(
             uris = session.uris,
             session = session,
             chats = chats + archivedChats,
+            recipientRepository = repository,
             captionLimit = captionLimit,
             observeFile = repository::observeFile,
             downloadFile = repository::downloadFile,

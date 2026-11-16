@@ -60,7 +60,9 @@ import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.SearchField
-import com.beykus.beygram.ui.screens.share.ShareRecipientGrid
+import com.beykus.beygram.ui.screens.share.ShareRecipientBrowser
+import com.beykus.beygram.ui.screens.share.rememberShareRecipientDirectory
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
 import com.beykus.beygram.ui.screens.share.shareTargetCandidates
@@ -113,6 +115,8 @@ internal fun ForwardChatDialog(
     previewText: String? = null,
     sendLabel: String? = null,
     onAsCopyChange: ((Boolean) -> Unit)? = null,
+    recipientRepository: TelegramRepository? = null,
+    candidatePolicy: (List<ChatPreview>) -> List<ChatPreview> = { it },
     onSend: suspend (List<ForwardTarget>, String) -> List<ForwardTarget>,
     onClose: () -> Unit
 ) {
@@ -206,7 +210,7 @@ internal fun ForwardChatDialog(
     }
 
     val chat = topicChat
-    val visibleChats = remember(chats, query) { shareTargetCandidates(chats, query) }
+    val directory = rememberShareRecipientDirectory(chats, recipientRepository, candidatePolicy)
 
     LaunchedEffect(targets.isNotEmpty(), query.isNotEmpty(), topicChat?.id, loadingTopics) {
         if (targets.isNotEmpty() || query.isNotEmpty() || topicChat != null || loadingTopics) {
@@ -373,13 +377,10 @@ internal fun ForwardChatDialog(
                         Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                             SearchField(query, { if (!locked) query = it }, stringResource(R.string.forward_search_hint))
                         }
-                        if (visibleChats.isEmpty()) Text(
-                            stringResource(R.string.forward_no_results),
-                            color = palette.textSecondary,
-                            modifier = Modifier.fillMaxWidth().padding(16.dp)
-                        )
-                        ShareRecipientGrid(
-                            chats = visibleChats,
+                        ShareRecipientBrowser(
+                            directory = directory,
+                            repository = recipientRepository,
+                            query = query,
                             observeFile = observeFile,
                             downloadFile = downloadFile,
                             modifier = Modifier.weight(1f),

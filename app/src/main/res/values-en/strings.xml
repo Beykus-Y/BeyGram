@@ -880,4 +880,5 @@
     <string name="share_search_topics">Search topics</string>
     <string name="share_interrupted_warning">Sending was interrupted. Check the recipient chat before sending again.</string>
     <string name="share_forward_message_count">Messages to forward: %1$d</string>
+    <string name="share_load_more_chats">Load more chats</string>
 </resources>

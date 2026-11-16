@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.BeyGramApplication
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.SearchField
 import kotlinx.coroutines.flow.StateFlow
@@ -81,20 +82,22 @@ internal fun ShareTargetScreen(
     sendText: suspend (chatId: Long, topicId: Long, text: String) -> Result<Unit>,
     sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>,
     onSent: (chatId: Long, topicId: Long) -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    recipientRepository: TelegramRepository? = null
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
     val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
     val importer = remember(context, session.accountId) { OutgoingMediaImporter(context, session.accountId) }
 
+    val directory = rememberShareRecipientDirectory(chats, recipientRepository)
     var targetId by rememberSaveable(requestId, session.accountId) { mutableStateOf(0L) }
     var shortcutApplied by rememberSaveable(requestId, session.accountId) { mutableStateOf(false) }
     // TDLib chat list arrives asynchronously on a cold start: apply the Direct Share
     // target only when it becomes an actual writable chat. Never override user choice.
-    LaunchedEffect(initialChatId, chats) {
+    LaunchedEffect(initialChatId, directory.chats) {
         if (!shortcutApplied && targetId == 0L && initialChatId != 0L &&
-            chats.any { it.id == initialChatId && it.canPost }) {
+            directory.chats.any { it.id == initialChatId && it.canPost }) {
             targetId = initialChatId
             shortcutApplied = true
         }
@@ -106,7 +109,7 @@ internal fun ShareTargetScreen(
     var topicsReady by remember(requestId, session.accountId) { mutableStateOf(false) }
     var topicsError by remember(requestId, session.accountId) { mutableStateOf<UiText?>(null) }
     var topicsAttempt by remember(requestId, session.accountId) { mutableIntStateOf(0) }
-    val target = chats.firstOrNull { it.id == targetId }
+    val target = directory.chats.firstOrNull { it.id == targetId && it.canPost }
     val hasFiles = uris.isNotEmpty()
     // С файлами подпись идёт в её лимите; без файлов — лимит текста сообщения.
     val limit = if (session.staged.isNotEmpty()) captionLimit else IncomingShareParser.MAX_TEXT_LENGTH
@@ -185,19 +188,16 @@ internal fun ShareTargetScreen(
                 session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }
                 SearchField(query, { query = it }, stringResource(R.string.share_search))
-                val shown = shareTargetCandidates(chats, query)
-                if (shown.isEmpty()) {
-                    Text(stringResource(R.string.share_no_chats), style = MaterialTheme.typography.bodyMedium)
-                } else {
-                    ShareRecipientGrid(
-                        chats = shown,
-                        observeFile = observeFile,
-                        downloadFile = downloadFile,
-                        modifier = Modifier.weight(1f),
-                        enabled = !session.sending,
-                        onChoose = { chat -> targetId = chat.id; topicId = 0L; session.error = null }
-                    )
-                }
+                ShareRecipientBrowser(
+                    directory = directory,
+                    repository = recipientRepository,
+                    query = query,
+                    observeFile = observeFile,
+                    downloadFile = downloadFile,
+                    modifier = Modifier.weight(1f),
+                    enabled = !session.sending,
+                    onChoose = { chat -> targetId = chat.id; topicId = 0L; session.error = null }
+                )
             } else if (!topicsReady) {
                 Text(stringResource(R.string.share_send_to, target.title), style = MaterialTheme.typography.titleSmall)
                 topicsError?.let {

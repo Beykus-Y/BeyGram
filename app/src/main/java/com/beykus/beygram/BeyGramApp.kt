@@ -1542,6 +1542,7 @@ private fun BeyGramAppContent(
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
                     chats = shareChats + shareArchivedChats,
+                    recipientRepository = repository,
                     loadTopics = { chatId -> repository.forumTopics(chatId) },
                     sendText = { chatId, topicId, text ->
                         repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)

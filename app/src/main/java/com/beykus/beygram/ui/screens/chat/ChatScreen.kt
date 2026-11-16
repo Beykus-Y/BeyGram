@@ -2749,6 +2749,7 @@ fun ChatScreen(
             commentLimit = limits.text,
             previewText = preview,
             onAsCopyChange = { forwardAsCopy = it },
+            recipientRepository = conversation as? com.beykus.beygram.domain.repository.TelegramRepository,
             loadTopics = { conversation.forumTopics(it) },
             // Track confirmed delivery per destination and message; a comment failure must not re-forward content.
             onSend = { targets, comment ->
