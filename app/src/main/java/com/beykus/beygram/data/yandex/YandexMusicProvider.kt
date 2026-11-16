@@ -71,7 +71,13 @@ internal class YandexMusicProvider(
     /** A code that was requested but not yet confirmed, with the time it stops being valid. */
     data class PendingSignIn(val code: YandexDeviceCode, val deadlineMs: Long)
 
-    /** The current sign-in attempt. Written under [refreshLock]; a poll of any other code is stale. */
+    /**
+     * Guards [pending]. Separate from [refreshLock], which is held during token refresh requests, so the screen can
+     * cancel an attempt from the main thread without waiting for the network. Order: [refreshLock], then this one.
+     */
+    private val pendingLock = Any()
+
+    /** The current sign-in attempt. Written under [pendingLock]; a poll of any other code is stale. */
     @Volatile
     private var pending: PendingSignIn? = null
 
@@ -80,10 +86,10 @@ internal class YandexMusicProvider(
 
     /** Drops the pending attempt, so a poll still in flight for it cannot sign anyone in. */
     fun clearPendingSignIn() {
-        synchronized(refreshLock) { pending = null }
+        synchronized(pendingLock) { pending = null }
     }
 
-    /** True while [code] is the current attempt and has not expired. Call under [refreshLock]. */
+    /** True while [code] is the current attempt and has not expired. Call under [pendingLock]. */
     private fun isCurrentAttempt(code: YandexDeviceCode): Boolean {
         val current = pending ?: return false
         return current.code.deviceCode == code.deviceCode && now() < current.deadlineMs
@@ -95,7 +101,7 @@ internal class YandexMusicProvider(
             is ProviderResult.Failure -> result
             is ProviderResult.Success -> {
                 // A new attempt replaces the old one, so polls of the old code become stale.
-                synchronized(refreshLock) {
+                synchronized(pendingLock) {
                     pending = PendingSignIn(result.value, now() + result.value.expiresInSec * 1_000L)
                 }
                 result
@@ -106,12 +112,12 @@ internal class YandexMusicProvider(
     suspend fun pollSignIn(code: YandexDeviceCode): YandexSignInPoll = withContext(Dispatchers.IO) {
         val stale = YandexSignInPoll.Failed(MusicProviderFailure.NotSignedIn)
         // Cheap early exit: no request for an attempt that was cancelled, replaced or has expired.
-        if (!synchronized(refreshLock) { isCurrentAttempt(code) }) return@withContext stale
+        if (!synchronized(pendingLock) { isCurrentAttempt(code) }) return@withContext stale
         when (val outcome = auth.pollToken(code.deviceCode)) {
             YandexPollOutcome.Pending -> YandexSignInPoll.Pending
             YandexPollOutcome.SlowDown -> YandexSignInPoll.SlowDown
             is YandexPollOutcome.Failed -> {
-                val wasCurrent = synchronized(refreshLock) {
+                val wasCurrent = synchronized(pendingLock) {
                     val current = pending?.code?.deviceCode == code.deviceCode
                     if (current) pending = null
                     current
@@ -134,9 +140,11 @@ internal class YandexMusicProvider(
                         // A cancelled screen does not interrupt the blocking requests above, so check again here.
                         ensureActive()
                         val committed = synchronized(refreshLock) {
-                            if (isCurrentAttempt(code)) {
+                            val current = synchronized(pendingLock) {
+                                isCurrentAttempt(code).also { if (it) pending = null }
+                            }
+                            if (current) {
                                 store.save(session)
-                                pending = null
                                 bumpGeneration()
                                 val signedIn = session.toAccount()
                                 mutableState.value = MusicProviderState.SignedIn(signedIn)
@@ -183,7 +191,7 @@ internal class YandexMusicProvider(
     /** Deletes the stored session and publishes SignedOut. Under the lock, so a refresh cannot write it back. */
     private fun clearSession() {
         synchronized(refreshLock) {
-            pending = null
+            synchronized(pendingLock) { pending = null }
             store.clear()
             bumpGeneration()
             mutableState.value = MusicProviderState.SignedOut

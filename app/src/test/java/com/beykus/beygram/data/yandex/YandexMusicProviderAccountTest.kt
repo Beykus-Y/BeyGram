@@ -22,7 +22,6 @@ import java.util.concurrent.TimeUnit
  */
 class YandexMusicProviderAccountTest {
 
-    private val farFuture = 10_000_000_000L
 
     private class FakeStorage : YandexSessionStorage {
         @Volatile var session: YandexSession? = null
