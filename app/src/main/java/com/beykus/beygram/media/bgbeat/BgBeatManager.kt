@@ -2,6 +2,8 @@ package com.beykus.beygram.media.bgbeat
 
 import android.content.Context
 import android.util.Log
+import com.beykus.beygram.data.music.MusicLibraries
+import com.beykus.beygram.data.music.toTrackRef
 import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.playback.PlaybackState
@@ -255,6 +257,25 @@ class BgBeatManager(
         startAnalysis(currentItem, file, currentAccount, identity, force = true)
     }
 
+    /**
+     * Keeps the tempo of a trustworthy analysis for the library's Tempo sort. It only stores what this analysis already found, and
+     * it runs on its own coroutine: a failed save must never turn a finished analysis into an error. The library refuses a track
+     * that belongs to another account than its own.
+     */
+    private fun recordTrustedTempo(item: PlaybackItem, analysis: BgBeatAnalysis) {
+        val bpm = trustedTempoBpm(analysis) ?: return
+        val track = item.toTrackRef() ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                MusicLibraries.get(context).recordTempo(track, bpm)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.w(TAG, "Tempo of ${item.key} was not stored", e)
+            }
+        }
+    }
+
     private data class AnalysisRun(
         val analysis: BgBeatAnalysis,
         val lease: BgAnalysisLease?
@@ -339,6 +360,7 @@ class BgBeatManager(
                         runLease = null
                         completedIdentity = identity
                         _uiState.value = BgBeatUiState.Ready(run.analysis, itemKey, accountId)
+                        recordTrustedTempo(item, run.analysis)
                         withContext(Dispatchers.IO) {
                             BgBeatSettingsStore.enforceCacheQuota(context)
                         }

@@ -102,6 +102,7 @@ object MusicLibraryJson {
         .put("playCount", stats.playCount)
         .put("lastPlayedAt", stats.lastPlayedAt ?: JSONObject.NULL)
         .put("firstAddedAt", stats.firstAddedAt ?: JSONObject.NULL)
+        .put("bpm", stats.bpm ?: JSONObject.NULL)
 
     private fun refToJson(ref: MusicTrackRef): JSONObject = JSONObject()
         .put("trackKey", ref.trackKey)
@@ -238,7 +239,8 @@ object MusicLibraryJson {
         track = refFromJson(json.getJSONObject("track")),
         playCount = json.optInt("playCount", 0),
         lastPlayedAt = json.optionalLong("lastPlayedAt"),
-        firstAddedAt = json.optionalLong("firstAddedAt")
+        firstAddedAt = json.optionalLong("firstAddedAt"),
+        bpm = json.optionalTempo("bpm")
     )
 
     private fun refFromJson(json: JSONObject): MusicTrackRef {
@@ -271,4 +273,11 @@ object MusicLibraryJson {
     private fun JSONObject.optionalString(name: String): String? = if (isNull(name)) null else optString(name)
 
     private fun JSONObject.optionalLong(name: String): Long? = if (isNull(name)) null else optLong(name)
+
+    /**
+     * A tempo is read only as a JSON number inside the valid range. A missing, null, text, boolean or out-of-range value reads as
+     * null, and the stats entry that holds it is kept.
+     */
+    private fun JSONObject.optionalTempo(name: String): Double? =
+        (opt(name) as? Number)?.toDouble()?.takeIf { isValidMusicBpm(it) }
 }
