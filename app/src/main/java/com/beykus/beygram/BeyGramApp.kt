@@ -1409,13 +1409,18 @@ private fun BeyGramAppContent(
     // A generic Android ACTION_SEND has no trustworthy Telegram account
     // identity. Require an explicit account choice BEFORE resolving numeric
     // chat IDs; published Direct Share shortcuts remain legacy-only.
-    var shareAccountTarget by remember(incomingShare?.requestId) {
-        mutableStateOf<String?>(if (incomingShare?.targetChatId != 0L) TdAccountStorageLayout.LEGACY_ACCOUNT_ID else null)
+    var shareAccountTarget by rememberSaveable(incomingShare?.requestId) {
+        mutableStateOf(incomingShare?.let { ShareSessions.deliveryAccount(it.requestId) }
+            ?: if (incomingShare?.targetChatId?.let { it != 0L } == true) TdAccountStorageLayout.LEGACY_ACCOUNT_ID else null)
+    }
+    val startedShareAccount = incomingShare?.let { ShareSessions.deliveryAccount(it.requestId) }
+    LaunchedEffect(startedShareAccount) {
+        if (startedShareAccount != null) shareAccountTarget = startedShareAccount
     }
     // A legacy Direct Share shortcut's numeric chat ID belongs ONLY to legacy.
     // Choosing another account discards that shortcut but keeps the attachment.
-    var shareLegacyShortcut by remember(incomingShare?.requestId) {
-        mutableStateOf(incomingShare?.targetChatId != 0L)
+    var shareLegacyShortcut by rememberSaveable(incomingShare?.requestId) {
+        mutableStateOf(incomingShare?.targetChatId?.let { it != 0L } == true)
     }
     val shareLegacyFinalLogout = legacyAuthState is AuthState.WaitingForPhone ||
         legacyAuthState is AuthState.WaitingForQr ||
@@ -1500,18 +1505,22 @@ private fun BeyGramAppContent(
     if (incomingShare != null && shareAccountTarget != null &&
         shareAccountTarget != selectedAccountId && accountRegistryReady && !accountRegistryError) {
         val target = shareAccountTarget!!
+        val cancelSwitch: () -> Unit = {
+            if (startedShareAccount != null) onIncomingShareHandled(incomingShare.requestId)
+            else shareAccountTarget = null
+        }
         BeyGramDialog(
-            onDismissRequest = { shareAccountTarget = null },
+            onDismissRequest = cancelSwitch,
             title = stringResource(R.string.multi_share_switch_title),
             message = stringResource(R.string.multi_share_switch_note),
             confirmText = stringResource(R.string.multi_share_switch_action),
             onConfirm = { chooseAccount(target) },
-            dismissText = stringResource(R.string.multi_share_choose_other),
-            onDismiss = { shareAccountTarget = null }
+            dismissText = stringResource(if (startedShareAccount != null) R.string.common_close else R.string.multi_share_choose_other),
+            onDismiss = cancelSwitch
         )
     }
     if (incomingShare != null && shareAccountTarget == selectedAccountId &&
-        authState == AuthState.Ready && accountRegistryReady && !accountRegistryError) {
+        (startedShareAccount == null || startedShareAccount == selectedAccountId) && authState == AuthState.Ready && accountRegistryReady && !accountRegistryError) {
         // Архивные чаты тоже можно выбрать: отправка в них не требует вынимать их из архива.
         val shareChats by repository.chats.collectAsStateWithLifecycle()
         val shareArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()

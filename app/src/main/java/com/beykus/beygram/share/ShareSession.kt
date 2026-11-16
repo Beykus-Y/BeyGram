@@ -243,6 +243,10 @@ internal object ShareSessions {
     private var current: ShareSession? = null
     // All mutations are invoked by the UI; asynchronous staging and send also resume on Main.
 
+    fun hasSession(requestId: Long): Boolean = current?.requestId == requestId
+
+    fun deliveryAccount(requestId: Long): String? = current?.takeIf { it.requestId == requestId && it.deliveryStarted }?.accountId
+
     fun of(context: Context, requestId: Long, uris: List<Uri>, text: String, accountId: String = "legacy"): ShareSession {
         current?.takeIf { it.requestId == requestId && it.accountId == accountId }?.let { return it }
         // Пришёл новый запрос: копии старого, если он не отправлен, больше не нужны.
