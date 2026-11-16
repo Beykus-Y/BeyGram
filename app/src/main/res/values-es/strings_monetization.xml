@@ -283,4 +283,9 @@
         <item quantity="one">%1$d elemento</item>
         <item quantity="other">%1$d elementos</item>
     </plurals>
+    <string name="paid_text_title">Mensaje de pago</string>
+    <string name="paid_text_confirm">¿Enviar este mensaje ahora por %1$s Stars? Saldo: %2$s Stars. No se aplicará el retraso de envío local.</string>
+    <string name="paid_text_price_changed">El precio del mensaje ha cambiado. Compruébalo y vuelve a confirmar.</string>
+    <string name="paid_text_uncertain">No se pudo confirmar el envío del mensaje de pago. Revisa el chat y el saldo antes de intentarlo de nuevo.</string>
+    <string name="paid_text_draft_changed">El borrador ha cambiado. Revisa el mensaje y pulsa enviar de nuevo.</string>
 </resources>

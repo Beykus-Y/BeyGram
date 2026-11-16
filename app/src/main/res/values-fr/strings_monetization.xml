@@ -294,4 +294,9 @@
         <item quantity="one">%1$d élément</item>
         <item quantity="other">%1$d éléments</item>
     </plurals>
+    <string name="paid_text_title">Message payant</string>
+    <string name="paid_text_confirm">Envoyer ce message maintenant pour %1$s Stars ? Solde : %2$s Stars. Le délai d’envoi local ne s’applique pas.</string>
+    <string name="paid_text_price_changed">Le prix du message a changé. Vérifiez-le et confirmez à nouveau.</string>
+    <string name="paid_text_uncertain">Impossible de confirmer l’envoi du message payant. Vérifiez la conversation et votre solde avant de réessayer.</string>
+    <string name="paid_text_draft_changed">Le brouillon a changé. Vérifiez le message et appuyez de nouveau sur Envoyer.</string>
 </resources>
