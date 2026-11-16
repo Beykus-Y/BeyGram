@@ -21,9 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -286,14 +286,15 @@ private fun BlockedSenderRow(
             IconButton(onClick = { menuOpen = true }) {
                 Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary)
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.blocked_unblock)) },
+            BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.blocked_unblock),
                     onClick = { menuOpen = false; onUnblock() }
                 )
                 if (sender.kind == BlockedSenderKind.User) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.blocked_report_spam), color = palette.danger) },
+                    BeyGramPopoverItem(
+                        text = stringResource(R.string.blocked_report_spam),
+                        danger = true,
                         onClick = { menuOpen = false; onReportSpam() }
                     )
                 }
