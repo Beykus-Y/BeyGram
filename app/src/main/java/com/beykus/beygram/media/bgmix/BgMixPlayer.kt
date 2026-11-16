@@ -306,7 +306,8 @@ class BgMixPlayer(private val cacheDir: File) {
 
         /** Lock-free sampling of the last published counters, including not-yet-destroyed hosts. */
         fun memorySnapshot(): BgMixMemorySnapshot {
-            val hosts = livePlayers.toList()
+            // Iterate the weakly consistent set instead of relying on a fixed size.
+            val hosts = livePlayers.map { it }
             val snapshots = hosts.mapNotNull { it.status.value }
             return BgMixMemorySnapshot(
                 liveHosts = hosts.size,
