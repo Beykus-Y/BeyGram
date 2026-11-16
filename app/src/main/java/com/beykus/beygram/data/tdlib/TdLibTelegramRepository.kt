@@ -2628,7 +2628,7 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun sendPaidTextMessage(
         chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>,
-        confirmedStarCount: Long, disableNotification: Boolean
+        confirmedStarCount: Long, disableNotification: Boolean, forumTopicId: Long, disableLinkPreview: Boolean
     ): Result<Unit> {
         val balance = payments.starBalance().getOrElse { return Result.failure(it) }
         if (!paidTextCanConfirm(confirmedStarCount, balance)) {
@@ -2636,7 +2636,7 @@ class TdLibTelegramRepository private constructor(
         }
         leaveJumpWindow(chatId)
         conversationEffects.endActivity(chatId, ChatActivity.Typing)
-        return conversationActions.sendPaidText(chatId, text, replyToMessageId, entities, confirmedStarCount, disableNotification)
+        return conversationActions.sendPaidText(chatId, text, replyToMessageId, entities, confirmedStarCount, disableNotification, forumTopicId, disableLinkPreview)
     }
 
     override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, clearDraft: Boolean, options: MessageSendOptions): Result<Unit> {
