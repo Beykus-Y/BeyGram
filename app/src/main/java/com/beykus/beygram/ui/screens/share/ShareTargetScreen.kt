@@ -57,29 +57,6 @@ import com.beykus.beygram.share.ShareSession
 import com.beykus.beygram.ui.text.resolve
 
 /**
- * Offer the user's recent writable conversations, not alphabetical suggestions that bury
- * the intended chat. Saved Messages has a separate quick action and is never duplicated.
- */
-internal fun shareTargetCandidates(
-    chats: List<ChatPreview>, query: String, excludeSaved: Boolean = false
-): List<ChatPreview> {
-    val needle = query.trim()
-    return chats.asSequence()
-        .filter { it.canPost && it.title.isNotBlank() }
-        .filter { !excludeSaved || !it.isSavedMessages }
-        .filter { needle.isEmpty() || it.title.contains(needle, ignoreCase = true) }
-        .distinctBy { it.id }
-        .sortedWith(
-            compareByDescending<ChatPreview> { it.isSavedMessages }
-                .thenByDescending { it.order > 0L }
-                .thenByDescending { it.order }
-                .thenByDescending { it.archiveOrder }
-                .thenBy { it.title.lowercase() }
-                .thenBy { it.id }
-        ).toList()
-}
-
-/**
  * Экран «Отправить в BeyGram»: выбор чата, в группе с темами — выбор темы, потом предпросмотр с явной кнопкой отправки.
  * Ничего не уходит без нажатия «Отправить»; текст и подпись можно поправить, файлы можно убрать.
  * В группе с темами сообщение не уйдёт в General молча: тема выбирается обязательно.

@@ -65,6 +65,7 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
         downloadFile = repository::downloadFile,
         asCopy = true,
         allowComment = false,
+        singleRecipient = true,
         onSend = { targets, _ ->
             failure = null
             val target = targets.singleOrNull()

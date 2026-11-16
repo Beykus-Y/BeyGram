@@ -1853,6 +1853,7 @@ private fun BeyGramAppContent(
     // resolved must not replace the whole tab there: the list is already beside it.
     val chatRoute: @Composable (Boolean) -> Unit = { twoPane ->
         val chats by repository.chats.collectAsStateWithLifecycle()
+        val forwardArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
         val myAccount by repository.myProfile.collectAsStateWithLifecycle()
         val accountLabel = myAccount.info?.title?.takeIf { it.isNotBlank() } ?: myAccount.info?.phone.orEmpty()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
@@ -2032,7 +2033,7 @@ private fun BeyGramAppContent(
                         lastSeenStyle = lastSeenStyle,
                         history = history,
                         conversation = repository,
-                        chats = chats,
+                        chats = chats + forwardArchivedChats,
                         observeFile = repository::observeFile,
                         onDownloadFile = repository::downloadFile,
                         onAutoDownloadFile = repository::autoDownloadFile,
@@ -2151,6 +2152,7 @@ private fun BeyGramAppContent(
         val mediaChatId = selectedChatId
         val mediaRepository = repository
         val chats by repository.chats.collectAsStateWithLifecycle()
+        val forwardArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
         // Chat information includes shared media; a protected chat must stay out of screenshots here too.
         val chatInfoSecure = selectedChat?.let { it.isSecret || it.hasProtectedContent } == true
@@ -2202,7 +2204,7 @@ private fun BeyGramAppContent(
             },
             confirmExport = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull()?.canSave == true },
             messageRights = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull() },
-            forwardMessage = { messageId, toChatId -> repository.forwardMessage(selectedChatId, messageId, toChatId) }, chats = chats,
+            forwardMessage = { messageId, toChatId -> repository.forwardMessage(selectedChatId, messageId, toChatId) }, chats = chats + forwardArchivedChats,
             onContentOpened = { messageId -> repository.openMessageContent(selectedChatId, messageId) },
             onOpenMessage = { messageId, topicId ->
                 if (topicId > 0L) {
@@ -2904,6 +2906,7 @@ GlobalSearchScreen(
                 }
                 AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
                     val contactChats by repository.chats.collectAsStateWithLifecycle()
+                    val contactArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
                     ContactsScreen(
                         accountId = selectedAccountId,
                         loadContacts = repository::loadContacts,
@@ -2911,7 +2914,7 @@ GlobalSearchScreen(
                         updateContact = repository::updateContact,
                         deleteContact = repository::deleteContact,
                         sendContact = repository::sendContact,
-                        chats = contactChats,
+                        chats = contactChats + contactArchivedChats,
                         openPrivateChat = repository::openPrivateChat,
                         observeFile = repository::observeFile,
                         downloadFile = repository::downloadFile,

@@ -15,7 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
-import androidx.compose.material.icons.rounded.Forum
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,6 +52,7 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
+import com.beykus.beygram.ui.screens.share.shareTargetCandidates
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -66,6 +66,18 @@ internal data class ForwardTarget(
     val topicId: Long = 0L,
     val topicTitle: String? = null
 )
+
+/** Selection is keyed by chat and topic, independent of changing display titles. */
+internal fun toggleForwardTarget(
+    selected: List<ForwardTarget>, target: ForwardTarget, singleRecipient: Boolean
+): List<ForwardTarget> {
+    val matches: (ForwardTarget) -> Boolean = { it.chatId == target.chatId && it.topicId == target.topicId }
+    return when {
+        selected.any(matches) -> selected.filterNot(matches)
+        singleRecipient -> listOf(target)
+        else -> selected + target
+    }
+}
 
 /**
  * Полноэкранный выбор адресатов. Тап по строке только отмечает чат: ничего не уходит, пока не нажата кнопка «Переслать».
@@ -85,13 +97,16 @@ internal fun ForwardChatDialog(
     /** Telegram text limit in code points; a longer comment is refused here, never silently cut. */
     commentLimit: Int = Int.MAX_VALUE,
     loadTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
+    singleRecipient: Boolean = false,
+    titleOverride: String? = null,
+    previewText: String? = null,
+    sendLabel: String? = null,
     onSend: suspend (List<ForwardTarget>, String) -> List<ForwardTarget>,
     onClose: () -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val generalTopic = stringResource(R.string.forward_topic_general)
     var query by remember { mutableStateOf("") }
     var comment by remember { mutableStateOf("") }
     var targets by remember { mutableStateOf<List<ForwardTarget>>(emptyList()) }
@@ -107,9 +122,7 @@ internal fun ForwardChatDialog(
 
     fun toggle(target: ForwardTarget) {
         if (locked) return
-        targets = if (targets.any { it.chatId == target.chatId && it.topicId == target.topicId }) {
-            targets.filterNot { it.chatId == target.chatId && it.topicId == target.topicId }
-        } else targets + target
+        targets = toggleForwardTarget(targets, target, singleRecipient)
     }
 
     fun backFromTopics() {
@@ -132,7 +145,7 @@ internal fun ForwardChatDialog(
             loadingTopics = false
             result.onSuccess { loaded ->
                 val writable = loaded.orEmpty().filter { it.canWrite }
-                if (writable.isEmpty()) toggle(ForwardTarget(chat.id, chat.title))
+                if (loaded == null) toggle(ForwardTarget(chat.id, chat.title))
                 else {
                     topicChat = chat
                     topics = writable
@@ -159,10 +172,7 @@ internal fun ForwardChatDialog(
     }
 
     val chat = topicChat
-    val visibleChats = remember(chats, query) {
-        val needle = query.trim()
-        if (needle.isEmpty()) chats else chats.filter { it.title.contains(needle, ignoreCase = true) }
-    }
+    val visibleChats = remember(chats, query) { shareTargetCandidates(chats, query) }
 
     Dialog(
         onDismissRequest = { if (chat != null) backFromTopics() else if (!locked) onClose() },
@@ -176,7 +186,7 @@ internal fun ForwardChatDialog(
                     title = {
                         Text(
                             if (chat != null) stringResource(R.string.forward_choose_topic, chat.title)
-                            else stringResource(if (asCopy) R.string.forward_title_copy else R.string.forward_title),
+                            else titleOverride ?: stringResource(if (asCopy) R.string.forward_title_copy else R.string.forward_title),
                             color = palette.textPrimary,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -239,14 +249,19 @@ internal fun ForwardChatDialog(
                             color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f)
                         )
                         Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !commentOverLimit) {
-                            Text(stringResource(R.string.forward_send_count, targets.size))
+                            Text(sendLabel ?: stringResource(R.string.forward_send_count, targets.size))
                         }
                     }
                 }
             }
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                if (asCopy && chat == null) Text(
+                if (chat == null && previewText != null) Text(
+                    previewText, color = palette.textPrimary, fontWeight = FontWeight.SemiBold,
+                    maxLines = 3, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                if (asCopy && titleOverride == null && chat == null) Text(
                     stringResource(R.string.forward_copy_note),
                     color = palette.textSecondary,
                     fontSize = 13.sp,
@@ -265,14 +280,9 @@ internal fun ForwardChatDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) { CircularProgressIndicator() }
                     chat != null -> LazyColumn(Modifier.fillMaxSize()) {
-                        item(key = "general") {
-                            ForwardRow(
-                                title = generalTopic,
-                                selected = isPicked(chat.id, 0L),
-                                enabled = !locked,
-                                onClick = { toggle(ForwardTarget(chat.id, chat.title, 0L, generalTopic)) },
-                                leading = { TopicIcon(Icons.Rounded.Forum) }
-                            )
+                        if (topics.isEmpty() && topicError == null) item(key = "empty") {
+                            Text(stringResource(R.string.share_no_topics), color = palette.textSecondary,
+                                modifier = Modifier.padding(16.dp))
                         }
                         items(topics, key = { it.id }) { topic ->
                             ForwardRow(

@@ -72,6 +72,7 @@ import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.ChatAvatar
+import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -136,7 +137,7 @@ fun ContactsScreen(
         groups.filterKeys { it != CONTACT_SYMBOL_GROUP } + groups.filterKeys { it == CONTACT_SYMBOL_GROUP }
     }
     val shareChats = remember(chats) {
-        chats.filter { it.canPost }.distinctBy { it.id }.sortedBy { it.title.lowercase() }
+        chats
     }
 
     fun reload() {
@@ -556,52 +557,38 @@ private fun ShareContactDialog(
     onDismiss: () -> Unit,
     onSent: () -> Unit
 ) {
-    val palette = beyGramPalette()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val displayName = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
-    BeyGramDialog(
-        onDismissRequest = { if (!sending) onDismiss() },
-        title = stringResource(R.string.contacts_share_title),
-        content = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(displayName, color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
-                if (sending) Text(stringResource(R.string.contacts_share_sending), color = palette.textSecondary, fontSize = 13.sp)
-                error?.let { Text(it, color = palette.danger, fontSize = 14.sp) }
-                if (chats.isEmpty()) {
-                    Text(stringResource(R.string.contacts_share_no_chats), color = palette.textSecondary, fontSize = 14.sp)
+    ForwardChatDialog(
+        chats = chats,
+        busy = sending,
+        error = error,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        allowComment = false,
+        singleRecipient = true,
+        titleOverride = stringResource(R.string.contacts_share_title),
+        previewText = displayName,
+        sendLabel = stringResource(R.string.share_send),
+        onSend = { targets, _ ->
+            val target = targets.single()
+            sending = true
+            error = null
+            try {
+                val result = sendContact(target.chatId, contact.userId)
+                if (result.isSuccess) {
+                    onSent()
+                    emptyList()
                 } else {
-                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                        items(chats, key = { it.id }) { chat ->
-                            Row(
-                                Modifier.fillMaxWidth()
-                                    .combinedClickable(enabled = !sending, onClick = {
-                                        if (!sending) scope.launch {
-                                            sending = true
-                                            error = null
-                                            sendContact(chat.id, contact.userId)
-                                                .onSuccess { onSent(); onDismiss() }
-                                                .onFailure { error = it.userMessage(context, R.string.contacts_share_failed) }
-                                            sending = false
-                                        }
-                                    })
-                                    .padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ChatAvatar(chat, 40.dp, observeFile, downloadFile)
-                                Spacer(Modifier.width(12.dp))
-                                Text(chat.title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
+                    error = result.exceptionOrNull().userMessage(context, R.string.contacts_share_failed)
+                    targets
                 }
+            } finally {
+                sending = false
             }
         },
-        confirmText = stringResource(R.string.common_cancel),
-        confirmEnabled = !sending,
-        onConfirm = onDismiss,
-        scrollableContent = false
+        onClose = onDismiss
     )
 }
