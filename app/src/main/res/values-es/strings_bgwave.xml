@@ -47,4 +47,5 @@
     <string name="bgwave_listener_channel_name">Escuchar juntos</string>
     <string name="bgwave_listener_notification_title">Estás escuchando una ola</string>
     <string name="bgwave_listener_notification_text">El sonido sigue con la pantalla apagada</string>
+    <string name="bgwave_chat_preview">Escucha compartida</string>
 </resources>

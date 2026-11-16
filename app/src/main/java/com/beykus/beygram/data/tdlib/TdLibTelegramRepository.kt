@@ -2585,6 +2585,7 @@ class TdLibTelegramRepository private constructor(
             when (result) {
                 is TdApi.Messages -> {
                     val page = result.messages.orEmpty().filterNot { it.id == fromMessageId }
+                    if (fromMessageId == 0L) offerHistoryToWave(page.filterNotNull())
                     val nextFrom = page.lastOrNull()?.id ?: fromMessageId
                     val more = page.isNotEmpty()
                     val continueLoading = more && nextFrom != fromMessageId && remaining > page.size && pagesLeft > 1
@@ -2754,6 +2755,7 @@ class TdLibTelegramRepository private constructor(
                 updateForumMessage(update.chatId, update.messageId) { it.copy(media = it.media?.copy(isViewed = true)) }
             }
             is TdApi.UpdateMessageEdited -> {
+                onWaveMessageEdited(update.chatId, update.messageId)
                 messageHistory.update(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
                 updateForumMessage(update.chatId, update.messageId) { it.copy(isEdited = update.editDate > 0, inlineKeyboard = inlineKeyboard(update.replyMarkup)) }
             }
@@ -2844,6 +2846,7 @@ class TdLibTelegramRepository private constructor(
                 VideoNoteSendTracking.tracker.onSucceeded(update.message.chatId, update.oldMessageId)
                 reportBotChannel.onSendSucceeded(update)
                 botFeatures.onSendSucceeded(update)
+                noteWaveOfferSent(update.message)
                 cleanupSentUploads(update.message)
                 if (update.message.schedulingState == null) {
                     messageHistory.put(update.message.toChatMessage(), update.oldMessageId)
@@ -2877,6 +2880,7 @@ class TdLibTelegramRepository private constructor(
             }
             is TdApi.UpdateDeleteMessages -> {
                 update.messageIds.forEach { conversationEffects.uploadFinished(update.chatId, it) }
+                if (update.isPermanent && !update.fromCache) onWaveMessagesDeleted(update.chatId, update.messageIds)
                 if (update.isPermanent) {
                     val ids = update.messageIds.toList()
                     // Chat Memory keeps incoming messages that the other side deleted: they stay on screen, marked.
@@ -3417,6 +3421,67 @@ class TdLibTelegramRepository private constructor(
                 BgWaveHub.controller.offerSent(decoded.sidHex, false, now)
             com.beykus.beygram.media.bgwave.BgWaveController.TYPE_ANSWER ->
                 BgWaveHub.controller.answerSendFailed(decoded.sidHex, now)
+            else -> com.beykus.beygram.media.bgwave.BgWaveLog.w(
+                "send.failed.signal", null,
+                "type" to decoded.type,
+                "sid" to com.beykus.beygram.media.bgwave.BgWaveLog.sid(decoded.sidHex),
+            )
+        }
+    }
+
+    /** The outgoing OFFER that reached Telegram is remembered by message id, so deleting it cancels an unanswered offer. */
+    private fun noteWaveOfferSent(message: TdApi.Message) {
+        if (!message.isOutgoing) return
+        try {
+            val link = waveLinkOf(message) ?: return
+            val decoded = com.beykus.beygram.media.bgwave.BgWaveNative.decodeUri(link, message.date.toLong())
+                as? com.beykus.beygram.media.bgwave.BgWaveDecodeResult.Ok ?: return
+            if (decoded.type != com.beykus.beygram.media.bgwave.BgWaveController.TYPE_OFFER) return
+            BgWaveHub.controller.noteOfferMessage(accountId, message.chatId, message.id, decoded.sidHex)
+        } catch (_: Exception) {
+            // Bookkeeping only; a failure here must not disturb the update stream.
+        }
+    }
+
+    /** Deleted OFFER messages retire their pending invitation; a live session is never touched by a delete. */
+    private fun onWaveMessagesDeleted(chatId: Long, messageIds: LongArray) {
+        try {
+            val now = BgWaveHub.nowSeconds()
+            messageIds.forEach { BgWaveHub.controller.onOfferMessageGone(accountId, chatId, it, null, now) }
+        } catch (_: Exception) {
+        }
+    }
+
+    /** An edited OFFER message must still carry the same valid offer, otherwise the pending invitation is retired. */
+    private fun onWaveMessageEdited(chatId: Long, messageId: Long) {
+        if (!BgWaveHub.controller.hasOfferMessage(accountId, chatId, messageId)) return
+        val generation = secretChatSession
+        client.send(TdApi.GetMessage(chatId, messageId), Client.ResultHandler { result ->
+            if (generation != secretChatSession) return@ResultHandler
+            try {
+                val stillValid = (result as? TdApi.Message)?.let { message ->
+                    val link = waveLinkOf(message) ?: return@let null
+                    (com.beykus.beygram.media.bgwave.BgWaveNative.decodeUri(link, message.date.toLong())
+                        as? com.beykus.beygram.media.bgwave.BgWaveDecodeResult.Ok)
+                        ?.takeIf { it.type == com.beykus.beygram.media.bgwave.BgWaveController.TYPE_OFFER }
+                        ?.sidHex
+                }
+                BgWaveHub.controller.onOfferMessageGone(accountId, chatId, messageId, stillValid, BgWaveHub.nowSeconds())
+            } catch (_: Exception) {
+            }
+        })
+    }
+
+    /**
+     * Wave messages that arrived while the app was offline are in the loaded history. They go through the same intake,
+     * oldest first, so a later CANCEL lands on the offer it belongs to. Duplicates are ignored by the controller.
+     */
+    private fun offerHistoryToWave(page: List<TdApi.Message>) {
+        val now = BgWaveHub.nowSeconds()
+        val limit = com.beykus.beygram.media.bgwave.BgWaveController.OFFER_TTL_SECONDS +
+            com.beykus.beygram.media.bgwave.BgWaveController.CLOCK_SKEW_SECONDS
+        page.asReversed().forEach { message ->
+            if (!message.isOutgoing && now - message.date.toLong() < limit) offerToWave(message)
         }
     }
 
@@ -3449,6 +3514,7 @@ class TdLibTelegramRepository private constructor(
                 privateChat = chat.type is TdApi.ChatTypePrivate,
                 uri = link,
                 nowSeconds = BgWaveHub.nowSeconds(),
+                messageId = message.id,
             )
         } catch (_: Exception) {
             // A damaged wave message must never interrupt the update stream that the chat list depends on.
@@ -3809,7 +3875,8 @@ class TdLibTelegramRepository private constructor(
     }
 
     private fun TdApi.Message.toTextPreview(): UiText =
-        serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
+        if (waveLinkOf(this) != null) UiText.Res(R.string.bgwave_chat_preview)
+        else serviceMessages.event(this) { profiles.senderName(TdApi.MessageSenderUser(it)) }
             ?.let { UiText.Raw(it.text) } ?: previewText(content)
 
     private fun previewText(c: TdApi.MessageContent): UiText =
