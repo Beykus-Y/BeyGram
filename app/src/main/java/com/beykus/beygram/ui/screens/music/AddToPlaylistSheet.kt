@@ -22,7 +22,6 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,7 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.beykus.beygram.ui.components.sheetSurfaceColor
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MusicLibraries
 import com.beykus.beygram.data.music.MusicOutcome
@@ -66,7 +65,7 @@ internal fun AddToPlaylistSheet(
     val repository = remember(context) { MusicLibraries.get(context) }
     val library = rememberMusicLibrary(accountId)
     var creating by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = sheetSurfaceColor()) {
+    BeyGramSheet(onDismissRequest = onDismiss, scrollableContent = false) {
         // Scrolls, so every playlist and the create row stay reachable when there are many playlists.
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 12.dp)
