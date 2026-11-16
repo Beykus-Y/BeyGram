@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.playback
 
 import androidx.compose.foundation.background
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.clickable
@@ -18,8 +20,6 @@ import androidx.compose.material.icons.rounded.MusicNote
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -740,15 +740,15 @@ private fun MusicSearchTrackRow(
                 IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     onPlayNext?.let { next ->
-                        DropdownMenuItem(text = { Text(stringResource(R.string.queue_play_next)) }, onClick = { menuOpen = false; next() })
+                        BeyGramPopoverItem(text = stringResource(R.string.queue_play_next), onClick = { menuOpen = false; next() })
                     }
                     onEnqueue?.let { enqueue ->
-                        DropdownMenuItem(text = { Text(stringResource(R.string.queue_add_to_end)) }, onClick = { menuOpen = false; enqueue() })
+                        BeyGramPopoverItem(text = stringResource(R.string.queue_add_to_end), onClick = { menuOpen = false; enqueue() })
                     }
                     onSaveFavorite?.let { save ->
-                        DropdownMenuItem(text = { Text(stringResource(R.string.music_bot_save_favorite)) }, onClick = { menuOpen = false; save() })
+                        BeyGramPopoverItem(text = stringResource(R.string.music_bot_save_favorite), onClick = { menuOpen = false; save() })
                     }
                 }
             }

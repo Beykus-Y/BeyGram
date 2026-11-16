@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Pause
+import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.playback.PlaybackEngine
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -71,7 +72,6 @@ import com.beykus.beygram.data.yandex.YandexWaveResume
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.IconButton
 import com.beykus.beygram.ui.screens.music.LocalOpenProviderAlbum
 import com.beykus.beygram.ui.screens.music.MusicSearchMessage
@@ -830,7 +830,7 @@ class YandexMusicHost : ProviderMusicHost {
                     IconButton(onClick = { menu = true }) {
                         Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
                     }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    BeyGramPopover(expanded = menu, onDismissRequest = { menu = false }) {
                         ProviderTrackMenuItems(
                             track = track,
                             onDismiss = { menu = false },

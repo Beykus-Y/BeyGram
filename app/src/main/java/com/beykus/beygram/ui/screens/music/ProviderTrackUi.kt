@@ -9,10 +9,9 @@ import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.data.music.provider.ProviderTracks
 import com.beykus.beygram.ui.components.beyGramPalette
 import androidx.compose.runtime.Composable
@@ -86,16 +85,16 @@ internal fun ProviderTrackMenuItems(
     val liked = likes[track.trackId] ?: track.liked ?: false.takeIf { listKnown }
     val failed = stringResource(R.string.music_provider_like_failed)
     val chooser = stringResource(R.string.music_provider_share_link)
-    if (showPlayNext && track.isAvailable) DropdownMenuItem(
-        text = { Text(stringResource(R.string.queue_play_next)) },
+    if (showPlayNext && track.isAvailable) BeyGramPopoverItem(
+        text = stringResource(R.string.queue_play_next),
         leadingIcon = { Icon(Icons.Rounded.QueueMusic, null, tint = palette.textSecondary) },
         onClick = {
             onDismiss()
             ProviderTracks.playNext(context, track)
         }
     )
-    if (showLike && liked != null) DropdownMenuItem(
-        text = { Text(stringResource(if (liked) R.string.music_provider_unlike else R.string.music_provider_like)) },
+    if (showLike && liked != null) BeyGramPopoverItem(
+        text = stringResource(if (liked) R.string.music_provider_unlike else R.string.music_provider_like),
         leadingIcon = {
             Icon(
                 if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
@@ -112,8 +111,8 @@ internal fun ProviderTrackMenuItems(
         }
     )
     val startWave = ProviderWaves.fromTrack
-    if (startWave != null && track.isAvailable) DropdownMenuItem(
-        text = { Text(stringResource(R.string.music_provider_wave_track)) },
+    if (startWave != null && track.isAvailable) BeyGramPopoverItem(
+        text = stringResource(R.string.music_provider_wave_track),
         leadingIcon = { Icon(Icons.Rounded.Radio, null, tint = palette.textSecondary) },
         onClick = {
             onDismiss()
@@ -122,13 +121,13 @@ internal fun ProviderTrackMenuItems(
     )
     val startArtistWave = ProviderWaves.fromArtist
     if (startArtistWave != null && track.isAvailable) track.artistRefs.forEach { ref ->
-        DropdownMenuItem(
-            text = {
-                Text(
-                    if (track.artistRefs.size == 1) stringResource(R.string.music_provider_wave_artist)
-                    else stringResource(R.string.music_provider_wave_artist_named, ref.name)
-                )
-            },
+        val label = if (track.artistRefs.size == 1) {
+            stringResource(R.string.music_provider_wave_artist)
+        } else {
+            stringResource(R.string.music_provider_wave_artist_named, ref.name)
+        }
+        BeyGramPopoverItem(
+            text = label,
             leadingIcon = { Icon(Icons.Rounded.Person, null, tint = palette.textSecondary) },
             onClick = {
                 onDismiss()
@@ -137,16 +136,16 @@ internal fun ProviderTrackMenuItems(
         )
     }
     val albumId = track.albumId
-    if (onOpenAlbum != null && !albumId.isNullOrBlank()) DropdownMenuItem(
-        text = { Text(stringResource(R.string.music_provider_open_album)) },
+    if (onOpenAlbum != null && !albumId.isNullOrBlank()) BeyGramPopoverItem(
+        text = stringResource(R.string.music_provider_open_album),
         leadingIcon = { Icon(Icons.Rounded.Album, null, tint = palette.textSecondary) },
         onClick = {
             onDismiss()
             onOpenAlbum(albumId)
         }
     )
-    if (showShare) DropdownMenuItem(
-        text = { Text(stringResource(R.string.music_provider_share_link)) },
+    if (showShare) BeyGramPopoverItem(
+        text = stringResource(R.string.music_provider_share_link),
         leadingIcon = { Icon(Icons.Rounded.Share, null, tint = palette.textSecondary) },
         onClick = {
             onDismiss()
