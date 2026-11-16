@@ -62,6 +62,7 @@ import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftBlockReason
 import com.beykus.beygram.domain.model.GiftCatalogItem
 import com.beykus.beygram.domain.model.GiftAuctionQuote
+import com.beykus.beygram.domain.model.GiftAuctionWin
 import com.beykus.beygram.domain.model.GiftAuctionOutcome
 import com.beykus.beygram.domain.model.GiftCollectionItem
 import com.beykus.beygram.domain.model.GiftSendEvent
@@ -109,6 +110,8 @@ fun GiftsScreen(
     onBack: () -> Unit,
     loadAuction: suspend (String, Long, Boolean) -> Result<GiftAuctionQuote> =
         { _, _, _ -> Result.failure(UnsupportedOperationException()) },
+    loadAuctionHistory: suspend (Long) -> Result<List<GiftAuctionWin>> =
+        { Result.failure(UnsupportedOperationException()) },
     submitBid: suspend (GiftAuctionQuote, Long, Boolean, Long) -> GiftAuctionOutcome =
         { _, _, _, _ -> GiftAuctionOutcome.Changed }
 ) {
@@ -550,7 +553,7 @@ fun GiftsScreen(
         androidx.compose.runtime.key(accountId, profileId, isSelf, catalog.id) {
             GiftAuctionDialog(
                 accountId, profileId, profileTitle, isSelf, catalog,
-                loadAuction, submitBid,
+                loadAuction, submitBid, loadAuctionHistory,
                 purchaseEnabled = retained == null && pendingGiftId == 0L,
                 onDismiss = { auctionGift = null; reload++ }
             )

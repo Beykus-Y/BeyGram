@@ -321,4 +321,12 @@
     <string name="gift_auction_uncertain">Mise non confirmée. Vérifiez les enchères et votre solde avant de réessayer.</string>
     <string name="gift_auction_unavailable">Les mises sont indisponibles</string>
     <string name="gift_auction_rank">Rang %1$d : %2$s Stars</string>
+    <string name="gift_auction_history">Historique des cadeaux acquis</string>
+    <string name="gift_auction_history_empty">Aucun cadeau acquis</string>
+    <string name="gift_auction_history_round">Tour %1$d · rang %2$d</string>
+    <string name="gift_auction_history_recipient">Destinataire : %1$s</string>
+    <string name="gift_auction_history_unknown_recipient">Destinataire inconnu</string>
+    <string name="gift_auction_history_number_pending">Numéro pas encore attribué</string>
+    <string name="gift_auction_history_number">Cadeau de collection nº %1$d</string>
+    <string name="gift_auction_history_error">Impossible de charger l’historique</string>
 </resources>

@@ -9,6 +9,8 @@ import com.beykus.beygram.domain.model.GiftCatalogItem
 import com.beykus.beygram.domain.model.GiftAuctionQuote
 import com.beykus.beygram.domain.model.GiftAuctionOwnBid
 import com.beykus.beygram.domain.model.GiftAuctionRank
+import com.beykus.beygram.domain.model.GiftAuctionWin
+import com.beykus.beygram.domain.model.sortAuctionWins
 import com.beykus.beygram.domain.model.GiftAuctionOutcome
 import com.beykus.beygram.domain.model.auctionBidDebit
 import com.beykus.beygram.domain.model.auctionQuoteMatches
@@ -642,6 +644,29 @@ internal class TdPayments(private val requests: TdRequests) {
                 else -> throw UserMessageException(UiText.Res(R.string.gift_auction_unavailable))
             }
         }
+
+    /** Read-only receipt history; never use it as an authorization or filter it by the open profile. */
+    suspend fun giftAuctionHistory(giftId: Long): Result<List<GiftAuctionWin>> = monetizationResult {
+        require(giftId > 0L)
+        val rows = requests(TdApi.GetGiftAuctionAcquiredGifts(giftId)).gifts.orEmpty().filterNotNull()
+        val senders = rows.mapNotNull { it.receiverId }.distinctBy { it.senderKey() }
+        val names = coroutineScope {
+            senders.map { sender -> async { sender.senderKey() to senderDisplayName(sender) } }
+                .awaitAll().toMap()
+        }
+        sortAuctionWins(rows.map { row ->
+            GiftAuctionWin(
+                receiver = row.receiverId?.senderKey()?.let { names[it] },
+                date = row.date,
+                stars = row.starCount,
+                round = row.auctionRoundNumber,
+                position = row.auctionRoundPosition,
+                number = row.uniqueGiftNumber.takeIf { it > 0 },
+                text = row.text?.text.orEmpty(),
+                isPrivate = row.isPrivate
+            )
+        })
+    }
 
     /** Confirms a total bid, never automatically follows an increased minimum. */
     suspend fun submitGiftAuctionBid(quote: GiftAuctionQuote, profileId: Long, isSelf: Boolean, total: Long): GiftAuctionOutcome {

@@ -31,4 +31,10 @@ class GiftAuctionTest {
         assertFalse(auctionQuoteMatches(quote, quote.copy(acquired = 1)))
         assertFalse(auctionQuoteMatches(quote, quote.copy(ownBid = GiftAuctionOwnBid(100, 190, 150, 42, false))))
     }
+    @Test fun historyPreservesSeparateWinsAndSortsNewestFirst() {
+        val first = GiftAuctionWin("A", 100, 100, 1, 2, null, "", false)
+        val second = first.copy(receiver = "B", date = 200, round = 2, position = 3)
+        val third = second.copy(position = 1, number = 42)
+        assertEquals(listOf(third, second, first), sortAuctionWins(listOf(first, second, third)))
+    }
 }

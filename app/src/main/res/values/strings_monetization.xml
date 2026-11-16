@@ -325,4 +325,12 @@
     <string name="gift_auction_uncertain">Не удалось подтвердить ставку. Проверьте аукцион и баланс перед повтором.</string>
     <string name="gift_auction_unavailable">Ставка сейчас недоступна</string>
     <string name="gift_auction_rank">Место %1$d: %2$s Stars</string>
+    <string name="gift_auction_history">История приобретённых подарков</string>
+    <string name="gift_auction_history_empty">Нет приобретённых подарков</string>
+    <string name="gift_auction_history_round">Раунд %1$d · место %2$d</string>
+    <string name="gift_auction_history_recipient">Получатель: %1$s</string>
+    <string name="gift_auction_history_unknown_recipient">Получатель неизвестен</string>
+    <string name="gift_auction_history_number_pending">Номер ещё не присвоен</string>
+    <string name="gift_auction_history_number">Коллекционный подарок №%1$d</string>
+    <string name="gift_auction_history_error">Не удалось загрузить историю</string>
 </resources>

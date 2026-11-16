@@ -16,6 +16,7 @@ import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftAuctionQuote
+import com.beykus.beygram.domain.model.GiftAuctionWin
 import com.beykus.beygram.domain.model.GiftAuctionOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
@@ -193,6 +194,8 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
     /** Gift catalog and, for the own profile, received gifts and collections. */
     suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo>
     suspend fun giftAuctionQuote(auctionId: String, profileId: Long, isSelf: Boolean): Result<GiftAuctionQuote> =
+        Result.failure(UnsupportedOperationException())
+    suspend fun giftAuctionHistory(giftId: Long): Result<List<GiftAuctionWin>> =
         Result.failure(UnsupportedOperationException())
     suspend fun submitGiftAuctionBid(quote: GiftAuctionQuote, profileId: Long, isSelf: Boolean, total: Long): GiftAuctionOutcome =
         GiftAuctionOutcome.Changed

@@ -321,4 +321,12 @@
     <string name="gift_auction_uncertain">Gebot nicht bestätigt. Prüfen Sie Auktion und Guthaben vor einem erneuten Versuch.</string>
     <string name="gift_auction_unavailable">Gebote sind derzeit nicht verfügbar</string>
     <string name="gift_auction_rank">Platz %1$d: %2$s Stars</string>
+    <string name="gift_auction_history">Verlauf erworbener Geschenke</string>
+    <string name="gift_auction_history_empty">Keine erworbenen Geschenke</string>
+    <string name="gift_auction_history_round">Runde %1$d · Platz %2$d</string>
+    <string name="gift_auction_history_recipient">Empfänger: %1$s</string>
+    <string name="gift_auction_history_unknown_recipient">Unbekannter Empfänger</string>
+    <string name="gift_auction_history_number_pending">Nummer noch nicht vergeben</string>
+    <string name="gift_auction_history_number">Sammlerstück Nr. %1$d</string>
+    <string name="gift_auction_history_error">Verlauf konnte nicht geladen werden</string>
 </resources>

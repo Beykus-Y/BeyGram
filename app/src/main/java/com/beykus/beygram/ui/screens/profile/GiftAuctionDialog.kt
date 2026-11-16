@@ -58,6 +58,7 @@ internal fun GiftAuctionDialog(
     accountId: String, profileId: Long, profileTitle: String, isSelf: Boolean, catalog: GiftCatalogItem,
     load: suspend (String, Long, Boolean) -> Result<GiftAuctionQuote>,
     submit: suspend (GiftAuctionQuote, Long, Boolean, Long) -> GiftAuctionOutcome,
+    loadHistory: suspend (Long) -> Result<List<GiftAuctionWin>>,
     purchaseEnabled: Boolean, onDismiss: () -> Unit
 ) {
     val palette = beyGramPalette()
@@ -67,6 +68,7 @@ internal fun GiftAuctionDialog(
     var error by remember { mutableStateOf(false) }
     var revision by remember { mutableIntStateOf(0) }
     var confirm by remember { mutableStateOf(false) }
+    var historyOpen by remember { mutableStateOf(false) }
     val states by GiftAuctionStore.states.collectAsState()
     val operation = states[accountId]
     val current = quote
@@ -98,6 +100,8 @@ internal fun GiftAuctionDialog(
             onConfirm = { GiftAuctionStore.acknowledge(accountId); onDismiss() },
             dismissOnBackPress = !busy, dismissOnClickOutside = !busy
         )
+    } else if (historyOpen && current != null) {
+        GiftAuctionHistoryDialog(current.giftId, loadHistory, onDismiss = { historyOpen = false })
     } else if (confirm && current != null && total != null && debit != null) {
         BeyGramDialog(
             onDismissRequest = { confirm = false },
@@ -126,6 +130,9 @@ internal fun GiftAuctionDialog(
                     if (error) Text(stringResource(R.string.gifts_load_error), color = palette.danger)
                     current?.let { q ->
                         Text(stringResource(R.string.gift_auction_won, q.acquired))
+                        if (q.acquired > 0) TextButton(onClick = { historyOpen = true }) {
+                            Text(stringResource(R.string.gift_auction_history))
+                        }
                         if (q.finished) {
                             Text(stringResource(R.string.gift_auction_finished))
                             q.averagePrice?.let { Text(stringResource(R.string.gift_auction_average, formatStarAmount(it))) }
@@ -168,3 +175,51 @@ internal fun GiftAuctionDialog(
 
 private fun dateLabel(seconds: Int): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
     .format(Date(seconds.toLong() * 1000L))
+
+/** Separate read: history failures must not prevent browsing the auction or confirming a bid. */
+@Composable
+private fun GiftAuctionHistoryDialog(
+    giftId: Long, load: suspend (Long) -> Result<List<GiftAuctionWin>>, onDismiss: () -> Unit
+) {
+    val palette = beyGramPalette()
+    var rows by remember(giftId) { mutableStateOf<List<GiftAuctionWin>?>(null) }
+    var failed by remember(giftId) { mutableStateOf(false) }
+    var revision by remember(giftId) { mutableIntStateOf(0) }
+    LaunchedEffect(giftId, revision) {
+        failed = false
+        rows = null
+        load(giftId).onSuccess { rows = it }.onFailure { failed = true }
+    }
+    BeyGramDialog(
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.gift_auction_history),
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (failed) {
+                    Text(stringResource(R.string.gift_auction_history_error), color = palette.danger)
+                    TextButton(onClick = { failed = false; revision++ }) { Text(stringResource(R.string.common_retry)) }
+                } else if (rows == null) {
+                    CircularProgressIndicator(color = palette.accent)
+                } else if (rows.orEmpty().isEmpty()) {
+                    Text(stringResource(R.string.gift_auction_history_empty))
+                } else {
+                    rows.orEmpty().forEach { win ->
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(win.number?.let { stringResource(R.string.gift_auction_history_number, it) }
+                                ?: stringResource(R.string.gift_auction_history_number_pending), color = palette.textPrimary)
+                            Text(stringResource(R.string.gifts_cost, formatStarAmount(win.stars)), color = palette.accentInk)
+                            Text(stringResource(R.string.gift_auction_history_round, win.round, win.position))
+                            Text(dateLabel(win.date))
+                            Text(stringResource(R.string.gift_auction_history_recipient,
+                                win.receiver ?: stringResource(R.string.gift_auction_history_unknown_recipient)))
+                            if (win.text.isNotBlank()) Text(win.text)
+                            if (win.isPrivate) Text(stringResource(R.string.gifts_private), color = palette.textSecondary)
+                        }
+                    }
+                }
+            }
+        },
+        confirmText = stringResource(R.string.common_close),
+        onConfirm = onDismiss
+    )
+}

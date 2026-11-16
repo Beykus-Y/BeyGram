@@ -7,6 +7,23 @@ data class GiftAuctionOwnBid(
     val recipientId: Long?, val returned: Boolean
 )
 data class GiftAuctionRank(val position: Int, val stars: Long)
+
+/** An actual acquisition reported by the server, including gifts sent to other recipients. */
+data class GiftAuctionWin(
+    val receiver: String?,
+    val date: Int,
+    val stars: Long,
+    val round: Int,
+    val position: Int,
+    val number: Int?,
+    val text: String,
+    val isPrivate: Boolean
+)
+
+fun sortAuctionWins(wins: List<GiftAuctionWin>): List<GiftAuctionWin> =
+    wins.sortedWith(compareByDescending<GiftAuctionWin> { it.date }
+        .thenByDescending { it.round }.thenBy { it.position })
+
 data class GiftAuctionQuote(
     val auctionId: String, val giftId: Long, val recipientId: Long, val serverTime: Long,
     val start: Int, val end: Int, val round: Int, val roundCount: Int, val roundEnd: Int,
