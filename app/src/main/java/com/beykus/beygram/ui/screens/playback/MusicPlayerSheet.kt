@@ -463,7 +463,7 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
             if (waveActive) PlayerMenuEntry(waveStopLabel, Icons.Rounded.GraphicEq) {
                 menuOpen = false
                 scope.launch { BgWaveHub.stop() }
-            } else if (shareSource != null && canShareWave(item, originUnprotected = item.origin == null || originChat?.hasProtectedContent == false, isProviderTrack = providerTrack != null)) {
+            } else if (shareSource != null && canShareWave(item, originUnprotected = item.origin == null || originChat?.hasProtectedContent == false, isProviderTrack = ProviderTracks.isProviderKey(item.key))) {
                 PlayerMenuEntry(waveShareLabel, Icons.Rounded.GraphicEq) {
                     menuOpen = false
                     waveSharing = true

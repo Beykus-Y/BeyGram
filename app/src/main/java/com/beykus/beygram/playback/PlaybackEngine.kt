@@ -176,7 +176,11 @@ private class BgMixAwareListener(
     }
 }
 
-/** Only public, non-restricted, non-provider music may stream over a BG Wave host tap. */
+/**
+ * Music that may stream over a BG Wave host tap. Provider (Yandex) tracks are relayed as live sound only: nothing is
+ * saved and no file is sent. Restricted catalog tracks are allowed only when they come from a provider. Voice, video
+ * notes, secret, view-once and system-private items are never relayed.
+ */
 internal fun isWaveCaptureEligible(item: PlaybackItem?): Boolean {
     if (item == null) return false
     val isProviderItem = ProviderTracks.isProviderKey(item.key) || ProviderTracks.byKey(item.key) != null
@@ -184,9 +188,8 @@ internal fun isWaveCaptureEligible(item: PlaybackItem?): Boolean {
         !item.secret &&
         !item.isSecretChat &&
         !item.viewOnce &&
-        !item.isRestrictedCatalog &&
         !item.systemPrivate &&
-        !isProviderItem
+        (isProviderItem || !item.isRestrictedCatalog)
 }
 
 /**
