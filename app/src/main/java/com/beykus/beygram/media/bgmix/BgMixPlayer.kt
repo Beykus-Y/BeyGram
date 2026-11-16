@@ -5,11 +5,11 @@ import android.media.AudioFormat
 import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.util.Log
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -26,7 +27,8 @@ import kotlin.concurrent.withLock
  * voice messages, video notes or other media.
  *
  * Threads:
- * - control calls and the 50 ms status tick take [lock] and then the native control mutex;
+ * - ordered transport and seek commands execute on the background status loop, not the UI;
+ * - handle ownership and native control are serialized by [lock];
  * - a dedicated render thread pulls frames with [BgMixNative.nativeRender] and writes them to AudioTrack,
  *   without taking [lock], because MixEngine::render is built for that.
  *
@@ -38,7 +40,9 @@ class BgMixPlayer(private val cacheDir: File) {
 
     // All fields below are guarded by [lock].
     private var handle = 0L
-    private var track: AudioTrack? = null
+    @Volatile private var track: AudioTrack? = null
+    @Volatile private var sessionId = 0
+    private val volumeLock = Any()
     private var renderThread: Thread? = null
     private var tickJob: Job? = null
 
@@ -72,10 +76,18 @@ class BgMixPlayer(private val cacheDir: File) {
     val isRunning: Boolean get() = running
 
     /** The audio session of the output track, so the equalizer can attach to BG Mix too; 0 when nothing plays. */
-    val audioSessionId: Int get() = lock.withLock { track?.audioSessionId ?: 0 }
+    val audioSessionId: Int get() = sessionId
 
     /** Wakes the status loop right after a control call, so a slow idle tick never delays the answer. */
     private val wake = Channel<Unit>(Channel.CONFLATED)
+
+    private sealed interface Control {
+        data class Transport(val action: Int) : Control
+        data class Seek(val seconds: Double, val result: CompletableDeferred<Boolean>) : Control
+    }
+    private val commands = Channel<Control>(capacity = 32, onUndeliveredElement = { command ->
+        if (command is Control.Seek) command.result.complete(false)
+    })
 
     /** Creates the native session and starts output. Returns false when BG Mix is unavailable. */
     fun start(): Boolean = lock.withLock {
@@ -98,6 +110,7 @@ class BgMixPlayer(private val cacheDir: File) {
 
         handle = h
         track = at
+        sessionId = at.audioSessionId
         running = true
         livePlayers.add(this)
         renderThread = Thread({ renderLoop(h, at) }, "bgmix-render").apply {
@@ -123,8 +136,15 @@ class BgMixPlayer(private val cacheDir: File) {
     }
 
     /** Returns the queue item id, or 0 when the file was rejected. */
-    fun addTrack(file: File): Long = withHandle(0L) { h ->
-        BgMixNative.nativeAddTrack(h, file.absolutePath.toByteArray(Charsets.UTF_8))
+    fun addTrack(file: File): Long {
+        // The feed will retry on its next tick; never wait behind native analysis/plan work.
+        if (!lock.tryLock()) return 0L
+        return try {
+            if (!running || handle == 0L) 0L
+            else BgMixNative.nativeAddTrack(handle, file.absolutePath.toByteArray(Charsets.UTF_8))
+        } finally {
+            lock.unlock()
+        }
     }
 
     fun removeTrack(id: Long): Boolean = withHandle(false) { h -> BgMixNative.nativeRemoveTrack(h, id) }
@@ -143,7 +163,11 @@ class BgMixPlayer(private val cacheDir: File) {
     fun stopAll() = transport(BgMixNative.ACTION_STOP)
 
     /** Stop asking the render thread for new frames without waiting on the control lock. */
-    fun requestStop() { running = false }
+    fun requestStop() {
+        running = false
+        commands.cancel()
+        wake.trySend(Unit)
+    }
 
     /** Stops output and frees the native session. Must run on the driver's release executor. */
     fun release() {
@@ -151,14 +175,17 @@ class BgMixPlayer(private val cacheDir: File) {
             val at = track ?: return
             val released = ReleaseTarget(at, renderThread, handle)
             // Clearing handle under the lock means no control call can start on it after this point.
-            running = false
+            requestStop()
             tickJob?.cancel()
             tickJob = null
             track = null
+            sessionId = 0
             renderThread = null
             handle = 0L
             released
         }
+        // A volume setter that saw the old AudioTrack must leave before its release.
+        synchronized(volumeLock) { }
         runCatching { target.track.pause() }
         runCatching { target.track.flush() }
         runCatching { target.track.stop() }
@@ -183,12 +210,19 @@ class BgMixPlayer(private val cacheDir: File) {
     /** Seeks the master deck; false while a transition is running or nothing is loaded. */
     /** Output volume for ducking: 1 is normal, lower is quieter. */
     fun setOutputVolume(volume: Float) {
-        lock.withLock { track?.setVolume(volume.coerceIn(0f, 1f)) }
+        // AudioTrack volume does not need the native control lock.
+        synchronized(volumeLock) { if (running) track?.setVolume(volume.coerceIn(0f, 1f)) }
     }
 
-    fun seek(seconds: Double): Boolean = withHandle(false) { h ->
-        BgMixNative.nativeSeek(h, seconds).also { ok ->
-            if (ok) synchronized(cursorLock) { seekedAtFrames = renderedFrames }
+    suspend fun seek(seconds: Double): Boolean {
+        if (!running) return false
+        val result = CompletableDeferred<Boolean>()
+        if (!commands.trySend(Control.Seek(seconds, result)).isSuccess) return false
+        wake.trySend(Unit)
+        return try {
+            result.await()
+        } finally {
+            result.cancel()
         }
     }
 
@@ -197,10 +231,12 @@ class BgMixPlayer(private val cacheDir: File) {
      * presented by the track. Null while that cannot be told apart: the track has no fresh timestamp yet, or audio from
      * before the last seek is still playing.
      */
-    fun audible(): BgMixAudible? = lock.withLock {
-        val h = handle
-        val at = track
-        if (h == 0L || at == null || !running) null else measureAudible(h, at)
+    suspend fun audible(): BgMixAudible? = withContext(Dispatchers.Default) {
+        lock.withLock {
+            val h = handle
+            val at = track
+            if (h == 0L || at == null || !running) null else measureAudible(h, at)
+        }
     }
 
     private fun measureAudible(h: Long, at: AudioTrack): BgMixAudible? = synchronized(cursorLock) {
@@ -220,17 +256,40 @@ class BgMixPlayer(private val cacheDir: File) {
     }
 
     private fun transport(action: Int) {
-        withHandle(Unit) { h -> BgMixNative.nativeTransport(h, action) }
+        if (!running) return
+        if (!commands.trySend(Control.Transport(action)).isSuccess) {
+            // Do not silently drop a pause/next command. The playback owner can fall back to ExoPlayer.
+            if (running) _failure.value = "BG Mix control queue is full"
+            return
+        }
         wake.trySend(Unit)
     }
 
     private fun tick() {
-        lock.withLock {
+        val bytes = lock.withLock {
             val h = handle
             if (h == 0L || !running) return
+            // Bounded drain prevents a burst of seeks from starving the regular update.
+            for (i in 0 until 32) {
+                val command = commands.tryReceive().getOrNull() ?: break
+                when (command) {
+                    is Control.Transport -> if (running) BgMixNative.nativeTransport(h, command.action)
+                    is Control.Seek -> {
+                        if (!running || !command.result.isActive) {
+                            command.result.complete(false)
+                        } else {
+                            val ok = BgMixNative.nativeSeek(h, command.seconds)
+                            if (ok) synchronized(cursorLock) { seekedAtFrames = renderedFrames }
+                            command.result.complete(ok)
+                        }
+                    }
+                }
+            }
+            if (!running) return
             BgMixNative.nativeUpdate(h)
-            _status.value = BgMixStatus.parse(BgMixNative.nativeStatus(h))
+            BgMixNative.nativeStatus(h)
         }
+        if (running) _status.value = BgMixStatus.parse(bytes)
     }
 
     private inline fun <T> withHandle(default: T, block: (Long) -> T): T = lock.withLock {
@@ -257,7 +316,7 @@ class BgMixPlayer(private val cacheDir: File) {
             if (written < 0) {
                 Log.w(TAG, "AudioTrack write failed: $written")
                 // The output is dead: nothing is rendered from now on, and the status tick stops with it.
-                running = false
+                requestStop()
                 _failure.value = "AudioTrack write failed: $written"
                 break
             }

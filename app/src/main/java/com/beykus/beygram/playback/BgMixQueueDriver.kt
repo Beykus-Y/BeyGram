@@ -166,7 +166,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     }
 
     /** Seeks the staged session before it plays; false when its first track is not loaded yet. */
-    fun seekStaged(seconds: Double): Boolean = staged?.player?.seek(seconds) ?: false
+    suspend fun seekStaged(seconds: Double): Boolean = staged?.player?.seek(seconds) ?: false
 
     /** Output volume of the staged session: it starts silent and rises during the handover crossfade. */
     fun setStagedVolume(volume: Float) {
@@ -179,7 +179,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     }
 
     /** Where the staged session is heard, measured against the audio clock; null while that cannot be told yet. */
-    fun stagedAudible(): BgMixAudible? = staged?.player?.audible()
+    suspend fun stagedAudible(): BgMixAudible? = staged?.player?.audible()
 
     /**
      * Adds the queue items that have become complete files since the session started, in queue order: an item that
@@ -215,7 +215,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     }
 
     /** Seeks the current BG Mix session; false when it cannot seek right now. */
-    fun seek(seconds: Double): Boolean = player?.seek(seconds) ?: false
+    suspend fun seek(seconds: Double): Boolean = player?.seek(seconds) ?: false
 
     fun resume() {
         player?.play()

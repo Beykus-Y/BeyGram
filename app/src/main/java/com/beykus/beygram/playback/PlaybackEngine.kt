@@ -1311,7 +1311,9 @@ object PlaybackEngine {
     fun seekToPosition(positionMs: Long) {
         if (bgMixActive()) {
             // A seek during a BG Mix transition is refused by the native session; the next status tick keeps the UI honest.
-            bgMix?.seek(positionMs.coerceAtLeast(0L) / 1000.0)
+            val driver = bgMix ?: return
+            bgMixSeekJob?.cancel()
+            bgMixSeekJob = scope.launch { driver.seek(positionMs.coerceAtLeast(0L) / 1000.0) }
             return
         }
         val target = exo ?: return
@@ -2352,12 +2354,13 @@ object PlaybackEngine {
         }
         bgMixSeekJob?.cancel()
         if (positionMs < 1_000L) return
-        val statusFlow = bgMix?.status ?: return
+        val driver = bgMix ?: return
+        val statusFlow = driver.status ?: return
         bgMixSeekJob = scope.launch {
             withTimeoutOrNull(3_000L) {
                 statusFlow.first { status -> status?.decks?.getOrNull(status.master)?.playing == true }
             }
-            bgMix?.seek(positionMs / 1000.0)
+            if (bgMix?.status === statusFlow) driver.seek(positionMs / 1000.0)
         }
     }
 
@@ -2663,7 +2666,18 @@ object PlaybackEngine {
             // Like the regular player: a few seconds in, Previous restarts the track; otherwise it steps back.
             if (state.ended || state.positionMs >= PREVIOUS_RESTART_THRESHOLD_MS || state.queueIndex <= 0) {
                 // A native seek is refused during a transition; the session then starts the track again instead of dropping the press.
-                if (state.ended || bgMix?.seek(0.0) != true) restartBgMix(state.queue, state.queueIndex, 0L, state.intentPlaying || state.ended)
+                if (state.ended) {
+                    restartBgMix(state.queue, state.queueIndex, 0L, state.intentPlaying || state.ended)
+                } else {
+                    val driver = bgMix ?: return
+                    val session = driver.status
+                    bgMixSeekJob?.cancel()
+                    bgMixSeekJob = scope.launch {
+                        if (!driver.seek(0.0) && bgMix?.status === session && _state.value.item?.key == state.item?.key) {
+                            restartBgMix(state.queue, state.queueIndex, 0L, _state.value.intentPlaying)
+                        }
+                    }
+                }
             } else {
                 restartBgMix(state.queue, state.queueIndex - 1, 0L, state.intentPlaying)
             }
