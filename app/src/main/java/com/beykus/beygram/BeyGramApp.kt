@@ -2786,6 +2786,8 @@ GlobalSearchScreen(
                         isSelf = giftsProfileSelf,
                         load = { repository.giftsInfo(giftsProfileId, giftsProfileSelf) },
                         loadMoreReceived = repository::receivedGifts,
+                        loadResale = repository::resaleGifts,
+                        buyResale = repository::buyResoldGift,
                         send = { giftId, text, isPrivate ->
                             repository.sendGift(giftsProfileId, giftsProfileSelf, giftId, text, isPrivate)
                         },

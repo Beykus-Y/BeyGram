@@ -1785,6 +1785,9 @@ class TdLibTelegramRepository private constructor(
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = payments.starTransactions(offset)
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)
     override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = payments.receivedGifts(offset)
+    override suspend fun resaleGifts(giftId: Long, offset: String) = payments.resaleGifts(giftId, offset)
+    override suspend fun buyResoldGift(profileId: Long, name: String, confirmedStars: Long) =
+        payments.buyResoldGift(profileId, name, confirmedStars)
     override suspend fun sendGift(
         profileId: Long,
         isSelf: Boolean,
