@@ -27,4 +27,21 @@ class ShareOutcomeTest {
         assertFalse(isShareOutcomeUnknown(null))
         assertFalse(isShareOutcomeUnknown(IllegalStateException("denied")))
     }
+    @Test fun beforeHandoffCopiesCanBeDiscarded() {
+        val error = IllegalStateException("permission refused")
+        val handoff = ShareMediaHandoff()
+        val classified = handoff.classify(Result.failure(error)).exceptionOrNull()
+        assertTrue(classified is ShareMediaNotHandedOffException)
+        assertFalse(isShareOutcomeUnknown(classified))
+        assertTrue(classified?.cause === error)
+    }
+
+    @Test fun afterHandoffFailureMustKeepTdlibFiles() {
+        val error = ShareOutcomeUncertainException()
+        val handoff = ShareMediaHandoff()
+        handoff.markHandedOff()
+        assertTrue(handoff.classify(Result.failure(error)).exceptionOrNull() === error)
+        assertTrue(isShareOutcomeUnknown(error))
+        assertTrue(handoff.classify(Result.success(Unit)).isSuccess)
+    }
 }

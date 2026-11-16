@@ -295,7 +295,7 @@ private fun ChatSendDialog(
         },
         sendMedia = { chatId, topicId, media, caption ->
             if (media.size == 1) {
-                repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId)
+                repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId, options = com.beykus.beygram.domain.model.MessageSendOptions(shareDelivery = true))
             } else {
                 repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId, options = com.beykus.beygram.domain.model.MessageSendOptions(shareDelivery = true))
             }

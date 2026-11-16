@@ -167,14 +167,18 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
                                 break
                             } else {
                                 // From this point TDLib owns these paths, even when its response is uncertain.
-                                withContext(Dispatchers.Default) {
+                                val sent = withContext(Dispatchers.Default) {
                                     sendMedia(destination.chatId, destination.topicId, copies, if (index == 0) frozenDraft else "")
                                 }
+                                if (sent.exceptionOrNull() is ShareMediaNotHandedOffException) copies.forEach { owner.discard(it) }
+                                sent
                             }
                         }
                         if (result.isFailure) {
                             if (isShareOutcomeUnknown(result.exceptionOrNull())) retryBlocked = true
-                            error = (result.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed)
+                            val failure = result.exceptionOrNull()
+                            val shown = if (failure is ShareMediaNotHandedOffException) failure.cause else failure
+                            error = (shown as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed)
                             break
                         }
                         delivery.confirm(destination, index)

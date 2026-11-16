@@ -17,4 +17,4 @@ internal class ShareBatchLedger(destinations: List<ShareDestination>, val batchC
     fun confirmedCount() = destinations.sumOf { nextBatch(it) }
 }
 
-internal class ShareOutcomeUncertainException : IllegalStateException("Unconfirmed album delivery")
+internal class ShareOutcomeUncertainException(cause: Throwable? = null) : IllegalStateException("Unconfirmed share delivery", cause)
