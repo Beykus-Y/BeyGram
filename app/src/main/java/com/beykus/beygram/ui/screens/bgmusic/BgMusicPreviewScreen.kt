@@ -21,6 +21,7 @@ import com.beykus.beygram.ui.components.Button
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
@@ -256,16 +257,21 @@ fun BgMusicPreviewScreen(
                             Text(trackLine, color = palette.textSecondary, fontSize = 13.sp)
                         }
                         manifest?.author?.let { author ->
-                            Text(
-                                stringResource(R.string.bgmusic_author_line, author.name),
-                                color = palette.textSecondary,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Person, contentDescription = null, tint = palette.textSecondary,
+                                    modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    stringResource(R.string.bgmusic_author_line, author.name),
+                                    color = palette.textSecondary,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.Top)) {
                         Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.bgmusic_close), tint = palette.textSecondary)
                     }
                 }
@@ -310,24 +316,25 @@ fun BgMusicPreviewScreen(
                         openId = saved ?: localCopy?.id?.takeIf { decision is BgMusicImportDecision.SameRevision },
                         onOpen = onOpenLocalPlaylist,
                     )
-                    Button(
-                        onClick = ::listenAvailable,
-                        enabled = availableCount > 0 && repository != null,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.bgmusic_listen_available))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(
-                        onClick = ::onSaveClicked,
-                        enabled = libraryLoaded && !busy && (
-                            decision is BgMusicImportDecision.NewPlaylist ||
-                                decision is BgMusicImportDecision.NewerRevision ||
-                                decision is BgMusicImportDecision.OlderRevision
-                            ),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.bgmusic_action_save))
+                    val canListen = availableCount > 0 && repository != null
+                    val canSave = libraryLoaded && !busy && (
+                        decision is BgMusicImportDecision.NewPlaylist ||
+                            decision is BgMusicImportDecision.NewerRevision ||
+                            decision is BgMusicImportDecision.OlderRevision
+                        )
+                    // Only actionable playback needs a prominent control. The status above already explains zero matches.
+                    if (canListen) {
+                        Button(onClick = ::listenAvailable, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.bgmusic_listen_available))
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        OutlinedButton(onClick = ::onSaveClicked, enabled = canSave, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.bgmusic_action_save))
+                        }
+                    } else {
+                        Button(onClick = ::onSaveClicked, enabled = canSave, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.bgmusic_action_save))
+                        }
                     }
                 } else {
                     val unsupported = parsed is BgMusicParsed.Unsupported
