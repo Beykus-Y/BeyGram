@@ -23,6 +23,11 @@ import androidx.compose.foundation.verticalScroll
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.rememberUpdatedState
+import com.beykus.beygram.ui.components.BeyGramSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -67,6 +72,7 @@ import com.beykus.beygram.ui.text.resolve
  * Копирование и отправка живут в [ShareSession], поэтому поворот экрана их не прерывает и не дублирует отправку.
  * Пока идёт отправка, системный «Назад» не закрывает экран.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ShareTargetScreen(
     requestId: Long,
@@ -143,7 +149,17 @@ internal fun ShareTargetScreen(
         session.lockedChatId?.let { targetId = it; topicId = session.lockedTopicId }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    val sendingNow by rememberUpdatedState(session.sending)
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { next -> next != SheetValue.Hidden || !sendingNow }
+    )
+    BeyGramSheet(
+        onDismissRequest = { if (!session.sending) onCancel() },
+        sheetState = sheetState,
+        scrollableContent = false,
+        bottomPadding = 0.dp
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -178,7 +194,7 @@ internal fun ShareTargetScreen(
                 if (text.isNotEmpty() || hasFiles) {
                     Surface(
                         shape = styledShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        color = palette.accentSoft,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

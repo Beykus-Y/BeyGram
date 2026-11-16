@@ -108,12 +108,14 @@ internal fun ShareTrackDialog(repository: TelegramRepository, item: PlaybackItem
     val failedText = stringResource(R.string.player_share_failed)
     var sending by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
+    var retryBlocked by remember { mutableStateOf(false) }
     ForwardChatDialog(
         chats = chats + archivedChats,
         recipientRepository = repository,
         candidatePolicy = ::shareTargetChats,
         busy = sending,
         error = failure,
+        retryBlocked = retryBlocked,
         observeFile = repository::observeFile,
         downloadFile = repository::downloadFile,
         titleOverride = stringResource(R.string.player_share),
@@ -135,9 +137,13 @@ internal fun ShareTrackDialog(repository: TelegramRepository, item: PlaybackItem
             val media = if (trackAllowed) trackOutgoingMedia(shareItem) else null
             val failed = mutableListOf<ForwardTarget>()
             for (target in targets) {
-                val sent = media != null && target.chatId in allowedChats &&
-                    repository.sendMedia(target.chatId, media, caption, forumTopicId = target.topicId).isSuccess
-                if (!sent) failed += target
+                val result = if (media != null && target.chatId in allowedChats)
+                    repository.sendMedia(target.chatId, media, caption, forumTopicId = target.topicId)
+                    else Result.failure(IllegalStateException())
+                if (result.isFailure) {
+                    failed += target
+                    if (com.beykus.beygram.share.isShareOutcomeUnknown(result.exceptionOrNull())) retryBlocked = true
+                }
             }
             sending = false
             if (failed.isNotEmpty()) failure = failedText

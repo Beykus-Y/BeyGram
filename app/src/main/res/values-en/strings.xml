@@ -883,4 +883,5 @@
     <string name="share_load_more_chats">Load more chats</string>
     <string name="share_unavailable_recipient">One or more recipients are unavailable. Remove them from the selection.</string>
     <string name="share_remove_caption">Hide media caption</string>
+    <string name="share_send_count">Send (%1$d)</string>
 </resources>

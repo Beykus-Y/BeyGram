@@ -237,9 +237,12 @@ internal fun SharedMediaViewer(
         onShowInChat = { messageId -> onViewing(null); onOpenMessage(messageId) }
     )
     forwardId?.let { id ->
+        var retryBlocked by remember(id) { mutableStateOf(false) }
         ForwardChatDialog(
             chats, forwardBusy, forwardError, observeFile, downloadFile, allowComment = false,
             previewText = stringResource(R.string.share_forward_message_count, 1),
+            previewMedia = media.messages.firstOrNull { it.id == id && !it.isViewOnce }?.media,
+            retryBlocked = retryBlocked,
             loadTopics = loadForwardTopics.takeIf { forwardToTopic != null },
             recipientRepository = recipientRepository,
             onSend = { targets, _ ->
@@ -252,6 +255,7 @@ internal fun SharedMediaViewer(
                             else forwardToTopic?.invoke(id, target.chatId, target.topicId) ?: Result.failure(IllegalStateException())
                         result.onFailure {
                             failed += target
+                            if (com.beykus.beygram.share.isShareOutcomeUnknown(it)) retryBlocked = true
                             lastError = it.userMessage(context, R.string.chat_forward_failed)
                         }
                     }

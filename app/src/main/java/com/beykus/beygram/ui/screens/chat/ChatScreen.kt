@@ -2755,6 +2755,8 @@ fun ChatScreen(
             chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
             commentLimit = limits.text,
             previewText = preview,
+            previewMedia = messages.firstOrNull { it.id == pendingIds.singleOrNull() }
+                ?.takeUnless { it.isViewOnce || chat.isSecret || chat.hasProtectedContent }?.media,
             onAsCopyChange = { showCopy -> forwardAsCopy = showCopy; if (!showCopy) removeCaption = false },
             removeCaption = removeCaption,
             onRemoveCaptionChange = if (canRemoveCaption) ({ remove: Boolean -> removeCaption = remove; if (remove) forwardAsCopy = true }) else null,

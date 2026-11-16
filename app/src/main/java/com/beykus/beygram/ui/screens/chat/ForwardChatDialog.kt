@@ -58,6 +58,9 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.domain.model.MessageMedia
+import com.beykus.beygram.domain.model.MediaKind
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.screens.share.ShareRecipientBrowser
@@ -112,6 +115,7 @@ internal fun ForwardChatDialog(
     singleRecipient: Boolean = false,
     titleOverride: String? = null,
     previewText: String? = null,
+    previewMedia: MessageMedia? = null,
     sendLabel: String? = null,
     onAsCopyChange: ((Boolean) -> Unit)? = null,
     removeCaption: Boolean = false,
@@ -160,7 +164,7 @@ internal fun ForwardChatDialog(
     fun isPicked(chatId: Long, topicId: Long) = targets.any { it.chatId == chatId && it.topicId == topicId }
 
     fun toggle(target: ForwardTarget) {
-        if (locked) return
+        if (locked || (attempted && !isPicked(target.chatId, target.topicId))) return
         targets = toggleForwardTarget(targets, target, singleRecipient)
     }
 
@@ -173,7 +177,7 @@ internal fun ForwardChatDialog(
     }
 
     fun chooseChat(chat: ChatPreview) {
-        if (locked) return
+        if (locked || attempted) return
         val loader = loadTopics
         if (loader == null || !chat.isGroup) {
             toggle(ForwardTarget(chat.id, chat.title))
@@ -209,7 +213,10 @@ internal fun ForwardChatDialog(
             } finally {
                 sending = false
             }
-            if (failed.isEmpty()) onClose() else targets = failed
+            if (failed.isEmpty()) onClose() else {
+                targets = failed
+                backFromTopics()
+            }
         }
     }
 
@@ -317,7 +324,7 @@ internal fun ForwardChatDialog(
                             color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f)
                         )
                         Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !interrupted && !retryBlocked && !unavailableTarget && !commentOverLimit) {
-                            Text(sendLabel ?: stringResource(R.string.forward_send_count, targets.size))
+                            Text(sendLabel ?: stringResource(if (titleOverride != null) R.string.share_send_count else R.string.forward_send_count, targets.size))
                         }
                     }
                 }
@@ -330,8 +337,11 @@ internal fun ForwardChatDialog(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(stringResource(R.string.share_preview_title), color = palette.accentInk, fontSize = 12.sp)
-                    Text(previewText, color = palette.textPrimary, fontWeight = FontWeight.Medium,
-                        maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        previewMedia?.let { ShareMediaThumbnail(it, observeFile) }
+                        Text(previewText, color = palette.textPrimary, fontWeight = FontWeight.Medium,
+                            maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    }
                 }
                 if (unavailableTarget) Text(
                     stringResource(R.string.share_unavailable_recipient), color = palette.warningText,
@@ -397,7 +407,7 @@ internal fun ForwardChatDialog(
                             observeFile = observeFile,
                             downloadFile = downloadFile,
                             modifier = Modifier.weight(1f),
-                            enabled = !locked,
+                            enabled = !locked && !attempted,
                             selectedIds = targets.map { it.chatId }.toSet(),
                             onChoose = ::chooseChat
                         )
@@ -452,5 +462,23 @@ private fun SelectionMark(selected: Boolean) {
         contentAlignment = Alignment.Center
     ) {
         if (selected) Icon(Icons.Rounded.Check, null, tint = palette.onAccent, modifier = Modifier.size(16.dp))
+    }
+}
+
+/** Local cached previews only: do not trigger a download or reveal a spoiler/self-destructing attachment. */
+@Composable
+private fun ShareMediaThumbnail(media: MessageMedia, observeFile: (Int) -> StateFlow<MediaFileState>) {
+    if (media.hasSpoiler || media.isSecret || media.isSecretChat) return
+    if (media.kind !in setOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation)) return
+    val fileId = media.thumbnailFileId ?: media.fileId.takeIf { media.kind == MediaKind.Photo }
+    val path = if (fileId != null) {
+        val file by remember(fileId, observeFile) { observeFile(fileId) }.collectAsStateWithLifecycle()
+        file.localPath
+    } else null
+    val tiny = media.minithumbnail
+    val modifier = Modifier.size(56.dp).clip(styledShape(10.dp))
+    when {
+        path != null -> LocalMediaImage(path, modifier, maxDimension = 160, animate = false)
+        tiny != null -> MinithumbnailImage(tiny, modifier)
     }
 }

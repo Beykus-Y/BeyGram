@@ -39,8 +39,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.components.BeyGramSheet
@@ -281,40 +279,30 @@ private fun ChatSendDialog(
     val chats by repository.chats.collectAsStateWithLifecycle()
     val archivedChats by repository.archivedChats.collectAsStateWithLifecycle()
     val captionLimit = repository.messageLimits.collectAsStateWithLifecycle().value.caption
-    Dialog(
-        onDismissRequest = { if (!session.sending) onClose(false) },
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            dismissOnBackPress = !session.sending,
-            dismissOnClickOutside = !session.sending,
-        ),
-    ) {
-        ShareTargetScreen(
-            requestId = session.requestId,
-            text = "",
-            uris = session.uris,
-            session = session,
-            chats = chats + archivedChats,
-            recipientRepository = repository,
-            captionLimit = captionLimit,
-            observeFile = repository::observeFile,
-            downloadFile = repository::downloadFile,
-            loadTopics = { chatId -> repository.forumTopics(chatId) },
-            sendText = { chatId, topicId, text ->
-                repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)
-            },
-            sendMedia = { chatId, topicId, media, caption ->
-                if (media.size == 1) {
-                    repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId)
-                } else {
-                    repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId)
-                }
-            },
-            onSent = { _, _ -> onClose(true) },
-            onCancel = { onClose(false) },
-        )
-    }
+    ShareTargetScreen(
+        requestId = session.requestId,
+        text = "",
+        uris = session.uris,
+        session = session,
+        chats = chats + archivedChats,
+        recipientRepository = repository,
+        captionLimit = captionLimit,
+        observeFile = repository::observeFile,
+        downloadFile = repository::downloadFile,
+        loadTopics = { chatId -> repository.forumTopics(chatId) },
+        sendText = { chatId, topicId, text ->
+            repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)
+        },
+        sendMedia = { chatId, topicId, media, caption ->
+            if (media.size == 1) {
+                repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId)
+            } else {
+                repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId)
+            }
+        },
+        onSent = { _, _ -> onClose(true) },
+        onCancel = { onClose(false) },
+    )
 }
 
 /**

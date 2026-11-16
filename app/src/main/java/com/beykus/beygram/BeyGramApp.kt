@@ -1518,51 +1518,40 @@ private fun BeyGramAppContent(
         val shareCaptionLimit = repository.messageLimits.collectAsStateWithLifecycle().value.caption
         // Отправка идёт в этой сессии. Пока она не закончилась, диалог не закрывается: иначе результат и частичная отправка пропадают вместе с ним.
         val shareSession = remember(incomingShare.requestId, selectedAccountId) { ShareSessions.of(context, incomingShare.requestId, incomingShare.uris, incomingShare.text, selectedAccountId) }
-        val shareSending = shareSession.sending
-        Dialog(
-            onDismissRequest = { if (!shareSending) onIncomingShareHandled(incomingShare.requestId) },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-                dismissOnBackPress = !shareSending,
-                dismissOnClickOutside = !shareSending
+        // Новый запрос из «Поделиться» получает свежее состояние выбора, даже если диалог уже открыт.
+        key(incomingShare.requestId, selectedAccountId) {
+            ShareTargetScreen(
+                requestId = incomingShare.requestId,
+                initialChatId = if (shareLegacyShortcut &&
+                    selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                    incomingShare.targetChatId else 0L,
+                text = incomingShare.text,
+                uris = incomingShare.uris,
+                session = shareSession,
+                captionLimit = shareCaptionLimit,
+                observeFile = repository::observeFile,
+                downloadFile = repository::downloadFile,
+                chats = shareChats + shareArchivedChats,
+                recipientRepository = repository,
+                loadTopics = { chatId -> repository.forumTopics(chatId) },
+                sendText = { chatId, topicId, text ->
+                    repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)
+                },
+                sendMedia = { chatId, topicId, media, caption ->
+                    if (media.size == 1) repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId)
+                    else repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId)
+                },
+                onSent = { chatId, topicId ->
+                    onIncomingShareHandled(incomingShare.requestId)
+                    selectedTopicChatId = chatId
+                    selectedForumTopicId = topicId
+                    selectedChatId = chatId
+                    linkReturnChatId = 0L
+                    chatBackRouteName = AppRoute.Chats.name
+                    routeName = AppRoute.Chat.name
+                },
+                onCancel = { onIncomingShareHandled(incomingShare.requestId) }
             )
-        ) {
-            // Новый запрос из «Поделиться» получает свежее состояние выбора, даже если диалог уже открыт.
-            key(incomingShare.requestId, selectedAccountId) {
-                ShareTargetScreen(
-                    requestId = incomingShare.requestId,
-                    initialChatId = if (shareLegacyShortcut &&
-                        selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
-                        incomingShare.targetChatId else 0L,
-                    text = incomingShare.text,
-                    uris = incomingShare.uris,
-                    session = shareSession,
-                    captionLimit = shareCaptionLimit,
-                    observeFile = repository::observeFile,
-                    downloadFile = repository::downloadFile,
-                    chats = shareChats + shareArchivedChats,
-                    recipientRepository = repository,
-                    loadTopics = { chatId -> repository.forumTopics(chatId) },
-                    sendText = { chatId, topicId, text ->
-                        repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)
-                    },
-                    sendMedia = { chatId, topicId, media, caption ->
-                        if (media.size == 1) repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId)
-                        else repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId)
-                    },
-                    onSent = { chatId, topicId ->
-                        onIncomingShareHandled(incomingShare.requestId)
-                        selectedTopicChatId = chatId
-                        selectedForumTopicId = topicId
-                        selectedChatId = chatId
-                        linkReturnChatId = 0L
-                        chatBackRouteName = AppRoute.Chats.name
-                        routeName = AppRoute.Chat.name
-                    },
-                    onCancel = { onIncomingShareHandled(incomingShare.requestId) }
-                )
-            }
         }
     }
 
