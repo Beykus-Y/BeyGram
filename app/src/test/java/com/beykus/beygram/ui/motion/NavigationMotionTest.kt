@@ -7,6 +7,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import com.beykus.beygram.RouteTransitionFrame
 import com.beykus.beygram.navigation.AppRoute
 import com.beykus.beygram.routeContentKey
+import com.beykus.beygram.routeHostContentKey
+import com.beykus.beygram.routeHostTransitionMove
 import com.beykus.beygram.routeTransitionMove
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -148,5 +150,21 @@ class NavigationMotionTest {
                 routeMove = NavigationMove.Tab
             )
         )
+    }
+    @Test
+    fun phoneRootTabsShareOnlyOuterSlotWhileNestedAndWideRoutesKeepTheirKeys() {
+        val roots = MainTab.entries.map { RouteTransitionFrame(it.route, false) }
+        assertEquals(1, roots.map(::routeHostContentKey).distinct().size)
+        val chats = roots.first()
+        val settings = roots.last()
+        val nested = RouteTransitionFrame(AppRoute.Chat, false)
+        val wideChats = RouteTransitionFrame(AppRoute.Chats, true)
+        val wideChat = RouteTransitionFrame(AppRoute.Chat, true)
+        assertTrue(routeHostContentKey(chats) != routeHostContentKey(nested))
+        assertTrue(routeHostContentKey(chats) != routeHostContentKey(wideChats))
+        assertEquals(routeHostContentKey(wideChats), routeHostContentKey(wideChat))
+        assertEquals(NavigationMove.None, routeHostTransitionMove(chats, settings, NavigationMove.Tab))
+        assertEquals(NavigationMove.Push, routeHostTransitionMove(chats, nested, NavigationMove.Push))
+        assertEquals(NavigationMove.Pop, routeHostTransitionMove(nested, chats, NavigationMove.Pop))
     }
 }
