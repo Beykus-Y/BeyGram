@@ -117,7 +117,7 @@ internal object YandexWaveLauncher {
                         ProviderArtwork.playTracks(app, leading, 0, { router.more() }, radio, keepPositionMs)
                         YandexWaveResume.attach(app, { router.current }, radio, seeds, subtitle)
                         // After the queue started, so the tracker sees the radio as the player's queue.
-                        YandexWaveFeedback.start(provider, { router.current }, radio)
+                        YandexWaveFeedback.start(provider, uid, { router.current }, radio)
                         onDone(null)
                     }
                 }

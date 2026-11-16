@@ -237,7 +237,7 @@ internal object YandexWaveResume {
         active = Active(saved.uid, { session }, radio, saved.seeds, saved.subtitle)
         // Paused: nothing plays and no request goes out until the person presses Play.
         PlaybackEngine.restoreYandexRadio(app, saved.track, saved.positionMs, { session.more() }, radio)
-        YandexWaveFeedback.start(yandex, session, radio)
+        YandexWaveFeedback.start(yandex, saved.uid, session, radio)
     }
 
     private fun clearSaved() {
