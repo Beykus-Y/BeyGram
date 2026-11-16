@@ -27,4 +27,5 @@
     <string name="stealth_schedule_dialog_error">Enter a whole number from 15 to 3600</string>
     <string name="stealth_schedule_short_warning">The saved delay is under 15 seconds. Choose at least 15 seconds for stealth sending. An ordinary send without explicit consent is blocked until then.</string>
     <string name="stealth_schedule_music_bot_blocked">The music bot sends an immediate message to Saved Messages. This action is unavailable while stealth scheduling is enabled.</string>
+    <string name="stealth_diagnostic_send_blocked">This check is unavailable in stealth mode: it sends a message at once. Turn off stealth sending and try again.</string>
 </resources>

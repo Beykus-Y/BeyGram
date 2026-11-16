@@ -27,4 +27,5 @@
     <string name="stealth_schedule_dialog_error">Saisissez un nombre entier de 15 à 3600</string>
     <string name="stealth_schedule_short_warning">Le délai enregistré est inférieur à 15 secondes. Choisissez au moins 15 secondes. Sans consentement explicite, l’envoi normal reste bloqué.</string>
     <string name="stealth_schedule_music_bot_blocked">Le bot musical envoie immédiatement un message aux Messages enregistrés. Cette action est indisponible tant que l’envoi invisible est activé.</string>
+    <string name="stealth_diagnostic_send_blocked">Cette vérification est indisponible en mode invisible, car elle envoie un message immédiatement. Désactivez l’envoi invisible et réessayez.</string>
 </resources>

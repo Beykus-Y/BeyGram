@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.annotation.StringRes
 import com.beykus.beygram.R
 import com.beykus.beygram.data.tdlib.TdAccountStorageLayout
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.repository.TelegramRepository
 import java.io.File
@@ -232,8 +234,14 @@ internal class VideoNoteLossDiagnostics(
                 report = context.getString(R.string.loss_report_cancelled))
             throw cancelled
         } catch (failure: Exception) {
+            // Stealth sending refuses the probe before any upload, so nothing was sent and the "may have been sent" warning does not apply.
+            val refusedBeforeSend = (failure as? UserMessageException)?.text == UiText.Res(R.string.stealth_diagnostic_send_blocked)
+            val failureReport = when {
+                refusedBeforeSend -> context.getString(R.string.stealth_diagnostic_send_blocked)
+                else -> context.getString(R.string.loss_report_failure, failure.javaClass.simpleName)
+            }
             _state.value = _state.value.copy(phaseRes = R.string.loss_phase_failed, running = false, localDirectory = folder,
-                report = context.getString(R.string.loss_report_failure, failure.javaClass.simpleName))
+                report = failureReport)
         }
     }
 

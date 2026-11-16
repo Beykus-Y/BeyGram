@@ -386,4 +386,5 @@ private fun failureText(reason: ReportFailureReason, retryAfterSeconds: Int?): S
     ReportFailureReason.API_UNAVAILABLE -> stringResource(R.string.report_error_api_unavailable)
     ReportFailureReason.PAYLOAD_TOO_LARGE -> stringResource(R.string.report_error_payload_too_large)
     ReportFailureReason.FAILED_DELIVERY -> stringResource(R.string.report_error_delivery_failed)
+    ReportFailureReason.STEALTH_BLOCKED -> stringResource(R.string.stealth_diagnostic_send_blocked)
 }

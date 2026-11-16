@@ -1,5 +1,8 @@
 package com.beykus.beygram.data.tdlib
 
+import com.beykus.beygram.R
+import com.beykus.beygram.domain.UiText
+import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.VideoNoteLossRemoteResult
@@ -21,7 +24,11 @@ internal fun confirmedVideoNoteShape(note: TdApi.VideoNote): Pair<Int, Int> = no
  * One opt-in probe at a time. SendMessage returning a local message is not delivery:
  * we await TDLib's UpdateMessageSendSucceeded, then retrieve the file by its remote ID.
  */
-internal class TdVideoNoteLossTransport(private val request: TdRequests) {
+internal class TdVideoNoteLossTransport(
+    private val request: TdRequests,
+    /** True while stealth sending is required: this probe sends a message at once, so it is refused. */
+    private val stealthActive: () -> Boolean = { false }
+) {
     private val gate = Mutex()
     private var watcher: Watcher? = null
     private val ownedTestMessages = mutableSetOf<Long>()
@@ -66,6 +73,8 @@ internal class TdVideoNoteLossTransport(private val request: TdRequests) {
     }
 
     suspend fun sendAndFetchOwnTest(media: OutgoingMedia, destination: File): VideoNoteLossRemoteResult = gate.withLock {
+        // The probe's message would be sent at once, so it is refused before anything is uploaded or fetched.
+        if (stealthActive()) throw UserMessageException(UiText.Res(R.string.stealth_diagnostic_send_blocked))
         require(media.kind == MediaKind.VideoNote && media.mimeType == "video/mp4") { "Diagnostic must send an MP4 video note" }
         require(media.width == media.height && media.width in 1..640 && media.durationSeconds in 1..60)
         require(File(media.path).isFile && File(media.path).length() > 0)

@@ -27,4 +27,5 @@
     <string name="stealth_schedule_dialog_error">Introduce un número entero de 15 a 3600</string>
     <string name="stealth_schedule_short_warning">El retraso guardado es inferior a 15 segundos. Elige al menos 15 segundos. Hasta entonces se bloquea el envío normal sin consentimiento explícito.</string>
     <string name="stealth_schedule_music_bot_blocked">El bot de música envía un mensaje inmediato a Mensajes guardados. Esta acción no está disponible mientras el envío invisible esté activado.</string>
+    <string name="stealth_diagnostic_send_blocked">Esta comprobación no está disponible en el modo invisible, porque envía un mensaje de inmediato. Desactiva el envío invisible e inténtalo de nuevo.</string>
 </resources>
