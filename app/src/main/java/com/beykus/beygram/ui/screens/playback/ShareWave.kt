@@ -56,6 +56,7 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
     val onePersonText = stringResource(R.string.bgwave_share_one_person)
     val failedText = stringResource(R.string.bgwave_error_send_failed)
     var sending by remember { mutableStateOf(false) }
+    var stealthShown by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf<Pair<ForwardTarget, CompletableDeferred<Boolean>>?>(null) }
     ForwardChatDialog(
@@ -79,6 +80,7 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
                 return@ForwardChatDialog targets
             }
             val answer = CompletableDeferred<Boolean>()
+            stealthShown = BgWaveHub.stealthNeedsConsent(accountId)
             confirm = target to answer
             val accepted = answer.await()
             confirm = null
@@ -89,7 +91,7 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
             }
             sending = true
             val sent = try {
-                BgWaveHub.share(accountId, target.chatId, target.chatId)
+                BgWaveHub.share(accountId, target.chatId, target.chatId, stealthConsent = stealthShown)
             } finally {
                 sending = false
             }
@@ -114,7 +116,8 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
         BeyGramDialog(
             onDismissRequest = { answer.complete(false) },
             title = stringResource(R.string.bgwave_share_confirm_title, target.title),
-            message = stringResource(R.string.bgwave_share_confirm_body),
+            message = stringResource(R.string.bgwave_share_confirm_body) +
+                if (stealthShown) "\n\n" + stringResource(R.string.bgwave_stealth_confirm_note) else "",
             confirmText = stringResource(R.string.bgwave_share_confirm_send),
             onConfirm = { answer.complete(true) },
             dismissText = stringResource(R.string.bgwave_share_confirm_cancel),

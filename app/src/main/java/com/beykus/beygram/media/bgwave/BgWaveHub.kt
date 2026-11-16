@@ -12,8 +12,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
-/** Hands a wave link to Telegram as a hidden service link in the given chat. */
-typealias BgWaveSender = suspend (chatId: Long, link: String) -> Result<Unit>
+/**
+ * Hands a wave link to Telegram as a hidden service link in the given chat. [stealthConsent] is true when the signal may go
+ * out at once: stealth mode does not apply, or the user agreed to it for this wave. The sender must refuse otherwise.
+ */
+typealias BgWaveSender = suspend (chatId: Long, link: String, stealthConsent: Boolean) -> Result<Unit>
 
 /**
  * The single place where the wave state machine meets Telegram and the clock. UI calls the suspend functions; TDLib
@@ -33,6 +36,9 @@ object BgWaveHub {
     )
 
     private val senders = ConcurrentHashMap<String, BgWaveSender>()
+    private val stealthGates = ConcurrentHashMap<String, () -> Boolean>()
+    /** The wave session the user agreed to send immediately under stealth mode; its follow-up signals are covered. */
+    @Volatile private var consentedSid: String? = null
     @Volatile private var audioManager: AudioManager? = null
     @Volatile private var appContext: android.content.Context? = null
     @Volatile private var listenerAudio: BgWaveListenerAudio? = null
@@ -64,20 +70,30 @@ object BgWaveHub {
 
     fun nowSeconds(): Long = System.currentTimeMillis() / 1000L
 
-    fun registerSender(accountId: String, sender: BgWaveSender) {
+    /** [needsStealthConsent] tells whether this account's stealth mode forbids sending a wave signal without asking. */
+    fun registerSender(accountId: String, needsStealthConsent: () -> Boolean, sender: BgWaveSender) {
         senders[accountId] = sender
+        stealthGates[accountId] = needsStealthConsent
     }
+
+    /** True when the user must confirm before a wave signal leaves, because stealth mode would otherwise delay or warn. Unknown accounts: true. */
+    fun stealthNeedsConsent(accountId: String): Boolean =
+        try { stealthGates[accountId]?.invoke() ?: true } catch (e: Exception) { true }
 
     /** A signed-out or removed account: its sender goes, and a wave that belonged to it ends. */
     fun forgetAccount(accountId: String) {
         senders.remove(accountId)
+        stealthGates.remove(accountId)
         controller.resetAccount(accountId, nowSeconds())
         syncAudio()
     }
 
-    private suspend fun send(accountId: String, chatId: Long, link: String): Result<Unit> {
-        val result = try {
-            senders[accountId]?.invoke(chatId, link) ?: Result.failure(IllegalStateException("no sender"))
+    private suspend fun send(accountId: String, chatId: Long, sidHex: String, link: String): Result<Unit> {
+        val consent = waveSignalAllowed(stealthNeedsConsent(accountId), consentedSid == sidHex)
+        val result = if (!consent) {
+            Result.failure(IllegalStateException("no stealth consent"))
+        } else try {
+            senders[accountId]?.invoke(chatId, link, true) ?: Result.failure(IllegalStateException("no sender"))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -92,16 +108,18 @@ object BgWaveHub {
     }
 
     /** Host: return true only after this attempt has been handed to Telegram and is still current. */
-    suspend fun share(accountId: String, chatId: Long, peerId: Long): Boolean =
+    suspend fun share(accountId: String, chatId: Long, peerId: Long, stealthConsent: Boolean = false): Boolean =
         withContext(Dispatchers.IO + NonCancellable) {
+            if (!waveSignalAllowed(stealthNeedsConsent(accountId), stealthConsent)) return@withContext false
             val now = nowSeconds()
             val link = controller.startHosting(accountId, chatId, peerId, now) ?: return@withContext false
             val sid = (BgWaveNative.decodeUri(link, now) as? BgWaveDecodeResult.Ok)?.sidHex
                 ?: return@withContext false
+            if (stealthConsent) consentedSid = sid
             val current = controller.state.value
             if (current == null || current.sidHex != sid || current.accountId != accountId ||
                 current.chatId != chatId || current.phase != BgWavePhase.Offering) return@withContext false
-            val sent = send(accountId, chatId, link).isSuccess
+            val sent = send(accountId, chatId, sid, link).isSuccess
             controller.offerSent(sid, sent, nowSeconds())
             val latest = controller.state.value
             if (sent && latest != null && latest.sidHex == sid && latest.accountId == accountId &&
@@ -110,20 +128,22 @@ object BgWaveHub {
                 true
             } else {
                 syncAudio()
-                if (sent) controller.cancelLink(sid, nowSeconds())?.let { send(accountId, chatId, it) }
+                if (sent) controller.cancelLink(sid, nowSeconds())?.let { send(accountId, chatId, sid, it) }
                 false
             }
         }
 
     /** Listener: joins the wave of [sidHex] and sends the answer back. */
-    suspend fun join(sidHex: String): Unit = withContext(Dispatchers.IO + NonCancellable) {
+    suspend fun join(sidHex: String, stealthConsent: Boolean = false): Unit = withContext(Dispatchers.IO + NonCancellable) {
         val invite = controller.inviteStates.value[sidHex] ?: return@withContext
+        if (!waveSignalAllowed(stealthNeedsConsent(invite.accountId), stealthConsent)) return@withContext
+        if (stealthConsent) consentedSid = sidHex
         val link = controller.join(sidHex, nowSeconds()) ?: return@withContext
         val state = controller.state.value ?: return@withContext
         if (state.sidHex != sidHex || state.accountId != invite.accountId ||
             state.chatId != invite.chatId || state.phase != BgWavePhase.Connecting) return@withContext
         BgWaveLog.i("listener.join", "sid" to BgWaveLog.sid(sidHex))
-        val sent = send(invite.accountId, invite.chatId, link).isSuccess
+        val sent = send(invite.accountId, invite.chatId, sidHex, link).isSuccess
         if (sent) ensureTicker() else {
             controller.answerSendFailed(sidHex, nowSeconds())
             syncAudio()
@@ -133,7 +153,7 @@ object BgWaveHub {
     suspend fun decline(sidHex: String) {
         val invite = controller.inviteStates.value[sidHex] ?: return
         val link = controller.decline(sidHex, nowSeconds()) ?: return
-        send(invite.accountId, invite.chatId, link)
+        send(invite.accountId, invite.chatId, sidHex, link)
     }
 
     /** Either side: stops the running wave and tells the peer. */
@@ -141,7 +161,7 @@ object BgWaveHub {
         val state = controller.state.value ?: return
         val link = controller.stopIfCurrent(state, nowSeconds())
         syncAudio()
-        if (link != null) send(state.accountId, state.chatId, link)
+        if (link != null) send(state.accountId, state.chatId, state.sidHex, link)
     }
 
     fun retry(): Boolean = controller.retry(nowSeconds()).also { if (it) ensureTicker() }
@@ -200,7 +220,7 @@ object BgWaveHub {
                     scope.launch {
                         val link = controller.stopIfCurrent(state, nowSeconds())
                         syncAudio()
-                        if (link != null) send(state.accountId, state.chatId, link)
+                        if (link != null) send(state.accountId, state.chatId, state.sidHex, link)
                     }
                 }
                 if (output.start()) listenerAudio = output
@@ -248,7 +268,7 @@ object BgWaveHub {
                     break
                 }
                 val links = controller.poll(nowSeconds())
-                for (link in links) send(state.accountId, state.chatId, link)
+                for (link in links) send(state.accountId, state.chatId, state.sidHex, link)
                 syncAudio()
                 logLiveStats()
                 if (controller.state.value?.phase.let { it == null || it == BgWavePhase.Ended || it == BgWavePhase.Failed }) break

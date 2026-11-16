@@ -42,6 +42,9 @@
     <string name="bgwave_share_confirm_body">Die Person sieht eine Einladung, mitzuhören, was bei dir gerade läuft. Bei einer direkten Verbindung kann deine IP-Adresse für sie sichtbar sein. Der Ton wird nicht gespeichert und läuft nur, solange die Welle aktiv ist.</string>
     <string name="bgwave_share_confirm_send">Senden</string>
     <string name="bgwave_share_confirm_cancel">Abbrechen</string>
+    <string name="bgwave_join_confirm_title">Der Welle beitreten?</string>
+    <string name="bgwave_join_confirm_body">Das ist eine direkte Verbindung: Die Person, die die Welle teilt, kann deine IP-Adresse sehen. Der Ton wird nicht gespeichert und läuft nur, solange die Welle aktiv ist.</string>
+    <string name="bgwave_stealth_confirm_note">Der Tarnmodus ist aktiv: Wellensignale lassen sich nicht unbemerkt senden. Sie gehen sofort raus, und Telegram kann dich als online anzeigen.</string>
     <string name="bgwave_mini_title">Welle</string>
     <string name="bgwave_mini_a11y">Welle: %1$s</string>
     <string name="bgwave_listener_channel_name">Gemeinsam hören</string>

@@ -42,6 +42,9 @@
     <string name="bgwave_share_confirm_body">Собеседник увидит приглашение послушать то, что играет у вас сейчас. При прямом соединении ваш IP-адрес может быть виден собеседнику. Звук не сохраняется и идёт только на время волны.</string>
     <string name="bgwave_share_confirm_send">Отправить</string>
     <string name="bgwave_share_confirm_cancel">Отмена</string>
+    <string name="bgwave_join_confirm_title">Присоединиться к волне?</string>
+    <string name="bgwave_join_confirm_body">Это прямое соединение: тот, кто делится волной, может увидеть ваш IP-адрес. Звук не сохраняется и идёт только на время волны.</string>
+    <string name="bgwave_stealth_confirm_note">Режим скрытности включён: сигналы волны нельзя отправить незаметно, они уйдут сразу, и Telegram может показать вас в сети.</string>
     <string name="bgwave_mini_title">Волна</string>
     <string name="bgwave_mini_a11y">Волна: %1$s</string>
     <string name="bgwave_listener_channel_name">Совместное прослушивание</string>

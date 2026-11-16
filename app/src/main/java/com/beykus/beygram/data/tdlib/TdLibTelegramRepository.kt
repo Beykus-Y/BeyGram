@@ -5,6 +5,7 @@ import android.os.Build
 import com.beykus.beygram.notifications.TriggerIncoming
 import com.beykus.beygram.notifications.TriggerAlerts
 import com.beykus.beygram.media.bgwave.BgWaveHub
+import com.beykus.beygram.media.bgwave.waveNeedsStealthConsent
 import com.beykus.beygram.notifications.TriggerWordsStore
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
@@ -507,12 +508,16 @@ class TdLibTelegramRepository private constructor(
     }
     private val serviceMessages = TdServiceMessageMapper(appContext)
     private fun registerWaveSender() {
-        BgWaveHub.registerSender(accountId) { chatId, link ->
+        BgWaveHub.registerSender(accountId, needsStealthConsent = {
+            val stealth = stealthSettings.current
+            waveNeedsStealthConsent(stealth.scheduledSendDelay != null, stealth.hideOnline && stealth.warnRiskyActions)
+        }) { chatId, link, stealthConsent ->
+            if (!stealthConsent) return@registerSender Result.failure(IllegalStateException("no stealth consent"))
             val label = appContext.getString(R.string.bgwave_service_label)
             sendMessage(
                 chatId, label, null,
                 waveServiceEntities(label, link),
-                0L, false, MessageSendOptions(disableLinkPreview = true, sendNowConsent = true),
+                0L, false, MessageSendOptions(disableLinkPreview = true, sendNowConsent = stealthConsent),
             )
         }
     }

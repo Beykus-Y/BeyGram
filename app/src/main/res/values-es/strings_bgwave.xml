@@ -42,6 +42,9 @@
     <string name="bgwave_share_confirm_body">Verá una invitación para escuchar lo que suena ahora en tu dispositivo. Con una conexión directa, tu dirección IP puede ser visible para esa persona. El sonido no se guarda y solo suena mientras dura la ola.</string>
     <string name="bgwave_share_confirm_send">Enviar</string>
     <string name="bgwave_share_confirm_cancel">Cancelar</string>
+    <string name="bgwave_join_confirm_title">¿Unirte a la ola?</string>
+    <string name="bgwave_join_confirm_body">Es una conexión directa: la persona que comparte la ola puede ver tu dirección IP. El sonido no se guarda y solo suena mientras dura la ola.</string>
+    <string name="bgwave_stealth_confirm_note">El modo sigiloso está activo: las señales de la ola no pueden enviarse sin que se note. Salen de inmediato y Telegram puede mostrarte en línea.</string>
     <string name="bgwave_mini_title">Ola</string>
     <string name="bgwave_mini_a11y">Ola: %1$s</string>
     <string name="bgwave_listener_channel_name">Escuchar juntos</string>
