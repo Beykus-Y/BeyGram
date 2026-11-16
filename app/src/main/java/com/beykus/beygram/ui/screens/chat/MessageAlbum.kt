@@ -226,18 +226,14 @@ internal fun MessageAlbumBubble(
                                 if (index < rows.lastIndex) Spacer(Modifier.height(2.dp))
                             }
                             if (reply != null) {
-                                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).clip(styledShape(10.dp))
-                                    .background(palette.surface.copy(alpha = 0.72f)).combinedClickable(
-                                        onClickLabel = selectionLabel,
-                                        onLongClickLabel = selectionLabel,
-                                        onClick = { if (selectionMode) onToggleSelection() else onReplyClick(reply) },
-                                        onLongClick = { if (selectionMode) onToggleSelection() else onActions(captionMessage.id) }
-                                    )
-                                    .padding(horizontal = 9.dp, vertical = 6.dp)) {
-                                    Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk,
-                                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                }
+                                ReplyQuote(
+                                    reply = reply,
+                                    modifier = Modifier.padding(horizontal = metrics.textInset, vertical = 5.dp),
+                                    onClick = { if (selectionMode) onToggleSelection() else onReplyClick(reply) },
+                                    onLongClick = { if (selectionMode) onToggleSelection() else onActions(captionMessage.id) },
+                                    onClickLabel = selectionLabel,
+                                    onLongClickLabel = selectionLabel,
+                                )
                             }
                             if (captions.isNotEmpty()) {
                                 Column(Modifier.fillMaxWidth().combinedClickable(
