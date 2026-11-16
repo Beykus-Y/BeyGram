@@ -2361,9 +2361,7 @@ object PlaybackEngine {
         val terminalQueue = status.queue.isNotEmpty() && status.queue.all { it.state == "played" || it.state == "failed" }
         // Native keeps an ended master loaded (reported as playing in the queue). If no usable
         // successor is admitted, resume the logical queue on Exo rather than strand playback at EOF.
-        val hasNativeSuccessor = status.queue.any {
-            (driver.indexOfNative(it.id) ?: -1) > index && it.state != "played" && it.state != "failed"
-        }
+        val hasNativeSuccessor = driver.hasUnfinishedNativeAfter(index, status)
         val masterEnded = master?.ended == true && !hasNativeSuccessor && !status.paused
         val finished = (terminalQueue || masterEnded) && !status.transitionActive && !deckPlaying
         val pending = driver.pendingIndex
@@ -2372,7 +2370,9 @@ object PlaybackEngine {
             // Ignore a delayed fallback after a queue replacement or a new native session.
             val sessionStatus = driver.status
             scope.launch {
-                if (bgMix?.status === sessionStatus) continueBgMixQueueOnExo(items, pending)
+                if (bgMix?.status === sessionStatus && driver.pendingIndex == pending && _state.value.queueIndex == before.queueIndex) {
+                    continueBgMixQueueOnExo(items, pending)
+                }
             }
             return
         }

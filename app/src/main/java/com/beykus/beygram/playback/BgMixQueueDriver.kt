@@ -85,6 +85,14 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     /** Whether the native queue holds a track after queue index [index]. */
     fun hasNativeAfter(index: Int): Boolean = indexByNativeId.values.any { it > index }
 
+    /** A newly appended id may not be present in the asynchronously published status yet. */
+    fun hasUnfinishedNativeAfter(index: Int, status: BgMixStatus): Boolean {
+        val states = status.queue.associate { it.id to it.state }
+        return indexByNativeId.any { (id, queueIndex) ->
+            queueIndex > index && states[id] != "played" && states[id] != "failed"
+        }
+    }
+
     /**
      * Starts [items] from [startIndex] and plays at once. [fileFor] returns the item as a complete local file, or null
      * while it is not one. Returns false when the native session cannot start or the tapped track is not a ready file.
