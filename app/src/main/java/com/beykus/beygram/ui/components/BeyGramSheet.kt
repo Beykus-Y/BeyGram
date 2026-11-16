@@ -34,7 +34,8 @@ import com.beykus.beygram.ui.design.styledTopShape
  * - [title] is optional. When it is set, it is the sheet heading and the pane title that screen readers announce.
  * - [scrollableContent] wraps [content] in a vertical scroll area. Set it to false when [content] is a lazy list, so the
  *   two scroll areas do not nest.
- * - [sheetState] is only needed when the caller must expand or hide the sheet itself.
+ * - [sheetState] defaults to Material's state, which opens partially when the content is tall. Pass
+ *   rememberModalBottomSheetState(skipPartiallyExpanded = true) to open the sheet fully.
  * - Insets use the ModalBottomSheet defaults. A text field inside a sheet must be checked with the keyboard open.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,7 +44,7 @@ fun BeyGramSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     title: String? = null,
-    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    sheetState: SheetState = rememberModalBottomSheetState(),
     scrollableContent: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {

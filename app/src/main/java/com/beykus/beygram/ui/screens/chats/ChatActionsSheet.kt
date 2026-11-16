@@ -29,11 +29,11 @@ import com.beykus.beygram.domain.model.isInArchive
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.ActionBubble
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SheetActionRow
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
-import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.groupCardShape
@@ -76,7 +76,7 @@ internal fun ChatActionsSheet(
         }
     }
     val hasUnread = chat.unreadCount > 0 || chat.isMarkedAsUnread
-    ModalBottomSheet(onDismissRequest = onClose, containerColor = sheetSurfaceColor()) {
+    BeyGramSheet(onDismissRequest = onClose) {
         Row(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
