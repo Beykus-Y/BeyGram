@@ -3333,7 +3333,6 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
-    val glassBubbles = LocalDesignSystem.current.surfaces.treatment == SurfaceTreatment.Glass
     // The versions sheet belongs to the bubble that opened it, and is composed only while it is open.
     var showVersions by remember(message.id) { mutableStateOf(false) }
     val loadVersions = onLoadVersions
@@ -3365,7 +3364,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
     val lastLineMeta = showText && useLastLineTextMetadata(message, hasTranslation = translation != null)
-    val compactCollection = message.media?.let { com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument(it) } == true && !hasText && message.reply == null && renderedSpecial == null && translation == null
+    val compactCollection = message.media?.let { com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument(it) } == true && !hasText && message.reply == null && renderedSpecial == null && message.linkPreview == null && translation == null
     val inlineMeta = !lastLineMeta && useInlineTextMetadata(
         message,
         hasSenderHeader = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank(),
@@ -3473,14 +3472,14 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
                         if (showText || renderedSpecial != null || message.reply != null || (!overlayMeta && !compactCollection)) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
-                                // Liquid Glass: the quote is a tint of its own bubble, not a second outline inside it.
-                                val quoteShape = RoundedCornerShape(metrics.replyRadius)
-                                Column(Modifier.padding(vertical = 4.dp).clip(quoteShape)
-                                    .then(if (glassBubbles) Modifier.background(palette.accent.copy(alpha = 0.12f)) else Modifier.border(1.dp, palette.accent, quoteShape))
-                                    .clickable { if (selectionMode) onToggleSelection() else onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                                    Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                    Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                }
+                                ReplyQuote(
+                                    reply = reply,
+                                    modifier = Modifier.padding(bottom = 5.dp),
+                                    onClick = { if (selectionMode) onToggleSelection() else onReplyClick(reply) },
+                                    onLongClick = if (selectionMode) onToggleSelection else onActions,
+                                    onClickLabel = selectionLabel,
+                                    onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
+                                )
                             }
                             renderedSpecial?.let { content ->
                                 SpecialMessageContentView(
