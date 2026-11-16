@@ -1314,7 +1314,10 @@ object PlaybackEngine {
             // A seek during a BG Mix transition is refused by the native session; the next status tick keeps the UI honest.
             val driver = bgMix ?: return
             bgMixSeekJob?.cancel()
-            bgMixSeekJob = scope.launch { driver.seek(positionMs.coerceAtLeast(0L) / 1000.0) }
+            val session = driver.status
+            bgMixSeekJob = scope.launch {
+                if (bgMix?.status === session) driver.seek(positionMs.coerceAtLeast(0L) / 1000.0)
+            }
             return
         }
         val target = exo ?: return
@@ -2384,7 +2387,10 @@ object PlaybackEngine {
         val master = status.decks.getOrNull(status.master)
         val index = master?.trackId?.takeIf { it != 0L }?.let(driver::indexOfNative) ?: before.queueIndex
         val item = driver.itemAt(index) ?: return
-        updateWaveCaptureEligibility(item)
+        // Eligibility changes on track adoption/transition, not on every 50 ms status tick.
+        if (before.item?.key != item.key || before.item?.let(::isWaveCaptureEligible) != isWaveCaptureEligible(item)) {
+            updateWaveCaptureEligibility(item)
+        }
         val deckPlaying = master?.playing == true
         val terminalQueue = status.queue.isNotEmpty() && status.queue.all { it.state == "played" || it.state == "failed" }
         // Native keeps an ended master loaded (reported as playing in the queue). If no usable

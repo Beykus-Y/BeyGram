@@ -119,7 +119,7 @@ class BgMixPlayer(private val cacheDir: File) {
             start()
         }
         tickJob = scope.launch {
-            while (isActive) {
+            while (isActive && running) {
                 tick()
                 // Paused, nothing moves, so the state is read once a second; any control call wakes the loop at once.
                 val paused = _status.value?.paused == true
