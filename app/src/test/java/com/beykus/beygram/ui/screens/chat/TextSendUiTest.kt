@@ -53,7 +53,7 @@ import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.DeleteMessageScope
-import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.GeoPoint
 import com.beykus.beygram.domain.model.GlobalMessagePage
@@ -672,7 +672,6 @@ class TextSendUiTest {
         override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> = topicHistory(chatId, forumTopicId)
         override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {}
         override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {}
-        override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> = Result.success(null)
         override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = Result.success(true)
         override suspend fun linkedDiscussionChatId(chatId: Long): Result<Long> = Result.success(0L)
         override suspend fun loadMessageThread(chatId: Long, messageId: Long): Result<MessageThread> = Result.success(threadResult)
@@ -705,7 +704,7 @@ class TextSendUiTest {
             options: MessageSendOptions
         ): Result<Unit> = onSendMessage(chatId, text, replyToMessageId, forumTopicId, options)
         override suspend fun isForumChat(chatId: Long): Result<Boolean> = Result.success(false)
-        override suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit): Result<List<ForumTopic>?> = Result.success(null)
+        override suspend fun forumTopicsPage(chatId: Long, query: String, onPage: (ForumTopicsPage) -> Unit): Result<ForumTopicsPage?> = Result.success(null)
         override suspend fun canCreateForumTopic(chatId: Long): Result<Boolean> = Result.success(false)
         override suspend fun createForumTopic(chatId: Long, name: String): Result<Long> = Result.failure(UnsupportedOperationException())
         override suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit> = Result.success(Unit)

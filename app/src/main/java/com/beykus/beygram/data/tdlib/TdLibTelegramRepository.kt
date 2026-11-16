@@ -57,7 +57,8 @@ import com.beykus.beygram.domain.model.BotWebAppTheme
 import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.MusicBotTrack
 import com.beykus.beygram.domain.model.SavedMusicBotTrack
-import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForumTopicLastMessage
+import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.GroupAdministratorRights
 import com.beykus.beygram.domain.model.GroupInviteLink
 import com.beykus.beygram.domain.model.GroupInviteLinkDraft
@@ -128,6 +129,7 @@ import com.beykus.beygram.domain.model.StoryPrivacy
 import com.beykus.beygram.domain.model.ChatInvitePreview
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftAuctionQuote
 import com.beykus.beygram.domain.model.GiftListingQuote
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
@@ -1549,6 +1551,7 @@ class TdLibTelegramRepository private constructor(
     }
     private val conversationActions = TdConversationActions({ client }, messageHistory,
         map = { it.toChatMessage() },
+        mapLastMessage = { it.toForumTopicLastMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) },
         stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
     private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
@@ -1784,6 +1787,11 @@ class TdLibTelegramRepository private constructor(
         payments.starsTopUpPayment(option)
     override suspend fun starTransactions(offset: String): Result<StarTransactionsPage> = payments.starTransactions(offset)
     override suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo> = payments.giftsInfo(profileId, isSelf)
+    override suspend fun giftAuctionQuote(auctionId: String, profileId: Long, isSelf: Boolean) =
+        payments.giftAuctionQuote(auctionId, profileId, isSelf)
+    override suspend fun giftAuctionHistory(giftId: Long) = payments.giftAuctionHistory(giftId)
+    override suspend fun submitGiftAuctionBid(quote: GiftAuctionQuote, profileId: Long, isSelf: Boolean, total: Long) =
+        payments.submitGiftAuctionBid(quote, profileId, isSelf, total)
     override suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = payments.receivedGifts(offset)
     override suspend fun resaleGifts(giftId: Long, offset: String) = payments.resaleGifts(giftId, offset)
     override suspend fun buyResoldGift(profileId: Long, name: String, confirmedStars: Long) =
@@ -2232,8 +2240,6 @@ class TdLibTelegramRepository private constructor(
         store.beginLoad(chatId)?.let { requestForumHistory(chatId, forumTopicId, oldest, it) }
     }
 
-    override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> =
-        conversationActions.latestForumTopicPreview(chatId, forumTopicId)
 
     override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = requestResult {
         val store = topicStore(chatId, forumTopicId)
@@ -2610,24 +2616,18 @@ class TdLibTelegramRepository private constructor(
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
 
-    override suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit): Result<List<ForumTopic>?> =
-        conversationActions.forumTopics(chatId, { partial ->
+    override suspend fun forumTopicsPage(chatId: Long, query: String, onPage: (ForumTopicsPage) -> Unit): Result<ForumTopicsPage?> =
+        conversationActions.forumTopicsPage(chatId, query) { page ->
             // A partially visible topic can be opened immediately: initialize its
             // read watermark before any UI callback can navigate into that topic.
-            partial.forEach { topic ->
+            // This runs for every emitted page, including the final snapshot, before any UI callback can navigate.
+            page.topics.forEach { topic ->
                 topicStore(chatId, topic.id).apply {
                     readInbox(chatId, topic.lastReadInboxMessageId)
                     readOutbox(chatId, topic.lastReadOutboxMessageId)
                 }
             }
-            onPage(partial)
-        }).onSuccess { topics ->
-            topics?.forEach { topic ->
-                topicStore(chatId, topic.id).apply {
-                    readInbox(chatId, topic.lastReadInboxMessageId)
-                    readOutbox(chatId, topic.lastReadOutboxMessageId)
-                }
-            }
+            onPage(page)
         }
 
     override suspend fun paidTextPrice(chatId: Long) = conversationActions.paidTextPrice(chatId)
@@ -3572,6 +3572,31 @@ class TdLibTelegramRepository private constructor(
                 returningFromArchive -= message.chatId
             }
         }
+    }
+
+    /**
+     * The topic list needs only a preview, sender and delivery state. Building a full [ChatMessage] here would register
+     * media files, resolve reactions/keyboards/link previews and hydrate service actors for every topic on every page.
+     */
+    private fun TdApi.Message.toForumTopicLastMessage(): ForumTopicLastMessage {
+        val attachment = mediaMapper.media(content)
+        val service = serviceMessages.text(content, isOutgoing)
+        val projection = forumTopicLastMessagePreview(
+            text = contentText(content, attachment != null),
+            fileName = attachment?.fileName.orEmpty(),
+            serviceText = service,
+            fallback = previewText(content)
+        )
+        return ForumTopicLastMessage(
+            messageId = id,
+            preview = projection.preview,
+            plainPreview = projection.plain,
+            senderName = profiles.senderName(senderId),
+            isOutgoing = isOutgoing,
+            dateSeconds = date.toLong(),
+            sendState = sendingState.toSendState(),
+            isService = service != null
+        )
     }
 
     private fun TdApi.Message.toChatMessage(): ChatMessage {

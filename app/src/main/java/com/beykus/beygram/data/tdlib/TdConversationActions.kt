@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal class TdConversationActions(
     client: () -> Client, private val history: MessageHistoryStore,
     private val map: (TdApi.Message) -> ChatMessage,
+    private val mapLastMessage: (TdApi.Message) -> ForumTopicLastMessage? = { null },
     private val onTopicDraft: (Long, Int, TdApi.DraftMessage?) -> Unit = { _, _, _ -> },
     stealthDelaySeconds: () -> Int? = { null }
 ) {
@@ -206,10 +207,17 @@ internal class TdConversationActions(
     }
 
     /**
-     * Темы группы с темами, в которые можно писать; null для всего остального. TDLib отдаёт до 100 тем за запрос, поэтому идём по страницам.
+     * Темы группы с темами, в которые можно писать; null для всего остального. [query] ищет темы по названию на сервере:
+     * в этой версии TDLib это единственный серверный поиск тем. TDLib отдаёт до 100 тем за запрос, поэтому идём по страницам
+     * и отдаём каждую готовую страницу через [onPage]; [ForumTopicsPage.isComplete] у последней страницы значит, что сервер
+     * действительно кончил список, а не что мы упёрлись в предел страниц.
      * Закрытые темы видны, если их создал этот аккаунт или он управляет темами: в закрытую тему пишут создатель и администраторы с этим правом.
      */
-    suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit = {}): Result<List<ForumTopic>?> = conversationResult<List<ForumTopic>?> {
+    suspend fun forumTopicsPage(
+        chatId: Long,
+        query: String = "",
+        onPage: (ForumTopicsPage) -> Unit = {}
+    ): Result<ForumTopicsPage?> = conversationResult<ForumTopicsPage?> {
         val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypeSupergroup ?: return@conversationResult null
         val supergroup = request(TdApi.GetSupergroup(type.supergroupId))
         if (!supergroup.isForum) return@conversationResult null
@@ -219,61 +227,83 @@ internal class TdConversationActions(
             else -> false
         }
         val topics = mutableListOf<ForumTopic>()
+        var totalCount = 0
         var offsetDate = 0
         var offsetMessageId = 0L
         var offsetTopicId = 0
         var pages = 0
+        var hasMorePages = true
+        var cursorRepeated = false
+        // The first cursor is always unique, so the loop overwrites this before it can be returned.
+        var finalPage = ForumTopicsPage(topics = emptyList(), totalCount = 0, isComplete = false)
         val visitedCursors = mutableSetOf<Triple<Int, Long, Int>>()
         while (true) {
-            if (!visitedCursors.add(Triple(offsetDate, offsetMessageId, offsetTopicId))) break
-            val page = request(TdApi.GetForumTopics(chatId, "", offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
+            if (!visitedCursors.add(Triple(offsetDate, offsetMessageId, offsetTopicId))) {
+                // The server pointed back at a page we already have; asking again would loop forever.
+                cursorRepeated = true
+                break
+            }
+            val page = request(TdApi.GetForumTopics(chatId, query.trim(), offsetDate, offsetMessageId, offsetTopicId, FORUM_TOPIC_PAGE_SIZE))
+            // TDLib's total is approximate and can be zero on a later page; the newest non-zero answer is the best one.
+            if (page.totalCount > 0) totalCount = page.totalCount
             page.topics.filter { !it.info.isHidden }
-                .mapTo(topics) {
-                    onTopicDraft(chatId, it.info.forumTopicId, it.draftMessage)
-                    ForumTopic(
-                        id = it.info.forumTopicId.toLong(),
-                        title = it.info.name,
-                        unreadCount = it.unreadCount,
-                        isPinned = it.isPinned,
-                        isClosed = it.info.isClosed,
-                        canWrite = !it.info.isClosed || it.info.isOutgoing || manageTopics,
-                        canManage = it.info.isOutgoing || manageTopics,
-                        canPin = manageTopics,
-                        order = it.order,
-                        lastReadInboxMessageId = it.lastReadInboxMessageId,
-                        lastReadOutboxMessageId = it.lastReadOutboxMessageId,
-                        lastMessagePreview = (it.lastMessage?.content as? TdApi.MessageText)?.text?.text.orEmpty()
-                    )
+                .mapTo(topics) { topic ->
+                    onTopicDraft(chatId, topic.info.forumTopicId, topic.draftMessage)
+                    forumTopic(topic, manageTopics)
                 }
             // Present page one without waiting for slow/large forum pagination.
             // Snapshot immutable data before the next suspendable TDLib request.
-            onPage(uniqueForumTopics(topics))
             pages++
-            if (page.topics.isEmpty() || page.nextOffsetForumTopicId == 0 || pages == MAX_FORUM_TOPIC_PAGES) break
+            hasMorePages = page.topics.isNotEmpty() && page.nextOffsetForumTopicId != 0
+            val snapshot = ForumTopicsPage(
+                topics = uniqueForumTopics(topics),
+                totalCount = totalCount,
+                isComplete = forumTopicsPageComplete(hasMorePages, cursorRepeated)
+            )
+            onPage(snapshot)
+            finalPage = snapshot
+            if (!hasMorePages || pages >= MAX_FORUM_TOPIC_PAGES) break
             offsetDate = page.nextOffsetDate
             offsetMessageId = page.nextOffsetMessageId
             offsetTopicId = page.nextOffsetForumTopicId
         }
-        uniqueForumTopics(topics)
+        finalPage
     }
 
-    /**
-     * GetForumTopics can omit lastMessage for long-inactive topics or return non-text content.
-     * Request the newest message only for a visible topic without a usable preview.
-     * This does not alter the full, separately paged topic history.
-     */
-    suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> =
-        conversationResult<String?> {
-            if (forumTopicId <= 0L) return@conversationResult null
-            val messages = request(TdApi.GetForumTopicHistory().apply {
-                this.chatId = chatId
-                this.forumTopicId = forumTopicId.toInt()
-                fromMessageId = 0L
-                offset = 0
-                limit = 1
-            })
-            messages.messages.orEmpty().filterNotNull().firstOrNull()?.let { forumTopicMessagePreview(map(it)) }
-        }
+    /** One topic of a page, including notification, unread and last-message details the list can render directly. */
+    private fun forumTopic(topic: TdApi.ForumTopic, manageTopics: Boolean): ForumTopic {
+        val info = topic.info
+        // GetForumTopics can omit lastMessage for long-inactive topics. The dedicated projection avoids building a
+        // full ChatMessage (media registration, reactions, keyboard, service-user hydration) for every topic row.
+        val lastMessage = topic.lastMessage?.let(mapLastMessage)
+        return ForumTopic(
+            id = info.forumTopicId.toLong(),
+            title = info.name,
+            unreadCount = topic.unreadCount,
+            isPinned = topic.isPinned,
+            isClosed = info.isClosed,
+            canWrite = !info.isClosed || info.isOutgoing || manageTopics,
+            canManage = info.isOutgoing || manageTopics,
+            canPin = manageTopics,
+            order = topic.order,
+            lastMessagePreview = lastMessage?.plainPreview.orEmpty(),
+            lastReadInboxMessageId = topic.lastReadInboxMessageId,
+            lastReadOutboxMessageId = topic.lastReadOutboxMessageId,
+            icon = info.icon?.let { ForumTopicIcon(colorArgb = it.color, customEmojiId = it.customEmojiId) },
+            isGeneral = info.isGeneral,
+            isOutgoing = info.isOutgoing,
+            isNameImplicit = info.isNameImplicit,
+            creationDate = info.creationDate,
+            unreadMentionCount = topic.unreadMentionCount,
+            unreadReactionCount = topic.unreadReactionCount,
+            unreadPollVoteCount = topic.unreadPollVoteCount,
+            useDefaultMuteFor = topic.notificationSettings?.useDefaultMuteFor ?: true,
+            muteFor = topic.notificationSettings?.muteFor ?: 0,
+            hasDraft = hasDraftContent(topic.draftMessage),
+            draftPreview = forumTopicDraftPreview(topic.draftMessage),
+            lastMessage = lastMessage
+        )
+    }
 
     /** All mutations go through TDLib; the server is the final authority for permissions. */
     suspend fun canCreateTopic(chatId: Long): Result<Boolean> = conversationResult {
@@ -1219,12 +1249,50 @@ internal fun redactedTdlibMessage(message: String?): String? {
         .ifBlank { null }
 }
 
+/**
+ * The listing is complete only when the server has no next page and did not send us back to a page we have.
+ * Hitting the page cap keeps `hasMorePages` true, so it never masquerades as a complete list. A terminal empty
+ * page at the cap is still complete: it proves there is nothing after the last non-empty page.
+ */
+internal fun forumTopicsPageComplete(hasMorePages: Boolean, cursorRepeated: Boolean): Boolean =
+    !hasMorePages && !cursorRepeated
+
 /** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */
 internal fun uniqueForumTopics(topics: List<ForumTopic>): List<ForumTopic> =
     topics.distinctBy(ForumTopic::id).sortedByDescending(ForumTopic::order)
 
-/** A blank string means a message exists but has no textual snippet (for example a photo). */
-internal fun forumTopicMessagePreview(message: ChatMessage): String =
-    message.text.trim().ifBlank {
-        message.media?.fileName?.trim().orEmpty().ifBlank { message.serviceText?.trim().orEmpty() }
-    }
+/** A resolved topic-row preview plus the plain string legacy topic pickers keep using. */
+internal data class ForumTopicPreviewProjection(val preview: UiText, val plain: String)
+
+/**
+ * The topic-list preview keeps the chat-list rule of showing the actual text first and a file name for an attachment
+ * without a caption; when neither exists, it falls back to the same media/service labels the chat list uses.
+ */
+internal fun forumTopicLastMessagePreview(
+    text: String,
+    fileName: String,
+    serviceText: String?,
+    fallback: UiText
+): ForumTopicPreviewProjection {
+    val plain = serviceText?.trim().orEmpty()
+        .ifEmpty { text.trim().ifEmpty { fileName.trim() } }
+    return ForumTopicPreviewProjection(
+        preview = plain.takeIf { it.isNotEmpty() }?.let(UiText::Raw) ?: fallback,
+        plain = plain
+    )
+}
+
+/**
+ * A reply without text is a real draft in this app, so it must keep the topic's Draft marker. Other draft content
+ * types are not represented by the composer here and are ignored; a blank text draft is not a draft either.
+ */
+internal fun hasDraftContent(draft: TdApi.DraftMessage?): Boolean {
+    if (draft == null) return false
+    if (draft.replyTo != null) return true
+    val content = draft.content as? TdApi.DraftMessageContentText ?: return false
+    return !content.text?.text.isNullOrBlank()
+}
+
+/** The short text of a topic draft, or an empty string for a reply-only draft. */
+internal fun forumTopicDraftPreview(draft: TdApi.DraftMessage?): String =
+    ((draft?.content as? TdApi.DraftMessageContentText)?.text?.text ?: "").trim().take(180)
