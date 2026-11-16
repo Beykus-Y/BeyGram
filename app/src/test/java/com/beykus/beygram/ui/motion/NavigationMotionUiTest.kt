@@ -15,6 +15,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -37,12 +38,14 @@ import com.beykus.beygram.data.appearance.NavigationPlacement
 import com.beykus.beygram.navigation.AppRoute
 import com.beykus.beygram.navigation.MainTab
 import com.beykus.beygram.routeContentKey
+import com.beykus.beygram.routeHostContentKey
+import com.beykus.beygram.routeHostTransitionMove
 import com.beykus.beygram.routeTransitionMove
 import com.beykus.beygram.ui.accessibility.LocalSystemReducedMotion
-import com.beykus.beygram.ui.components.MainTabBar
+import com.beykus.beygram.ui.components.MainTabsHost
+import com.beykus.beygram.ui.components.MainTabDockTag
 import com.beykus.beygram.ui.components.MainTabRail
 import com.beykus.beygram.ui.components.MainTabSelectionIndicatorTag
-import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.designFor
 import com.beykus.beygram.ui.theme.BeyGramTheme
 import org.junit.Assert.assertEquals
@@ -216,44 +219,51 @@ class NavigationMotionUiTest {
     }
 
     @Test
-    fun tabSlideKeepsOutgoingMainTabBarIndicatorAnchoredToItsOwnTab() {
+    fun pinnedRootTabSlideKeepsSingleDockAndRetargetsIndicatorDuringRapidSwitch() =
+        assertPersistentDock(DesignStyle.Default, NavigationPlacement.Pinned)
+
+    @Test
+    fun floatingGlassRootTabSlideKeepsSingleDockAndPlayer() =
+        assertPersistentDock(DesignStyle.LiquidGlass, NavigationPlacement.Floating)
+
+    private fun assertPersistentDock(style: DesignStyle, placement: NavigationPlacement) {
         compose.mainClock.autoAdvance = false
         var selectedTab by mutableStateOf(MainTab.Chats)
         val history = routeHistory(AppRoute.Chats)
 
         compose.setContent {
-            val design = designFor(DesignStyle.Default, GlassQuality.Balanced, NavigationPlacement.Pinned)
+            val design = designFor(style, GlassQuality.Balanced, placement)
             BeyGramTheme(darkTheme = false, design = design) {
                 CompositionLocalProvider(
                     LocalSystemReducedMotion provides false,
                     LocalMotionSettings provides MotionSettings()
                 ) {
                     val move = history.visit(selectedTab.route)
-                    val transitionSpec = rememberRouteTransitionSpec<MainTab>(
-                        move = move,
-                        push = pushSpec,
-                        pop = popSpec,
-                        tab = tabSpec,
-                        tabDirection = history.tabDirection
+                    val holder = rememberSaveableStateHolder()
+                    val outerSpec = rememberRouteTransitionSpec<RouteTransitionFrame>(
+                        move, pushSpec, popSpec, tabSpec,
+                        tabDirection = history.tabDirection,
+                        resolveMove = ::routeHostTransitionMove
                     )
                     Box(Modifier.size(360.dp, 640.dp)) {
                         AnimatedContent(
-                            targetState = selectedTab,
+                            targetState = RouteTransitionFrame(selectedTab.route, false),
                             modifier = Modifier.fillMaxSize().clipToBounds(),
-                            transitionSpec = transitionSpec,
-                            label = "tabBarSlide"
-                        ) { tab ->
-                            Box(
-                                Modifier.fillMaxSize()
-                                    .background(beyGramPalette().screen)
-                                    .testTag("tab-page-${tab.name}")
-                            ) {
-                                MainTabBar(
-                                    tabs = MainTab.entries,
-                                    selected = tab,
-                                    onSelect = {},
-                                    modifier = Modifier.testTag("tab-bar-${tab.name}")
-                                )
+                            contentKey = ::routeHostContentKey,
+                            transitionSpec = outerSpec,
+                            label = "testRootSlot"
+                        ) { frame ->
+                            MainTabsHost(
+                                accountId = "test-account",
+                                selected = MainTab.entries.first { it.route == frame.route },
+                                visibility = com.beykus.beygram.navigation.TabVisibility(),
+                                onSelect = { selectedTab = it },
+                                stateHolder = holder,
+                                tabMotion = tabSpec,
+                                tabDirection = history.tabDirection,
+                                player = { _, _ -> Box(Modifier.size(40.dp).testTag("test-player")) }
+                            ) { page ->
+                                Box(Modifier.fillMaxSize().testTag("tab-page-${page.name}"))
                             }
                         }
                     }
@@ -261,38 +271,66 @@ class NavigationMotionUiTest {
             }
         }
         compose.waitForIdle()
-        compose.mainClock.advanceTimeBy(300)
+        compose.mainClock.advanceTimeBy(400)
         compose.waitForIdle()
 
-        val initialBarX = positionX("tab-bar-Chats")
-        val initialIndicatorOffsetInChatsBar = positionX(MainTabSelectionIndicatorTag) - initialBarX
+        val initialDock = compose.onNodeWithTag(MainTabDockTag).fetchSemanticsNode()
+        val initialPosition = initialDock.positionInRoot
+        val initialPlayer = compose.onNodeWithTag("test-player").fetchSemanticsNode()
+        val initialIndicator = positionX(MainTabSelectionIndicatorTag)
+        fun assertStableDock() {
+            val bar = compose.onNodeWithTag(MainTabDockTag).fetchSemanticsNode()
+            assertEquals(1, compose.onAllNodesWithTag(MainTabDockTag).fetchSemanticsNodes().size)
+            assertEquals(initialDock.id, bar.id)
+            assertEquals(initialPosition.x, bar.positionInRoot.x, 1f)
+            assertEquals(initialPosition.y, bar.positionInRoot.y, 1f)
+            assertEquals(1, compose.onAllNodesWithTag(MainTabSelectionIndicatorTag).fetchSemanticsNodes().size)
+            val player = compose.onNodeWithTag("test-player").fetchSemanticsNode()
+            assertEquals(initialPlayer.id, player.id)
+            assertEquals(initialPlayer.positionInRoot.x, player.positionInRoot.x, 1f)
+            assertEquals(initialPlayer.positionInRoot.y, player.positionInRoot.y, 1f)
+        }
 
-        // Switch from Chats -> Settings.
         commitState { selectedTab = MainTab.Settings }
         compose.mainClock.advanceTimeBy(100)
         compose.waitForIdle()
+        assertStableDock()
+        assertTrue(positionX("tab-page-Chats") < 0f)
+        assertTrue(positionX("tab-page-Settings") > 0f)
+        assertTrue(positionX(MainTabSelectionIndicatorTag) > initialIndicator)
+        val interruptedIndicator = positionX(MainTabSelectionIndicatorTag)
 
-        val outgoingBarX = positionX("tab-bar-Chats")
-        val incomingBarX = positionX("tab-bar-Settings")
-        val indicators = compose.onAllNodesWithTag(MainTabSelectionIndicatorTag).fetchSemanticsNodes()
-        assertEquals(2, indicators.size)
+        // Reverse before the first animation is finished. The first recomposition/frame may still
+        // advance the previous tween; check the retarget within the 200ms TabSelect duration rather
+        // than requiring the first few frames to be monotonic relative to the pre-click sample.
+        commitState { selectedTab = MainTab.Chats }
+        compose.mainClock.advanceTimeBy(128)
+        compose.waitForIdle()
+        assertStableDock()
+        val returningIndicator = positionX(MainTabSelectionIndicatorTag)
+        assertTrue("Indicator did not retarget: $returningIndicator vs $interruptedIndicator",
+            returningIndicator < interruptedIndicator)
+        assertTrue("Indicator snapped instead of returning smoothly: $returningIndicator vs $initialIndicator",
+            returningIndicator > initialIndicator)
 
-        // Match each indicator to its bar by proximity to bar horizontal position.
-        val outgoingIndicator = indicators.minBy { abs((it.positionInRoot.x - outgoingBarX) - initialIndicatorOffsetInChatsBar) }
-        val incomingIndicator = indicators.first { it.id != outgoingIndicator.id }
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        assertStableDock()
+        assertEquals(initialIndicator, positionX(MainTabSelectionIndicatorTag), 1f)
+        assertEquals(0f, positionX("tab-page-Chats"), 1f)
+        assertEquals(0, compose.onAllNodesWithTag("tab-page-Settings").fetchSemanticsNodes().size)
 
-        val outgoingRelativeX = outgoingIndicator.positionInRoot.x - outgoingBarX
-        val incomingRelativeX = incomingIndicator.positionInRoot.x - incomingBarX
-        assertEquals(
-            "Outgoing Chats bar indicator drifted during tabSlideTransform",
-            initialIndicatorOffsetInChatsBar,
-            outgoingRelativeX,
-            1f
-        )
-        assertTrue(
-            "Incoming Settings indicator ($incomingRelativeX) should sit to the right of Chats indicator ($initialIndicatorOffsetInChatsBar)",
-            incomingRelativeX > initialIndicatorOffsetInChatsBar + 100f
-        )
+        // A completed switch and a full backward slide also leave the same dock in place.
+        commitState { selectedTab = MainTab.Contacts }
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        assertStableDock()
+        commitState { selectedTab = MainTab.Calls }
+        compose.mainClock.advanceTimeBy(100)
+        compose.waitForIdle()
+        assertStableDock()
+        assertTrue(positionX("tab-page-Contacts") > 0f)
+        assertTrue(positionX("tab-page-Calls") < 0f)
     }
 
     @Test

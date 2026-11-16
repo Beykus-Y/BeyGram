@@ -112,6 +112,7 @@ import com.beykus.beygram.ui.components.WindowLayout
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.components.MainTabsScaffold
+import com.beykus.beygram.ui.components.MainTabsHost
 import com.beykus.beygram.ui.components.LocalMainTabTransitionOrigin
 import com.beykus.beygram.ui.components.LocalBackgroundMediaDownload
 import com.beykus.beygram.ui.components.BeyGramDialog
@@ -1824,9 +1825,63 @@ private fun BeyGramAppContent(
             state = chatsScreenState
         )
     }
-    // Телефонный раздел чатов: тот же список под нижним меню. Широкий экран собирает две панели ниже.
+    val callsTabContent: @Composable () -> Unit = {
+        CallsScreen(loadCalls = repository::loadCallHistory, observeFile = repository::observeFile, downloadFile = repository::downloadFile, accountId = selectedAccountId)
+    }
+    val contactsTabContent: @Composable () -> Unit = {
+        val contactChats by repository.chats.collectAsStateWithLifecycle()
+        val contactArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        ContactsScreen(
+            accountId = selectedAccountId,
+            loadContacts = repository::loadContacts,
+            addContact = repository::addContact,
+            updateContact = repository::updateContact,
+            deleteContact = repository::deleteContact,
+            sendContact = repository::sendContact,
+            recipientRepository = repository,
+            loadShareTopics = { repository.forumTopics(it) },
+            sendContactToTopic = { chatId, userId, topicId -> repository.sendContactCard(chatId, userId, forumTopicId = topicId) },
+            chats = contactChats + contactArchivedChats,
+            openPrivateChat = repository::openPrivateChat,
+            observeFile = repository::observeFile,
+            downloadFile = repository::downloadFile,
+            onChatOpened = { chatId ->
+                selectedChatId = chatId
+                chatBackRouteName = AppRoute.Contacts.name
+                routeName = AppRoute.Chat.name
+            }
+        )
+    }
+    val settingsTabContent: @Composable () -> Unit = {
+        SettingsScreen(
+            onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
+            onAppearance = { appearanceDraft = appearance; appearanceReturnRouteName = AppRoute.Settings.name; routeName = AppRoute.Appearance.name },
+            onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
+            onNotifications = { openNotifications(AppRoute.Settings) },
+            onTriggerWords = { openTriggerWords(AppRoute.Settings) },
+            onStorage = { routeName = AppRoute.StorageSettings.name },
+            onAutoDownload = { routeName = AppRoute.AutoDownloadSettings.name },
+            onProxy = { openProxy(AppRoute.Settings) },
+            onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
+            onDiagnostics = { routeName = AppRoute.Diagnostics.name },
+            onUpdates = { routeName = AppRoute.Updates.name },
+            onLanguage = { routeName = AppRoute.Language.name },
+            onSessions = { routeName = AppRoute.Sessions.name },
+            onPrivacy = { routeName = AppRoute.PrivacySettings.name },
+            onAccountSecurity = { routeName = AppRoute.AccountSecurity.name },
+            onSecondaryAccounts = { accountSwitcherVisible = true },
+            onAppLock = { routeName = AppRoute.AppLock.name },
+            onEqualizer = { routeName = AppRoute.Equalizer.name },
+            onExperiments = { routeName = AppRoute.Experiments.name },
+            onMusicLibrary = {
+                myMusicReturnRouteName = AppRoute.Settings.name
+                routeName = AppRoute.MyMusic.name
+            }
+        )
+    }
+    // Fallback while an individual chat is loading; keep its saved state separate from the outgoing main-tab slot.
     val chatsTab: @Composable () -> Unit = {
-        MainTabsScaffold("${selectedAccountId}:${MainTab.Chats.route.name}", MainTab.Chats, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
+        MainTabsScaffold("${selectedAccountId}:chat-loading-fallback", MainTab.Chats, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
             chatsList(false, false)
         }
     }
@@ -2620,7 +2675,7 @@ GlobalSearchScreen(
                     )
                 }
                 // An account switch resets the host: outgoing content must not render against the new account's state.
-                else -> key(selectedAccountId) {
+                else -> key(selectedAccountId, routeTwoPane) {
                 val routeTransitionSpec = rememberRouteTransitionSpec<RouteTransitionFrame>(
                     move = routeMove,
                     push = pushSpec,
@@ -2628,19 +2683,36 @@ GlobalSearchScreen(
                     tab = tabSpec,
                     tabDirection = routeHistory.tabDirection,
                     layoutDirection = layoutDirection,
-                    resolveMove = ::routeTransitionMove
+                    resolveMove = ::routeHostTransitionMove
                 )
                 AnimatedContent(
                     targetState = RouteTransitionFrame(route, routeTwoPane),
                     modifier = Modifier.fillMaxSize().clipToBounds(),
-                    // Two panes: the list and the open chat share one slot, so selecting a chat never remounts the list.
-                    // Phones: a comment thread stays in its chat's slot, since it is the same open conversation.
-                    contentKey = { routeContentKey(it.route, it.twoPane) },
+                    // Phones: all four roots share one stable chrome slot; the inner viewport owns their slide.
+                    // Threads keep the chat slot; on wide screens preserve the existing list/detail slot.
+                    contentKey = ::routeHostContentKey,
                     transitionSpec = routeTransitionSpec,
                     label = "routeTransition"
                 ) { frame ->
                 val screenRoute = frame.route
-                Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
+                if (usesSharedPhoneTabs(frame)) {
+                    MainTabsHost(
+                        accountId = selectedAccountId,
+                        selected = MainTab.entries.first { it.route == screenRoute },
+                        visibility = tabVisibility,
+                        onSelect = selectTab,
+                        stateHolder = tabStateHolder,
+                        tabMotion = tabSpec,
+                        tabDirection = routeHistory.tabDirection
+                    ) { tab ->
+                        when (tab) {
+                            MainTab.Chats -> chatsList(false, false)
+                            MainTab.Calls -> callsTabContent()
+                            MainTab.Contacts -> contactsTabContent()
+                            MainTab.Settings -> settingsTabContent()
+                        }
+                    }
+                } else Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
                 when (if (frame.twoPane && screenRoute in twoPaneSlotRoutes) AppRoute.Chats else screenRoute) {
                 AppRoute.Start -> StartScreen(
                     tdLibReadiness = tdLibReadiness,
@@ -3013,60 +3085,9 @@ GlobalSearchScreen(
                     connectionState = connectionState,
                     onBack = { routeName = AppRoute.Notifications.name }
                 )
-                AppRoute.Calls -> MainTabsScaffold("${selectedAccountId}:${MainTab.Calls.route.name}", MainTab.Calls, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
-                    CallsScreen(loadCalls = repository::loadCallHistory, observeFile = repository::observeFile, downloadFile = repository::downloadFile, accountId = selectedAccountId)
-                }
-                AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
-                    val contactChats by repository.chats.collectAsStateWithLifecycle()
-                    val contactArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
-                    ContactsScreen(
-                        accountId = selectedAccountId,
-                        loadContacts = repository::loadContacts,
-                        addContact = repository::addContact,
-                        updateContact = repository::updateContact,
-                        deleteContact = repository::deleteContact,
-                        sendContact = repository::sendContact,
-                        recipientRepository = repository,
-                        loadShareTopics = { repository.forumTopics(it) },
-                        sendContactToTopic = { chatId, userId, topicId -> repository.sendContactCard(chatId, userId, forumTopicId = topicId) },
-                        chats = contactChats + contactArchivedChats,
-                        openPrivateChat = repository::openPrivateChat,
-                        observeFile = repository::observeFile,
-                        downloadFile = repository::downloadFile,
-                        onChatOpened = { chatId ->
-                            selectedChatId = chatId
-                            chatBackRouteName = AppRoute.Contacts.name
-                            routeName = AppRoute.Chat.name
-                        }
-                    )
-                }
-                AppRoute.Settings -> MainTabsScaffold("${selectedAccountId}:${MainTab.Settings.route.name}", MainTab.Settings, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
-                    SettingsScreen(
-                        onNavigationSettings = { routeName = AppRoute.NavigationSettings.name },
-                        onAppearance = { appearanceDraft = appearance; appearanceReturnRouteName = AppRoute.Settings.name; routeName = AppRoute.Appearance.name },
-                        onLastSeen = { routeName = AppRoute.LastSeenSettings.name },
-                        onNotifications = { openNotifications(AppRoute.Settings) },
-                        onTriggerWords = { openTriggerWords(AppRoute.Settings) },
-                        onStorage = { routeName = AppRoute.StorageSettings.name },
-                        onAutoDownload = { routeName = AppRoute.AutoDownloadSettings.name },
-                        onProxy = { openProxy(AppRoute.Settings) },
-                        onVideoRecording = { routeName = AppRoute.VideoMessageSettings.name },
-                        onDiagnostics = { routeName = AppRoute.Diagnostics.name },
-                        onUpdates = { routeName = AppRoute.Updates.name },
-                        onLanguage = { routeName = AppRoute.Language.name },
-                        onSessions = { routeName = AppRoute.Sessions.name },
-                        onPrivacy = { routeName = AppRoute.PrivacySettings.name },
-                        onAccountSecurity = { routeName = AppRoute.AccountSecurity.name },
-                        onSecondaryAccounts = { accountSwitcherVisible = true },
-                        onAppLock = { routeName = AppRoute.AppLock.name },
-                        onEqualizer = { routeName = AppRoute.Equalizer.name },
-                        onExperiments = { routeName = AppRoute.Experiments.name },
-                        onMusicLibrary = {
-                            myMusicReturnRouteName = AppRoute.Settings.name
-                            routeName = AppRoute.MyMusic.name
-                        }
-                    )
-                }
+                AppRoute.Calls -> MainTabsScaffold("${selectedAccountId}:${MainTab.Calls.route.name}", MainTab.Calls, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { callsTabContent() }
+                AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { contactsTabContent() }
+                AppRoute.Settings -> MainTabsScaffold("${selectedAccountId}:${MainTab.Settings.route.name}", MainTab.Settings, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { settingsTabContent() }
                 AppRoute.AppLock -> AppLockSettingsScreen(onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.Language -> LanguageScreen(translationSettings, onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.AccountPicker, AppRoute.SecondaryAccounts, AppRoute.SecondaryChats ->
@@ -3551,3 +3572,19 @@ internal fun routeTransitionMove(
     target: RouteTransitionFrame,
     routeMove: NavigationMove
 ): NavigationMove = if (initial.route == target.route) NavigationMove.None else routeMove
+
+/** Single-pane root tabs share one outer route slot; only their inner page is animated. */
+internal fun usesSharedPhoneTabs(frame: RouteTransitionFrame): Boolean =
+    !frame.twoPane && frame.route in tabRootRoutes
+
+private object SharedPhoneTabsSlot
+
+internal fun routeHostContentKey(frame: RouteTransitionFrame): Any =
+    if (usesSharedPhoneTabs(frame)) SharedPhoneTabsSlot else routeContentKey(frame.route, frame.twoPane)
+
+internal fun routeHostTransitionMove(
+    initial: RouteTransitionFrame,
+    target: RouteTransitionFrame,
+    move: NavigationMove
+): NavigationMove = if (routeHostContentKey(initial) == routeHostContentKey(target)) NavigationMove.None
+    else routeTransitionMove(initial, target, move)

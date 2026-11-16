@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.components
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -49,12 +50,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -91,6 +94,9 @@ import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.NavigationVariant
+import com.beykus.beygram.ui.motion.MotionSpec
+import com.beykus.beygram.ui.motion.NavigationMove
+import com.beykus.beygram.ui.motion.rememberRouteTransitionSpec
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
@@ -98,10 +104,11 @@ import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 private val TabPillWidth = 56.dp
 private val TabPillHeight = 32.dp
 internal const val MainTabSelectionIndicatorTag = "MainTabSelectionIndicator"
+internal const val MainTabDockTag = "MainTabDock"
 
 /**
- * Where a bottom bar's selection indicator is, in dp. Each [MainTabBar] owns its own holder by default so
- * horizontal tab transitions keep the outgoing bar's indicator anchored to its own tab instead of sliding across it.
+ * Where a bottom bar's selection indicator is, in dp. The shared main-tab host retains the same bar and
+ * indicator across root navigation, so a fast switch retargets the current animation instead of resetting it.
  */
 internal class MainTabIndicator(startX: Float? = null) {
     val x = Animatable(startX ?: 0f)
@@ -319,7 +326,7 @@ internal fun MainTabItem(
         )
     }
     val selectionSpec = rememberMotionSpec(MotionToken.TabSelect)
-    LaunchedEffect(selected) {
+    LaunchedEffect(selected, selectionSpec) {
         selection.animateTo(if (selected) 1f else 0f, selectionSpec.animationSpec())
     }
     val tint = lerp(inactiveTint, activeTint, selection.value)
@@ -480,7 +487,7 @@ internal fun MainTabBar(
     // A floating glass capsule keeps the system navigation inset outside its surface: the inset is air under the
     // capsule, not extra height inside it. Other floating styles and a pinned bar keep the inset inside, as before.
     val insetOutside = floating && glass != null
-    val outer = modifier.fillMaxWidth().then(
+    val outer = modifier.testTag(MainTabDockTag).fillMaxWidth().then(
         if (floating) {
             Modifier.then(if (insetOutside) Modifier.navigationBarsPadding() else Modifier).padding(
                 start = spec.horizontalMargin,
@@ -580,11 +587,12 @@ private fun NavigationBarContent(
         }
         // Each bar keeps its own indicator unless a host explicitly scopes one for in-place tab changes.
         val indicator = LocalMainTabIndicator.current ?: remember { MainTabIndicator(originX) }
-        LaunchedEffect(targetX.value, indicatorSpec) {
+        LaunchedEffect(selectedIndex, targetX.value, spec.showSelectionPill, indicatorSpec) {
             if (selectedIndex < 0) return@LaunchedEffect
             if (!spec.showSelectionPill) return@LaunchedEffect
             if (indicator.placed) {
-                indicator.x.animateTo(targetX.value, indicatorSpec.animationSpec())
+                // A reversal starts at the current position, without carrying momentum toward the old tab.
+                indicator.x.animateTo(targetX.value, indicatorSpec.animationSpec(), initialVelocity = 0f)
             } else {
                 indicator.x.snapTo(targetX.value)
                 indicator.placed = true
@@ -621,13 +629,15 @@ private fun NavigationBarContent(
                         .selectableGroup()
                 ) {
                     tabs.forEach { tab ->
-                        MainTabItem(
-                            tab = tab,
-                            selected = tab == selected,
-                            onSelect = { onSelect(tab) },
-                            modifier = Modifier.weight(1f),
-                            selectionPill = false
-                        )
+                        key(tab) {
+                            MainTabItem(
+                                tab = tab,
+                                selected = tab == selected,
+                                onSelect = { onSelect(tab) },
+                                modifier = Modifier.weight(1f),
+                                selectionPill = false
+                            )
+                        }
                     }
                 }
             }
@@ -672,6 +682,70 @@ internal fun MainTabsScaffold(
     contentUnderDock: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    MainTabsChrome(selected, visibility, onSelect, contentUnderDock) {
+        ContentWidthCap(selected != MainTab.Chats) {
+            stateHolder.SaveableStateProvider(key) { content() }
+        }
+    }
+}
+
+/** Persistent chrome with one animated viewport. Per-page state is scoped inside the viewport, not the dock. */
+@Composable
+internal fun MainTabsHost(
+    accountId: String,
+    selected: MainTab,
+    visibility: TabVisibility,
+    onSelect: (MainTab) -> Unit,
+    stateHolder: SaveableStateHolder,
+    tabMotion: MotionSpec,
+    tabDirection: Int,
+    player: @Composable (Boolean, Boolean) -> Unit = { floatingDock, railCover ->
+        NowPlayingBar(hideWhenImeVisible = true, floatingDock = floatingDock, railCover = railCover)
+    },
+    content: @Composable (MainTab) -> Unit
+) {
+    val transitionSpec = rememberRouteTransitionSpec<MainTab>(
+        move = NavigationMove.Tab,
+        push = tabMotion,
+        pop = tabMotion,
+        tab = tabMotion,
+        tabDirection = tabDirection
+    )
+    // The persistent bar already has a live selection; the old incoming-bar handoff is only for separate slots.
+    CompositionLocalProvider(LocalMainTabTransitionOrigin provides null) {
+        // Only this route host owns the opaque screen background. The legacy list-pane scaffold
+        // must remain transparent (its rows and parent choose their own surfaces).
+        Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
+        MainTabsChrome(selected, visibility, onSelect, contentUnderDock = true, player = player) {
+            AnimatedContent(
+                targetState = selected,
+                modifier = Modifier.fillMaxSize().clipToBounds(),
+                transitionSpec = transitionSpec,
+                label = "mainTabPageTransition"
+            ) { page ->
+                Box(Modifier.fillMaxSize().background(beyGramPalette().screen)) {
+                    ContentWidthCap(page != MainTab.Chats) {
+                        stateHolder.SaveableStateProvider("$accountId:${page.route.name}") { content(page) }
+                    }
+                }
+            }
+        }
+        }
+    }
+}
+
+/** Layout shared by the persistent tab host and individual wide/list-pane scaffolds. */
+@Composable
+private fun MainTabsChrome(
+    selected: MainTab?,
+    visibility: TabVisibility,
+    onSelect: (MainTab) -> Unit,
+    contentUnderDock: Boolean,
+    player: @Composable (Boolean, Boolean) -> Unit = { floatingDock, railCover ->
+        NowPlayingBar(hideWhenImeVisible = true, floatingDock = floatingDock, railCover = railCover)
+    },
+    content: @Composable () -> Unit
+) {
     val tabs = MainTab.entries.filter { visibility.isVisible(it) }
     val design = LocalDesignSystem.current
     val spec = remember(design) { navigationSpecFor(design) }
@@ -708,7 +782,7 @@ internal fun MainTabsScaffold(
                     selected = selected,
                     onSelect = onSelect,
                     slim = slimRail,
-                    bottomContent = if (slimRail) { { NowPlayingBar(hideWhenImeVisible = true, railCover = true) } } else null
+                    bottomContent = if (slimRail) { { player(false, true) } } else null
                 )
                     Column(
                     Modifier
@@ -722,10 +796,10 @@ internal fun MainTabsScaffold(
                 ) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         CompositionLocalProvider(LocalNavigationDock provides dock) {
-                            ContentWidthCap(selected != MainTab.Chats) { stateHolder.SaveableStateProvider(key) { content() } }
+                            content()
                         }
                     }
-                    if (!slimRail) NowPlayingBar(hideWhenImeVisible = true)
+                    if (!slimRail) player(false, false)
                 }
             }
         } else if (floating) {
@@ -734,11 +808,9 @@ internal fun MainTabsScaffold(
             // measured as one block; a screen that draws under the dock pads its list by that height, every other
             // screen simply ends above it.
             val navigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            // Each scaffold records into its own layer. During a tab transition two scaffolds are composed at once;
-            // with one shared layer the screen that drew last replaced the picture of the other one, so Settings could
-            // keep showing a frozen frame of Chats while taps went to Settings.
-            // Only the content is recorded. The bar sits outside this subtree, so the panel never samples a layer
-            // that is being written in the same pass - that self-reference is a native crash in the render thread.
+            // Record the complete clipped content viewport, including both animated pages, into one layer per host.
+            // Neither page writes into the dock's backdrop independently. The bar and player sit outside this subtree,
+            // so the panel never samples a layer that is being written in the same pass (native render-thread crash).
             // Nothing is recorded unless the dock really blurs it: Balanced, Lite and old Android pay nothing.
             val backdrop = if (design.recordsGlassBackdrop) rememberGlassBackdrop() else null
             val recordContent = if (backdrop != null) Modifier.glassBackdropSource(backdrop) else Modifier
@@ -759,7 +831,7 @@ internal fun MainTabsScaffold(
                 ) {
                     val screenDock = if (underDock) dock.copy(contentInset = reserve) else dock
                     CompositionLocalProvider(LocalNavigationDock provides screenDock) {
-                        ContentWidthCap(selected != MainTab.Chats) { stateHolder.SaveableStateProvider(key) { content() } }
+                        content()
                     }
                 }
                 if (!imeVisible) CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
@@ -769,7 +841,7 @@ internal fun MainTabsScaffold(
                     ) {
                         // The mini-player floats with the dock and keeps the same gap above the capsule the list gets.
                         Box(Modifier.padding(bottom = DefaultNavigationDockGap)) {
-                            NowPlayingBar(hideWhenImeVisible = true, floatingDock = true)
+                            player(true, false)
                         }
                         MainTabBar(
                             tabs = tabs,
@@ -786,10 +858,10 @@ internal fun MainTabsScaffold(
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     CompositionLocalProvider(LocalNavigationDock provides dock) {
-                        ContentWidthCap(selected != MainTab.Chats) { stateHolder.SaveableStateProvider(key) { content() } }
+                        content()
                     }
                 }
-                NowPlayingBar(hideWhenImeVisible = true)
+                player(false, false)
                 if (!imeVisible) MainTabBar(tabs = tabs, selected = selected, onSelect = onSelect)
             }
         }
