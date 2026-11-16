@@ -1902,42 +1902,6 @@ object PlaybackEngine {
         }
     }
 
-    /**
-     * Starts [requested] through BG Mix when the experimental flag is on and the tapped item is a finished local file.
-     * The finished files after it start with it; the rest join the session as they finish downloading. Returns false
-     * without touching the ExoPlayer state, so the caller falls back to the regular path.
-     */
-    private fun startBgMix(context: Context, requested: PlaybackQueue, reshuffle: Boolean = false, autoPlay: Boolean = true): Boolean {
-        BgMixSettingsStore.load(context)
-        if (!BgMixSettingsStore.enabled.value) return false
-        if (requested.index !in requested.items.indices) return false
-        val single = _state.value.repeatMode == PlaybackRepeatMode.One
-        // A position restoration waiting on the old session must not seek the new one.
-        bgMixSeekJob?.cancel()
-        bgMixSeekJob = null
-        // Creates the shared player and appContext on first use, so the notification and queue paths work.
-        player(context)
-        val driver = bgMixDriver(context)
-        // Focus comes before the driver starts: the native session plays as soon as it starts, so it must not start
-        // without focus. A refused focus keeps the queue on ExoPlayer, which asks for focus in the same way.
-        if (!requestBgFocus(context)) return false
-        // Shuffle keeps the current track first and mixes the rest; the order before it is kept for switching shuffle off.
-        val playQueue = if (reshuffle && _state.value.shuffleEnabled) {
-            bgMixOriginalQueue = requested.items
-            val current = requested.items[requested.index]
-            PlaybackQueue(listOf(current) + requested.items.filterIndexed { i, _ -> i != requested.index }.shuffled(), 0)
-        } else {
-            if (reshuffle) bgMixOriginalQueue = null
-            requested
-        }
-        if (!driver.start(playQueue.items, playQueue.index, single, ::bgMixFileFor)) {
-            releaseBgFocus()
-            return false
-        }
-        adoptBgMixSession(driver, playQueue.index, positionMs = 0L, autoPlay = autoPlay)
-        return true
-    }
-
     private fun bgMixDriver(context: Context): BgMixQueueDriver =
         (bgMix ?: BgMixQueueDriver(File(context.filesDir, "bgmix-cache")).also { bgMix = it }).also {
             // Lets a live BG Wave host tap the mix that is playing right now; the hub re-attaches every tick.
@@ -2158,6 +2122,10 @@ object PlaybackEngine {
         val queueKeys = state.queue.map { it.key }
         fun queueChanged(): Boolean = _state.value.queue.map { it.key } != queueKeys || _state.value.shuffleEnabled != state.shuffleEnabled
         if (!driver.stage(order, index, single, ::bgMixFileFor)) return false
+        if (generation != bgMixHandoverGeneration || !stillHandingOver(file)) {
+            driver.discardStaged()
+            return false
+        }
         val status = driver.stagedStatus
         val loaded = status?.let {
             withTimeoutOrNull(BG_HANDOVER_PREPARE_TIMEOUT_MS) {
@@ -2191,8 +2159,12 @@ object PlaybackEngine {
         driver.setStagedVolume(0f)
         driver.playStaged()
         // ExoPlayer keeps playing until the native output runs, so the handover has no gap.
-        withTimeoutOrNull(BG_HANDOVER_START_TIMEOUT_MS) {
+        val started = withTimeoutOrNull(BG_HANDOVER_START_TIMEOUT_MS) {
             driver.stagedStatus?.first { snapshot -> snapshot?.decks?.getOrNull(snapshot.master)?.playing == true }
+        }
+        if (started == null || !stillHandingOver(file) || generation != bgMixHandoverGeneration) {
+            driver.discardStaged()
+            return false
         }
         delay(BG_HANDOVER_OVERLAP_MS)
         // Still silent: the output is lined up with ExoPlayer by measurement before anything of it is heard.
@@ -2209,6 +2181,7 @@ object PlaybackEngine {
             return false
         }
         if (!driver.commitStaged()) {
+            driver.discardStaged()
             releaseBgFocus()
             setExoFocusHandling(target, handle = true)
             return false
@@ -2355,22 +2328,10 @@ object PlaybackEngine {
      */
     private fun restartBgMix(items: List<PlaybackItem>, index: Int, positionMs: Long, autoPlay: Boolean) {
         val context = appContext ?: return
-        val ok = startBgMix(context, PlaybackQueue(items, index), reshuffle = false, autoPlay = autoPlay)
-        if (!ok) {
-            stopBgMix()
-            startQueue(context, PlaybackQueue(items, index), queueSource, startPositionMs = positionMs, startFraction = 0f, autoPlay = autoPlay)
-            return
-        }
-        bgMixSeekJob?.cancel()
-        if (positionMs < 1_000L) return
-        val driver = bgMix ?: return
-        val statusFlow = driver.status ?: return
-        bgMixSeekJob = scope.launch {
-            withTimeoutOrNull(3_000L) {
-                statusFlow.first { status -> status?.decks?.getOrNull(status.master)?.playing == true }
-            }
-            if (bgMix?.status === statusFlow) driver.seek(positionMs / 1000.0)
-        }
+        // Start playback immediately on Exo; the retired host must finish before
+        // the asynchronous handover can prepare a new one.
+        startQueue(context, PlaybackQueue(items, index), queueSource,
+            startPositionMs = positionMs, startFraction = 0f, autoPlay = autoPlay)
     }
 
     /** Copies the native status into the Media state the UI and the notification read. */
