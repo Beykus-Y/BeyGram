@@ -431,7 +431,7 @@ internal fun MusicPlaylistScreen(
         title = stringResource(R.string.music_sort),
         content = {
             Column {
-                MusicSortMode.entries.filter { it != MusicSortMode.Tempo || tempoOffered }.forEach { mode ->
+                MusicSortMode.entries.filter { it != MusicSortMode.Tempo || tempoOffered || stored.sortMode == MusicSortMode.Tempo }.forEach { mode ->
                     SortOption(
                         label = stringResource(sortLabelRes(mode)),
                         selected = stored.sortMode == mode,
