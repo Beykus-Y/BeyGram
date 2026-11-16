@@ -27,15 +27,15 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.MoreVert
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -383,7 +383,7 @@ internal fun AccountSwitcherSheet(
         }
     }
 
-    ModalBottomSheet(
+    BeyGramSheet(
         onDismissRequest = {
             if (busyAccountId == null && !addBusy && !switchInProgress &&
                 preparingAccountId == null && !authActionBusy
@@ -396,6 +396,8 @@ internal fun AccountSwitcherSheet(
             }
         },
         sheetState = sheetState,
+        // The account list has its own scroll area, so the sheet must not add one around it.
+        scrollableContent = false,
         containerColor = palette.surface
     ) {
         if (authAccountId != null) {
@@ -815,10 +817,10 @@ private fun AccountSwitcherRowItem(
                         tint = palette.textSecondary
                     )
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     if (row.canSignIn) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.account_switcher_continue)) },
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.account_switcher_continue),
                             onClick = {
                                 menuOpen = false
                                 onContinue(row.accountId)
@@ -826,8 +828,8 @@ private fun AccountSwitcherRowItem(
                         )
                     }
                     if (row.status == AccountSwitcherStatus.ERROR && row.canSelect) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.account_switcher_retry)) },
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.account_switcher_retry),
                             onClick = {
                                 menuOpen = false
                                 onRetry(row.accountId)
@@ -835,8 +837,8 @@ private fun AccountSwitcherRowItem(
                         )
                     }
                     if (row.canConfigureRoute) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.account_switcher_configure)) },
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.account_switcher_configure),
                             onClick = {
                                 menuOpen = false
                                 onConfigureRoute(row.accountId)
@@ -844,8 +846,8 @@ private fun AccountSwitcherRowItem(
                         )
                     }
                     if (row.canDisconnect) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.account_switcher_disconnect)) },
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.account_switcher_disconnect),
                             onClick = {
                                 menuOpen = false
                                 onDisconnect(row.accountId)
@@ -853,8 +855,8 @@ private fun AccountSwitcherRowItem(
                         )
                     }
                     if (row.canLogout) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.account_switcher_logout)) },
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.account_switcher_logout),
                             onClick = {
                                 menuOpen = false
                                 onLogout(row.accountId)
@@ -862,8 +864,9 @@ private fun AccountSwitcherRowItem(
                         )
                     }
                     if (row.canDelete) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.account_switcher_delete_incomplete)) },
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.account_switcher_delete_incomplete),
+                            danger = true,
                             onClick = {
                                 menuOpen = false
                                 onDeleteIncomplete(row.accountId)

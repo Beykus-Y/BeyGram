@@ -32,9 +32,9 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.VisibilityOff
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -369,10 +369,10 @@ private fun PrivacySettingRow(
                 else -> Icon(Icons.Rounded.ExpandMore, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
             }
         }
-        if (editable) DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        if (editable) BeyGramPopover(expanded = expanded, onDismissRequest = { expanded = false }) {
             choices.forEach { choice ->
-                DropdownMenuItem(
-                    text = { Text(audienceLabel(choice)) },
+                BeyGramPopoverItem(
+                    text = audienceLabel(choice),
                     leadingIcon = if (choice == state.rules.choice) {
                         { Icon(Icons.Rounded.Check, null, tint = settingsIconTint()) }
                     } else null,
@@ -384,8 +384,8 @@ private fun PrivacySettingRow(
             }
             if (supportsExceptions) {
                 HorizontalDivider(color = palette.divider)
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.privacy_exceptions_manage)) },
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.privacy_exceptions_manage),
                     onClick = { expanded = false; onManageExceptions() }
                 )
             }
