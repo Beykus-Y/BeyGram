@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_risky_warning_title">Diese Aktion kann Sie online zeigen</string>
+    <string name="stealth_risky_warning_text">Reaktionen, Umfragestimmen und Bot-Schaltflächen sind für andere sichtbar, und Telegram kann Sie eine Zeit lang als online anzeigen. Fortfahren?</string>
+    <string name="stealth_risky_warning_confirm">Weiter</string>
+</resources>

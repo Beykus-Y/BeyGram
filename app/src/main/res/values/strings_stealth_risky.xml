@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stealth_risky_warning_title">Действие может показать вас в сети</string>
+    <string name="stealth_risky_warning_text">Реакции, голоса в опросах и нажатия кнопок ботов видны другим, и Telegram может ненадолго показать вас в сети. Продолжить?</string>
+    <string name="stealth_risky_warning_confirm">Продолжить</string>
+</resources>
