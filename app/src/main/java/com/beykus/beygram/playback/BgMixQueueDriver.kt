@@ -9,8 +9,8 @@ import java.io.File
 /**
  * Plays a music queue through BG Mix. The engine owns the Media state; this class owns the native session.
  *
- * Only complete local WAV, MP3 or FLAC files qualify (see [isEligible]). The session starts with the tapped track and the
- * next finished file; the rest of the queue joins the native queue in order as playback advances
+ * Only complete local WAV, MP3 or FLAC files qualify (see [isEligible]). The session starts with the tapped track;
+ * its successor joins after the deck is loaded, and the rest of the queue follows as playback advances
  * ([appendReady]). Streaming, secret and video media stay on the ExoPlayer path.
  *
  * A session can be staged first: it prepares its first track silently while ExoPlayer keeps playing, and only
@@ -103,9 +103,8 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         single: Boolean = false,
         fileFor: (PlaybackItem) -> PlaybackItem? = { item -> item.takeIf { isEligible(it) } }
     ): Boolean {
-        // The old output must be gone before the new one exists, so the two never overlap.
+        // Never wait for native destruction on the main thread. Exo can play until the gate reopens.
         stop()
-        awaitPendingRelease()
         if (!stage(items, startIndex, single, fileFor)) return false
         if (!commitStaged()) return false
         player?.play()
@@ -123,24 +122,23 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         fileFor: (PlaybackItem) -> PlaybackItem? = { item -> item.takeIf { isEligible(it) } }
     ): Boolean {
         discardStaged()
-        if (startIndex !in items.indices) return false
-        val end = bgMixWindowEndExclusive(items.size, startIndex, if (single) 0 else BG_MIX_NATIVE_AHEAD)
-        val ready = (startIndex until end).map { fileFor(items[it]) }
-        val tail = bgMixReadyPrefix(ready, 0)?.map { startIndex + it } ?: return false
+        if (!releaseComplete() || player != null || startIndex !in items.indices) return false
+        // Prepare only the selected track during staging. A failed first decode must never
+        // silently promote its successor and hand over to the wrong song.
+        val file = fileFor(items[startIndex]) ?: return false
         val created = BgMixPlayer(cacheDir)
         if (!created.start()) return false
-        val ids = created.setQueue(tail.map { File(ready[it - startIndex]!!.path) })
-        // A file the decoder rejects would vanish from the queue without a word, so it refuses the session as a whole.
-        if (ids.size != tail.size || ids.any { it == 0L }) {
-            releaser.submit { created.release() }
+        val ids = created.setQueue(listOf(File(file.path)))
+        if (ids.size != 1 || ids[0] == 0L) {
+            retire(created)
             return false
         }
-        val resolved = items.mapIndexed { index, item -> ready.getOrNull(index - startIndex) ?: item }
+        val resolved = items.toMutableList().also { it[startIndex] = file }
         staged = Staged(
             player = created,
             items = resolved,
-            indexByNativeId = ids.zip(tail).associate { (id, index) -> id to index },
-            appendedUntil = (tail.lastOrNull() ?: startIndex) + 1,
+            indexByNativeId = mapOf(ids[0] to startIndex),
+            appendedUntil = startIndex + 1,
             single = single
         )
         return true
@@ -149,9 +147,8 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     /** Makes the staged session the active one, stopping any previous session first. Paused until [resume]. */
     fun commitStaged(): Boolean {
         val next = staged ?: return false
+        if (player != null || !releaseComplete()) return false
         staged = null
-        stop()
-        awaitPendingRelease()
         items = next.items
         indexByNativeId = next.indexByNativeId
         appendedUntil = next.appendedUntil
@@ -165,7 +162,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     fun discardStaged() {
         val old = staged ?: return
         staged = null
-        pendingRelease = releaser.submit { old.player.release() }
+        retire(old.player)
     }
 
     /** Seeks the staged session before it plays; false when its first track is not loaded yet. */
@@ -192,6 +189,9 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     fun appendReady(currentIndex: Int, fileFor: (PlaybackItem) -> PlaybackItem?): Int {
         val session = player ?: return 0
         if (single) return 0
+        // Do not let a failed first track advance into the next one before the engine sees its failure.
+        val snapshot = session.status.value ?: return 0
+        if (snapshot.decks.getOrNull(snapshot.master)?.loaded != true) return 0
         var added = 0
         val end = bgMixWindowEndExclusive(items.size, currentIndex, BG_MIX_NATIVE_AHEAD)
         while (appendedUntil < end) {
@@ -231,7 +231,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         player?.next()
     }
 
-    /** Releases the native session. Blocks briefly while the render thread stops, so old output never overlaps new output. */
+    /** Detaches immediately; the release executor retains ownership through native destruction. */
     fun stop() {
         val old = player ?: return
         player = null
@@ -240,8 +240,7 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         items = emptyList()
         appendedUntil = 0
         single = false
-        // Releasing waits for the render thread, so it runs off the main thread; a new session waits for it below.
-        pendingRelease = releaser.submit { old.release() }
+        retire(old)
     }
 
     private val releaser = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
@@ -251,12 +250,24 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
     @Volatile
     private var pendingRelease: java.util.concurrent.Future<*>? = null
 
-    /** The old output must be gone before a new one starts, so the two never overlap. */
-    private fun awaitPendingRelease() {
-        val pending = pendingRelease ?: return
-        runCatching { pending.get(2, java.util.concurrent.TimeUnit.SECONDS) }
-        pendingRelease = null
+    private fun retire(old: BgMixPlayer) {
+        old.requestStop()
+        pendingRelease = releaser.submit { old.release() }
     }
+
+    /** A pending release never blocks a caller or allows another native host to accumulate. */
+    private fun releaseComplete(): Boolean {
+        val pending = pendingRelease ?: return true
+        if (!pending.isDone) return false
+        // A failed destruction has uncertain ownership: fail closed instead of starting new hosts.
+        return runCatching { pending.get() }.isSuccess
+    }
+
+    fun failedIndex(status: BgMixStatus, atOrAfter: Int): Int? = status.queue.asSequence()
+        .filter { it.state == "failed" }
+        .mapNotNull { indexByNativeId[it.id] }
+        .filter { it >= atOrAfter }
+        .minOrNull()
 
     companion object {
         private val EXTENSIONS = setOf("wav", "mp3", "flac")

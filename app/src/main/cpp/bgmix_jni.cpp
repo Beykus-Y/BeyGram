@@ -120,6 +120,8 @@ struct MixHost {
                 bgmedia::MixTrackLoadOptions options;
                 options.cacheDirectory = cacheDirectory;
                 options.targetSampleRate = kMixSampleRate;
+                // Bound each full source/output buffer on mobile; oversized tracks stay on ExoPlayer.
+                options.maxPcmBytes = 128ull * 1024ull * 1024ull;
                 return bgmedia::prepareMixTrack(path, options, out, error, progress);
             });
     }
@@ -149,6 +151,7 @@ std::string statusJson(const MixSessionSnapshot& s, bool paused) {
         const auto& deck = s.engine.decks[i];
         if (i > 0) json << ",";
         json << "{\"loaded\":" << (deck.loaded ? "true" : "false")
+             << ",\"trackId\":" << deck.trackId
              << ",\"playing\":" << (deck.playing ? "true" : "false")
              << ",\"ended\":" << (deck.ended ? "true" : "false")
              << ",\"positionSeconds\":" << deck.positionSeconds

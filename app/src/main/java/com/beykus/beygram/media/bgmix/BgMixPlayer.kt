@@ -141,7 +141,10 @@ class BgMixPlayer(private val cacheDir: File) {
 
     fun stopAll() = transport(BgMixNative.ACTION_STOP)
 
-    /** Stops output and frees the native session. Safe to call more than once. */
+    /** Stop asking the render thread for new frames without waiting on the control lock. */
+    fun requestStop() { running = false }
+
+    /** Stops output and frees the native session. Must run on the driver's release executor. */
     fun release() {
         val target = lock.withLock {
             val at = track ?: return
@@ -155,18 +158,22 @@ class BgMixPlayer(private val cacheDir: File) {
             handle = 0L
             released
         }
-        runCatching { target.track.pause(); target.track.flush(); target.track.stop() }
+        runCatching { target.track.pause() }
+        runCatching { target.track.flush() }
+        runCatching { target.track.stop() }
         target.renderThread?.join(RENDER_JOIN_TIMEOUT_MS)
         if (target.renderThread?.isAlive == true) {
-            // Never free the native session under a render call that is still running: leak it instead.
-            Log.w(TAG, "render thread did not stop; native session kept alive")
-        } else {
-            // Destroying the session waits for a running analysis to finish, so it must not block the caller.
-            val handle = target.handle
-            Thread({ BgMixNative.nativeDestroy(handle) }, "bgmix-destroy").start()
+            // Keep ownership until the renderer actually exits; the driver's gate prevents
+            // starting another native session while this one is still being reaped.
+            Log.w(TAG, "render thread did not stop in time; awaiting safe cleanup")
+            target.renderThread.join()
         }
-        runCatching { target.track.release() }
-        _status.value = null
+        try {
+            BgMixNative.nativeDestroy(target.handle)
+        } finally {
+            runCatching { target.track.release() }
+            _status.value = null
+        }
     }
 
     private class ReleaseTarget(val track: AudioTrack, val renderThread: Thread?, val handle: Long)

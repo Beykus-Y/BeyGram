@@ -9,6 +9,7 @@ data class BgMixDeck(
     val positionSeconds: Double,
     val durationSeconds: Double,
     val bpm: Double,
+    val trackId: Long = 0L,
 )
 
 data class BgMixQueueItem(
@@ -67,6 +68,7 @@ data class BgMixStatus(
                             positionSeconds = d.optDouble("positionSeconds", 0.0),
                             durationSeconds = d.optDouble("durationSeconds", 0.0),
                             bpm = d.optDouble("bpm", 0.0),
+                            trackId = d.optLong("trackId", 0L),
                         )
                     },
                     queue = List(queueJson?.length() ?: 0) { i ->

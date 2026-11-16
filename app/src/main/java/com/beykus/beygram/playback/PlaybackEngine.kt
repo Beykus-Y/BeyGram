@@ -2059,14 +2059,14 @@ object PlaybackEngine {
      * even while its file downloads. Once the playing track is a finished file, BG Mix prepares it silently and takes over
      * at the same place. The player shows the BG Mix mark from the start for a track BG Mix can take.
      */
-    private fun scheduleBgMixHandover() {
+    private fun scheduleBgMixHandover(rejectedKey: String? = null) {
         cancelBgMixHandover()
         val context = appContext ?: return
         BgMixSettingsStore.load(context)
         if (!BgMixSettingsStore.enabled.value || !bgMixAdmitsSource(queueSource)) return
         if (!BgMixNative.isAvailable) return
         bgMixHandoverJob = scope.launch {
-            runBgMixHandover(context)
+            runBgMixHandover(context, rejectedKey)
             if (!bgMixActive()) setBgMixPreparing(false)
         }
     }
@@ -2083,13 +2083,19 @@ object PlaybackEngine {
         if (_state.value.bgMixPreparing != preparing) _state.update { it.copy(bgMixPreparing = preparing) }
     }
 
-    private suspend fun runBgMixHandover(context: Context) {
+    private suspend fun runBgMixHandover(context: Context, initialRejectedKey: String? = null) {
         var failures = 0
+        var rejectedKey = initialRejectedKey
         while (failures < BG_HANDOVER_ATTEMPTS) {
             if (bgMixActive()) return
             val state = _state.value
             val item = state.item ?: return
             if (!item.isMusic || item.systemPrivate || state.queueIndex !in state.queue.indices) return
+            if (item.key == rejectedKey) {
+                setBgMixPreparing(false)
+                delay(BG_HANDOVER_IDLE_POLL_MS)
+                continue
+            }
             val candidate = BgMixQueueDriver.isCandidate(item) || bgMixFileFor(item) != null
             setBgMixPreparing(candidate)
             val file = if (candidate && bgMixHandoverMoment(state, item)) bgMixFileFor(item) else null
@@ -2097,12 +2103,12 @@ object PlaybackEngine {
                 delay(if (state.intentPlaying) BG_HANDOVER_POLL_MS else BG_HANDOVER_IDLE_POLL_MS)
                 continue
             }
-            when (handOverToBgMix(context, state, file)) {
+            when (handOverToBgMix(context, state, file) { rejectedKey = file.key }) {
                 true -> return
                 // The queue changed while the session was being prepared: prepare again for the new one.
                 null -> continue
                 false -> {
-                    failures++
+                    if (rejectedKey != file.key) failures++ else failures = 0
                     delay(BG_HANDOVER_RETRY_MS)
                 }
             }
@@ -2123,7 +2129,7 @@ object PlaybackEngine {
      * ExoPlayer's position and lets ExoPlayer go. False when the session could not be prepared or the track changed, null
      * when the queue was edited meanwhile and the session has to be prepared again.
      */
-    private suspend fun handOverToBgMix(context: Context, state: PlaybackState, file: PlaybackItem): Boolean? {
+    private suspend fun handOverToBgMix(context: Context, state: PlaybackState, file: PlaybackItem, onRejected: () -> Unit): Boolean? {
         val generation = bgMixHandoverGeneration
         val driver = bgMixDriver(context)
         val single = state.repeatMode == PlaybackRepeatMode.One
@@ -2139,12 +2145,20 @@ object PlaybackEngine {
         val status = driver.stagedStatus
         val loaded = status?.let {
             withTimeoutOrNull(BG_HANDOVER_PREPARE_TIMEOUT_MS) {
-                it.first { snapshot -> snapshot?.decks?.getOrNull(snapshot.master)?.let { deck -> deck.loaded && deck.durationSeconds > 0.0 } == true }
+                it.first { snapshot ->
+                    snapshot?.queue?.any { row -> row.state == "failed" } == true ||
+                        snapshot?.decks?.getOrNull(snapshot.master)?.let { deck -> deck.loaded && deck.durationSeconds > 0.0 } == true
+                }
             }
         }
         if (queueChanged()) {
             driver.discardStaged()
             return null
+        }
+        if (loaded?.queue?.any { it.state == "failed" } == true) {
+            onRejected()
+            driver.discardStaged()
+            return false
         }
         if (loaded == null || !stillHandingOver(file)) {
             driver.discardStaged()
@@ -2307,11 +2321,12 @@ object PlaybackEngine {
      * The native queue ran out before the next file finished downloading. The regular player streams that track at once,
      * and BG Mix takes the queue back once its file is complete.
      */
-    private fun continueBgMixQueueOnExo(items: List<PlaybackItem>, index: Int, autoPlay: Boolean = true) {
+    private fun continueBgMixQueueOnExo(items: List<PlaybackItem>, index: Int, autoPlay: Boolean = true, rejected: Boolean = false) {
         val context = appContext ?: return
         if (!bgMixActive() || index !in items.indices) return
         stopBgMix()
-        startQueue(context, PlaybackQueue(items, index), queueSource, startPositionMs = null, startFraction = 0f, autoPlay = autoPlay)
+        startQueue(context, PlaybackQueue(items, index), queueSource, startPositionMs = null, startFraction = 0f, autoPlay = autoPlay, offerBgMix = !rejected)
+        if (rejected) scheduleBgMixHandover(rejectedKey = items[index].key)
     }
 
     private fun bgMixHasNext(index: Int, size: Int): Boolean =
@@ -2352,11 +2367,10 @@ object PlaybackEngine {
             indexOfNative = driver::indexOfNative,
             itemAt = driver::itemAt
         )
-        val playingNativeId = status.queue.firstOrNull { it.state == "playing" }?.id
-        val index = playingNativeId?.let { driver.indexOfNative(it) } ?: _state.value.queueIndex
+        val master = status.decks.getOrNull(status.master)
+        val index = master?.trackId?.takeIf { it != 0L }?.let(driver::indexOfNative) ?: before.queueIndex
         val item = driver.itemAt(index) ?: return
         updateWaveCaptureEligibility(item)
-        val master = status.decks.getOrNull(status.master)
         val deckPlaying = master?.playing == true
         val terminalQueue = status.queue.isNotEmpty() && status.queue.all { it.state == "played" || it.state == "failed" }
         // Native keeps an ended master loaded (reported as playing in the queue). If no usable
@@ -2365,13 +2379,16 @@ object PlaybackEngine {
         val masterEnded = master?.ended == true && !hasNativeSuccessor && !status.paused
         val finished = (terminalQueue || masterEnded) && !status.transitionActive && !deckPlaying
         val pending = driver.pendingIndex
-        if (finished && pending != null) {
+        val failed = driver.failedIndex(status, index)
+        // A rejected current/successor must still play in logical queue order on ExoPlayer.
+        val fallbackIndex = if (failed != null && (failed == index || finished)) failed else if (finished) pending else null
+        if (fallbackIndex != null) {
             val items = driver.queueItems
             // Ignore a delayed fallback after a queue replacement or a new native session.
             val sessionStatus = driver.status
             scope.launch {
                 if (bgMix?.status === sessionStatus && driver.pendingIndex == pending && _state.value.queueIndex == before.queueIndex) {
-                    continueBgMixQueueOnExo(items, pending)
+                    continueBgMixQueueOnExo(items, fallbackIndex, autoPlay = before.intentPlaying || before.playing, rejected = fallbackIndex == failed)
                 }
             }
             return
@@ -2553,6 +2570,9 @@ object PlaybackEngine {
             val last = state.queueIndex >= state.queue.lastIndex
             when {
                 state.repeatMode == PlaybackRepeatMode.One -> restartBgMix(state.queue, if (last) 0 else state.queueIndex + 1, 0L, state.intentPlaying || state.ended)
+                // A successor rejected by the decoder must not be skipped on manual Next either.
+                !last && bgMix?.let { driver -> driver.status?.value?.let { driver.failedIndex(it, state.queueIndex + 1) } } == state.queueIndex + 1 ->
+                    continueBgMixQueueOnExo(state.queue, state.queueIndex + 1, autoPlay = state.playing || state.intentPlaying || state.ended, rejected = true)
                 // The next track is still downloading and not in the native queue yet: the regular player streams it.
                 !last && bgMix?.hasNativeAfter(state.queueIndex) == false && bgMix?.pendingIndex != null ->
                     bgMix?.pendingIndex?.let {
