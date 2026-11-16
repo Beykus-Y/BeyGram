@@ -340,6 +340,45 @@ class YandexMusicProviderAccountTest {
     }
 
     @Test
+    fun identityPairsUidWithItsOwnGeneration() = runBlocking {
+        val f = Fixture()
+        assertNull(f.provider.accountIdentity())
+        f.signIn("tokA", refresh = null)
+        val identity = f.provider.accountIdentity()!!
+        assertEquals((f.provider.state.value as MusicProviderState.SignedIn).account.uid, identity.uid)
+        assertEquals(f.provider.accountGeneration(), identity.generation)
+        f.provider.signOut()
+        assertNull(f.provider.accountIdentity())
+        assertNull(f.provider.accountGeneration())
+    }
+
+    @Test
+    fun codeRequestInFlightDuringSignInLeavesNothingPending() = runBlocking {
+        val f = Fixture()
+        f.auth.pollToken = "tokA"
+        f.auth.pollRefresh = null
+        val code = (f.provider.startSignIn() as ProviderResult.Success).value
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        f.auth.codeGate = { n ->
+            if (n == 2) {
+                started.countDown()
+                await(release)
+            }
+        }
+        val second = async(Dispatchers.Default) { f.provider.startSignIn() }
+        await(started)
+
+        // The first code is confirmed while the second request is still on the network.
+        assertTrue(f.provider.pollSignIn(code) is YandexSignInPoll.Signed)
+        release.countDown()
+
+        assertEquals(ProviderResult.Failure(MusicProviderFailure.NotSignedIn), second.await())
+        assertNull(f.provider.pendingSignIn())
+        assertTrue(f.provider.state.value is MusicProviderState.SignedIn)
+    }
+
+    @Test
     fun clearPendingSignInDuringTheCodeRequestLeavesNothingPending() = runBlocking {
         val f = Fixture()
         val started = CountDownLatch(1)

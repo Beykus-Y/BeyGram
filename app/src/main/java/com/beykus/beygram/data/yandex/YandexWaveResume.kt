@@ -123,8 +123,10 @@ internal object YandexWaveResume {
     fun attach(context: Context, generation: Long, sessionOf: () -> YandexWaveSession, radio: PlaybackRadio, seeds: List<String>, subtitle: String) {
         // The wave belongs to the sign-in it started under; if that is gone already, or nobody is signed in, nothing is attached.
         val source = provider ?: return
-        if (YandexWaveAccountGuard.shouldEndWave(generation, source.accountGeneration())) return
-        val uid = YandexWaveAccountGuard.uidOf(source.state.value) ?: return
+        // One snapshot, so the uid and the generation always belong to the same sign-in.
+        val identity = source.accountIdentity() ?: return
+        if (YandexWaveAccountGuard.shouldEndWave(generation, identity.generation)) return
+        val uid = identity.uid
         appContext = context.applicationContext
         active = Active(generation, uid, sessionOf, radio, seeds, subtitle)
         ensureWatching()
@@ -229,14 +231,16 @@ internal object YandexWaveResume {
         val app = appContext ?: return
         val yandex = provider ?: return
         val saved = savedState.value ?: return
-        if (!YandexWaveAccountGuard.canRestore(saved.uid, yandex.state.value)) {
-            // Another account's wave is never offered: it goes away. Signed out, it waits for the sign-in.
-            if (YandexWaveAccountGuard.uidOf(yandex.state.value) != null) clearSaved()
+        // Signed out, the saved wave waits for the sign-in.
+        val identity = yandex.accountIdentity() ?: return
+        if (identity.uid != saved.uid) {
+            // Another account's wave is never offered: it goes away.
+            clearSaved()
             return
         }
         if (PlaybackEngine.state.value.item != null) return
         // The restored wave is bound to the sign-in that is current now; its saved uid was checked above.
-        val generation = yandex.accountGeneration() ?: return
+        val generation = identity.generation
         restoredThisProcess = true
         if (!saved.track.isAvailable) {
             clearSaved()

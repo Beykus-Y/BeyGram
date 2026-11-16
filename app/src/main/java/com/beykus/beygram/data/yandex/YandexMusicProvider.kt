@@ -56,19 +56,32 @@ internal class YandexMusicProvider(
     @Volatile
     private var generation = 0L
 
+    /**
+     * The signed-in account and its generation, published together with [state] after every change, so a reader
+     * never pairs one account's uid with another sign-in's generation.
+     */
+    @Volatile
+    private var identity: YandexAccountIdentity? = null
+
     init {
-        mutableState.value = store.load()?.let { MusicProviderState.SignedIn(it.toAccount()) } ?: MusicProviderState.SignedOut
+        publish(store.load()?.let { MusicProviderState.SignedIn(it.toAccount()) } ?: MusicProviderState.SignedOut)
     }
+
+    /** Publishes [value] and the matching identity. Under [refreshLock] wherever the account can change. */
+    private fun publish(value: MusicProviderState) {
+        identity = (value as? MusicProviderState.SignedIn)?.let { YandexAccountIdentity(it.account.uid, generation) }
+        mutableState.value = value
+    }
+
+    /** The account signed in now with its generation, or null when signed out. Lock-free snapshot, like [accountGeneration]. */
+    fun accountIdentity(): YandexAccountIdentity? = identity
 
     /**
      * The generation of the account signed in now, or null when signed out. A lock-free snapshot, safe on the main
      * thread (a token refresh holds [refreshLock] during its request). It lets a caller bind work to one sign-in; the
      * authoritative check is the one `withSessionGen` makes under the lock when it captures the session.
      */
-    fun accountGeneration(): Long? {
-        val gen = generation
-        return if (mutableState.value is MusicProviderState.SignedIn) gen else null
-    }
+    fun accountGeneration(): Long? = identity?.generation
 
     /** Moves to the next account generation and forgets what was cached for the previous one. Call under [refreshLock]. */
     private fun bumpGeneration() {
@@ -172,13 +185,19 @@ internal class YandexMusicProvider(
                         ensureActive()
                         val committed = synchronized(refreshLock) {
                             val current = synchronized(pendingLock) {
-                                isCurrentAttempt(code).also { if (it) pending = null }
+                                isCurrentAttempt(code).also {
+                                    if (it) {
+                                        pending = null
+                                        // A code request still in flight must not leave a new code pending after sign-in.
+                                        attemptId += 1
+                                    }
+                                }
                             }
                             if (current) {
                                 store.save(session)
                                 bumpGeneration()
                                 val signedIn = session.toAccount()
-                                mutableState.value = MusicProviderState.SignedIn(signedIn)
+                                publish(MusicProviderState.SignedIn(signedIn))
                                 signedIn
                             } else {
                                 null
@@ -228,7 +247,7 @@ internal class YandexMusicProvider(
             }
             store.clear()
             bumpGeneration()
-            mutableState.value = MusicProviderState.SignedOut
+            publish(MusicProviderState.SignedOut)
         }
         runCatching { onSignedOut() }
     }
@@ -244,7 +263,7 @@ internal class YandexMusicProvider(
             } else {
                 store.clear()
                 bumpGeneration()
-                mutableState.value = MusicProviderState.SignedOut
+                publish(MusicProviderState.SignedOut)
                 true
             }
         }
@@ -270,7 +289,7 @@ internal class YandexMusicProvider(
                             hasSubscription = account.value.hasPlus,
                         )
                         store.save(updated)
-                        mutableState.value = MusicProviderState.SignedIn(updated.toAccount())
+                        publish(MusicProviderState.SignedIn(updated.toAccount()))
                         updated.toAccount()
                     } else {
                         null
@@ -510,7 +529,7 @@ internal class YandexMusicProvider(
                             if (refreshed.failure == MusicProviderFailure.SessionExpired) {
                                 store.clear()
                                 bumpGeneration()
-                                mutableState.value = MusicProviderState.SignedOut
+                                publish(MusicProviderState.SignedOut)
                                 signedOut = true
                             }
                             refreshed
@@ -550,3 +569,6 @@ internal class YandexMusicProvider(
 }
 
 private const val TAG_SUBSCRIPTION = "BeyGramYandexPlus"
+
+/** Who is signed in and under which sign-in generation (see [YandexMusicProvider.accountGeneration]). */
+internal data class YandexAccountIdentity(val uid: String, val generation: Long)
