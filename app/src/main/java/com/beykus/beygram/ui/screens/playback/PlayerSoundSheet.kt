@@ -54,7 +54,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import com.beykus.beygram.ui.components.BeyGramDialog
-import com.beykus.beygram.ui.components.sheetSurfaceColor
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.theme.LocalBeyGramTokens
 import com.beykus.beygram.media.bgbeat.BgBeatSection
 import androidx.compose.material.icons.rounded.Pause
@@ -78,13 +78,10 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -181,7 +178,6 @@ import com.beykus.beygram.ui.screens.music.reportMusicOutcome
 import com.beykus.beygram.ui.screens.profile.LocalAddProfileAudio
 import com.beykus.beygram.ui.screens.profile.PROFILE_AUDIO_KEY_PREFIX
 import com.beykus.beygram.ui.text.userMessage
-import com.beykus.beygram.ui.screens.music.PlayerProviderTrackMenuItems
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
 
@@ -206,7 +202,13 @@ internal fun PlayerSoundSheet(
     var customOpen by remember { mutableStateOf(false) }
     // BG Mix has no playback speed, so the chips stay off while it plays instead of changing only the saved value.
     val speedEnabled = !player.bgMix
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = palette.surface) {
+    BeyGramSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        // The sound controls scroll on their own, so the sheet must not add a second scroll around them.
+        scrollableContent = false,
+        containerColor = palette.surface
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
