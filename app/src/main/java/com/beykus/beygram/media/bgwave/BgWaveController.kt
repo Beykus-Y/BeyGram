@@ -19,6 +19,8 @@ interface BgWaveSessionPort : AutoCloseable {
     fun pullListenerPcm(out: FloatArray, frames: Int, sampleRate: Int): Int = 0
     /** Host: opens a PCM tap for the render thread; 0 when there is no native session. */
     fun openHostTap(): Long = 0L
+    /** Native stats as "sent|received|lost|plc|jitterMs|bitrateBps|depthMs"; "" when there is no native session. */
+    fun stats(): String = ""
 }
 
 enum class BgWaveRole { Host, Listener }

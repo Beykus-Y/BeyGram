@@ -194,6 +194,29 @@ object BgWaveHub {
         }
     }
 
+    /** Live only: one stats line per tick under the BgWave tag. Never throws, so the ticker keeps running. */
+    private fun logLiveStats() {
+        try {
+            val state = controller.state.value ?: return
+            if (state.phase != BgWavePhase.Live) return
+            val raw = controller.activeSession()?.stats() ?: return
+            val stats = BgWaveStats.parse(raw) ?: return
+            BgWaveLog.i(
+                "session.stats",
+                "role" to state.role,
+                "sent" to stats.sent,
+                "received" to stats.received,
+                "lost" to stats.lost,
+                "plc" to stats.plc,
+                "jitterMs" to stats.jitterMs,
+                "bitrate" to stats.bitrateBps,
+                "depthMs" to stats.depthMs,
+            )
+        } catch (_: Exception) {
+            // Stats are diagnostics only; a failed read must not stop the wave's ticker.
+        }
+    }
+
     @Synchronized
     private fun ensureTicker() {
         if (ticker?.isActive == true) return
@@ -209,6 +232,7 @@ object BgWaveHub {
                 val links = controller.poll(nowSeconds())
                 for (link in links) send(state.accountId, state.chatId, link)
                 syncAudio()
+                logLiveStats()
                 if (controller.state.value?.phase.let { it == null || it == BgWavePhase.Ended || it == BgWavePhase.Failed }) break
             }
             } finally {
