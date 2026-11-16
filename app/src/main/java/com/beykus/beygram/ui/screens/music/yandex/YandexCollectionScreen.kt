@@ -17,8 +17,6 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +40,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.provider.MusicProvider
 import com.beykus.beygram.data.music.provider.MusicProviderFailure
@@ -396,7 +396,7 @@ private fun TrackRowWithMenu(
                 IconButton(onClick = { menu = true }) {
                     Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
                 }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                BeyGramPopover(expanded = menu, onDismissRequest = { menu = false }) {
                     ProviderTrackMenuItems(
                         track = track,
                         onDismiss = { menu = false },
@@ -434,23 +434,23 @@ private fun YandexCollectionMenu(
         IconButton(onClick = { menu = true }) {
             Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textPrimary)
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            if (waveLabel != null && onWave != null) DropdownMenuItem(
-                text = { Text(waveLabel) },
+        BeyGramPopover(expanded = menu, onDismissRequest = { menu = false }) {
+            if (waveLabel != null && onWave != null) BeyGramPopoverItem(
+                text = waveLabel,
                 onClick = {
                     menu = false
                     onWave(context)
                 }
             )
-            DropdownMenuItem(
-                text = { Text(shareLabel) },
+            BeyGramPopoverItem(
+                text = shareLabel,
                 onClick = {
                     menu = false
                     onShare(context, shareLabel)
                 }
             )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.music_open_in_browser)) },
+            BeyGramPopoverItem(
+                text = stringResource(R.string.music_open_in_browser),
                 onClick = {
                     menu = false
                     openInBrowser(context, webLink)
