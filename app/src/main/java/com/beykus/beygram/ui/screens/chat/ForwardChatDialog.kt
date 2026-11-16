@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,10 +24,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,8 +50,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.components.Switch
+import com.beykus.beygram.ui.components.TextButton
+import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ForumTopic
@@ -103,22 +112,41 @@ internal fun ForwardChatDialog(
     titleOverride: String? = null,
     previewText: String? = null,
     sendLabel: String? = null,
+    onAsCopyChange: ((Boolean) -> Unit)? = null,
     onSend: suspend (List<ForwardTarget>, String) -> List<ForwardTarget>,
     onClose: () -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var query by remember { mutableStateOf("") }
-    var comment by remember { mutableStateOf("") }
-    var targets by remember { mutableStateOf<List<ForwardTarget>>(emptyList()) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var comment by rememberSaveable { mutableStateOf("") }
+    var topicQuery by remember { mutableStateOf("") }
+    val targetSaver = remember {
+        listSaver<List<ForwardTarget>, Any>(
+            save = { targets -> targets.flatMap { listOf(it.chatId, it.title, it.topicId, it.topicTitle.orEmpty()) } },
+            restore = { entries -> entries.chunked(4).map {
+                ForwardTarget(it[0] as Long, it[1] as String, it[2] as Long, (it[3] as String).ifEmpty { null })
+            } }
+        )
+    }
+    var targets by rememberSaveable(stateSaver = targetSaver) { mutableStateOf(emptyList<ForwardTarget>()) }
+    var attempted by rememberSaveable { mutableStateOf(false) }
+    // If recreation interrupts an in-flight operation, don't offer a blind repeat.
+    var attemptInFlight by rememberSaveable { mutableStateOf(false) }
     var topicChat by remember { mutableStateOf<ChatPreview?>(null) }
     var topics by remember { mutableStateOf<List<ForumTopic>>(emptyList()) }
     var loadingTopics by remember { mutableStateOf(false) }
     var topicError by remember { mutableStateOf<String?>(null) }
     var sending by remember { mutableStateOf(false) }
     val locked = busy || sending || loadingTopics
+    val dismissLocked by rememberUpdatedState(locked)
+    val interrupted = attemptInFlight && !sending
     val commentOverLimit = comment.codePointCount(0, comment.length) > commentLimit
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = false,
+        confirmValueChange = { next -> next == SheetValue.Expanded || !dismissLocked }
+    )
 
     fun isPicked(chatId: Long, topicId: Long) = targets.any { it.chatId == chatId && it.topicId == topicId }
 
@@ -130,11 +158,13 @@ internal fun ForwardChatDialog(
     fun backFromTopics() {
         if (locked) return
         topicChat = null
+        topicQuery = ""
         topics = emptyList()
         topicError = null
     }
 
     fun chooseChat(chat: ChatPreview) {
+        if (locked) return
         val loader = loadTopics
         if (loader == null || !chat.isGroup) {
             toggle(ForwardTarget(chat.id, chat.title))
@@ -161,11 +191,13 @@ internal fun ForwardChatDialog(
     }
 
     fun send() {
-        if (locked || targets.isEmpty() || commentOverLimit) return
+        if (locked || interrupted || targets.isEmpty() || commentOverLimit) return
+        attempted = true
+        sending = true
+        attemptInFlight = true
         scope.launch {
-            sending = true
             val failed = try {
-                onSend(targets, if (allowComment) comment.trim() else "")
+                onSend(targets, if (allowComment) comment.trim() else "").also { attemptInFlight = false }
             } finally {
                 sending = false
             }
@@ -176,12 +208,20 @@ internal fun ForwardChatDialog(
     val chat = topicChat
     val visibleChats = remember(chats, query) { shareTargetCandidates(chats, query) }
 
-    Dialog(
-        onDismissRequest = { if (chat != null) backFromTopics() else if (!locked) onClose() },
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+    LaunchedEffect(targets.isNotEmpty(), query.isNotEmpty(), topicChat?.id, loadingTopics) {
+        if (targets.isNotEmpty() || query.isNotEmpty() || topicChat != null || loadingTopics) {
+            sheetState.expand()
+        }
+    }
+    BeyGramSheet(
+        onDismissRequest = { if (!locked) onClose() },
+        sheetState = sheetState,
+        scrollableContent = false,
+        bottomPadding = 0.dp
     ) {
         Scaffold(
-            containerColor = palette.screen,
+            modifier = Modifier.fillMaxSize(),
+            containerColor = sheetSurfaceColor(),
             topBar = {
                 TopAppBar(
                     modifier = Modifier.topAppBarSurface(),
@@ -203,12 +243,19 @@ internal fun ForwardChatDialog(
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.surface)
+                    actions = {
+                        if (sheetState.currentValue != SheetValue.Expanded) IconButton(
+                            onClick = { scope.launch { sheetState.expand() } }
+                        ) {
+                            Icon(Icons.Rounded.KeyboardArrowUp, stringResource(R.string.share_expand_picker), tint = palette.textPrimary)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = sheetSurfaceColor())
                 )
             },
             bottomBar = {
                 Column(
-                    Modifier.fillMaxWidth().background(palette.surface).padding(horizontal = 16.dp, vertical = 12.dp)
+                    Modifier.fillMaxWidth().background(sheetSurfaceColor()).padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     if (targets.isNotEmpty()) {
                         LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -226,6 +273,12 @@ internal fun ForwardChatDialog(
                             }
                         }
                         Spacer(Modifier.height(8.dp))
+                    }
+                    if (onAsCopyChange != null) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.share_show_author), color = palette.textPrimary, modifier = Modifier.weight(1f))
+                            Switch(checked = !asCopy, onCheckedChange = { onAsCopyChange(!it) }, enabled = !locked && !attempted)
+                        }
                     }
                     if (allowComment) {
                         OutlinedTextField(
@@ -250,7 +303,7 @@ internal fun ForwardChatDialog(
                             else stringResource(R.string.forward_selected_count, targets.size),
                             color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f)
                         )
-                        Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !commentOverLimit) {
+                        Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !interrupted && !commentOverLimit) {
                             Text(sendLabel ?: stringResource(R.string.forward_send_count, targets.size))
                         }
                     }
@@ -258,10 +311,18 @@ internal fun ForwardChatDialog(
             }
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                if (chat == null && previewText != null) Text(
-                    previewText, color = palette.textPrimary, fontWeight = FontWeight.SemiBold,
-                    maxLines = 3, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                if (chat == null && previewText != null) Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                        .clip(styledShape(14.dp)).background(palette.accentSoft).padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(stringResource(R.string.share_preview_title), color = palette.accentInk, fontSize = 12.sp)
+                    Text(previewText, color = palette.textPrimary, fontWeight = FontWeight.Medium,
+                        maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+                if (interrupted) Text(
+                    stringResource(R.string.share_interrupted_warning), color = palette.warningText,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).errorAnnouncement()
                 )
                 if (asCopy && titleOverride == null && chat == null) Text(
                     stringResource(R.string.forward_copy_note),
@@ -281,12 +342,23 @@ internal fun ForwardChatDialog(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) { CircularProgressIndicator() }
-                    chat != null -> LazyColumn(Modifier.fillMaxSize()) {
+                    chat != null -> Column(Modifier.fillMaxSize()) {
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            SearchField(topicQuery, { topicQuery = it }, stringResource(R.string.share_search_topics))
+                        }
+                        if (topicError != null) TextButton(onClick = { chooseChat(chat) }, enabled = !locked) {
+                            Text(stringResource(R.string.common_retry))
+                        }
+                        val filteredTopics = topics.filter { it.title.contains(topicQuery.trim(), ignoreCase = true) }
+                        LazyColumn(Modifier.weight(1f)) {
                         if (topics.isEmpty() && topicError == null) item(key = "empty") {
                             Text(stringResource(R.string.share_no_topics), color = palette.textSecondary,
                                 modifier = Modifier.padding(16.dp))
                         }
-                        items(topics, key = { it.id }) { topic ->
+                        if (topics.isNotEmpty() && filteredTopics.isEmpty()) item(key = "no-results") {
+                            Text(stringResource(R.string.forward_no_results), color = palette.textSecondary, modifier = Modifier.padding(16.dp))
+                        }
+                        items(filteredTopics, key = { it.id }) { topic ->
                             ForwardRow(
                                 title = topic.title,
                                 selected = isPicked(chat.id, topic.id),
@@ -295,10 +367,11 @@ internal fun ForwardChatDialog(
                                 leading = { TopicIcon(Icons.Rounded.ChatBubbleOutline) }
                             )
                         }
+                        }
                     }
                     else -> {
                         Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                            SearchField(query, { query = it }, stringResource(R.string.forward_search_hint))
+                            SearchField(query, { if (!locked) query = it }, stringResource(R.string.forward_search_hint))
                         }
                         if (visibleChats.isEmpty()) Text(
                             stringResource(R.string.forward_no_results),

@@ -23,4 +23,14 @@ class ForwardDeliveryLedgerTest {
         assertTrue(ledger.isComplete(chat.copy(title = "Renamed")))
         assertFalse(ledger.isComplete(topic))
     }
+    @Test fun snapshotRestoresPartialAndCompletedDestinations() {
+        val ledger = ForwardDeliveryLedger()
+        ledger.recordForwarded(chat, listOf(2L))
+        ledger.recordForwarded(topic, listOf(2L, 3L))
+        ledger.markComplete(topic)
+        val restored = ForwardDeliveryLedger.fromSnapshot(ledger.snapshot())
+        assertEquals(listOf(3L), restored.pendingIds(chat, listOf(2L, 3L)))
+        assertTrue(restored.isComplete(topic))
+        assertFalse(restored.isComplete(chat))
+    }
 }

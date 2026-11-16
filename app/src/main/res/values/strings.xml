@@ -2470,4 +2470,9 @@
     <string name="chat_peek_failed">Предпросмотр сейчас недоступен</string>
     <string name="chat_peek_hint">Чат останется непрочитанным</string>
     <string name="chat_peek_media">Вложение</string>
+    <string name="share_expand_picker">Развернуть меню</string>
+    <string name="share_show_author">Показывать автора</string>
+    <string name="share_search_topics">Поиск тем</string>
+    <string name="share_interrupted_warning">Отправка была прервана. Проверьте чат получателя перед повторной отправкой.</string>
+    <string name="share_forward_message_count">Сообщений к пересылке: %1$d</string>
 </resources>

@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.compose.runtime.saveable.listSaver
+
 /** Confirmed deliveries within a single picker session. Unknown transport outcomes are not inferred as success. */
 internal class ForwardDeliveryLedger {
     private val forwarded = mutableMapOf<Pair<Long, Long>, MutableSet<Long>>()
@@ -18,5 +20,21 @@ internal class ForwardDeliveryLedger {
 
     fun markComplete(target: ForwardTarget) {
         complete.add(key(target))
+    }
+
+    internal fun snapshot(): List<Long> = buildList {
+        forwarded.forEach { (key, ids) -> ids.forEach { id -> addAll(listOf(0L, key.first, key.second, id)) } }
+        complete.forEach { key -> addAll(listOf(1L, key.first, key.second, 0L)) }
+    }
+
+    companion object {
+        internal fun fromSnapshot(entries: List<Long>): ForwardDeliveryLedger = ForwardDeliveryLedger().apply {
+            entries.chunked(4).filter { it.size == 4 }.forEach { entry ->
+                val target = ForwardTarget(entry[1], "", entry[2])
+                if (entry[0] == 0L) recordForwarded(target, listOf(entry[3]))
+                else if (entry[0] == 1L) markComplete(target)
+            }
+        }
+        val saver = listSaver<ForwardDeliveryLedger, Long>(save = { it.snapshot() }, restore = { fromSnapshot(it) })
     }
 }

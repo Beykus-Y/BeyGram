@@ -2737,11 +2737,18 @@ fun ChatScreen(
     }
     if (forwardIds.isNotEmpty()) {
         // Scoped to this open picker, not to the lifetime of a chat screen.
-        val delivery = remember(accountId, chat.id, forwardId, selectionForwardOpen, forwardAsCopy) { ForwardDeliveryLedger() }
-        val pendingIds = remember(delivery) { forwardIds.toList() }
+        val delivery = rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen, saver = ForwardDeliveryLedger.saver) { ForwardDeliveryLedger() }
+        val pendingSnapshot = rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen) { forwardIds.toLongArray() }
+        val pendingIds = pendingSnapshot.toList()
+        val preview = messages.firstOrNull { it.id == pendingIds.singleOrNull() }
+            ?.takeIf { !it.isViewOnce && !chat.isSecret && !chat.hasProtectedContent && it.entities.isEmpty() }
+            ?.text?.takeIf { it.isNotBlank() }?.take(240)
+            ?: stringResource(R.string.share_forward_message_count, pendingIds.size)
         ForwardChatDialog(
             chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
             commentLimit = limits.text,
+            previewText = preview,
+            onAsCopyChange = { forwardAsCopy = it },
             loadTopics = { conversation.forumTopics(it) },
             // Track confirmed delivery per destination and message; a comment failure must not re-forward content.
             onSend = { targets, comment ->

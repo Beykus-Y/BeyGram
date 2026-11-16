@@ -236,6 +236,7 @@ internal fun SharedMediaViewer(
     forwardId?.let { id ->
         ForwardChatDialog(
             chats, forwardBusy, forwardError, observeFile, downloadFile, allowComment = false,
+            previewText = stringResource(R.string.share_forward_message_count, 1),
             loadTopics = loadForwardTopics.takeIf { forwardToTopic != null },
             onSend = { targets, _ ->
                 forwardBusy = true; forwardError = null

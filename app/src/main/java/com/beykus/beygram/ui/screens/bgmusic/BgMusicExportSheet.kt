@@ -297,6 +297,8 @@ private fun ChatSendDialog(
             session = session,
             chats = chats + archivedChats,
             captionLimit = captionLimit,
+            observeFile = repository::observeFile,
+            downloadFile = repository::downloadFile,
             loadTopics = { chatId -> repository.forumTopics(chatId) },
             sendText = { chatId, topicId, text ->
                 repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)
