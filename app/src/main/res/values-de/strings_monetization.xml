@@ -299,4 +299,12 @@
     <string name="paid_text_price_changed">Der Nachrichtenpreis hat sich geändert. Prüfen und bestätigen Sie ihn erneut.</string>
     <string name="paid_text_uncertain">Das Senden der kostenpflichtigen Nachricht konnte nicht bestätigt werden. Prüfen Sie den Chat und Ihr Guthaben vor einem erneuten Versuch.</string>
     <string name="paid_text_draft_changed">Der Entwurf wurde geändert. Prüfen Sie die Nachricht und tippen Sie erneut auf Senden.</string>
+    <string name="gifts_resale_title">Weiterverkauf</string>
+    <string name="gifts_resale_summary">%1$s Angebote · ab %2$s Stars (Gegenwert)</string>
+    <string name="gifts_resale_empty">Keine Angebote zum Weiterverkauf</string>
+    <string name="gifts_resale_buy">Für %1$s Stars kaufen</string>
+    <string name="gifts_resale_confirm">%1$s für %2$s für bis zu %3$s Stars kaufen? Guthaben: %4$s Stars.</string>
+    <string name="gifts_resale_ton_unavailable">Käufe mit TON sind nicht verfügbar</string>
+    <string name="gifts_resale_changed">Der Preis hat sich geändert oder das Geschenk ist nicht verfügbar. Aktualisieren Sie die Liste.</string>
+    <string name="gifts_resale_market">Geschenkemarkt</string>
 </resources>
