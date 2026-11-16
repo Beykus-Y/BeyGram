@@ -45,7 +45,7 @@ import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.MessageContext
 import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.MessageThreadPage
-import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.MessageLimits
 import com.beykus.beygram.domain.model.SpeechRecognitionTrial
@@ -434,7 +434,6 @@ class UnavailableTelegramRepository : TelegramRepository {
     override fun observeForumTopicHistory(chatId: Long, forumTopicId: Long): StateFlow<ChatHistory> = noHistory
     override fun loadForumTopicHistory(chatId: Long, forumTopicId: Long) {}
     override fun loadOlderForumTopicMessages(chatId: Long, forumTopicId: Long) {}
-    override suspend fun latestForumTopicPreview(chatId: Long, forumTopicId: Long): Result<String?> = unavailable()
     override suspend fun loadForumTopicMessagesAround(chatId: Long, forumTopicId: Long, messageId: Long): Result<Boolean> = unavailable()
     override suspend fun linkedDiscussionChatId(chatId: Long): Result<Long> = unavailable()
     override suspend fun loadMessageThread(chatId: Long, messageId: Long): Result<MessageThread> = unavailable()
@@ -450,7 +449,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun sendScheduledNow(chatId: Long, messageId: Long): Result<Unit> = unavailable()
     override suspend fun isForumChat(chatId: Long): Result<Boolean> = unavailable()
 
-    override suspend fun forumTopics(chatId: Long, onPage: (List<ForumTopic>) -> Unit): Result<List<ForumTopic>?> = unavailable()
+    override suspend fun forumTopicsPage(chatId: Long, query: String, onPage: (ForumTopicsPage) -> Unit): Result<ForumTopicsPage?> = unavailable()
     override suspend fun canCreateForumTopic(chatId: Long): Result<Boolean> = unavailable()
     override suspend fun createForumTopic(chatId: Long, name: String): Result<Long> = unavailable()
     override suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit> = unavailable()
