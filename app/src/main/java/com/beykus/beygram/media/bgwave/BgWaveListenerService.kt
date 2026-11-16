@@ -57,8 +57,11 @@ class BgWaveListenerService : Service() {
             scope.launch(NonCancellable) {
                 try {
                     BgWaveHub.stop()
+                } catch (error: Exception) {
+                    BgWaveLog.w("listener.service.leave", error)
                 } finally {
-                    stopSelf()
+                    // With this start's id: a wave started meanwhile has a newer start and keeps the service.
+                    stopSelf(startId)
                 }
             }
             return START_NOT_STICKY
