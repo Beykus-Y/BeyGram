@@ -82,7 +82,7 @@ class BgWaveListenerService : Service() {
         if (watching) return
         watching = true
         scope.launch(Dispatchers.Main.immediate) {
-            BgWaveHub.controller.state.first { !BgWaveListenerKeepAlivePolicy.shouldKeepAlive(it) }
+            BgWaveListenerKeepAlivePolicy.keepAlive(BgWaveHub.controller.state).first { !it }
             watching = false
             // Both this and onStartCommand run on the main thread, so a start that comes later has a newer id and keeps
             // the service (with a fresh watcher) instead of being stopped here.
@@ -143,6 +143,7 @@ class BgWaveListenerService : Service() {
     }
 
     /** A refused lock or a missing permission must not stop the wave; the service simply runs without that lock. */
+    @Suppress("DEPRECATION") // WIFI_MODE_FULL_HIGH_PERF: see the comment at the wifi lock.
     private fun acquireLocks() {
         wakeLock = runCatching {
             getSystemService(PowerManager::class.java)
@@ -153,8 +154,10 @@ class BgWaveListenerService : Service() {
                 }
         }.onFailure { BgWaveLog.w("listener.service.wake_lock", it) }.getOrNull()
         wifiLock = runCatching {
+            // FULL_LOW_LATENCY works only with the screen on and the app in the foreground; this service listens with the
+            // screen off, so it needs HIGH_PERF. Deprecated in API 34 but still honoured.
             getSystemService(WifiManager::class.java)
-                .createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, WAKE_LOCK_TAG)
+                .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, WAKE_LOCK_TAG)
                 .apply {
                     setReferenceCounted(false)
                     acquire()
