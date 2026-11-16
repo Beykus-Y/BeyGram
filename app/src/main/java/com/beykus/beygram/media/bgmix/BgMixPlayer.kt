@@ -99,6 +99,7 @@ class BgMixPlayer(private val cacheDir: File) {
         handle = h
         track = at
         running = true
+        livePlayers.add(this)
         renderThread = Thread({ renderLoop(h, at) }, "bgmix-render").apply {
             priority = Thread.MAX_PRIORITY
             isDaemon = true
@@ -170,6 +171,7 @@ class BgMixPlayer(private val cacheDir: File) {
         }
         try {
             BgMixNative.nativeDestroy(target.handle)
+            livePlayers.remove(this)
         } finally {
             runCatching { target.track.release() }
             _status.value = null
@@ -300,6 +302,21 @@ class BgMixPlayer(private val cacheDir: File) {
 
     companion object {
         private const val TAG = "BgMixPlayer"
+        private val livePlayers = java.util.concurrent.ConcurrentHashMap.newKeySet<BgMixPlayer>()
+
+        /** Lock-free sampling of the last published counters, including not-yet-destroyed hosts. */
+        fun memorySnapshot(): BgMixMemorySnapshot {
+            val hosts = livePlayers.toList()
+            val snapshots = hosts.mapNotNull { it.status.value }
+            return BgMixMemorySnapshot(
+                liveHosts = hosts.size,
+                stoppingHosts = hosts.count { !it.running },
+                preparedPcmBytes = snapshots.sumOf { it.preparedPcmBytes },
+                retiredPcmBytes = snapshots.sumOf { it.retiredPcmBytes },
+                preparedTracks = snapshots.sumOf { it.preparedCount },
+                preparingTracks = snapshots.sumOf { it.preparingCount },
+            )
+        }
         /** Must match kMixSampleRate in bgmix_jni.cpp. */
         const val SAMPLE_RATE = 48_000
         private const val CHANNELS = 2
@@ -317,6 +334,16 @@ class BgMixPlayer(private val cacheDir: File) {
         private const val TIMESTAMP_MAX_AGE_NS = 60_000_000L
     }
 }
+
+/** Last published PCM capacities, not total native heap or transient decoder allocations. */
+data class BgMixMemorySnapshot(
+    val liveHosts: Int = 0,
+    val stoppingHosts: Int = 0,
+    val preparedPcmBytes: Long = 0,
+    val retiredPcmBytes: Long = 0,
+    val preparedTracks: Int = 0,
+    val preparingTracks: Int = 0,
+)
 
 /** Where BG Mix is heard, in seconds: the native cursor and the audio rendered but not yet presented by the track. */
 data class BgMixAudible(val cursorSeconds: Double, val bufferedSeconds: Double) {

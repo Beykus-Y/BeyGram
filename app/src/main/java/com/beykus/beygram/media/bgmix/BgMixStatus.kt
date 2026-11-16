@@ -38,6 +38,10 @@ data class BgMixStatus(
     val status: String,
     val decks: List<BgMixDeck>,
     val queue: List<BgMixQueueItem>,
+    val preparedPcmBytes: Long = 0,
+    val retiredPcmBytes: Long = 0,
+    val preparedCount: Int = 0,
+    val preparingCount: Int = 0,
 ) {
     companion object {
         /** Returns null for malformed input instead of throwing, so one bad tick never stops playback. */
@@ -55,6 +59,10 @@ data class BgMixStatus(
                     transitionType = root.optString("transitionType", "off"),
                     transitionProgress = root.optDouble("transitionProgress", 0.0),
                     preparingNext = root.optBoolean("preparingNext", false),
+                    preparedPcmBytes = root.optLong("preparedPcmBytes", 0L),
+                    retiredPcmBytes = root.optLong("retiredPcmBytes", 0L),
+                    preparedCount = root.optInt("preparedCount", 0),
+                    preparingCount = root.optInt("preparingCount", 0),
                     preparingName = root.optString("preparingName", ""),
                     preparingProgress = root.optDouble("preparingProgress", 0.0).toFloat(),
                     lastError = root.optString("lastError", ""),

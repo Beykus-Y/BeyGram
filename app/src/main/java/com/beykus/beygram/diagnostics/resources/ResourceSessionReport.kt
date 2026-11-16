@@ -50,6 +50,13 @@ fun formatResourceReport(samples: List<ResourceSample>, cpuCores: Int): String {
         appendLine("cpu_percent_max=${cpu.maxOrNull()?.let(::percent) ?: "unavailable"}")
         appendLine("java_heap_max_bytes=${samples.maxOf { it.javaHeapUsedBytes }}")
         appendLine("native_heap_max_bytes=${samples.maxOf { it.nativeHeapBytes }}")
+        appendLine("bgmix_prepared_pcm_max_bytes=${samples.maxOf { it.bgMixMemory.preparedPcmBytes }}")
+        appendLine("bgmix_retired_pcm_max_bytes=${samples.maxOf { it.bgMixMemory.retiredPcmBytes }}")
+        appendLine("bgmix_prepared_tracks_max=${samples.maxOf { it.bgMixMemory.preparedTracks }}")
+        appendLine("bgmix_preparing_tracks_max=${samples.maxOf { it.bgMixMemory.preparingTracks }}")
+        appendLine("bgmix_live_hosts_max=${samples.maxOf { it.bgMixMemory.liveHosts }}")
+        appendLine("bgmix_stopping_hosts_max=${samples.maxOf { it.bgMixMemory.stoppingHosts }}")
+        appendLine("bgmix_live_hosts_last=${samples.last().bgMixMemory.liveHosts}")
         appendLine("rx_bytes_delta=${delta(first.rxBytes, last.rxBytes) ?: "unavailable"}")
         appendLine("tx_bytes_delta=${delta(first.txBytes, last.txBytes) ?: "unavailable"}")
     }

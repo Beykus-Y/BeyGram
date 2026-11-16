@@ -247,21 +247,23 @@ internal class BgMixQueueDriver(private val cacheDir: File) {
         Thread(runnable, "bgmix-release").apply { isDaemon = true }
     }
 
+    private enum class ReleaseState { Idle, Pending, Failed }
+
     @Volatile
-    private var pendingRelease: java.util.concurrent.Future<*>? = null
+    private var releaseState = ReleaseState.Idle
+
+    val isRetiring: Boolean get() = releaseState == ReleaseState.Pending
 
     private fun retire(old: BgMixPlayer) {
         old.requestStop()
-        pendingRelease = releaser.submit { old.release() }
+        releaseState = ReleaseState.Pending
+        releaser.execute {
+            releaseState = if (runCatching { old.release() }.isSuccess) ReleaseState.Idle else ReleaseState.Failed
+        }
     }
 
-    /** A pending release never blocks a caller or allows another native host to accumulate. */
-    private fun releaseComplete(): Boolean {
-        val pending = pendingRelease ?: return true
-        if (!pending.isDone) return false
-        // A failed destruction has uncertain ownership: fail closed instead of starting new hosts.
-        return runCatching { pending.get() }.isSuccess
-    }
+    /** A pending/failed release never blocks a caller or allows another native host to accumulate. */
+    private fun releaseComplete(): Boolean = releaseState == ReleaseState.Idle
 
     fun failedIndex(status: BgMixStatus, atOrAfter: Int): Int? = status.queue.asSequence()
         .filter { it.state == "failed" }

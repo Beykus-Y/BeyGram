@@ -141,6 +141,10 @@ std::string statusJson(const MixSessionSnapshot& s, bool paused) {
     json << "\"transitionAvailable\":" << (s.transitionAvailable ? "true" : "false") << ",";
     json << "\"transitionType\":\"" << escapeJson(bgmedia::mix::transitionTypeShortName(s.engine.transitionType)) << "\",";
     json << "\"transitionProgress\":" << s.engine.transitionProgress << ",";
+    json << "\"preparedPcmBytes\":" << s.preparedPcmBytes << ",";
+    json << "\"retiredPcmBytes\":" << s.retiredPcmBytes << ",";
+    json << "\"preparedCount\":" << s.preparedCount << ",";
+    json << "\"preparingCount\":" << s.preparingCount << ",";
     json << "\"preparingNext\":" << (s.preparingNext ? "true" : "false") << ",";
     json << "\"preparingName\":\"" << escapeJson(s.preparingName) << "\",";
     json << "\"preparingProgress\":" << s.preparingProgress << ",";

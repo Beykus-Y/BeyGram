@@ -2088,6 +2088,11 @@ object PlaybackEngine {
         var rejectedKey = initialRejectedKey
         while (failures < BG_HANDOVER_ATTEMPTS) {
             if (bgMixActive()) return
+            // A previous host can still be releasing PCM. Exo keeps playing while we wait.
+            if (bgMix?.isRetiring == true) {
+                delay(BG_HANDOVER_POLL_MS)
+                continue
+            }
             val state = _state.value
             val item = state.item ?: return
             if (!item.isMusic || item.systemPrivate || state.queueIndex !in state.queue.indices) return
