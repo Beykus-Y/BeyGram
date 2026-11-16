@@ -211,6 +211,7 @@ internal fun MessageAlbumBubble(
                                 Text(latest.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp))
                             }
+                            chronological.firstOrNull { it.isForwarded }?.let { ForwardedMessageHeader(it) }
                             val rows = chronological.chunked(columns)
                             rows.forEachIndexed { index, rowMessages ->
                                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
