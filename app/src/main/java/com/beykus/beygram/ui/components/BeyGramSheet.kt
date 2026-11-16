@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.beykus.beygram.ui.design.styledTopShape
 
@@ -37,7 +38,7 @@ import com.beykus.beygram.ui.design.styledTopShape
  *   two scroll areas do not nest.
  * - [sheetState] defaults to Material's state, which opens partially when the content is tall. Pass
  *   rememberModalBottomSheetState(skipPartiallyExpanded = true) to open the sheet fully.
- * - [containerColor], [contentColor] and [dragHandle] keep the BeyGram look by default. Pass them only for a surface
+ * - [containerColor], [contentColor], [dragHandle] and [bottomPadding] keep the BeyGram look by default. Pass them only for a surface
  *   with colors of its own, such as the full player, which takes the tint of its cover.
  * - Insets use the ModalBottomSheet defaults. A text field inside a sheet must be checked with the keyboard open.
  */
@@ -52,6 +53,7 @@ fun BeyGramSheet(
     containerColor: Color = sheetSurfaceColor(),
     contentColor: Color = beyGramPalette().textPrimary,
     dragHandle: @Composable () -> Unit = { BeyGramDragHandle() },
+    bottomPadding: Dp = 12.dp,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val palette = beyGramPalette()
@@ -68,7 +70,7 @@ fun BeyGramSheet(
             Modifier
                 .fillMaxWidth()
                 .then(if (scrollableContent) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-                .padding(bottom = 12.dp)
+                .padding(bottom = bottomPadding)
         ) {
             if (title != null) {
                 Text(

@@ -216,11 +216,12 @@ private fun CoverPlayerSheet(
     content: @Composable ColumnScope.() -> Unit
 ) {
     CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
-        // The player lays out its own lists at a fixed height, so the sheet must not add a scroll around it.
+        // The player lays out its own lists at a fixed height, so the sheet adds neither a scroll nor a bottom gap.
         BeyGramSheet(
             onDismissRequest = onDismissRequest,
             sheetState = sheetState,
             scrollableContent = false,
+            bottomPadding = 0.dp,
             containerColor = cover.surface,
             contentColor = cover.tokens.text,
             dragHandle = { BottomSheetDefaults.DragHandle(color = cover.tokens.muted) }
