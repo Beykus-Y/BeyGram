@@ -9,7 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,7 +23,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMemoryVersion
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.components.sheetSurfaceColor
+import com.beykus.beygram.ui.components.BeyGramSheet
 import java.text.DateFormat
 import java.util.Date
 
@@ -41,7 +40,7 @@ internal fun ChatMemoryVersionsSheet(
         value = load(message.chatId, message.id)
     }
     val formatter = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT) }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = sheetSurfaceColor()) {
+    BeyGramSheet(onDismissRequest = onDismiss, scrollableContent = false) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
             Text(stringResource(R.string.chat_memory_versions_title), color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(10.dp))

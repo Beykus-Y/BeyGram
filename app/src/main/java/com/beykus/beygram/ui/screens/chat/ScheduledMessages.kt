@@ -21,8 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.SheetValue
@@ -31,6 +29,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -217,7 +216,7 @@ internal fun ScheduledMessagesDialog(
         return
     }
 
-    ModalBottomSheet(
+    BeyGramSheet(
         onDismissRequest = { if (!busy) onClose() },
         sheetState = rememberModalBottomSheetState(
             skipPartiallyExpanded = true,
@@ -225,9 +224,7 @@ internal fun ScheduledMessagesDialog(
             // onDismissRequest alone is too late to veto the state transition.
             confirmValueChange = { next -> next != SheetValue.Hidden || !busy }
         ),
-        containerColor = palette.surface,
-        contentColor = palette.textPrimary,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = palette.textSecondary) }
+        scrollableContent = false
     ) {
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp)
