@@ -37,6 +37,14 @@ class MessageLinkAndForwardTest {
         assertArrayEquals(longArrayOf(30L), request.messageIds)
     }
 
+    @Test fun `removing caption always sends a copy without the original author`() {
+        val request = forwardMessagesRequest(
+            toChatId = 10, fromChatId = 20, messageIds = listOf(30L), asCopy = false, removeCaption = true
+        )
+        assertTrue(request.sendCopy)
+        assertTrue(request.removeCaption)
+    }
+
     @Test fun `batch forward sends every selected id in one request and keeps the album order`() {
         val request = forwardMessagesRequest(
             toChatId = 10L,

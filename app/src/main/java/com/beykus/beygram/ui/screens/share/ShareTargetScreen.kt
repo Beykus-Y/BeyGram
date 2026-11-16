@@ -117,7 +117,7 @@ internal fun ShareTargetScreen(
     // Без готовых файлов текст уйдёт, только если файлов не было или пользователь убрал их все сам; при сбое подготовки не отправляем.
     val topicsReady = topicsReadyFor == targetId && targetId != 0L
     val validTopic = topicsReady && (topics?.any { it.id == topicId } ?: (topicId == 0L))
-    val canSend = !session.sending && !session.staging && target != null && validTopic &&
+    val canSend = !session.sending && !session.staging && !session.stagingFailed && !session.retryBlocked && !tooLong && target != null && validTopic &&
         (session.staged.isNotEmpty() || (session.draft.isNotBlank() && (!hasFiles || session.error == null)))
 
     LaunchedEffect(session) { session.startStaging(context, appScope) }
@@ -139,6 +139,9 @@ internal fun ShareTargetScreen(
     }
     // Отправка могла закончиться, пока экрана не было (поворот): тогда открываем чат, куда ушло сообщение.
     LaunchedEffect(session.sent) { if (session.sent) onSent(session.sentChatId, topicId) }
+    LaunchedEffect(session.lockedChatId) {
+        session.lockedChatId?.let { targetId = it; topicId = session.lockedTopicId }
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -154,10 +157,11 @@ internal fun ShareTargetScreen(
                 TextButton(
                     enabled = !session.sending,
                     onClick = {
-                        if (target != null) { targetId = 0L; topicId = 0L; session.error = null } else onCancel()
+                        if (session.lockedChatId != null) onCancel()
+                        else if (target != null) { targetId = 0L; topicId = 0L; session.error = null } else onCancel()
                     }
                 ) {
-                    Text(stringResource(if (target != null) R.string.common_back else R.string.common_cancel))
+                    Text(stringResource(if (target != null && session.lockedChatId == null) R.string.common_back else R.string.common_cancel))
                 }
                 Column(modifier = Modifier.padding(start = 8.dp)) {
                     Text(text = stringResource(R.string.share_title), style = MaterialTheme.typography.titleLarge)
@@ -202,7 +206,7 @@ internal fun ShareTargetScreen(
                     observeFile = observeFile,
                     downloadFile = downloadFile,
                     modifier = Modifier.weight(1f),
-                    enabled = !session.sending,
+                    enabled = !session.sending && session.lockedChatId == null,
                     onChoose = { chat -> shortcutApplied = true; targetId = chat.id; topicId = 0L; topicsReadyFor = null; session.error = null }
                 )
             } else if (!topicsReady) {
@@ -224,7 +228,7 @@ internal fun ShareTargetScreen(
                             style = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { topicId = topic.id; session.error = null }
+                                .clickable(enabled = session.lockedChatId == null) { topicId = topic.id; session.error = null }
                                 .padding(vertical = 14.dp)
                         )
                     }
@@ -249,7 +253,7 @@ internal fun ShareTargetScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             TextButton(
-                                enabled = !session.sending,
+                                enabled = !session.sending && session.lockedChatId == null,
                                 onClick = { session.removeStaged(item, importer, appScope) }
                             ) { Text(stringResource(R.string.common_delete)) }
                         }
@@ -258,11 +262,12 @@ internal fun ShareTargetScreen(
                         value = session.draft,
                         onValueChange = { session.draft = it },
                         placeholder = { Text(stringResource(if (hasFiles) R.string.share_caption_placeholder else R.string.share_text_placeholder)) },
-                        enabled = !session.sending,
+                        enabled = !session.sending && session.lockedChatId == null,
                         minLines = 3,
-                        isError = false,
+                        isError = tooLong,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (session.retryBlocked) Text(stringResource(R.string.share_interrupted_warning), color = MaterialTheme.colorScheme.error)
                     if (tooLong) {
                         Text(stringResource(R.string.share_truncated_notice, limit), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }

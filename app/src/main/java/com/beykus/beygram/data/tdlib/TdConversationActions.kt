@@ -660,7 +660,7 @@ internal class TdConversationActions(
         requireFutureSchedule(options)
         val resolved = stealth.resolve(toChatId, options)
         val forwarded = stealth.scheduledRequest(resolved) {
-            request(forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved.options)))
+            request(forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved.options), options.removeForwardCaption))
         }
         val returned = forwarded.messages.orEmpty()
         val forwardedIds = ids.filterIndexed { index, _ -> returned.getOrNull(index) != null }
@@ -1045,15 +1045,16 @@ internal fun forwardMessagesRequest(
     messageIds: List<Long>,
     asCopy: Boolean,
     messageThreadId: Long? = null,
-    options: TdApi.MessageSendOptions = TdApi.MessageSendOptions()
+    options: TdApi.MessageSendOptions = TdApi.MessageSendOptions(),
+    removeCaption: Boolean = false
 ) = TdApi.ForwardMessages(
     toChatId,
     messageThreadId?.takeIf { it > 0L }?.let { TdApi.MessageTopicForum(it.toInt()) },
     fromChatId,
     messageIds.toLongArray(),
     options,
-    asCopy,
-    false
+    asCopy || removeCaption,
+    removeCaption
 )
 
 /** Single-message overload kept for shared-media forwarding and focused protocol tests. */

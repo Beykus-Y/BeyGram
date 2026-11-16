@@ -75,6 +75,7 @@ import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
+import com.beykus.beygram.ui.screens.chat.ForwardTarget
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -526,6 +527,8 @@ private fun DeleteContactDialog(
     val scope = rememberCoroutineScope()
     var deleting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var retryBlocked by rememberSaveable { mutableStateOf(false) }
+    val completed = rememberSaveable { arrayListOf<String>() }
     val displayName = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
     val shownError = error
     val errorContent: @Composable () -> Unit = {
@@ -579,27 +582,32 @@ private fun ShareContactDialog(
         observeFile = observeFile,
         downloadFile = downloadFile,
         allowComment = false,
-        singleRecipient = true,
+        retryBlocked = retryBlocked,
         loadTopics = loadTopics.takeIf { sendContactToTopic != null },
         recipientRepository = recipientRepository,
         titleOverride = stringResource(R.string.contacts_share_title),
         previewText = displayName,
-        sendLabel = stringResource(R.string.share_send),
         onSend = { targets, _ ->
-            val target = targets.single()
             sending = true
             error = null
+            val failed = mutableListOf<ForwardTarget>()
             try {
-                val result = if (target.topicId == 0L) sendContact(target.chatId, contact.userId)
-                    else sendContactToTopic?.invoke(target.chatId, contact.userId, target.topicId)
-                        ?: Result.failure(IllegalStateException())
-                if (result.isSuccess) {
-                    onSent()
-                    emptyList()
-                } else {
-                    error = result.exceptionOrNull().userMessage(context, R.string.contacts_share_failed)
-                    targets
+                for (target in targets) {
+                    val key = "${target.chatId}:${target.topicId}"
+                    if (key in completed) continue
+                    val result = if (target.topicId == 0L) sendContact(target.chatId, contact.userId)
+                        else sendContactToTopic?.invoke(target.chatId, contact.userId, target.topicId)
+                            ?: Result.failure(IllegalStateException())
+                    if (result.isSuccess) completed.add(key)
+                    else {
+                        failed += target
+                        if (com.beykus.beygram.share.isShareOutcomeUnknown(result.exceptionOrNull())) retryBlocked = true
+                        error = result.exceptionOrNull().userMessage(context, R.string.contacts_share_failed)
+                    }
                 }
+                if (failed.isEmpty()) onSent()
+                else error = context.getString(R.string.forward_failed_chats, failed.size) + error?.let { "\n$it" }.orEmpty()
+                failed
             } finally {
                 sending = false
             }

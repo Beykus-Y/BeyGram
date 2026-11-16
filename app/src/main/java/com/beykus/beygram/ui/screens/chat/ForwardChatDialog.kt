@@ -114,6 +114,9 @@ internal fun ForwardChatDialog(
     previewText: String? = null,
     sendLabel: String? = null,
     onAsCopyChange: ((Boolean) -> Unit)? = null,
+    removeCaption: Boolean = false,
+    onRemoveCaptionChange: ((Boolean) -> Unit)? = null,
+    retryBlocked: Boolean = false,
     recipientRepository: TelegramRepository? = null,
     candidatePolicy: (List<ChatPreview>) -> List<ChatPreview> = { it },
     onSend: suspend (List<ForwardTarget>, String) -> List<ForwardTarget>,
@@ -196,7 +199,7 @@ internal fun ForwardChatDialog(
     }
 
     fun send() {
-        if (locked || interrupted || targets.isEmpty() || unavailableTarget || commentOverLimit) return
+        if (locked || interrupted || retryBlocked || targets.isEmpty() || unavailableTarget || commentOverLimit) return
         attempted = true
         sending = true
         attemptInFlight = true
@@ -284,6 +287,12 @@ internal fun ForwardChatDialog(
                             Switch(checked = !asCopy, onCheckedChange = { onAsCopyChange(!it) }, enabled = !locked && !attempted)
                         }
                     }
+                    if (onRemoveCaptionChange != null) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.share_remove_caption), color = palette.textPrimary, modifier = Modifier.weight(1f))
+                            Switch(checked = removeCaption, onCheckedChange = onRemoveCaptionChange, enabled = !locked && !attempted)
+                        }
+                    }
                     if (allowComment) {
                         OutlinedTextField(
                             value = comment,
@@ -307,7 +316,7 @@ internal fun ForwardChatDialog(
                             else stringResource(R.string.forward_selected_count, targets.size),
                             color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f)
                         )
-                        Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !interrupted && !unavailableTarget && !commentOverLimit) {
+                        Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !interrupted && !retryBlocked && !unavailableTarget && !commentOverLimit) {
                             Text(sendLabel ?: stringResource(R.string.forward_send_count, targets.size))
                         }
                     }
@@ -328,7 +337,7 @@ internal fun ForwardChatDialog(
                     stringResource(R.string.share_unavailable_recipient), color = palette.warningText,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).errorAnnouncement()
                 )
-                if (interrupted) Text(
+                if (interrupted || retryBlocked) Text(
                     stringResource(R.string.share_interrupted_warning), color = palette.warningText,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).errorAnnouncement()
                 )

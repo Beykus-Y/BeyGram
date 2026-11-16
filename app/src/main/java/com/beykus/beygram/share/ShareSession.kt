@@ -31,6 +31,13 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     /** Всё отправлено: экран закрывается и открывает чат. */
     var sent by mutableStateOf(false)
     var sentChatId by mutableStateOf(0L)
+    var retryBlocked by mutableStateOf(false)
+        private set
+    /** A partial delivery can only be resumed for its original recipient and topic. */
+    var lockedChatId by mutableStateOf<Long?>(null)
+        private set
+    var lockedTopicId by mutableStateOf(0L)
+        private set
     var error by mutableStateOf<UiText?>(null)
     /** Подготовка файлов не удалась: её можно повторить на месте, без нового запроса из «Поделиться». */
     var stagingFailed by mutableStateOf(false)
@@ -95,7 +102,8 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         sendText: suspend (chatId: Long, topicId: Long, text: String) -> Result<Unit>,
         sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>
     ) {
-        if (sending) return
+        if (sending || sent || retryBlocked || staging || stagingFailed || released) return
+        if (lockedChatId != null && (lockedChatId != chatId || lockedTopicId != topicId)) return
         sending = true
         error = null
         scope.launch {
@@ -111,6 +119,8 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
                         recordAppEvent(EventKind.UI, "share_send_done", "Отправка из «Поделиться» завершена", attrs = mapOf("mode" to mode, "sent" to sentItems.toString()))
                     }
                     .onFailure {
+                        if (isShareOutcomeUnknown(it)) retryBlocked = true
+                        if (sentItems > 0 || retryBlocked) { lockedChatId = chatId; lockedTopicId = topicId }
                         // Только числа и тип ошибки: текст и имена файлов в журнал не пишем.
                         recordAppEvent(
                             EventKind.UI,
@@ -154,6 +164,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     }
 
     fun removeStaged(item: OutgoingMedia, importer: OutgoingMediaImporter, scope: CoroutineScope) {
+        if (sending || retryBlocked || lockedChatId != null) return
         staged = staged.filterNot { it.path == item.path }
         scope.launch { importer.discard(item) }
     }

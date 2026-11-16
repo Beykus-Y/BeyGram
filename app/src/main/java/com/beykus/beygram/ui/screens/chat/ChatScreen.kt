@@ -2740,6 +2740,13 @@ fun ChatScreen(
         val delivery = rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen, saver = ForwardDeliveryLedger.saver) { ForwardDeliveryLedger() }
         val pendingSnapshot = rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen) { forwardIds.toLongArray() }
         val pendingIds = pendingSnapshot.toList()
+        var removeCaption by rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen) { mutableStateOf(false) }
+        var retryBlocked by rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen) { mutableStateOf(false) }
+        val canRemoveCaption = messages.any { message ->
+            message.id in pendingIds && message.text.isNotBlank() && message.media?.kind in setOf(
+                MediaKind.Photo, MediaKind.Video, MediaKind.Animation, MediaKind.Audio, MediaKind.Document
+            )
+        }
         val preview = messages.firstOrNull { it.id == pendingIds.singleOrNull() }
             ?.takeIf { !it.isViewOnce && !chat.isSecret && !chat.hasProtectedContent && it.entities.isEmpty() }
             ?.text?.takeIf { it.isNotBlank() }?.take(240)
@@ -2748,7 +2755,10 @@ fun ChatScreen(
             chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
             commentLimit = limits.text,
             previewText = preview,
-            onAsCopyChange = { forwardAsCopy = it },
+            onAsCopyChange = { showCopy -> forwardAsCopy = showCopy; if (!showCopy) removeCaption = false },
+            removeCaption = removeCaption,
+            onRemoveCaptionChange = if (canRemoveCaption) ({ remove: Boolean -> removeCaption = remove; if (remove) forwardAsCopy = true }) else null,
+            retryBlocked = retryBlocked,
             recipientRepository = conversation as? com.beykus.beygram.domain.repository.TelegramRepository,
             loadTopics = { conversation.forumTopics(it) },
             // Track confirmed delivery per destination and message; a comment failure must not re-forward content.
@@ -2763,11 +2773,13 @@ fun ChatScreen(
                         val remaining = delivery.pendingIds(target, pendingIds)
                         if (remaining.isNotEmpty()) {
                             val forwarded = conversation.forwardMessages(
-                                chat.id, remaining, target.chatId, asCopy = forwardAsCopy, messageThreadId = topic
+                                chat.id, remaining, target.chatId, asCopy = forwardAsCopy, messageThreadId = topic,
+                                options = MessageSendOptions(removeForwardCaption = removeCaption)
                             )
                             forwarded.getOrNull()?.let { delivery.recordForwarded(target, it.forwardedIds) }
                             if (delivery.pendingIds(target, pendingIds).isNotEmpty()) {
                                 failed += target
+                                if (com.beykus.beygram.share.isShareOutcomeUnknown(forwarded.exceptionOrNull())) retryBlocked = true
                                 lastError = forwarded.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
                                 continue
                             }
@@ -2777,6 +2789,7 @@ fun ChatScreen(
                             val result = conversation.sendMessage(target.chatId, comment, forumTopicId = target.topicId, clearDraft = false)
                             if (result.isFailure) {
                                 failed += target
+                                if (com.beykus.beygram.share.isShareOutcomeUnknown(result.exceptionOrNull())) retryBlocked = true
                                 lastError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
                                 continue
                             }
