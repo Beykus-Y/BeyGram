@@ -59,6 +59,7 @@ import com.beykus.beygram.deeplink.yandexMusicNativeReady
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.MediaKind
@@ -125,7 +126,8 @@ internal fun SharedMediaSection(
     /** Opens a Yandex Music link natively; null keeps the link in the browser. */
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
     loadForwardTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
-    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null
+    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null,
+    recipientRepository: TelegramRepository? = null
 ) {
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
@@ -161,7 +163,7 @@ internal fun SharedMediaSection(
         observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened, autoDownloadFile = autoDownloadFile,
-        loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic)
+        loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic, recipientRepository = recipientRepository)
 }
 
 /** A forum message opens in its own topic, not in the topic list. */
@@ -200,7 +202,8 @@ internal fun SharedMediaViewer(
     /** Repository-backed automatic download; keeps viewer preview/full requests cancellable by policy. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     loadForwardTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
-    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null
+    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null,
+    recipientRepository: TelegramRepository? = null
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -238,6 +241,7 @@ internal fun SharedMediaViewer(
             chats, forwardBusy, forwardError, observeFile, downloadFile, allowComment = false,
             previewText = stringResource(R.string.share_forward_message_count, 1),
             loadTopics = loadForwardTopics.takeIf { forwardToTopic != null },
+            recipientRepository = recipientRepository,
             onSend = { targets, _ ->
                 forwardBusy = true; forwardError = null
                 val failed = mutableListOf<ForwardTarget>()

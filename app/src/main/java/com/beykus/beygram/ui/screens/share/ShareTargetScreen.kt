@@ -106,7 +106,7 @@ internal fun ShareTargetScreen(
     // Тема группы с темами; 0 — чат без тем, тема не нужна.
     var topicId by rememberSaveable(requestId, session.accountId) { mutableStateOf(0L) }
     var topics by remember(requestId, session.accountId) { mutableStateOf<List<ForumTopic>?>(null) }
-    var topicsReady by remember(requestId, session.accountId) { mutableStateOf(false) }
+    var topicsReadyFor by remember(requestId, session.accountId) { mutableStateOf<Long?>(null) }
     var topicsError by remember(requestId, session.accountId) { mutableStateOf<UiText?>(null) }
     var topicsAttempt by remember(requestId, session.accountId) { mutableIntStateOf(0) }
     val target = directory.chats.firstOrNull { it.id == targetId && it.canPost }
@@ -115,19 +115,26 @@ internal fun ShareTargetScreen(
     val limit = if (session.staged.isNotEmpty()) captionLimit else IncomingShareParser.MAX_TEXT_LENGTH
     val tooLong = session.draft.codePointCount(0, session.draft.length) > limit
     // Без готовых файлов текст уйдёт, только если файлов не было или пользователь убрал их все сам; при сбое подготовки не отправляем.
-    val canSend = !session.sending && !session.staging &&
+    val topicsReady = topicsReadyFor == targetId && targetId != 0L
+    val validTopic = topicsReady && (topics?.any { it.id == topicId } ?: (topicId == 0L))
+    val canSend = !session.sending && !session.staging && target != null && validTopic &&
         (session.staged.isNotEmpty() || (session.draft.isNotBlank() && (!hasFiles || session.error == null)))
 
     LaunchedEffect(session) { session.startStaging(context, appScope) }
     // Загружаем темы выбранного чата: null означает, что это не группа с темами и тема не нужна. После сбоя загрузка повторяется.
     LaunchedEffect(targetId, topicsAttempt) {
-        topicsReady = false
+        topicsReadyFor = null
         topics = null
         topicsError = null
         if (targetId == 0L) return@LaunchedEffect
         loadTopics(targetId)
             // A closed topic the user can't post to is not a share destination.
-            .onSuccess { loaded -> topics = loaded?.filter { it.canWrite }; topicsReady = true }
+            .onSuccess { loaded ->
+                val writable = loaded?.filter { it.canWrite }
+                topics = writable
+                if (writable == null || writable.none { it.id == topicId }) topicId = 0L
+                topicsReadyFor = targetId
+            }
             .onFailure { topicsError = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_topics_failed) }
     }
     // Отправка могла закончиться, пока экрана не было (поворот): тогда открываем чат, куда ушло сообщение.
@@ -196,7 +203,7 @@ internal fun ShareTargetScreen(
                     downloadFile = downloadFile,
                     modifier = Modifier.weight(1f),
                     enabled = !session.sending,
-                    onChoose = { chat -> targetId = chat.id; topicId = 0L; session.error = null }
+                    onChoose = { chat -> shortcutApplied = true; targetId = chat.id; topicId = 0L; topicsReadyFor = null; session.error = null }
                 )
             } else if (!topicsReady) {
                 Text(stringResource(R.string.share_send_to, target.title), style = MaterialTheme.typography.titleSmall)

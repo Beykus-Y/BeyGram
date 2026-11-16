@@ -47,6 +47,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.deeplink.MessageEntityLink
 import com.beykus.beygram.domain.model.*
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.SharedMediaWindow
@@ -97,7 +98,8 @@ internal fun GroupProfileScreen(
     /** Opens a Yandex Music link from the links tab natively; null keeps it in the browser. */
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
     loadForwardTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
-    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null
+    forwardToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null,
+    recipientRepository: TelegramRepository? = null
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -186,7 +188,7 @@ internal fun GroupProfileScreen(
         observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
         confirmExport = confirmExport, messageRights = messageRights, forwardMessage = forwardMessage, chats = chats,
         onContentOpened = onContentOpened, autoDownloadFile = autoDownloadFile,
-        loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic)
+        loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic, recipientRepository = recipientRepository)
 }
 
 /** Entry point shown only when TDLib's canGetStatistics allowed the current admin to open stats. */

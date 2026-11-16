@@ -2208,6 +2208,7 @@ private fun BeyGramAppContent(
             confirmExport = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull()?.canSave == true },
             messageRights = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull() },
             forwardMessage = { messageId, toChatId -> mediaRepository.forwardMessage(mediaChatId, messageId, toChatId) }, chats = chats + forwardArchivedChats,
+            recipientRepository = mediaRepository,
             loadForwardTopics = { mediaRepository.forumTopics(it) },
             forwardToTopic = { messageId, toChatId, topicId ->
                 mediaRepository.forwardMessage(mediaChatId, messageId, toChatId, messageThreadId = topicId)
@@ -2921,6 +2922,7 @@ GlobalSearchScreen(
                         updateContact = repository::updateContact,
                         deleteContact = repository::deleteContact,
                         sendContact = repository::sendContact,
+                        recipientRepository = repository,
                         loadShareTopics = { repository.forumTopics(it) },
                         sendContactToTopic = { chatId, userId, topicId -> repository.sendContactCard(chatId, userId, forumTopicId = topicId) },
                         chats = contactChats + contactArchivedChats,

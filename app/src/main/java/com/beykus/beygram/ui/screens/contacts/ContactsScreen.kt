@@ -68,6 +68,7 @@ import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
@@ -108,7 +109,8 @@ fun ContactsScreen(
     onChatOpened: (chatId: Long) -> Unit,
     accountId: String = "legacy",
     loadShareTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
-    sendContactToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null
+    sendContactToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null,
+    recipientRepository: TelegramRepository? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -296,6 +298,7 @@ fun ContactsScreen(
             sendContact = sendContact,
             loadTopics = loadShareTopics,
             sendContactToTopic = sendContactToTopic,
+            recipientRepository = recipientRepository,
             observeFile = observeFile,
             downloadFile = downloadFile,
             onDismiss = { sharingContact = null },
@@ -562,7 +565,8 @@ private fun ShareContactDialog(
     onDismiss: () -> Unit,
     onSent: () -> Unit,
     loadTopics: (suspend (Long) -> Result<List<ForumTopic>?>)?,
-    sendContactToTopic: (suspend (Long, Long, Long) -> Result<Unit>)?
+    sendContactToTopic: (suspend (Long, Long, Long) -> Result<Unit>)?,
+    recipientRepository: TelegramRepository?
 ) {
     val context = LocalContext.current
     var sending by remember { mutableStateOf(false) }
@@ -577,6 +581,7 @@ private fun ShareContactDialog(
         allowComment = false,
         singleRecipient = true,
         loadTopics = loadTopics.takeIf { sendContactToTopic != null },
+        recipientRepository = recipientRepository,
         titleOverride = stringResource(R.string.contacts_share_title),
         previewText = displayName,
         sendLabel = stringResource(R.string.share_send),

@@ -65,7 +65,6 @@ import com.beykus.beygram.ui.screens.share.rememberShareRecipientDirectory
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
-import com.beykus.beygram.ui.screens.share.shareTargetCandidates
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -147,6 +146,9 @@ internal fun ForwardChatDialog(
     val dismissLocked by rememberUpdatedState(locked)
     val interrupted = attemptInFlight && !sending
     val commentOverLimit = comment.codePointCount(0, comment.length) > commentLimit
+    val directory = rememberShareRecipientDirectory(chats, recipientRepository, candidatePolicy)
+    val writableIds = remember(directory.chats) { directory.chats.filter { it.canPost }.map { it.id }.toSet() }
+    val unavailableTarget = targets.any { it.chatId !in writableIds }
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = false,
         confirmValueChange = { next -> next == SheetValue.Expanded || !dismissLocked }
@@ -174,11 +176,10 @@ internal fun ForwardChatDialog(
             toggle(ForwardTarget(chat.id, chat.title))
             return
         }
+        loadingTopics = true
+        topicError = null
         scope.launch {
-            loadingTopics = true
-            topicError = null
-            val result = loader(chat.id)
-            loadingTopics = false
+            val result = try { loader(chat.id) } finally { loadingTopics = false }
             result.onSuccess { loaded ->
                 val writable = loaded.orEmpty().filter { it.canWrite }
                 if (loaded == null) toggle(ForwardTarget(chat.id, chat.title))
@@ -195,7 +196,7 @@ internal fun ForwardChatDialog(
     }
 
     fun send() {
-        if (locked || interrupted || targets.isEmpty() || commentOverLimit) return
+        if (locked || interrupted || targets.isEmpty() || unavailableTarget || commentOverLimit) return
         attempted = true
         sending = true
         attemptInFlight = true
@@ -210,7 +211,6 @@ internal fun ForwardChatDialog(
     }
 
     val chat = topicChat
-    val directory = rememberShareRecipientDirectory(chats, recipientRepository, candidatePolicy)
 
     LaunchedEffect(targets.isNotEmpty(), query.isNotEmpty(), topicChat?.id, loadingTopics) {
         if (targets.isNotEmpty() || query.isNotEmpty() || topicChat != null || loadingTopics) {
@@ -307,7 +307,7 @@ internal fun ForwardChatDialog(
                             else stringResource(R.string.forward_selected_count, targets.size),
                             color = palette.textSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f)
                         )
-                        Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !interrupted && !commentOverLimit) {
+                        Button(onClick = { send() }, enabled = targets.isNotEmpty() && !locked && !interrupted && !unavailableTarget && !commentOverLimit) {
                             Text(sendLabel ?: stringResource(R.string.forward_send_count, targets.size))
                         }
                     }
@@ -324,6 +324,10 @@ internal fun ForwardChatDialog(
                     Text(previewText, color = palette.textPrimary, fontWeight = FontWeight.Medium,
                         maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
+                if (unavailableTarget) Text(
+                    stringResource(R.string.share_unavailable_recipient), color = palette.warningText,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).errorAnnouncement()
+                )
                 if (interrupted) Text(
                     stringResource(R.string.share_interrupted_warning), color = palette.warningText,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).errorAnnouncement()
