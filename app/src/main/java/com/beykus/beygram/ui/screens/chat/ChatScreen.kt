@@ -398,6 +398,8 @@ fun ChatScreen(
     var reactionOptions by remember(conversation, chat.id) { mutableStateOf<List<ReactionOption>>(emptyList()) }
     var reactionPickerOpen by remember(chat.id) { mutableStateOf(false) }
     val paidReactions = rememberPaidReactions(conversation)
+    // Reactions, poll votes and bot buttons ask first while hidden presence warns about risky actions; asked once per chat screen (see StealthRiskGuard).
+    val riskGuard = rememberStealthRiskGuard(chat.id) { conversation.stealthWarnsBeforeSending() }
     val limits by conversation.messageLimits.collectAsStateWithLifecycle()
     val typingFlow = remember(conversation, chat.id) { conversation.observeTyping(chat.id) }
     val typingNames by typingFlow.collectAsStateWithLifecycle()
@@ -542,8 +544,10 @@ fun ChatScreen(
             paidReactions.open(chat.id, messageId)
             return
         }
-        scope.launch {
-            conversation.toggleReaction(chat.id, messageId, reaction, addToRecent).onFailure { error = it.userMessage(context, R.string.chat_reaction_failed) }
+        riskGuard.run {
+            scope.launch {
+                conversation.toggleReaction(chat.id, messageId, reaction, addToRecent).onFailure { error = it.userMessage(context, R.string.chat_reaction_failed) }
+            }
         }
     }
     // Chip taps leave the user's recent reactions alone; only a reaction picked from the extended menu is added there.
@@ -2143,7 +2147,7 @@ fun ChatScreen(
                                     onShowFailureDetails = if (message.isOutgoing && message.sendState == MessageSendState.Failed) {
                                         { failedSendTarget = FailedSendTarget(message, localAttempt?.attemptId) }
                                     } else null,
-                                    onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, ::requestBotWebApp, onOpenEntity = onOpenMessageEntity) },
+                                    onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, riskGuard, ::requestBotWebApp, onOpenEntity = onOpenMessageEntity) },
                                 onBubblePositioned = bubblePosition,
                                 onMediaBounds = { rect -> mediaOrigins[message.id] = rect },
                                 translation = translationState,
@@ -2163,9 +2167,11 @@ fun ChatScreen(
                                     { isGood -> rateTranscription(message, isGood) }
                                 },
                                 onPollVote = { messageId, choices ->
-                                    scope.launch {
-                                        conversation.votePoll(chat.id, messageId, choices)
-                                            .onFailure { error = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                                    riskGuard.run {
+                                        scope.launch {
+                                            conversation.votePoll(chat.id, messageId, choices)
+                                                .onFailure { error = it.userMessage(context, R.string.chat_poll_vote_failed) }
+                                        }
                                     }
                                 },
                                 onPollStop = { messageId ->
@@ -2787,7 +2793,7 @@ fun ChatScreen(
         },
         onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
     )
-    contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }
+    contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, riskGuard, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }
     playlistTrack?.let { track -> AddToPlaylistSheet(accountId = accountId, track = track, onDismiss = { playlistTrack = null }) }
     if (copyLinks.isNotEmpty()) MessageLinkCopyDialog(
         links = copyLinks,
@@ -2808,6 +2814,7 @@ fun ChatScreen(
         onDismiss = { pinConfirm = false }
     )
     sendGuard.Dialog()
+    riskGuard.Dialog()
     attachments.stealthFallback.Dialog()
     failedSendTarget?.let { target ->
         FailedSendDetailsDialog(

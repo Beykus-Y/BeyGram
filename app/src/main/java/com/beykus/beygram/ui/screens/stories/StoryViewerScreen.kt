@@ -76,6 +76,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.ui.screens.chat.StealthScheduleFallback
+import com.beykus.beygram.ui.screens.chat.rememberStealthRiskGuard
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ReactionOption
@@ -525,6 +526,8 @@ fun StoryViewerScreen(
     }
     var replySending by remember { mutableStateOf(false) }
     val storyStealthFallback = remember { StealthScheduleFallback() }
+    // A story reaction asks first while hidden presence warns about risky actions; asked once per story poster (see StealthRiskGuard).
+    val riskGuard = rememberStealthRiskGuard(posterChatId) { repository.stealthWarnsBeforeSending() }
     var deleting by remember { mutableStateOf(false) }
 
     val entry = snapshot
@@ -787,13 +790,15 @@ fun StoryViewerScreen(
             onDismiss = { showReactions = false },
             onPick = { option ->
                 val target = if (detail?.chosenReaction == option) null else option
-                scope.launch {
-                    repository.setStoryReaction(posterChatId, reactionStoryId, target)
-                        .onSuccess {
-                            detail = detail?.copy(chosenReaction = target)
-                            showReactions = false
-                        }
-                        .onFailure { notice = it.userMessage(context, R.string.stories_reaction_failed) }
+                riskGuard.run {
+                    scope.launch {
+                        repository.setStoryReaction(posterChatId, reactionStoryId, target)
+                            .onSuccess {
+                                detail = detail?.copy(chosenReaction = target)
+                                showReactions = false
+                            }
+                            .onFailure { notice = it.userMessage(context, R.string.stories_reaction_failed) }
+                    }
                 }
             }
         )
@@ -819,6 +824,7 @@ fun StoryViewerScreen(
         }
     }
     storyStealthFallback.Dialog()
+    riskGuard.Dialog()
     if (showReply) {
         StoryReplyDialog(
             sending = replySending,

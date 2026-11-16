@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 internal fun InlineBotButtons(
     message: ChatMessage,
     conversation: ConversationRepository,
+    riskGuard: StealthRiskGuard,
     onOpenWebApp: ((url: String, botUserId: Long, messageId: Long, source: BotWebAppSource, buttonText: String) -> Unit)? = null,
     onOpenEntity: ((MessageEntityLink) -> Unit)? = null
 ) {
@@ -58,16 +59,18 @@ internal fun InlineBotButtons(
                 (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(button.text, button.value))
                 Toast.makeText(context, R.string.chat_bot_copied, Toast.LENGTH_SHORT).show()
             }
-            BotButtonKind.Callback -> scope.launch {
-                busy = true
-                try {
-                    conversation.botCallback(message.chatId, message.id, button.data).onSuccess {
-                        if (it.text.isNotBlank()) {
-                            if (it.showAlert) alert = it.text else Toast.makeText(context, it.text, Toast.LENGTH_LONG).show()
-                        }
-                        if (it.url.isNotBlank()) open(it.url)
-                    }.onFailure { Toast.makeText(context, it.userMessage(context, R.string.chat_bot_failed), Toast.LENGTH_LONG).show() }
-                } finally { busy = false }
+            BotButtonKind.Callback -> riskGuard.run {
+                scope.launch {
+                    busy = true
+                    try {
+                        conversation.botCallback(message.chatId, message.id, button.data).onSuccess {
+                            if (it.text.isNotBlank()) {
+                                if (it.showAlert) alert = it.text else Toast.makeText(context, it.text, Toast.LENGTH_LONG).show()
+                            }
+                            if (it.url.isNotBlank()) open(it.url)
+                        }.onFailure { Toast.makeText(context, it.userMessage(context, R.string.chat_bot_failed), Toast.LENGTH_LONG).show() }
+                    } finally { busy = false }
+                }
             }
             // The raw button URL is handed to the repository, never to an Intent: TDLib must open the Web App and
             // return the final https URL together with its same-origin requirement.
