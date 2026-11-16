@@ -1659,8 +1659,8 @@ fun ChatScreen(
         }
         val outgoingAnimation = messageAnimations.direction(outgoing = true)
         val outgoing = composerLaunchPayload(draft, draftEntities, limits.text)
-        // Stealth mode hands the message to Telegram's scheduled queue (#541), or waits out a short lead itself; the local
-        // delay is a separate convenience and is skipped then, so stealth sending is the only thing that holds the message.
+        // Stealth mode requires Telegram's scheduled queue (#541). Local delay is separate and is skipped even for
+        // an invalid legacy stealth lead, which the repository refuses instead of sending normally.
         val stealthScheduled = stealthWillSchedule(conversation, effectiveOptions)
         val stealthHolds = effectiveOptions.scheduledAtSeconds == null && conversation.stealthHoldsSends()
         // A delayed text is stored first and only then cleared from the composer. A bot's forced reply is always sent directly.

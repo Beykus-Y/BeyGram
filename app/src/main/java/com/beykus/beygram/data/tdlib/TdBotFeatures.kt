@@ -106,6 +106,9 @@ internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> In
         // The send changes Saved Messages on the server. It is awaited without cancellation so the temporary message id is
         // always captured; otherwise a cancelled screen could leave an orphaned message and a cleared draft behind.
         val sent = withContext(NonCancellable) {
+            // This operation needs an immediate temporary/favorite message; scheduling it would not work.
+            // Check the live account policy at the actual send, not before fetching the chat or its draft.
+            if (stealth.active()) throw UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked))
             request(TdApi.SendInlineQueryResultMessage().apply {
                 chatId = savedMessagesChatId
                 this.queryId = queryId
@@ -148,6 +151,9 @@ internal class TdBotFeatures(client: () -> Client, stealthDelaySeconds: () -> In
         val savedMessagesChatId = request(TdApi.GetMe()).id
         val savedDraft = request(TdApi.GetChat(savedMessagesChatId)).draftMessage
         val sent = withContext(NonCancellable) {
+            // This operation needs an immediate temporary/favorite message; scheduling it would not work.
+            // Check the live account policy at the actual send, not before fetching the chat or its draft.
+            if (stealth.active()) throw UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked))
             request(TdApi.SendInlineQueryResultMessage().apply {
                 chatId = savedMessagesChatId
                 this.queryId = queryId
