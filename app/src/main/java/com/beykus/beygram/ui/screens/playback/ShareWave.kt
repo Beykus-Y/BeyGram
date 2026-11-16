@@ -69,6 +69,7 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
         sendLabel = stringResource(R.string.share_send),
         allowComment = false,
         singleRecipient = true,
+        freezeSelectionAfterAttempt = false,
         onSend = { targets, _ ->
             failure = null
             val target = targets.singleOrNull()
@@ -81,6 +82,10 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
             val accepted = answer.await()
             confirm = null
             if (!accepted) return@ForwardChatDialog targets
+            if (waveTargetChats((repository.chats.value + repository.archivedChats.value + repository.folderChats.value.values.flatten()).distinctBy { it.id }).none { it.id == target.chatId }) {
+                failure = onePersonText
+                return@ForwardChatDialog targets
+            }
             sending = true
             val sent = try {
                 BgWaveHub.share(accountId, target.chatId, target.chatId)

@@ -1,6 +1,10 @@
 package com.beykus.beygram.ui.screens.share
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -159,16 +163,18 @@ internal fun ShareTargetScreen(
         topicsReadyFor = null
         topics = null
         topicsError = null
-        if (targetId == 0L) return@LaunchedEffect
-        loadTopics(targetId)
+        val requestedId = targetId
+        if (requestedId == 0L) return@LaunchedEffect
+        loadTopics(requestedId)
             // A closed topic the user can't post to is not a share destination.
             .onSuccess { loaded ->
+                if (targetId != requestedId) return@onSuccess
                 val writable = loaded?.filter { it.canWrite }
                 topics = writable
                 if (writable == null || writable.none { it.id == topicId }) topicId = 0L
-                topicsReadyFor = targetId
+                topicsReadyFor = requestedId
             }
-            .onFailure { topicsError = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_topics_failed) }
+            .onFailure { if (targetId == requestedId) topicsError = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_topics_failed) }
     }
     // Отправка могла закончиться, пока экрана не было (поворот): тогда открываем чат, куда ушло сообщение.
     LaunchedEffect(session.sent) { if (session.sent) onSent(session.sentChatId, session.sentTopicId) }
@@ -179,12 +185,24 @@ internal fun ShareTargetScreen(
         skipPartiallyExpanded = true,
         confirmValueChange = { next -> next != SheetValue.Hidden || !sendingNow }
     )
+    fun backToRecipients() {
+        reviewSelected = false
+        targetId = 0L
+        topicId = 0L
+        topicsReadyFor = null
+        if (!session.stagingFailed && !session.invalidFileCount) session.error = null
+    }
+    val paneLabel = stringResource(R.string.share_title)
     BeyGramSheet(
         onDismissRequest = { if (!session.sending) onCancel() },
+        modifier = Modifier.semantics { paneTitle = paneLabel },
         sheetState = sheetState,
         scrollableContent = false,
         bottomPadding = 0.dp
     ) {
+        BackHandler(enabled = session.sending || (!session.deliveryStarted && (reviewSelected || targetId != 0L))) {
+            if (!session.sending) backToRecipients()
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -199,13 +217,13 @@ internal fun ShareTargetScreen(
                     enabled = !session.sending,
                     onClick = {
                         if (session.deliveryStarted) onCancel()
-                        else if (reviewSelected || target != null) { reviewSelected = false; targetId = 0L; topicId = 0L; session.error = null } else onCancel()
+                        else if (reviewSelected || targetId != 0L) backToRecipients() else onCancel()
                     }
                 ) {
                     Text(stringResource(if ((reviewSelected || target != null) && !session.deliveryStarted) R.string.common_back else R.string.common_cancel))
                 }
                 Column(modifier = Modifier.padding(start = 8.dp)) {
-                    Text(text = stringResource(R.string.share_title), style = MaterialTheme.typography.titleLarge)
+                    Text(text = paneLabel, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                     Text(
                         text = stringResource(if (target == null) R.string.share_pick_destination else R.string.share_review_before_send),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

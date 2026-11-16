@@ -1,6 +1,11 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import com.beykus.beygram.ui.components.topAppBarSurface
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
@@ -114,6 +119,7 @@ internal fun ForwardChatDialog(
     commentLimit: Int = Int.MAX_VALUE,
     loadTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
     singleRecipient: Boolean = false,
+    freezeSelectionAfterAttempt: Boolean = true,
     titleOverride: String? = null,
     previewText: String? = null,
     previewMedia: MessageMedia? = null,
@@ -228,7 +234,7 @@ internal fun ForwardChatDialog(
                     attemptInFlight = false
                     requested
                 } else {
-                    attempted = true
+                    attempted = freezeSelectionAfterAttempt
                     topicError = null
                     onSend(requested, if (allowComment) comment.trim() else "").also { attemptInFlight = false }
                 }
@@ -256,14 +262,18 @@ internal fun ForwardChatDialog(
             sheetState.expand()
         }
     }
+    val paneLabel = if (chat != null) stringResource(R.string.forward_choose_topic, chat.title)
+        else titleOverride ?: stringResource(if (asCopy) R.string.forward_title_copy else R.string.forward_title)
     BeyGramSheet(
         onDismissRequest = { if (!locked) onClose() },
+        modifier = Modifier.semantics { paneTitle = paneLabel },
         sheetState = sheetState,
         scrollableContent = false,
         bottomPadding = 0.dp
     ) {
+        BackHandler(enabled = chat != null || locked) { if (!locked) backFromTopics() }
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().imePadding(),
             containerColor = sheetSurfaceColor(),
             topBar = {
                 TopAppBar(
@@ -272,6 +282,7 @@ internal fun ForwardChatDialog(
                         Text(
                             if (chat != null) stringResource(R.string.forward_choose_topic, chat.title)
                             else titleOverride ?: stringResource(if (asCopy) R.string.forward_title_copy else R.string.forward_title),
+                            modifier = Modifier.semantics { heading() },
                             color = palette.textPrimary,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -303,15 +314,19 @@ internal fun ForwardChatDialog(
                     if (targets.isNotEmpty()) {
                         LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(targets, key = { "${it.chatId}:${it.topicId}" }) { target ->
-                                Box(
+                                Row(
                                     Modifier.widthIn(max = 180.dp).clip(styledShape(12.dp)).background(palette.accentSoft)
                                         .clickable(enabled = !locked, role = Role.Button) { toggle(target) }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
                                         target.topicTitle?.let { "${target.title} · $it" } ?: target.title,
-                                        color = palette.accentInk, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                                        color = palette.accentInk, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
+                                    Icon(Icons.Rounded.Close, null, tint = palette.accentInk, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }

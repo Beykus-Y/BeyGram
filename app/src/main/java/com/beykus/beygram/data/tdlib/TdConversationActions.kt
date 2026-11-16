@@ -433,14 +433,14 @@ internal class TdConversationActions(
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> {
         val handoff = ShareMediaHandoff()
         val result = conversationResult<Unit> {
-        requireFutureSchedule(options)
-        requireViewOnceSupported(media, options)
-        android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
-        val bounded = boundTelegramText(caption, entities, limits.value.caption)
-        send(chatId, replyId, forumTopicId, options, media = listOf(media), onMediaHandoff = handoff::markHandedOff) { uploaded ->
-            uploaded.single().toInputContent(bounded.text, bounded.entities, selfDestructType(options))
-        }
-        android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
+            requireFutureSchedule(options)
+            requireViewOnceSupported(media, options)
+            android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
+            val bounded = boundTelegramText(caption, entities, limits.value.caption)
+            send(chatId, replyId, forumTopicId, options, media = listOf(media), onMediaHandoff = handoff::markHandedOff) { uploaded ->
+                uploaded.single().toInputContent(bounded.text, bounded.entities, selfDestructType(options))
+            }
+            android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
         }.onSuccess { recordMediaAccepted(media.kind.name) }.onFailure { recordSendFailure(media.kind.name, it) }
         return if (options.shareDelivery) handoff.classify(result) else result
     }
@@ -455,35 +455,35 @@ internal class TdConversationActions(
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> {
         val handoff = ShareMediaHandoff()
         val result = conversationResult<Unit> {
-        require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
-        requireFutureSchedule(options)
-        if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_single_media))
-        val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
-        val replyTarget = replyId?.let {
-            if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
-            request(TdApi.GetMessage(chatId, it))
-        }
-        val resolved = stealth.resolve(chatId, options, media, onMediaHandoff = handoff::markHandedOff)
-        val protocolOptions = sendOptions(resolved.options)
-        val messages = stealth.scheduledRequest(resolved) { handoff.markHandedOff(); request(TdApi.SendMessageAlbum().apply {
-            this.chatId = chatId
-            this.options = protocolOptions
-            inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
-            if (replyTarget != null) {
-                topicId = replyTarget.topicId
-                replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
-            } else if (forumTopicId > 0L) {
-                topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
+            require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
+            requireFutureSchedule(options)
+            if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_single_media))
+            val boundedCaption = boundTelegramText(caption, entities, limits.value.caption)
+            val replyTarget = replyId?.let {
+                if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
+                request(TdApi.GetMessage(chatId, it))
             }
-        }) }
-        // A scheduled album belongs to TDLib's schedule queue, not to the visible chat history.
-        val returned = messages.messages.orEmpty()
-        try {
-            returned.filterNotNull().filter { it.schedulingState == null }.forEach { message -> history.put(map(message)); hydrateReply(message) }
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (failure: Exception) { throw ShareOutcomeUncertainException(failure) }
-        if (options.shareDelivery && (returned.size != media.size || returned.any { it == null }))
-            throw com.beykus.beygram.share.ShareOutcomeUncertainException()
+            val resolved = stealth.resolve(chatId, options, media, onMediaHandoff = handoff::markHandedOff)
+            val protocolOptions = sendOptions(resolved.options)
+            val messages = stealth.scheduledRequest(resolved) { handoff.markHandedOff(); request(TdApi.SendMessageAlbum().apply {
+                this.chatId = chatId
+                this.options = protocolOptions
+                inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
+                if (replyTarget != null) {
+                    topicId = replyTarget.topicId
+                    replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTarget.id; pollOptionId = "" }
+                } else if (forumTopicId > 0L) {
+                    topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
+                }
+            }) }
+            // A scheduled album belongs to TDLib's schedule queue, not to the visible chat history.
+            val returned = messages.messages.orEmpty()
+            try {
+                returned.filterNotNull().filter { it.schedulingState == null }.forEach { message -> history.put(map(message)); hydrateReply(message) }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { throw ShareOutcomeUncertainException(failure) }
+            if (options.shareDelivery && (returned.size != media.size || returned.any { it == null }))
+                throw com.beykus.beygram.share.ShareOutcomeUncertainException()
         }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
         return if (options.shareDelivery) handoff.classify(result) else result
     }
