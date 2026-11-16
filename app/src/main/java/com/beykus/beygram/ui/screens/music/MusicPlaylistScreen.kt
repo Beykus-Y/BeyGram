@@ -38,10 +38,10 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Tune
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -201,37 +201,37 @@ internal fun MusicPlaylistScreen(
                         IconButton(onClick = { menuOpen = true }) {
                             Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_playlist_menu), tint = palette.textPrimary)
                         }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            if (!stored.isFavorites) DropdownMenuItem(
-                                text = { Text(stringResource(R.string.music_rename)) },
+                        BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            if (!stored.isFavorites) BeyGramPopoverItem(
+                                text = stringResource(R.string.music_rename),
                                 leadingIcon = { Icon(Icons.Rounded.Edit, null, tint = settingsIconTint()) },
                                 onClick = { menuOpen = false; dialog = PlaylistDialog.Rename }
                             )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.music_edit_description)) },
+                            BeyGramPopoverItem(
+                                text = stringResource(R.string.music_edit_description),
                                 leadingIcon = { Icon(Icons.Rounded.Info, null, tint = settingsIconTint()) },
                                 onClick = { menuOpen = false; dialog = PlaylistDialog.Description }
                             )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.music_change_cover)) },
+                            BeyGramPopoverItem(
+                                text = stringResource(R.string.music_change_cover),
                                 leadingIcon = { Icon(Icons.Rounded.Image, null, tint = settingsIconTint()) },
                                 onClick = {
                                     menuOpen = false
                                     coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                 }
                             )
-                            if (stored.coverPath != null) DropdownMenuItem(
-                                text = { Text(stringResource(R.string.music_remove_cover)) },
+                            if (stored.coverPath != null) BeyGramPopoverItem(
+                                text = stringResource(R.string.music_remove_cover),
                                 leadingIcon = { Icon(Icons.Rounded.Close, null, tint = settingsIconTint()) },
                                 onClick = { menuOpen = false; runEdit { repository.setCover(playlistId, null) } }
                             )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.music_sort)) },
+                            BeyGramPopoverItem(
+                                text = stringResource(R.string.music_sort),
                                 leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = settingsIconTint()) },
                                 onClick = { menuOpen = false; dialog = PlaylistDialog.Sort }
                             )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.music_duplicate)) },
+                            BeyGramPopoverItem(
+                                text = stringResource(R.string.music_duplicate),
                                 leadingIcon = { Icon(Icons.Rounded.ContentCopy, null, tint = settingsIconTint()) },
                                 onClick = {
                                     menuOpen = false
@@ -245,14 +245,15 @@ internal fun MusicPlaylistScreen(
                                     }
                                 }
                             )
-                            if (stored.tracks.isNotEmpty()) DropdownMenuItem(
-                                text = { Text(stringResource(R.string.bgmusic_menu_share_collection)) },
+                            if (stored.tracks.isNotEmpty()) BeyGramPopoverItem(
+                                text = stringResource(R.string.bgmusic_menu_share_collection),
                                 leadingIcon = { Icon(Icons.Rounded.Share, null, tint = settingsIconTint()) },
                                 onClick = { menuOpen = false; exportOpen = true }
                             )
-                            if (!stored.isFavorites) DropdownMenuItem(
-                                text = { Text(stringResource(R.string.common_delete)) },
+                            if (!stored.isFavorites) BeyGramPopoverItem(
+                                text = stringResource(R.string.common_delete),
                                 leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = palette.danger) },
+                                danger = true,
                                 onClick = { menuOpen = false; dialog = PlaylistDialog.Delete }
                             )
                         }
@@ -317,20 +318,20 @@ internal fun MusicPlaylistScreen(
                                         tint = palette.textSecondary
                                     )
                                 }
-                                DropdownMenu(
+                                BeyGramPopover(
                                     expanded = trackMenu == track.itemId,
                                     onDismissRequest = { trackMenu = null }
                                 ) {
-                                    if (canMoveUp(index)) DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.music_move_up)) },
+                                    if (canMoveUp(index)) BeyGramPopoverItem(
+                                        text = stringResource(R.string.music_move_up),
                                         leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null, tint = settingsIconTint()) },
                                         onClick = {
                                             trackMenu = null
                                             runEdit { repository.moveTrack(playlistId, index, index - 1) }
                                         }
                                     )
-                                    if (canMoveDown(index, tracks.size)) DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.music_move_down)) },
+                                    if (canMoveDown(index, tracks.size)) BeyGramPopoverItem(
+                                        text = stringResource(R.string.music_move_down),
                                         leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null, tint = settingsIconTint()) },
                                         onClick = {
                                             trackMenu = null
@@ -338,17 +339,18 @@ internal fun MusicPlaylistScreen(
                                         }
                                     )
                                     if (isUnavailable) {
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.music_find_replacement)) },
+                                        BeyGramPopoverItem(
+                                            text = stringResource(R.string.music_find_replacement),
                                             leadingIcon = { Icon(Icons.Rounded.Search, null, tint = settingsIconTint()) },
                                             onClick = {
                                                 trackMenu = null
                                                 replacing = track
                                             }
                                         )
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.common_delete)) },
+                                        BeyGramPopoverItem(
+                                            text = stringResource(R.string.common_delete),
                                             leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = palette.danger) },
+                                            danger = true,
                                             onClick = {
                                                 trackMenu = null
                                                 runEdit { repository.removeTrack(playlistId, track.itemId) }
@@ -359,16 +361,16 @@ internal fun MusicPlaylistScreen(
                                             val queueSource = PlaybackQueueSource(
                                                 accountId, telegram::observeFile, telegram::downloadFile, telegram::autoDownloadFile
                                             )
-                                            DropdownMenuItem(
-                                                text = { Text(stringResource(R.string.queue_play_next)) },
+                                            BeyGramPopoverItem(
+                                                text = stringResource(R.string.queue_play_next),
                                                 onClick = {
                                                     trackMenu = null
                                                     PlaybackEngine.enqueue(context, playable, queueSource, atEnd = false)
                                                     context.showMusicToast(context.getString(R.string.queue_added_next))
                                                 }
                                             )
-                                            DropdownMenuItem(
-                                                text = { Text(stringResource(R.string.queue_add_to_end)) },
+                                            BeyGramPopoverItem(
+                                                text = stringResource(R.string.queue_add_to_end),
                                                 onClick = {
                                                     trackMenu = null
                                                     PlaybackEngine.enqueue(context, playable, queueSource, atEnd = true)
@@ -376,9 +378,10 @@ internal fun MusicPlaylistScreen(
                                                 }
                                             )
                                         }
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.music_remove_from_playlist)) },
+                                        BeyGramPopoverItem(
+                                            text = stringResource(R.string.music_remove_from_playlist),
                                             leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = palette.danger) },
+                                            danger = true,
                                             onClick = {
                                                 trackMenu = null
                                                 runEdit { repository.removeTrack(playlistId, track.itemId) }
