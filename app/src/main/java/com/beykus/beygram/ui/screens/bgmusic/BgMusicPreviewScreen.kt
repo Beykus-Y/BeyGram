@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.music.MUSIC_COVER_DIRECTORY
 import com.beykus.beygram.data.music.MusicLibraries
+import com.beykus.beygram.data.music.MusicLibraryRepository
 import com.beykus.beygram.data.music.MusicOutcome
 import com.beykus.beygram.data.music.MusicPlaylist
 import com.beykus.beygram.data.music.PlaylistTrack
@@ -90,6 +91,8 @@ fun BgMusicPreviewScreen(
     parsed: BgMusicParsed,
     onDismiss: () -> Unit,
     onOpenLocalPlaylist: ((playlistId: String) -> Unit)? = null,
+    /** The library to save into. Null means the app's library; unit tests pass their own. */
+    libraryOverride: MusicLibraryRepository? = null,
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
@@ -97,7 +100,7 @@ fun BgMusicPreviewScreen(
     val source = LocalPlaybackRepositorySource.current
     val repository = source?.repository
     val accountId = source?.accountId ?: LocalPlaybackAccountId.current
-    val libraryRepository = remember(context) { MusicLibraries.get(context) }
+    val libraryRepository = remember(context, libraryOverride) { libraryOverride ?: MusicLibraries.get(context) }
     val library by libraryRepository.library.collectAsStateWithLifecycle()
     val libraryLoaded by libraryRepository.isLoaded.collectAsStateWithLifecycle()
     val favoritesName = stringResource(R.string.bgmusic_favorites_name)
