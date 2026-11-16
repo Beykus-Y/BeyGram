@@ -373,6 +373,8 @@ class BgMixPlayer(private val cacheDir: File) {
                 stoppingHosts = hosts.count { !it.running },
                 preparedPcmBytes = snapshots.sumOf { it.preparedPcmBytes },
                 retiredPcmBytes = snapshots.sumOf { it.retiredPcmBytes },
+                preparationReservedBytes = snapshots.sumOf { it.preparationReservedBytes },
+                pcmBudgetBytes = snapshots.sumOf { it.pcmBudgetBytes },
                 preparedTracks = snapshots.sumOf { it.preparedCount },
                 preparingTracks = snapshots.sumOf { it.preparingCount },
             )
@@ -401,6 +403,8 @@ data class BgMixMemorySnapshot(
     val stoppingHosts: Int = 0,
     val preparedPcmBytes: Long = 0,
     val retiredPcmBytes: Long = 0,
+    val preparationReservedBytes: Long = 0,
+    val pcmBudgetBytes: Long = 0,
     val preparedTracks: Int = 0,
     val preparingTracks: Int = 0,
 )

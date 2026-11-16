@@ -12,7 +12,7 @@ class BgMixStatusTest {
         val json = """
         {"paused":false,"master":1,"transitionActive":true,"transitionAvailable":true,
          "transitionType":"xfade","transitionProgress":0.25,"preparingNext":false,
-         "preparedPcmBytes":67108864,"retiredPcmBytes":1024,"preparedCount":2,"preparingCount":1,
+         "preparedPcmBytes":67108864,"retiredPcmBytes":1024,"preparationReservedBytes":285212672,"pcmBudgetBytes":419430400,"preparedCount":2,"preparingCount":1,
          "preparingName":"","preparingProgress":0.0,"lastError":"","status":"Mixing",
          "decks":[{"loaded":true,"playing":false,"ended":false,"positionSeconds":12.5,"durationSeconds":200.0,"bpm":123.0},
                   {"loaded":true,"trackId":8,"playing":true,"ended":false,"positionSeconds":0.5,"durationSeconds":180.0,"bpm":120.0}],
@@ -29,6 +29,8 @@ class BgMixStatusTest {
         assertEquals(8L, status.decks[1].trackId)
         assertEquals(67108864L, status.preparedPcmBytes)
         assertEquals(1024L, status.retiredPcmBytes)
+        assertEquals(285212672L, status.preparationReservedBytes)
+        assertEquals(419430400L, status.pcmBudgetBytes)
         assertEquals(2, status.preparedCount)
         assertEquals(1, status.preparingCount)
         assertEquals(1, status.queue.size)

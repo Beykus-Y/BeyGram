@@ -40,6 +40,8 @@ data class BgMixStatus(
     val queue: List<BgMixQueueItem>,
     val preparedPcmBytes: Long = 0,
     val retiredPcmBytes: Long = 0,
+    val preparationReservedBytes: Long = 0,
+    val pcmBudgetBytes: Long = 0,
     val preparedCount: Int = 0,
     val preparingCount: Int = 0,
 ) {
@@ -61,6 +63,8 @@ data class BgMixStatus(
                     preparingNext = root.optBoolean("preparingNext", false),
                     preparedPcmBytes = root.optLong("preparedPcmBytes", 0L),
                     retiredPcmBytes = root.optLong("retiredPcmBytes", 0L),
+                    preparationReservedBytes = root.optLong("preparationReservedBytes", 0L),
+                    pcmBudgetBytes = root.optLong("pcmBudgetBytes", 0L),
                     preparedCount = root.optInt("preparedCount", 0),
                     preparingCount = root.optInt("preparingCount", 0),
                     preparingName = root.optString("preparingName", ""),

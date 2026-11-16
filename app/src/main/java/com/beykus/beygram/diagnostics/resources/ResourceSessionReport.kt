@@ -52,6 +52,8 @@ fun formatResourceReport(samples: List<ResourceSample>, cpuCores: Int): String {
         appendLine("native_heap_max_bytes=${samples.maxOf { it.nativeHeapBytes }}")
         appendLine("bgmix_prepared_pcm_max_bytes=${samples.maxOf { it.bgMixMemory.preparedPcmBytes }}")
         appendLine("bgmix_retired_pcm_max_bytes=${samples.maxOf { it.bgMixMemory.retiredPcmBytes }}")
+        appendLine("bgmix_preparation_reserved_max_bytes=${samples.maxOf { it.bgMixMemory.preparationReservedBytes }}")
+        appendLine("bgmix_pcm_budget_max_bytes=${samples.maxOf { it.bgMixMemory.pcmBudgetBytes }}")
         appendLine("bgmix_prepared_tracks_max=${samples.maxOf { it.bgMixMemory.preparedTracks }}")
         appendLine("bgmix_preparing_tracks_max=${samples.maxOf { it.bgMixMemory.preparingTracks }}")
         appendLine("bgmix_live_hosts_max=${samples.maxOf { it.bgMixMemory.liveHosts }}")
