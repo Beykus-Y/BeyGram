@@ -629,7 +629,7 @@ internal class TdPayments(private val requests: TdRequests) {
         GiftListingQuote(
             receivedId = receivedId,
             collectibleName = gift.name.orEmpty(),
-            currentStars = listed?.starCount?.takeIf { it > 0L && listed.toncoinOnly == false },
+            currentStars = listed?.takeUnless { it.toncoinOnly }?.starCount?.takeIf { it > 0L },
             tonOnly = listed?.toncoinOnly == true,
             eligible = now > 0L && received.nextResaleDate > 0 && received.nextResaleDate.toLong() <= now,
             minimum = minimum,

@@ -131,7 +131,7 @@ fun GiftsScreen(
     val retainedByAccount by RetainedGiftSendStore.states.collectAsState()
     val retained = retainedByAccount[accountId]
     val retainedRelevant = retained?.let { it.profileId == profileId && it.isSelf == isSelf } == true
-    val sending = step is GiftSendStep.Sending || retained?.inFlight == true
+    val sending = step is GiftSendStep.Sending || retained?.inFlight == true || listingOperation?.inFlight == true
     val scope = rememberCoroutineScope()
     // The token drops a "load more" response that arrives after a refresh started.
     var generation by remember { mutableIntStateOf(0) }
@@ -390,6 +390,24 @@ fun GiftsScreen(
                         )
                     }
                     if (isSelf) {
+                        if (listingGift == null && listingOperation != null) item("listing_status") {
+                            val result = listingOperation?.outcome
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                                Text(
+                                    when (result) {
+                                        GiftListingOutcome.Updated -> stringResource(R.string.gift_listing_updated)
+                                        GiftListingOutcome.Changed -> stringResource(R.string.gift_listing_changed)
+                                        GiftListingOutcome.Uncertain -> stringResource(R.string.gift_listing_uncertain)
+                                        is GiftListingOutcome.Failed -> result.reason.resolve(context)
+                                        null -> stringResource(R.string.gifts_sending)
+                                    },
+                                    color = palette.textPrimary
+                                )
+                                if (result != null) TextButton(onClick = { GiftListingStore.acknowledge(accountId); reload++ }) {
+                                    Text(stringResource(R.string.common_close))
+                                }
+                            }
+                        }
                         item("received_header") {
                             MonetizationSectionHeader(stringResource(R.string.gifts_received_title))
                         }
