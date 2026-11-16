@@ -38,9 +38,9 @@ internal data class YandexAccount(
  * Requests and response mapping for the endpoints the app uses. Every call returns a [ProviderResult]; no
  * exception leaves this class. Unknown fields are ignored, and a missing required field gives ServiceChanged.
  */
-internal class YandexApi(private val http: YandexHttp) {
+internal open class YandexApi(private val http: YandexHttp) {
 
-    fun account(token: String): ProviderResult<YandexAccount> = call(token, "/account/status") { root ->
+    open fun account(token: String): ProviderResult<YandexAccount> = call(token, "/account/status") { root ->
         parseAccountStatus(root)
     }
 
@@ -72,7 +72,7 @@ internal class YandexApi(private val http: YandexHttp) {
         return ProviderResult.Success(result)
     }
 
-    fun setLiked(token: String, uid: String, trackId: String, liked: Boolean): ProviderResult<Unit> {
+    open fun setLiked(token: String, uid: String, trackId: String, liked: Boolean): ProviderResult<Unit> {
         val action = if (liked) "add-multiple" else "remove"
         return call(token, "/users/$uid/likes/tracks/$action", form = mapOf("track-ids" to trackId)) { Unit }
     }
@@ -221,7 +221,7 @@ internal class YandexApi(private val http: YandexHttp) {
      * token. Returns the result and a redacted report of the requests: status codes, key names, value types and line
      * counts. No token, link, lyrics text or track id goes into the report.
      */
-    fun lyricsWithReport(token: String, trackId: String): Pair<ProviderResult<ProviderLyrics>, String> {
+    open fun lyricsWithReport(token: String, trackId: String): Pair<ProviderResult<ProviderLyrics>, String> {
         val response = try {
             http.get(YandexConfig.API_BASE + "/tracks/$trackId/lyrics?format=LRC", token)
         } catch (e: IOException) {

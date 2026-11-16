@@ -21,11 +21,19 @@ internal data class YandexSession(
     val hasSubscription: Boolean,
 )
 
+/** What the provider needs from the place the session is kept. A seam for tests; the real one is [YandexSessionStore]. */
+internal interface YandexSessionStorage {
+    fun load(): YandexSession?
+    fun save(session: YandexSession)
+    fun clear()
+    fun deviceId(): String
+}
+
 /**
  * Keeps the Yandex session in a file under noBackupFilesDir, encrypted with an AES-GCM key held in the Android
  * Keystore. The file is excluded from backups by location. A file that cannot be decrypted counts as signed out.
  */
-internal class YandexSessionStore(context: Context) {
+internal class YandexSessionStore(context: Context) : YandexSessionStorage {
     private val file = File(context.noBackupFilesDir, FILE_NAME)
 
     /**
@@ -36,7 +44,7 @@ internal class YandexSessionStore(context: Context) {
     private var cacheValid = false
 
     @Synchronized
-    fun load(): YandexSession? {
+    override fun load(): YandexSession? {
         if (cacheValid) return cached
         val loaded = readFile()
         cached = loaded
@@ -68,7 +76,7 @@ internal class YandexSessionStore(context: Context) {
     }
 
     @Synchronized
-    fun save(session: YandexSession) {
+    override fun save(session: YandexSession) {
         val json = JSONObject()
             .put("access", session.accessToken)
             .put("refresh", session.refreshToken ?: "")
@@ -91,7 +99,7 @@ internal class YandexSessionStore(context: Context) {
     }
 
     @Synchronized
-    fun clear() {
+    override fun clear() {
         file.delete()
         cached = null
         cacheValid = true
@@ -102,7 +110,7 @@ internal class YandexSessionStore(context: Context) {
      * the number of device tokens per user and a new id on each sign-in would keep adding them.
      */
     @Synchronized
-    fun deviceId(): String {
+    override fun deviceId(): String {
         val idFile = File(file.parentFile, DEVICE_FILE_NAME)
         val existing = try { idFile.readText().trim() } catch (e: Exception) { "" }
         if (existing.length == 36) return existing
