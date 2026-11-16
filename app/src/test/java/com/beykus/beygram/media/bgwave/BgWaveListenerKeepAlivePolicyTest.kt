@@ -1,5 +1,6 @@
 package com.beykus.beygram.media.bgwave
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,8 +28,21 @@ class BgWaveListenerKeepAlivePolicyTest {
         }
     }
 
-    @Test fun listenerDoesNotKeepAliveAfterFailureOrEnd() {
+    @Test fun listenerKeepsAliveInFailedOnlyWhileANetworkRetryCanHelp() {
+        val lost = state(BgWaveRole.Listener, BgWavePhase.Failed).copy(errorKey = BgWaveErrors.NO_CONNECTION)
+        assertTrue(BgWaveListenerKeepAlivePolicy.shouldKeepAlive(lost))
+        assertEquals(BgWaveListenerKeepAlivePolicy.Need.RetryPending, BgWaveListenerKeepAlivePolicy.need(lost))
+        val rejected = state(BgWaveRole.Listener, BgWavePhase.Failed).copy(errorKey = BgWaveErrors.REJECTED)
+        assertFalse(BgWaveListenerKeepAlivePolicy.shouldKeepAlive(rejected))
         assertFalse(BgWaveListenerKeepAlivePolicy.shouldKeepAlive(state(BgWaveRole.Listener, BgWavePhase.Failed)))
+    }
+
+    @Test fun listenerDoesNotKeepAliveAfterEnd() {
         assertFalse(BgWaveListenerKeepAlivePolicy.shouldKeepAlive(state(BgWaveRole.Listener, BgWavePhase.Ended)))
+    }
+
+    @Test fun hostNeverKeepsAliveEvenWhenFailedWithoutConnection() {
+        val lost = state(BgWaveRole.Host, BgWavePhase.Failed).copy(errorKey = BgWaveErrors.NO_CONNECTION)
+        assertFalse(BgWaveListenerKeepAlivePolicy.shouldKeepAlive(lost))
     }
 }
