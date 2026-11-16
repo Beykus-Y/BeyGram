@@ -19,6 +19,8 @@ import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.*
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -367,17 +369,17 @@ private fun ForumTopicItem(
                 IconButton(enabled = !busy, onClick = { expanded = true }) {
                     Icon(Icons.Rounded.MoreVert, stringResource(R.string.forum_manage), tint = palette.textSecondary)
                 }
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                BeyGramPopover(expanded = expanded, onDismissRequest = { expanded = false }) {
                     if (topic.canManage) {
-                        DropdownMenuItem(text = { Text(stringResource(R.string.forum_rename)) },
+                        BeyGramPopoverItem(text = stringResource(R.string.forum_rename),
                             onClick = { expanded = false; onRename() })
-                        DropdownMenuItem(text = { Text(stringResource(if (topic.isClosed) R.string.forum_reopen else R.string.forum_close)) },
+                        BeyGramPopoverItem(text = stringResource(if (topic.isClosed) R.string.forum_reopen else R.string.forum_close),
                             onClick = { expanded = false; onClosed() })
-                        if (topic.id != 1L) DropdownMenuItem(text = { Text(stringResource(R.string.forum_delete)) },
+                        if (topic.id != 1L) BeyGramPopoverItem(text = stringResource(R.string.forum_delete), danger = true,
                             onClick = { expanded = false; onDelete() })
                     }
-                    if (topic.canPin) DropdownMenuItem(
-                        text = { Text(stringResource(if (topic.isPinned) R.string.forum_unpin else R.string.forum_pin)) },
+                    if (topic.canPin) BeyGramPopoverItem(
+                        text = stringResource(if (topic.isPinned) R.string.forum_unpin else R.string.forum_pin),
                         onClick = { expanded = false; onPinned() })
                 }
             }

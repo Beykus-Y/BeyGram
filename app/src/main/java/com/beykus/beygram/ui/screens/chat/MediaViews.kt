@@ -72,6 +72,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.*
 import com.beykus.beygram.ui.components.TextButton
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1214,23 +1216,24 @@ internal fun MediaViewer(
                             }
                             if (hasOverflowActions) Box {
                                 IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.media_more_actions), tint = Color.White) }
-                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                    if (actions != null && actions.canEdit) DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.common_edit)) },
+                                BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    if (actions != null && actions.canEdit) BeyGramPopoverItem(
+                                        text = stringResource(R.string.common_edit),
                                         leadingIcon = { Icon(Icons.Rounded.Edit, null) },
                                         onClick = { menuOpen = false; actions.onEdit() }
                                     )
-                                    if (exportPath != null) DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.media_open_in_other_app)) },
+                                    if (exportPath != null) BeyGramPopoverItem(
+                                        text = stringResource(R.string.media_open_in_other_app),
                                         onClick = { menuOpen = false; openExternal(shown, exportPath) }
                                     )
-                                    if (onShowInChat != null) DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.media_show_in_chat)) },
+                                    if (onShowInChat != null) BeyGramPopoverItem(
+                                        text = stringResource(R.string.media_show_in_chat),
                                         onClick = { menuOpen = false; onShowInChat(shown.messageId) }
                                     )
-                                    if (actions != null && actions.canDelete) DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.common_delete), color = palette.danger) },
+                                    if (actions != null && actions.canDelete) BeyGramPopoverItem(
+                                        text = stringResource(R.string.common_delete),
                                         leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = palette.danger) },
+                                        danger = true,
                                         onClick = { menuOpen = false; actions.onDelete() }
                                     )
                                 }
