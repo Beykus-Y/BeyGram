@@ -875,4 +875,15 @@
     <string name="chat_peek_failed">Vorschau ist gerade nicht verfügbar</string>
     <string name="chat_peek_hint">Der Chat bleibt ungelesen</string>
     <string name="chat_peek_media">Anhang</string>
+    <string name="share_expand_picker">Auswahl erweitern</string>
+    <string name="share_show_author">Ursprünglichen Autor anzeigen</string>
+    <string name="share_search_topics">Themen suchen</string>
+    <string name="share_interrupted_warning">Der Versand wurde unterbrochen. Prüfe vor einem erneuten Versand den Empfängerchat.</string>
+    <string name="share_forward_message_count">Weiterzuleitende Nachrichten: %1$d</string>
+    <string name="share_load_more_chats">Weitere Chats laden</string>
+    <string name="share_unavailable_recipient">Ein oder mehrere Empfänger sind nicht verfügbar. Entferne sie aus der Auswahl.</string>
+    <string name="share_remove_caption">Medienbeschriftung ausblenden</string>
+    <string name="share_send_count">Senden (%1$d)</string>
+    <string name="share_add_recipient">Empfänger hinzufügen</string>
+    <string name="share_delivery_progress">An %1$d von %2$d Empfängern gesendet. Einige Teile stehen noch aus.</string>
 </resources>

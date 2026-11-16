@@ -39,6 +39,8 @@ data class BgWaveSessionState(
     val errorKey: String? = null,
     /** "None", "Direct" or the route reported by the native layer; shown only as a status, never as a promise. */
     val route: String = "None",
+    /** Host only: the playing source cannot be sent into the wave, so the listener hears nothing. */
+    val sourceUnsupported: Boolean = false,
 )
 
 /** What the card of one received invitation shows. */
@@ -60,6 +62,7 @@ object BgWaveErrors {
     const val BUSY = "bgwave_error_busy"
     const val EXPIRED = "bgwave_error_expired"
     const val REJECTED = "bgwave_error_rejected"
+    const val OFFER_TOO_LARGE = "bgwave_error_offer_too_large"
 }
 
 /**
@@ -146,7 +149,10 @@ class BgWaveController(
             if (decoded == null || decoded.type != TYPE_OFFER || link == null) {
                 created.close()
                 created = null
-                return finishStartFailed(gen, BgWaveRole.Host, accountId, chatId, peerId, "", BgWaveErrors.REJECTED)
+                // A valid offer whose https link does not fit is a size problem (too many connection candidates), not a bad answer.
+                val tooLarge = uri != null && (uri.length > BgWaveLink.MAX_LINK_CHARS || (decoded?.type == TYPE_OFFER && link == null))
+                val key = if (tooLarge) BgWaveErrors.OFFER_TOO_LARGE else BgWaveErrors.REJECTED
+                return finishStartFailed(gen, BgWaveRole.Host, accountId, chatId, peerId, "", key)
             }
             return commitHostSession(gen, created, accountId, chatId, peerId, decoded, link)
         } catch (t: Throwable) {
@@ -160,6 +166,13 @@ class BgWaveController(
             }
             throw t
         }
+    }
+
+    /** Host: records whether the playing source can be sent into the wave; no-op for other roles or an unchanged value. */
+    fun setHostSourceUnsupported(sidHex: String, unsupported: Boolean): Unit = synchronized(lock) {
+        val current = _state.value ?: return
+        if (current.role != BgWaveRole.Host || current.sidHex != sidHex || current.sourceUnsupported == unsupported) return
+        _state.value = current.copy(sourceUnsupported = unsupported)
     }
 
     /** Host: opens a PCM tap on the live session, under the controller lock so the session cannot close meanwhile. */

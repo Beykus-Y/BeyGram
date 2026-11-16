@@ -59,17 +59,22 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
     var failure by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf<Pair<ForwardTarget, CompletableDeferred<Boolean>>?>(null) }
     ForwardChatDialog(
-        chats = waveTargetChats(chats + archivedChats),
+        chats = chats + archivedChats,
+        recipientRepository = repository,
+        candidatePolicy = ::waveTargetChats,
         busy = sending,
         error = failure,
         observeFile = repository::observeFile,
         downloadFile = repository::downloadFile,
-        asCopy = true,
+        titleOverride = stringResource(R.string.player_share),
+        sendLabel = stringResource(R.string.share_send),
         allowComment = false,
+        singleRecipient = true,
+        freezeSelectionAfterAttempt = false,
         onSend = { targets, _ ->
             failure = null
             val target = targets.singleOrNull()
-            if (target == null) {
+            if (target == null || waveTargetChats((repository.chats.value + repository.archivedChats.value + repository.folderChats.value.values.flatten()).distinctBy { it.id }).none { it.id == target.chatId }) {
                 failure = onePersonText
                 return@ForwardChatDialog targets
             }
@@ -78,6 +83,10 @@ internal fun ShareWaveDialog(repository: TelegramRepository, accountId: String, 
             val accepted = answer.await()
             confirm = null
             if (!accepted) return@ForwardChatDialog targets
+            if (waveTargetChats((repository.chats.value + repository.archivedChats.value + repository.folderChats.value.values.flatten()).distinctBy { it.id }).none { it.id == target.chatId }) {
+                failure = onePersonText
+                return@ForwardChatDialog targets
+            }
             sending = true
             val sent = try {
                 BgWaveHub.share(accountId, target.chatId, target.chatId)

@@ -875,4 +875,15 @@
     <string name="chat_peek_failed">Preview is unavailable right now</string>
     <string name="chat_peek_hint">The chat stays unread</string>
     <string name="chat_peek_media">Attachment</string>
+    <string name="share_expand_picker">Expand picker</string>
+    <string name="share_show_author">Show original author</string>
+    <string name="share_search_topics">Search topics</string>
+    <string name="share_interrupted_warning">Sending was interrupted. Check the recipient chat before sending again.</string>
+    <string name="share_forward_message_count">Messages to forward: %1$d</string>
+    <string name="share_load_more_chats">Load more chats</string>
+    <string name="share_unavailable_recipient">One or more recipients are unavailable. Remove them from the selection.</string>
+    <string name="share_remove_caption">Hide media caption</string>
+    <string name="share_send_count">Send (%1$d)</string>
+    <string name="share_add_recipient">Add recipient</string>
+    <string name="share_delivery_progress">Sent to %1$d of %2$d recipients. Some parts remain unsent.</string>
 </resources>

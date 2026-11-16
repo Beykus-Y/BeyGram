@@ -13,6 +13,11 @@
     <string name="bgwave_status_awaiting">Esperando respuesta…</string>
     <string name="bgwave_status_connecting">Conectando…</string>
     <string name="bgwave_status_live">La ola está sonando</string>
+    <string name="bgwave_card_role_host">Eres el anfitrión</string>
+    <string name="bgwave_card_role_listener">Eres el oyente</string>
+    <string name="bgwave_card_listeners">Oyentes: %1$d/1</string>
+    <string name="bgwave_card_route_direct">Conexión directa</string>
+    <string name="bgwave_status_source_unsupported">Esta fuente no se puede emitir en la ola</string>
     <string name="bgwave_status_reconnecting">Reconectando…</string>
     <string name="bgwave_status_failed">No se pudo conectar</string>
     <string name="bgwave_status_ended">La ola ha terminado</string>
@@ -28,6 +33,7 @@
     <string name="bgwave_error_busy">Ya hay otra ola en marcha. Detenla primero.</string>
     <string name="bgwave_error_expired">La invitación ha caducado.</string>
     <string name="bgwave_error_rejected">La respuesta no corresponde a esta ola.</string>
+    <string name="bgwave_error_offer_too_large">No se pudo preparar la invitación: demasiados datos de conexión. Prueba con otra red.</string>
     <string name="bgwave_share_action">Compartir ola</string>
     <string name="bgwave_action_stop_wave">Detener ola</string>
     <string name="bgwave_share_one_person">Elige a una persona: la ola suena para un solo oyente.</string>
@@ -37,9 +43,9 @@
     <string name="bgwave_share_confirm_send">Enviar</string>
     <string name="bgwave_share_confirm_cancel">Cancelar</string>
     <string name="bgwave_mini_title">Ola</string>
+    <string name="bgwave_mini_a11y">Ola: %1$s</string>
     <string name="bgwave_listener_channel_name">Escuchar juntos</string>
     <string name="bgwave_listener_notification_title">Estás escuchando una ola</string>
     <string name="bgwave_listener_notification_text">El sonido sigue con la pantalla apagada</string>
-    <string name="bgwave_listener_notification_stop">Salir</string>
     <string name="bgwave_chat_preview">Escucha compartida</string>
 </resources>

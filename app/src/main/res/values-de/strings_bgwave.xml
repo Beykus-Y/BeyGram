@@ -13,6 +13,11 @@
     <string name="bgwave_status_awaiting">Warte auf Antwort …</string>
     <string name="bgwave_status_connecting">Verbindung wird hergestellt …</string>
     <string name="bgwave_status_live">Welle läuft</string>
+    <string name="bgwave_card_role_host">Du bist der Host</string>
+    <string name="bgwave_card_role_listener">Du bist der Zuhörer</string>
+    <string name="bgwave_card_listeners">Zuhörer: %1$d/1</string>
+    <string name="bgwave_card_route_direct">Direkte Verbindung</string>
+    <string name="bgwave_status_source_unsupported">Diese Quelle kann nicht in die Welle übertragen werden</string>
     <string name="bgwave_status_reconnecting">Verbindung wird erneuert …</string>
     <string name="bgwave_status_failed">Verbindung fehlgeschlagen</string>
     <string name="bgwave_status_ended">Die Welle ist beendet</string>
@@ -28,6 +33,7 @@
     <string name="bgwave_error_busy">Es läuft bereits eine andere Welle. Beende sie zuerst.</string>
     <string name="bgwave_error_expired">Die Einladung ist abgelaufen.</string>
     <string name="bgwave_error_rejected">Die Antwort passt nicht zu dieser Welle.</string>
+    <string name="bgwave_error_offer_too_large">Die Einladung konnte nicht vorbereitet werden: zu viele Verbindungsdaten. Versuche es in einem anderen Netzwerk.</string>
     <string name="bgwave_share_action">Welle teilen</string>
     <string name="bgwave_action_stop_wave">Welle stoppen</string>
     <string name="bgwave_share_one_person">Wähle eine Person: Eine Welle läuft nur für einen Zuhörer.</string>
@@ -37,9 +43,9 @@
     <string name="bgwave_share_confirm_send">Senden</string>
     <string name="bgwave_share_confirm_cancel">Abbrechen</string>
     <string name="bgwave_mini_title">Welle</string>
+    <string name="bgwave_mini_a11y">Welle: %1$s</string>
     <string name="bgwave_listener_channel_name">Gemeinsam hören</string>
     <string name="bgwave_listener_notification_title">Du hörst eine Welle</string>
     <string name="bgwave_listener_notification_text">Der Ton läuft bei ausgeschaltetem Bildschirm weiter</string>
-    <string name="bgwave_listener_notification_stop">Verlassen</string>
     <string name="bgwave_chat_preview">Gemeinsames Hören</string>
 </resources>

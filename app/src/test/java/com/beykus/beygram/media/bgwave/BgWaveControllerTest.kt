@@ -115,6 +115,25 @@ class BgWaveControllerTest {
         assertEquals(BgWavePhase.Live, c.state.value?.phase)
     }
 
+    @Test fun oversizedOfferIsReportedAsTooLargeNotRejected() {
+        val huge = BgWaveLink.URI_PREFIX + "1-" + sid + "a".repeat(BgWaveLink.MAX_LINK_CHARS) + "-1-" + (now + 300)
+        val c = controller(FakeSession(ArrayDeque(listOf(huge))))
+        assertNull(c.startHosting("a", 7L, 7L, now))
+        assertEquals(BgWaveErrors.OFFER_TOO_LARGE, c.state.value?.errorKey)
+    }
+
+    @Test fun hostSourceUnsupportedFlagFollowsTheSessionAndIsHostOnly() {
+        val session = FakeSession(ArrayDeque(listOf(link(1))))
+        val c = controller(session)
+        c.startHosting("a", 7L, 7L, now)
+        c.setHostSourceUnsupported(sid, true)
+        assertEquals(true, c.state.value?.sourceUnsupported)
+        c.setHostSourceUnsupported("other", false)
+        assertEquals(true, c.state.value?.sourceUnsupported)
+        c.setHostSourceUnsupported(sid, false)
+        assertEquals(false, c.state.value?.sourceUnsupported)
+    }
+
     @Test fun answerFromAnotherChatSenderAccountOrSidIsIgnored() {
         for (case in 0..3) {
             val session = FakeSession(ArrayDeque(listOf(link(1))))

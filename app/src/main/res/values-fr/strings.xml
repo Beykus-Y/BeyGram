@@ -901,4 +901,15 @@
     <string name="chat_peek_failed">L\'aperçu n\'est pas disponible pour le moment</string>
     <string name="chat_peek_hint">La discussion reste non lue</string>
     <string name="chat_peek_media">Pièce jointe</string>
+    <string name="share_expand_picker">Agrandir le sélecteur</string>
+    <string name="share_show_author">Afficher l’auteur d’origine</string>
+    <string name="share_search_topics">Rechercher des sujets</string>
+    <string name="share_interrupted_warning">L’envoi a été interrompu. Vérifiez la conversation du destinataire avant de renvoyer le contenu.</string>
+    <string name="share_forward_message_count">Messages à transférer : %1$d</string>
+    <string name="share_load_more_chats">Charger plus de conversations</string>
+    <string name="share_unavailable_recipient">Un ou plusieurs destinataires ne sont pas disponibles. Retirez-les de la sélection.</string>
+    <string name="share_remove_caption">Masquer la légende du média</string>
+    <string name="share_send_count">Envoyer (%1$d)</string>
+    <string name="share_add_recipient">Ajouter un destinataire</string>
+    <string name="share_delivery_progress">Envoyé à %1$d destinataires sur %2$d. Certains éléments restent à envoyer.</string>
 </resources>

@@ -111,9 +111,13 @@ class MainActivity : FragmentActivity() {
                 savedInstanceState.getString("notification_account") ?: "legacy")
             val restoredText = savedInstanceState.getString("share_text").orEmpty()
             val restoredFiles = restoredUris(savedInstanceState)
-            // После фильтра файлов запрос может остаться пустым: тогда пустой диалог не показываем.
-            if (savedInstanceState.containsKey("share_text") && (restoredText.isNotEmpty() || restoredFiles.isNotEmpty())) {
-                incomingShare = IncomingShare(savedInstanceState.getLong("share_id"), restoredText, restoredFiles, savedInstanceState.getLong("share_chat_id"))
+            // A recreated process cannot recover confirmed batches from its previous in-memory session.
+            // Do not reopen a previously started delivery as a fresh, retryable share.
+            val restoredShareId = savedInstanceState.getLong("share_id")
+            if (savedInstanceState.getBoolean("share_delivery_started") && !ShareSessions.hasSession(restoredShareId)) {
+                Toast.makeText(this, R.string.share_interrupted_warning, Toast.LENGTH_LONG).show()
+            } else if (savedInstanceState.containsKey("share_text") && (restoredText.isNotEmpty() || restoredFiles.isNotEmpty())) {
+                incomingShare = IncomingShare(restoredShareId, restoredText, restoredFiles, savedInstanceState.getLong("share_chat_id"))
             }
         } else {
             acceptNotificationIntent(intent)
@@ -401,7 +405,13 @@ class MainActivity : FragmentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("notification_pending", notificationRequest != null)
         notificationRequest?.let { outState.putLong("notification_token", it.token); outState.putLong("notification_chat", it.chatId ?: 0L); outState.putBoolean("notification_settings", it.settings); outState.putBoolean("notification_proxy", it.proxy); outState.putLong("notification_topic", it.topicId); outState.putString("notification_account", it.accountId) }
-        incomingShare?.let { outState.putLong("share_id", it.requestId); outState.putString("share_text", it.text); outState.putParcelableArrayList("share_uris", ArrayList(it.uris)); outState.putLong("share_chat_id", it.targetChatId) }
+        incomingShare?.let {
+            outState.putLong("share_id", it.requestId)
+            outState.putString("share_text", it.text)
+            outState.putParcelableArrayList("share_uris", ArrayList(it.uris))
+            outState.putLong("share_chat_id", it.targetChatId)
+            outState.putBoolean("share_delivery_started", ShareSessions.deliveryAccount(it.requestId) != null)
+        }
         outState.putString("deeplink_intent_data", lastDeepLinkIntentData)
         outState.putBoolean("secure_screen", screenSecure)
         outState.putBoolean("secret_playback", secretPlayback)
@@ -437,6 +447,7 @@ class MainActivity : FragmentActivity() {
         val shared = IncomingShareParser.from(intent?.action, intent?.type, intent?.getCharSequenceExtra(Intent.EXTRA_TEXT), files.accepted, SystemClock.elapsedRealtimeNanos())
         // Чужой intent без содержимого не должен стирать уже принятый запрос.
         if (shared != null) {
+            incomingShare?.let { ShareSessions.release(this, it.requestId) }
             // A shortcut only preselects the review screen; actual eligibility is checked against
             // the current TDLib chat list and the user must still press Send.
             val shortcut = intent?.getStringExtra(ShortcutManagerCompat.EXTRA_SHORTCUT_ID)

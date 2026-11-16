@@ -875,4 +875,15 @@
     <string name="chat_peek_failed">La vista previa no está disponible ahora</string>
     <string name="chat_peek_hint">El chat seguirá sin leer</string>
     <string name="chat_peek_media">Adjunto</string>
+    <string name="share_expand_picker">Expandir el selector</string>
+    <string name="share_show_author">Mostrar el autor original</string>
+    <string name="share_search_topics">Buscar temas</string>
+    <string name="share_interrupted_warning">El envío se interrumpió. Comprueba el chat del destinatario antes de volver a enviar.</string>
+    <string name="share_forward_message_count">Mensajes para reenviar: %1$d</string>
+    <string name="share_load_more_chats">Cargar más chats</string>
+    <string name="share_unavailable_recipient">Uno o varios destinatarios no están disponibles. Quítalos de la selección.</string>
+    <string name="share_remove_caption">Ocultar el pie del archivo multimedia</string>
+    <string name="share_send_count">Enviar (%1$d)</string>
+    <string name="share_add_recipient">Añadir destinatario</string>
+    <string name="share_delivery_progress">Enviado a %1$d de %2$d destinatarios. Quedan partes por enviar.</string>
 </resources>

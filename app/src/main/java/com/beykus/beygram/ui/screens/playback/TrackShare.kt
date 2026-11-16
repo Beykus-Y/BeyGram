@@ -108,13 +108,19 @@ internal fun ShareTrackDialog(repository: TelegramRepository, item: PlaybackItem
     val failedText = stringResource(R.string.player_share_failed)
     var sending by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
+    var retryBlocked by remember { mutableStateOf(false) }
     ForwardChatDialog(
-        chats = shareTargetChats(chats + archivedChats),
+        chats = chats + archivedChats,
+        recipientRepository = repository,
+        candidatePolicy = ::shareTargetChats,
         busy = sending,
         error = failure,
+        retryBlocked = retryBlocked,
         observeFile = repository::observeFile,
         downloadFile = repository::downloadFile,
-        asCopy = true,
+        titleOverride = stringResource(R.string.player_share),
+        previewText = item.trackTitle,
+        sendLabel = stringResource(R.string.share_send),
         allowComment = false,
         loadTopics = { chatId -> repository.forumTopics(chatId) },
         onSend = { targets, _ ->
@@ -125,15 +131,19 @@ internal fun ShareTrackDialog(repository: TelegramRepository, item: PlaybackItem
                 shareItem,
                 originUnprotected = item.origin == null || originChatNow(repository, item)?.hasProtectedContent == false
             )
-            val allowedChats = shareTargetChats(repository.chats.value + repository.archivedChats.value)
+            val allowedChats = shareTargetChats((repository.chats.value + repository.archivedChats.value + repository.folderChats.value.values.flatten()).distinctBy { it.id })
                 .map { it.id }
                 .toSet()
             val media = if (trackAllowed) trackOutgoingMedia(shareItem) else null
             val failed = mutableListOf<ForwardTarget>()
             for (target in targets) {
-                val sent = media != null && target.chatId in allowedChats &&
-                    repository.sendMedia(target.chatId, media, caption, forumTopicId = target.topicId).isSuccess
-                if (!sent) failed += target
+                val result = if (media != null && target.chatId in allowedChats)
+                    repository.sendMedia(target.chatId, media, caption, forumTopicId = target.topicId)
+                    else Result.failure(IllegalStateException())
+                if (result.isFailure) {
+                    failed += target
+                    if (com.beykus.beygram.share.isShareOutcomeUnknown(result.exceptionOrNull())) retryBlocked = true
+                }
             }
             sending = false
             if (failed.isNotEmpty()) failure = failedText
