@@ -51,6 +51,38 @@ class ChatContextUxPolicyTest {
     }
 
     @Test
+    fun lastLineMetadataSupportsWrappedAndForwardedPlainText() {
+        val long = message(1L, "A long forwarded message\nShort last line").copy(
+            isForwarded = true, forwardedFromName = "Original",
+        )
+        assertTrue(useLastLineTextMetadata(long, false))
+        assertFalse(useLastLineTextMetadata(long, true))
+        assertFalse(useLastLineTextMetadata(long.copy(entities = listOf(
+            MessageTextEntity(0, 1, TextStyleKind.Bold)
+        )), false))
+        assertFalse(useLastLineTextMetadata(long.copy(sendState = com.beykus.beygram.domain.model.MessageSendState.Failed), false))
+    }
+
+    @Test
+    fun lastLineMetadataUsesMeasuredWidthAndGap() {
+        assertTrue(lastLineMetadataFits(lastLineRight = 120, metaWidth = 50, gap = 4, maxWidth = 200))
+        assertTrue(lastLineMetadataFits(lastLineRight = 146, metaWidth = 50, gap = 4, maxWidth = 200))
+        assertFalse(lastLineMetadataFits(lastLineRight = 147, metaWidth = 50, gap = 4, maxWidth = 200))
+        assertFalse(lastLineMetadataFits(lastLineRight = Int.MAX_VALUE, metaWidth = 20, gap = 4, maxWidth = 200))
+        assertFalse(lastLineMetadataFits(lastLineRight = 120, metaWidth = 0, gap = 4, maxWidth = 200))
+    }
+
+    @Test
+    fun symbolOnlyNamesRetainRealIdentity() {
+        assertTrue(isSymbolOnlyDisplayName("🏎️"))
+        assertTrue(isSymbolOnlyDisplayName("❤️"))
+        assertFalse(isSymbolOnlyDisplayName("ден"))
+        assertFalse(isSymbolOnlyDisplayName("Beykus🏎️"))
+        assertFalse(isSymbolOnlyDisplayName("𐐀"))
+        assertFalse(isSymbolOnlyDisplayName(" "))
+    }
+
+    @Test
     fun standaloneMusicUrlCanBeReplacedButCaptionAndSpoilerCannot() {
         val raw = "https://music.yandex.ru/album/123/track/456?utm_source=share"
         val link = requireNotNull(yandexMusicEntityLink(raw))
