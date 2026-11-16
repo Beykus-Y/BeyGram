@@ -329,6 +329,31 @@ internal class TdConversationActions(
             if (options.disableLinkPreview) linkPreviewOptions = TdApi.LinkPreviewOptions().apply { isDisabled = true } } }
     }.onFailure { recordSendFailure("text", it) }
 
+    suspend fun paidTextPrice(chatId: Long): Result<Long> = conversationResult {
+        val type = request(TdApi.GetChat(chatId)).type as? TdApi.ChatTypePrivate ?: return@conversationResult 0L
+        // GetUser is local for known users; do not fetch full info for every free message.
+        if (request(TdApi.GetUser(type.userId)).paidMessageStarCount <= 0L) return@conversationResult 0L
+        request(TdApi.GetUserFullInfo(type.userId)).outgoingPaidMessageStarCount
+    }
+
+    suspend fun sendPaidText(
+        chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity>,
+        confirmedStarCount: Long, disableNotification: Boolean
+    ): Result<Unit> = conversationResult {
+        require(confirmedStarCount > 0L)
+        val bounded = boundTelegramText(text, entities, limits.value.text)
+        if (bounded.text.isBlank()) throw UserMessageException(UiText.Res(R.string.err_message_empty))
+        send(
+            chatId, replyId, options = MessageSendOptions(disableNotification = disableNotification),
+            confirmedPaidStars = confirmedStarCount
+        ) {
+            TdApi.InputMessageText().apply {
+                this.text = formattedText(bounded.text, bounded.entities)
+                clearDraft = false
+            }
+        }
+    }
+
     /** A poll carries its own question and options; no caption is involved, so only the send options are checked. */
     suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = pollResult<Unit> {
         requireFutureSchedule(options)
@@ -490,15 +515,29 @@ internal class TdConversationActions(
     private suspend fun send(
         chatId: Long, replyId: Long?, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(),
         media: List<OutgoingMedia> = emptyList(), liveLocation: Boolean = false,
+        confirmedPaidStars: Long = 0L,
         content: (List<OutgoingMedia>) -> TdApi.InputMessageContent
     ) {
         val replyTarget = replyId?.let {
             if (!request(TdApi.GetMessageProperties(chatId, it)).canBeReplied) throw UserMessageException(UiText.Res(R.string.err_message_cannot_reply))
             request(TdApi.GetMessage(chatId, it))
         }
+        // Never persist a payment authorization or turn it into a scheduled send.
+        if (confirmedPaidStars > 0L) {
+            if (stealth.active() || options.scheduledAtSeconds != null) {
+                throw UserMessageException(UiText.Res(R.string.stealth_schedule_unavailable_paid))
+            }
+            val currentPrice = paidTextPrice(chatId).getOrThrow()
+            if (!paidTextPriceMatches(confirmedPaidStars, currentPrice)) {
+                throw UserMessageException(UiText.Res(R.string.paid_text_price_changed))
+            }
+        }
         // Resolved last, so the scheduled date is taken as close to the request as possible.
         val resolved = stealth.resolve(chatId, options, media, liveLocation)
-        val protocolOptions = sendOptions(resolved.options)
+        if (confirmedPaidStars > 0L && resolved.options.scheduledAtSeconds != null) {
+            throw UserMessageException(UiText.Res(R.string.stealth_schedule_unavailable_paid))
+        }
+        val protocolOptions = sendOptions(resolved.options).apply { paidMessageStarCount = confirmedPaidStars }
         val inputContent = content(resolved.media)
         val message = stealth.scheduledRequest(resolved) { request(TdApi.SendMessage().apply {
             this.chatId = chatId; inputMessageContent = inputContent; this.options = protocolOptions
