@@ -114,6 +114,7 @@ internal fun ShareTargetScreen(
         }
     }
     var query by rememberSaveable { mutableStateOf("") }
+    var topicQuery by rememberSaveable(targetId) { mutableStateOf("") }
     // Тема группы с темами; 0 — чат без тем, тема не нужна.
     var topicId by rememberSaveable(requestId, session.accountId) { mutableStateOf(0L) }
     var topics by remember(requestId, session.accountId) { mutableStateOf<List<ForumTopic>?>(null) }
@@ -271,8 +272,10 @@ internal fun ShareTargetScreen(
             } else if (!session.deliveryStarted && target != null && topics != null && topicId == 0L) {
                 Text(stringResource(R.string.share_choose_topic, target.title), style = MaterialTheme.typography.titleSmall)
                 if (topics.isNullOrEmpty()) Text(stringResource(R.string.share_no_topics), style = MaterialTheme.typography.bodyMedium)
+                SearchField(topicQuery, { topicQuery = it }, stringResource(R.string.share_search_topics))
+                val filteredTopics = topics.orEmpty().filter { it.title.contains(topicQuery.trim(), ignoreCase = true) }
                 LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    items(topics.orEmpty(), key = { it.id }) { topic ->
+                    items(filteredTopics, key = { it.id }) { topic ->
                         Text(
                             text = topic.title,
                             maxLines = 1,

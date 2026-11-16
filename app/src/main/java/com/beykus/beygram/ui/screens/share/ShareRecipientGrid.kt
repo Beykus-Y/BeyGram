@@ -1,5 +1,8 @@
 package com.beykus.beygram.ui.screens.share
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +31,8 @@ import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.motion.MotionToken
+import com.beykus.beygram.ui.motion.rememberMotionSpec
 import kotlinx.coroutines.flow.StateFlow
 
 /** One adaptive recipient grid for internal forwarding and Android's incoming share. */
@@ -42,6 +47,7 @@ internal fun ShareRecipientGrid(
     selectedIds: Set<Long>? = null
 ) {
     val palette = beyGramPalette()
+    val feedback = rememberMotionSpec(MotionToken.MicroFeedback)
     LazyVerticalGrid(
         columns = GridCells.Adaptive(80.dp),
         modifier = modifier.fillMaxWidth(),
@@ -63,12 +69,14 @@ internal fun ShareRecipientGrid(
             ) {
                 Box(Modifier.size(62.dp), contentAlignment = Alignment.Center) {
                     ChatAvatar(chat, 54.dp, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
-                    if (selected) {
-                        Box(Modifier.matchParentSize().border(2.dp, palette.accent, CircleShape))
-                        Box(
-                            Modifier.align(Alignment.BottomEnd).size(22.dp).clip(CircleShape).background(palette.accent),
-                            contentAlignment = Alignment.Center
-                        ) {
+                    if (selected) Box(Modifier.matchParentSize().border(2.dp, palette.accent, CircleShape))
+                    AnimatedVisibility(
+                        visible = selected,
+                        modifier = Modifier.align(Alignment.BottomEnd),
+                        enter = if (feedback.isInstant) androidx.compose.animation.EnterTransition.None else fadeIn(feedback.animationSpec()),
+                        exit = if (feedback.isInstant) androidx.compose.animation.ExitTransition.None else fadeOut(feedback.animationSpec())
+                    ) {
+                        Box(Modifier.size(22.dp).clip(CircleShape).background(palette.accent), contentAlignment = Alignment.Center) {
                             Icon(Icons.Rounded.Check, null, tint = palette.onAccent, modifier = Modifier.size(15.dp))
                         }
                     }

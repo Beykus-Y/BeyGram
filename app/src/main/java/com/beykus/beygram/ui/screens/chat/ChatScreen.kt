@@ -285,6 +285,7 @@ fun ChatScreen(
     var selectionBusy by remember { mutableStateOf(false) }
     var selectionError by remember { mutableStateOf<String?>(null) }
     var selectionForwardOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var frozenForwardSelection by rememberSaveable(accountId, chat.id) { mutableStateOf(longArrayOf()) }
     var selectionDeleteOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
     var selectionDeleteRights by remember { mutableStateOf<BatchDeleteRights?>(null) }
     var selectionDeleteEveryone by remember { mutableStateOf(false) }
@@ -935,6 +936,7 @@ fun ChatScreen(
         selectionAnchorId = null
         selectionError = null
         selectionForwardOpen = false
+        frozenForwardSelection = longArrayOf()
         selectionDeleteOpen = false
         selectionDeleteRights = null
         selectionDeleteBusy = false
@@ -1225,7 +1227,7 @@ fun ChatScreen(
     BackHandler(enabled = !threadOpen && (stickerPanelOpen || searching || searchMatchSession.isActive || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || selectionMode)) {
         when {
             selectionDeleteOpen -> { selectionDeleteOpen = false; selectionDeleteError = null }
-            selectionForwardOpen -> { selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
+            selectionForwardOpen -> { if (!forwardBusy) { selectionForwardOpen = false; frozenForwardSelection = longArrayOf(); forwardError = null; forwardAsCopy = false } }
             selectionMode -> exitSelection()
             searching || searchMatchSession.isActive -> closeSearch()
             deleting -> { deleting = false; deleteError = null }
@@ -1844,7 +1846,13 @@ fun ChatScreen(
             canSave = selectionCanSave,
             onClose = ::exitSelection,
             onMore = singleActionTarget?.let { id -> { exitSelection(); actionAnchorBounds = bubbleBounds[id]; actionsId = id } },
-            onForward = { forwardAsCopy = false; selectionForwardOpen = true; selectionError = null },
+            onForward = {
+                val ids = forwardIdsForSelection(messages, selectionIds)
+                if (ids.isNotEmpty()) {
+                    frozenForwardSelection = ids.toLongArray()
+                    forwardAsCopy = false; selectionForwardOpen = true; selectionError = null
+                }
+            },
             onDelete = ::requestSelectionDelete,
             onCopy = ::copySelection,
             onSave = ::saveSelection
@@ -2732,14 +2740,13 @@ fun ChatScreen(
     )
     val forwardIds = when {
         forwardId != null -> listOf(forwardId!!)
-        selectionForwardOpen -> forwardIdsForSelection(messages, selectionIds)
+        selectionForwardOpen -> frozenForwardSelection.toList()
         else -> emptyList()
     }
     if (forwardIds.isNotEmpty()) {
         // Scoped to this open picker, not to the lifetime of a chat screen.
         val delivery = rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen, saver = ForwardDeliveryLedger.saver) { ForwardDeliveryLedger() }
-        val pendingSnapshot = rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen) { forwardIds.toLongArray() }
-        val pendingIds = pendingSnapshot.toList()
+        val pendingIds = forwardIds
         var removeCaption by rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen) { mutableStateOf(false) }
         var retryBlocked by rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen) { mutableStateOf(false) }
         val canRemoveCaption = messages.any { message ->
@@ -2825,7 +2832,7 @@ fun ChatScreen(
                 }
                 failed
             },
-            onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
+            onClose = { forwardId = null; selectionForwardOpen = false; frozenForwardSelection = longArrayOf(); forwardError = null; forwardAsCopy = false }
         )
     }
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, riskGuard, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }

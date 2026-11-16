@@ -165,7 +165,7 @@ internal fun ForwardChatDialog(
     fun isPicked(chatId: Long, topicId: Long) = targets.any { it.chatId == chatId && it.topicId == topicId }
 
     fun toggle(target: ForwardTarget) {
-        if (locked || (attempted && !isPicked(target.chatId, target.topicId))) return
+        if (busy || sending || loadingTopics || (attempted && !isPicked(target.chatId, target.topicId))) return
         targets = toggleForwardTarget(targets, target, singleRecipient)
     }
 
@@ -178,7 +178,7 @@ internal fun ForwardChatDialog(
     }
 
     fun chooseChat(chat: ChatPreview) {
-        if (locked || attempted) return
+        if (busy || sending || loadingTopics || attempted) return
         val loader = loadTopics
         if (loader == null || !chat.isGroup) {
             toggle(ForwardTarget(chat.id, chat.title))
@@ -204,19 +204,38 @@ internal fun ForwardChatDialog(
     }
 
     fun send() {
-        if (locked || interrupted || retryBlocked || targets.isEmpty() || unavailableTarget || commentOverLimit) return
+        if (busy || sending || loadingTopics || interrupted || retryBlocked || targets.isEmpty() || unavailableTarget || commentOverLimit) return
         attempted = true
         sending = true
         attemptInFlight = true
         scope.launch {
             val failed = try {
-                onSend(targets, if (allowComment) comment.trim() else "").also { attemptInFlight = false }
+                val requested = targets.toList()
+                val invalid = mutableListOf<ForwardTarget>()
+                val ready = requested.filter { target ->
+                    val result = loadTopics?.invoke(target.chatId)
+                    val valid = if (result == null) target.topicId == 0L else result.isSuccess &&
+                        (result.getOrNull()?.any { it.id == target.topicId && it.canWrite } ?: (target.topicId == 0L))
+                    if (!valid) invalid += target
+                    valid
+                }
+                val failedDelivery = if (ready.isNotEmpty()) onSend(ready, if (allowComment) comment.trim() else "") else emptyList()
+                topicError = if (invalid.isNotEmpty()) context.getString(R.string.forward_topics_failed) else null
+                attemptInFlight = false
+                invalid + failedDelivery
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                topicError = failure.userMessage(context, R.string.chat_forward_failed)
+                targets
             } finally {
                 sending = false
             }
             if (failed.isEmpty()) onClose() else {
                 targets = failed
-                backFromTopics()
+                topicChat = null
+                topicQuery = ""
+                topics = emptyList()
             }
         }
     }
@@ -305,7 +324,7 @@ internal fun ForwardChatDialog(
                         OutlinedTextField(
                             value = comment,
                             onValueChange = { comment = it },
-                            enabled = !locked,
+                            enabled = !locked && !attempted,
                             placeholder = { Text(stringResource(R.string.forward_comment_hint)) },
                             maxLines = 3,
                             isError = commentOverLimit,

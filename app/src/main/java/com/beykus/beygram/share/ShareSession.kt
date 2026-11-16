@@ -62,7 +62,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
 
     /** Копирует файлы в приватную папку один раз; вызов после поворота ничего не запускает повторно. */
     fun startStaging(context: Context, scope: CoroutineScope) {
-        if (started || uris.isEmpty()) return
+        if (started || released || uris.isEmpty()) return
         started = true
         val staging = OutgoingMediaImporter(context, accountId)
         importer = staging
@@ -90,12 +90,15 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         try {
             for (uri in uris) {
                 // Фото и видео уходят как медиа, остальное как документ.
+                if (released) break
                 val asDocument = withContext(Dispatchers.IO) { !isPhotoOrVideo(context, uri) }
                 items += importer.prepare(uri, asDocument)
             }
-            staged = items
             // Экран уже закрыли, пока копировали: копии никто не заберёт.
-            if (released) discard(importer, scope, items)
+            if (released) discard(importer, scope, items) else staged = items
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            withContext(kotlinx.coroutines.NonCancellable) { items.forEach { importer.discard(it) } }
+            throw cancelled
         } catch (failure: Exception) {
             discard(importer, scope, items)
             error = UiText.Res(R.string.composer_prepare_failed)
