@@ -30,6 +30,20 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(read_version(self.root / "release-version.properties"), "0.0.0.7")
         self.assertEqual(validate_release_notes(self.root, "0.0.0.7").name, "v0.0.0.7.md")
 
+    def test_highlights_and_subheadings_are_allowed(self):
+        self.write_notes(
+            "# BeyGram 0.0.0.7\n\n## Главное\n"
+            "- Совместное прослушивание музыки прямо в чате.\n\n"
+            "## Что нового\n### Музыка\n"
+            "- Новый экран музыки с выбором источника.\n"
+        )
+        self.assertEqual(validate_release_notes(self.root, "0.0.0.7").name, "v0.0.0.7.md")
+
+    def test_unknown_section_is_rejected(self):
+        self.write_notes("# BeyGram 0.0.0.7\n## Разное\n- Исправлена ошибка загрузки.\n")
+        with self.assertRaisesRegex(ValueError, "Unknown release notes section"):
+            validate_release_notes(self.root, "0.0.0.7")
+
     def test_missing_file_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Missing Stable changelog"):
             validate_release_notes(self.root, "0.0.0.7")

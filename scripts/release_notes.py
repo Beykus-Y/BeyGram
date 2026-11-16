@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){3}$")
-SECTIONS = {"Что нового", "Улучшения", "Исправления", "Известные проблемы"}
+SECTIONS = {"Главное", "Что нового", "Улучшения", "Исправления", "Известные проблемы"}
 MAX_NOTES_CHARS = 10_000
 BANNED_PLACEHOLDERS = re.compile(r"\b(?:TODO|TBD|FIXME)\b|заполнить|описать изменения", re.IGNORECASE)
 
