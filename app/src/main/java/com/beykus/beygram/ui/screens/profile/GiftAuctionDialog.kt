@@ -103,7 +103,8 @@ internal fun GiftAuctionDialog(
             onDismissRequest = { confirm = false },
             title = stringResource(R.string.gift_auction_title),
             message = stringResource(R.string.gift_auction_confirm, formatStarAmount(total), profileTitle) +
-                "\n\n" + stringResource(R.string.gift_auction_debit, formatStarAmount(debit), formatStarAmount(total)),
+                "\n\n" + stringResource(R.string.gift_auction_debit, formatStarAmount(debit), formatStarAmount(total)) +
+                if (current.ownBid == null) "\n\n" + stringResource(R.string.gifts_hide_name_hint) else "",
             confirmText = stringResource(if (current.ownBid == null) R.string.gift_auction_place else R.string.gift_auction_raise),
             confirmEnabled = purchaseEnabled,
             onConfirm = {

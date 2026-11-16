@@ -711,7 +711,7 @@ private fun GiftCatalogRow(
             Text(gift.emoji.ifBlank { "🎁" }, fontSize = 32.sp)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(
-                    stringResource(R.string.gifts_cost, formatStarAmount(gift.starCount)),
+                    if (gift.auctionId.isNullOrBlank()) stringResource(R.string.gifts_cost, formatStarAmount(gift.starCount)) else stringResource(R.string.gift_auction_title),
                     color = palette.textPrimary,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold
@@ -726,7 +726,7 @@ private fun GiftCatalogRow(
                 if (details.isNotEmpty()) {
                     Text(details.joinToString(" · "), color = palette.textSecondary, fontSize = 12.sp)
                 }
-                blockReason?.let { reason ->
+                blockReason?.takeUnless { it == GiftBlockReason.AuctionOnly && !gift.auctionId.isNullOrBlank() }?.let { reason ->
                     Text(
                         stringResource(giftBlockMessage(reason)),
                         color = palette.danger,
