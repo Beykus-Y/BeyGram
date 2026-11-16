@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.chat
 
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.design.panelFill
 import com.beykus.beygram.ui.design.PanelFloor
 import com.beykus.beygram.ui.design.ComposerVariant
@@ -3113,35 +3115,35 @@ private fun ChatTopBar(
             IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, stringResource(R.string.chat_search_description), tint = palette.textSecondary) }
             Box {
                 IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary) }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_jump_to_unread)) },
+                BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    BeyGramPopoverItem(
+                        text = stringResource(R.string.chat_jump_to_unread),
                         enabled = hasUnread,
                         onClick = { menuOpen = false; onJumpUnread() }
                     )
-                    if (!chat.isSecret) DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_scheduled_title)) },
+                    if (!chat.isSecret) BeyGramPopoverItem(
+                        text = stringResource(R.string.chat_scheduled_title),
                         leadingIcon = { Icon(Icons.Rounded.Schedule, contentDescription = null, tint = palette.textSecondary) },
                         onClick = { menuOpen = false; onScheduled() }
                     )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_mark_unread)) },
+                    BeyGramPopoverItem(
+                        text = stringResource(R.string.chat_mark_unread),
                         onClick = { menuOpen = false; onMarkUnread() }
                     )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_export_title)) },
+                    BeyGramPopoverItem(
+                        text = stringResource(R.string.chat_export_title),
                         onClick = { menuOpen = false; onExport() }
                     )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.message_action_select)) },
+                    BeyGramPopoverItem(
+                        text = stringResource(R.string.message_action_select),
                         onClick = { menuOpen = false; onSelectMessages() }
                     )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_settings_title)) },
+                    BeyGramPopoverItem(
+                        text = stringResource(R.string.chat_settings_title),
                         onClick = { menuOpen = false; onChatSettings() }
                     )
-                    if (onStatistics != null) DropdownMenuItem(
-                        text = { Text(stringResource(R.string.channel_statistics_title)) },
+                    if (onStatistics != null) BeyGramPopoverItem(
+                        text = stringResource(R.string.channel_statistics_title),
                         onClick = { menuOpen = false; onStatistics() }
                     )
                 }

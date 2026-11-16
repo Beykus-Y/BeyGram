@@ -18,12 +18,12 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.TextButton
@@ -209,14 +209,14 @@ private fun ChatSearchFilterDialog(
                         Text(senderLabel, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Icon(Icons.Rounded.ArrowDropDown, null, tint = palette.textSecondary)
                     }
-                    DropdownMenu(expanded = senderMenu, onDismissRequest = { senderMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.search_filter_any_sender)) },
+                    BeyGramPopover(expanded = senderMenu, onDismissRequest = { senderMenu = false }, alignEnd = false) {
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.search_filter_any_sender),
                             onClick = { draft = draft.copy(senderId = null); senderMenu = false }
                         )
                         senders.forEach { sender ->
-                            DropdownMenuItem(
-                                text = { Text(sender.name) },
+                            BeyGramPopoverItem(
+                                text = sender.name,
                                 onClick = { draft = draft.copy(senderId = sender.userId); senderMenu = false }
                             )
                         }
