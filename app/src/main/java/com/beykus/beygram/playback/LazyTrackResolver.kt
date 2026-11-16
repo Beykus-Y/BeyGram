@@ -3,7 +3,12 @@ package com.beykus.beygram.playback
 import android.os.SystemClock
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +35,9 @@ internal interface LazyTrackSource {
 
     /** Starts fetching once; asking again while it runs or after it finished does nothing. */
     fun request(key: String)
+
+    /** Speculative fetches may be cancelled when the lookahead window moves. */
+    fun prefetch(key: String) = request(key)
 
     /** The queue row now names the copy, so the provider keeps it for as long as the row is there. */
     fun published(key: String)
@@ -77,8 +85,12 @@ internal object LazyTrackRegistry {
  * Subclasses say where a copy lives ([pathOf]), how it is removed or kept ([discardCopy], [handOverCopy]) and how the key
  * becomes a fetch ([setFetch]).
  */
-internal abstract class LazyTrackResolver<T : Any>(private val prefix: String) : LazyTrackSource {
-    private class Entry<V : Any>(@Volatile var track: V?, @Volatile var failed: Boolean, @Volatile var handedOver: Boolean)
+internal abstract class LazyTrackResolver<T : Any>(private val prefix: String, maxConcurrentFetches: Int = 4) : LazyTrackSource {
+    private class Entry<V : Any>(@Volatile var track: V?, @Volatile var failed: Boolean, @Volatile var handedOver: Boolean, var speculative: Boolean) {
+        lateinit var job: Job
+    }
+
+    private val permits = Semaphore(maxConcurrentFetches)
 
     private val entries = ConcurrentHashMap<String, Entry<T>>()
     private val cooldownUntil = ConcurrentHashMap<String, Long>()
@@ -123,53 +135,88 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String) :
     /** Keys whose fetched copy is held, whether or not the player has taken it yet. */
     fun readyKeys(): Set<String> = entries.filterValues { it.track != null }.keys.toSet()
 
-    override fun request(key: String) {
+    override fun request(key: String) = enqueue(key, speculative = false)
+
+    override fun prefetch(key: String) = enqueue(key, speculative = true)
+
+    private fun enqueue(key: String, speculative: Boolean) {
         val fetcher = fetch ?: return
         if (!owns(key)) return
-        val known = entries[key]
-        if (known != null) {
-            if (known.failed) return
-            if (known.track == null) return // still loading
-            if (resolvedTrack(key) != null) return // ready; a copy the cache removed is dropped by resolvedTrack() and fetched again
-        }
-        val until = cooldownUntil[key]
-        if (until != null && SystemClock.elapsedRealtime() < until) return
-        val entry = Entry<T>(track = null, failed = false, handedOver = false)
-        if (known == null) {
-            if (entries.putIfAbsent(key, entry) != null) return
-        } else if (!entries.replace(key, known, entry)) {
-            return
-        }
-        LazyTrackRegistry.publishProgress()
-        scope.launch {
-            try {
-                val result = runCatching { fetcher(key) }.getOrElse { Result.failure(it) }
-                val track = result.getOrNull()
-                // A reset or a newer fetch replaced this entry while it ran: the late copy has no owner, so it goes.
-                if (entries[key] !== entry) {
-                    track?.let { copy -> discardCopy(pathOf(copy)) }
-                    return@launch
-                }
-                when {
-                    track != null -> entry.track = track
-                    result.isFailure -> {
-                        // A failed request (timeout, no network) is not a verdict on the track: a later ask may try again.
-                        cooldownUntil[key] = SystemClock.elapsedRealtime() + RETRY_COOLDOWN_MS
-                        entries.remove(key, entry)
+        while (true) {
+            val existing = entries[key]
+            if (existing != null) {
+                synchronized(existing) {
+                    if (entries[key] === existing) {
+                        if (!speculative) existing.speculative = false
+                        if (existing.failed || existing.track == null || resolvedTrack(key) != null) return
                     }
-                    // The provider answered that there is no audio to deliver: asking again would not change that.
-                    else -> entry.failed = true
                 }
-            } finally {
+                // A cache eviction removed the previous entry: look up again instead of replacing a missing key.
+                continue
+            }
+            val until = cooldownUntil[key]
+            if (until != null && SystemClock.elapsedRealtime() < until) return
+            val entry = Entry<T>(track = null, failed = false, handedOver = false, speculative = speculative)
+            entry.job = scope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    val result = runCatching { permits.withPermit { fetcher(key) } }.getOrElse { Result.failure(it) }
+                    val track = result.getOrNull()
+                    val stale = synchronized(entry) {
+                        if (entries[key] !== entry) true
+                        else {
+                            when {
+                                track != null -> entry.track = track
+                                result.exceptionOrNull() is CancellationException -> entries.remove(key, entry)
+                                result.isFailure -> {
+                                    cooldownUntil[key] = SystemClock.elapsedRealtime() + RETRY_COOLDOWN_MS
+                                    entries.remove(key, entry)
+                                }
+                                else -> entry.failed = true
+                            }
+                            false
+                        }
+                    }
+                    if (stale) track?.let { discardCopy(pathOf(it)) }
+                } finally {
+                    LazyTrackRegistry.publishProgress()
+                }
+            }
+            if (entries.putIfAbsent(key, entry) == null) {
                 LazyTrackRegistry.publishProgress()
+                entry.job.start()
+                return
+            }
+            entry.job.cancel()
+        }
+    }
+
+    /** Cancel only unfinished speculative requests unless the entire playback queue has been replaced. */
+    fun cancelOutside(keep: Set<String>, includePlayback: Boolean = false) {
+        var changed = false
+        entries.forEach { (key, entry) ->
+            if (key !in keep) {
+                synchronized(entry) {
+                    if (entry.track == null && !entry.failed &&
+                        (includePlayback || (entry.speculative && !entry.handedOver)) &&
+                        entries.remove(key, entry)
+                    ) {
+                        entry.job.cancel()
+                        changed = true
+                    }
+                }
             }
         }
+        if (changed) LazyTrackRegistry.publishProgress()
     }
 
     override fun published(key: String) {
         val entry = entries[key] ?: return
-        val track = entry.track ?: return
-        entry.handedOver = true
+        val track = synchronized(entry) {
+            if (entries[key] !== entry) return
+            entry.handedOver = true
+            entry.speculative = false
+            entry.track
+        } ?: return
         handOverCopy(pathOf(track))
     }
 
@@ -178,11 +225,14 @@ internal abstract class LazyTrackResolver<T : Any>(private val prefix: String) :
 
     /** A new queue replaces the old one: copies that were fetched ahead but never reached the player are dropped. */
     fun reset() {
-        entries.values.forEach { entry ->
-            val track = entry.track
-            if (track != null && !entry.handedOver) discardCopy(pathOf(track))
+        entries.forEach { (key, entry) ->
+            val discard = synchronized(entry) {
+                if (!entries.remove(key, entry)) return@forEach
+                entry.job.cancel()
+                entry.track?.takeUnless { entry.handedOver }
+            }
+            discard?.let { discardCopy(pathOf(it)) }
         }
-        entries.clear()
         cooldownUntil.clear()
         LazyTrackRegistry.publishProgress()
     }

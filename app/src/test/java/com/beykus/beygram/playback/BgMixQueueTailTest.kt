@@ -30,6 +30,25 @@ class BgMixQueueTailTest {
     }
 
     @Test
+    fun preparationAndDownloadsCannotCreepBeyondThePlayingTrack() {
+        val size = 100
+        for (current in 0 until size) {
+            val nativeEnd = bgMixWindowEndExclusive(size, current, BG_MIX_NATIVE_AHEAD)
+            val downloadEnd = bgMixWindowEndExclusive(size, current, 2)
+            assertEquals(minOf(size, current + 2), nativeEnd)
+            assertEquals(minOf(size, current + 3), downloadEnd)
+            // Repeated feed ticks with every file ready must not advance the bound.
+            repeat(100) {
+                assertEquals(nativeEnd, bgMixWindowEndExclusive(size, current, BG_MIX_NATIVE_AHEAD))
+            }
+        }
+        assertEquals(19, bgMixWindowEndExclusive(size, 18, 0)) // Repeat One
+        assertEquals(0, bgMixWindowEndExclusive(size, -1, 1))
+        assertEquals(0, bgMixWindowEndExclusive(size, size, 1))
+        assertEquals(0, bgMixWindowEndExclusive(0, 0, 1))
+    }
+
+    @Test
     fun startIndexOutsideTheQueueIsRefused() {
         val queue = ready(track("a"))
         assertNull(bgMixReadyPrefix(queue, 1))

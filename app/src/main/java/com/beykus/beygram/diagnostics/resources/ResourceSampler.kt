@@ -4,6 +4,8 @@ import android.net.TrafficStats
 import android.os.Debug
 import android.os.Process
 import android.os.SystemClock
+import com.beykus.beygram.media.bgmix.BgMixMemorySnapshot
+import com.beykus.beygram.media.bgmix.BgMixPlayer
 
 /** Интервал опроса на экране «Ресурсы». Опрос идёт только пока экран открыт. */
 const val RESOURCE_SAMPLE_INTERVAL_MILLIS = 2_000L
@@ -19,6 +21,7 @@ data class ResourceSample(
     val javaHeapUsedBytes: Long,
     val javaHeapMaxBytes: Long,
     val nativeHeapBytes: Long,
+    val bgMixMemory: BgMixMemorySnapshot = BgMixMemorySnapshot(),
 )
 
 /**
@@ -41,6 +44,7 @@ class ResourceSampler(
             javaHeapUsedBytes = runtime.totalMemory() - runtime.freeMemory(),
             javaHeapMaxBytes = runtime.maxMemory(),
             nativeHeapBytes = Debug.getNativeHeapAllocatedSize(),
+            bgMixMemory = BgMixPlayer.memorySnapshot(),
         )
     }
 
