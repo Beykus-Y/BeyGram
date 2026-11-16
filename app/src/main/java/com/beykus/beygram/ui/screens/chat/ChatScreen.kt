@@ -781,6 +781,9 @@ fun ChatScreen(
     val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
         scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
     }
+    val daySeparators = remember(messageListItems, history.hasOlderMessages) {
+        chatDaySeparators(messageListItems, showOldestDay = !history.hasOlderMessages)
+    }
     // In a private chat the peer is already named in the header; groups need the author once per block, not per bubble.
     val senderHeaderByKey = remember(messageListItems, chat.isGroup, chat.isChannel, chat.isSavedMessages) {
         senderHeaderVisibility(chat, messageListItems)
@@ -2046,6 +2049,8 @@ fun ChatScreen(
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = metrics.listPadding + chromeTopPad, bottom = metrics.listPadding + chromeBottomPad), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }) { listItem ->
+                ChatScreenColumn(Modifier.fillMaxWidth()) {
+                daySeparators[listItem.key]?.let { ChatHistoryDateSeparator(it) }
                 if (listItem.unreadSeparator) {
                     UnreadMessagesSeparator()
                 } else if (listItem.pendingVideoNote != null) {
@@ -2292,6 +2297,7 @@ fun ChatScreen(
                         }
                         }
                     }
+                }
                 }
             }
             history.error?.let { historyError -> item(key = "history_error") {
