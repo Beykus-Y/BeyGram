@@ -116,6 +116,7 @@ internal fun ForwardChatDialog(
     titleOverride: String? = null,
     previewText: String? = null,
     previewMedia: MessageMedia? = null,
+    previewAlbum: List<MessageMedia> = emptyList(),
     sendLabel: String? = null,
     onAsCopyChange: ((Boolean) -> Unit)? = null,
     removeCaption: Boolean = false,
@@ -337,8 +338,11 @@ internal fun ForwardChatDialog(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(stringResource(R.string.share_preview_title), color = palette.accentInk, fontSize = 12.sp)
+                    if (previewAlbum.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(previewAlbum.take(10)) { media -> ShareMediaThumbnail(media, observeFile) }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        previewMedia?.let { ShareMediaThumbnail(it, observeFile) }
+                        if (previewAlbum.isEmpty()) previewMedia?.let { ShareMediaThumbnail(it, observeFile) }
                         Text(previewText, color = palette.textPrimary, fontWeight = FontWeight.Medium,
                             maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     }

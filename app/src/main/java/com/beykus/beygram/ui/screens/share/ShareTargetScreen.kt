@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +29,8 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.rememberUpdatedState
 import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.screens.chat.LocalMediaImage
+import com.beykus.beygram.domain.model.MediaKind
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -100,6 +103,7 @@ internal fun ShareTargetScreen(
     val directory = rememberShareRecipientDirectory(chats, recipientRepository)
     var targetId by rememberSaveable(requestId, session.accountId) { mutableStateOf(0L) }
     var shortcutApplied by rememberSaveable(requestId, session.accountId) { mutableStateOf(false) }
+    var reviewSelected by rememberSaveable(requestId, session.accountId) { mutableStateOf(false) }
     // TDLib chat list arrives asynchronously on a cold start: apply the Direct Share
     // target only when it becomes an actual writable chat. Never override user choice.
     LaunchedEffect(initialChatId, directory.chats) {
@@ -127,13 +131,27 @@ internal fun ShareTargetScreen(
     val currentDestination = target?.takeIf { validTopic }?.let {
         ShareDestination(it.id, topicId, it.title + (topics?.firstOrNull { topic -> topic.id == topicId }?.let { topic -> " · "+topic.title } ?: ""))
     }
-    val destinations = (session.selectedDestinations + listOfNotNull(currentDestination)).distinctBy { it.chatId to it.topicId }
+    val destinations = if (session.deliveryStarted) session.selectedDestinations else
+        (session.selectedDestinations + listOfNotNull(currentDestination)).distinctBy { it.chatId to it.topicId }
     val canSend = !session.sending && !session.staging && !session.stagingFailed && !session.retryBlocked && !tooLong &&
         destinations.isNotEmpty() && (session.deliveryStarted || destinations.all { destination ->
             directory.chats.any { it.id == destination.chatId && it.canPost }
         }) &&
-        (session.staged.isNotEmpty() || (session.draft.isNotBlank() && (!hasFiles || session.error == null)))
+        (session.staged.isNotEmpty() || session.draft.isNotBlank())
 
+    val validateDestination: suspend (ShareDestination) -> Result<Unit> = { destination ->
+        val current = recipientRepository?.let { repository ->
+            (repository.chats.value + repository.archivedChats.value + repository.folderChats.value.values.flatten())
+                .firstOrNull { it.id == destination.chatId }
+        } ?: directory.chats.firstOrNull { it.id == destination.chatId }
+        if (current?.canPost != true) Result.failure(UserMessageException(UiText.Res(R.string.share_unavailable_recipient)))
+        else loadTopics(destination.chatId).mapCatching { loaded ->
+            if (loaded == null && destination.topicId != 0L ||
+                loaded != null && loaded.none { it.id == destination.topicId && it.canWrite }) {
+                throw UserMessageException(UiText.Res(R.string.share_topics_failed))
+            }
+        }
+    }
     LaunchedEffect(session) { session.startStaging(context, appScope) }
     // Загружаем темы выбранного чата: null означает, что это не группа с темами и тема не нужна. После сбоя загрузка повторяется.
     LaunchedEffect(targetId, topicsAttempt) {
@@ -180,10 +198,10 @@ internal fun ShareTargetScreen(
                     enabled = !session.sending,
                     onClick = {
                         if (session.deliveryStarted) onCancel()
-                        else if (target != null) { targetId = 0L; topicId = 0L; session.error = null } else onCancel()
+                        else if (reviewSelected || target != null) { reviewSelected = false; targetId = 0L; topicId = 0L; session.error = null } else onCancel()
                     }
                 ) {
-                    Text(stringResource(if (target != null && !session.deliveryStarted) R.string.common_back else R.string.common_cancel))
+                    Text(stringResource(if ((reviewSelected || target != null) && !session.deliveryStarted) R.string.common_back else R.string.common_cancel))
                 }
                 Column(modifier = Modifier.padding(start = 8.dp)) {
                     Text(text = stringResource(R.string.share_title), style = MaterialTheme.typography.titleLarge)
@@ -195,7 +213,7 @@ internal fun ShareTargetScreen(
                 }
             }
 
-            if (target == null && !session.deliveryStarted) {
+            if (target == null && !session.deliveryStarted && !reviewSelected) {
                 // A concise preview gives context before choosing a recipient; never sends anything on selection.
                 if (text.isNotEmpty() || hasFiles) {
                     Surface(
@@ -222,11 +240,13 @@ internal fun ShareTargetScreen(
                 if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }
                 if (session.selectedDestinations.isNotEmpty()) {
                     Text(stringResource(R.string.forward_selected_count, session.selectedDestinations.size), style = MaterialTheme.typography.bodyMedium)
-                    session.selectedDestinations.forEach { destination ->
-                        TextButton(onClick = { session.removeDestination(destination) }) { Text(destination.title + " ×") }
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(session.selectedDestinations, key = { "${it.chatId}:${it.topicId}" }) { destination ->
+                            TextButton(onClick = { session.removeDestination(destination) }) { Text(destination.title + " ×", maxLines = 1) }
+                        }
                     }
-                    Button(onClick = { session.send(session.selectedDestinations, appScope, sendText, sendMedia) }, enabled = canSend) {
-                        Text(stringResource(R.string.share_send_count, session.selectedDestinations.size))
+                    Button(onClick = { reviewSelected = true }, enabled = !session.sending) {
+                        Text(stringResource(R.string.share_review_before_send))
                     }
                 }
                 SearchField(query, { query = it }, stringResource(R.string.share_search))
@@ -238,6 +258,7 @@ internal fun ShareTargetScreen(
                     downloadFile = downloadFile,
                     modifier = Modifier.weight(1f),
                     enabled = !session.sending && !session.deliveryStarted,
+                    selectedIds = session.selectedDestinations.map { it.chatId }.toSet(),
                     onChoose = { chat -> shortcutApplied = true; targetId = chat.id; topicId = 0L; topicsReadyFor = null; session.error = null }
                 )
             } else if (!session.deliveryStarted && target != null && !topicsReady) {
@@ -274,15 +295,18 @@ internal fun ShareTargetScreen(
                     shownDestinations.forEach { destination ->
                         Text(destination.title, style = MaterialTheme.typography.bodyMedium)
                     }
-                    if (!session.deliveryStarted && currentDestination != null) TextButton(onClick = {
-                        session.addDestination(currentDestination)
+                    if (!session.deliveryStarted) TextButton(onClick = {
+                        currentDestination?.let { session.addDestination(it) }
+                        reviewSelected = false
                         targetId = 0L
                         topicId = 0L
                         topicsReadyFor = null
                     }) { Text(stringResource(R.string.share_add_recipient)) }
                     Text(stringResource(R.string.share_send_review_hint), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     session.staged.forEach { item ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val previewPath = item.thumbnailPath ?: item.path.takeIf { item.kind == MediaKind.Photo }
+                            if (previewPath != null) LocalMediaImage(previewPath, Modifier.size(48.dp).clip(styledShape(8.dp)), maxDimension = 160, animate = false)
                             Text(
                                 text = item.fileName,
                                 maxLines = 1,
@@ -313,7 +337,7 @@ internal fun ShareTargetScreen(
                     if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }
                     Button(
                         enabled = canSend,
-                        onClick = { session.send(destinations, appScope, sendText, sendMedia) },
+                        onClick = { session.send(destinations, appScope, validateDestination, sendText, sendMedia) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(stringResource(R.string.share_send_count, destinations.size))

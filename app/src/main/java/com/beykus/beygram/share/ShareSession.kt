@@ -112,6 +112,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     fun send(
         destinations: List<ShareDestination>,
         scope: CoroutineScope,
+        validateDestination: suspend (ShareDestination) -> Result<Unit>,
         sendText: suspend (chatId: Long, topicId: Long, text: String) -> Result<Unit>,
         sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>
     ) {
@@ -126,6 +127,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
             ledger = ShareBatchLedger(destinations, frozenBatches.size.coerceAtLeast(1))
             deliveryStarted = true
             selectedDestinations = ledger!!.destinations
+            pendingDestinations = selectedDestinations
         }
         val delivery = checkNotNull(ledger)
         sending = true
@@ -134,6 +136,11 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
             try {
                 for (destination in delivery.pending()) {
                     if (released || retryBlocked) break
+                    val validation = validateDestination(destination)
+                    if (validation.isFailure) {
+                        error = (validation.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.share_unavailable_recipient)
+                        continue
+                    }
                     for (index in delivery.nextBatch(destination) until delivery.batchCount) {
                         if (released) break
                         val result = if (frozenBatches.isEmpty()) {

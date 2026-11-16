@@ -2757,6 +2757,10 @@ fun ChatScreen(
             previewText = preview,
             previewMedia = messages.firstOrNull { it.id == pendingIds.singleOrNull() }
                 ?.takeUnless { it.isViewOnce || chat.isSecret || chat.hasProtectedContent }?.media,
+            previewAlbum = if (pendingIds.size > 1 && !chat.isSecret && !chat.hasProtectedContent) messages
+                .filter { it.id in pendingIds && !it.isViewOnce }.mapNotNull { it.media }
+                .filter { !it.hasSpoiler && !it.isSecret && !it.isSecretChat && it.kind in setOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation) }.take(10)
+                else emptyList(),
             onAsCopyChange = { showCopy -> forwardAsCopy = showCopy; if (!showCopy) removeCaption = false },
             removeCaption = removeCaption,
             onRemoveCaptionChange = if (canRemoveCaption) ({ remove: Boolean -> removeCaption = remove; if (remove) forwardAsCopy = true }) else null,
