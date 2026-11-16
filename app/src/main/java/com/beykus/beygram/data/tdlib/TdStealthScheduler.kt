@@ -7,9 +7,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageSendOptions
 import com.beykus.beygram.domain.model.OutgoingMedia
 import com.beykus.beygram.domain.model.StealthScheduleUnavailableException
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
 import java.io.File
 
@@ -19,14 +17,13 @@ import java.io.File
  * it itself, so the app may be closed by then. Nothing falls back to an ordinary send. A chat or content that cannot be
  * scheduled, or a refused date, fails with [StealthScheduleUnavailableException] unless the user agreed to send now.
  *
- * A lead shorter than Telegram's scheduled queue accepts («Своё время» under 15 seconds) is waited out by the app, and
- * the message then goes out as an ordinary send: the settings warn that this can show the account online.
+ * A legacy lead shorter than 15 seconds is refused, never converted into an ordinary send or changed silently.
  *
  * [delaySeconds] is read on every send, so a changed switch applies to the next one.
  */
 internal class TdStealthScheduler(private val request: TdRequests, private val delaySeconds: () -> Int?) {
-    /** True when the next send is scheduled on the server unless it carries its own date or the user's consent. */
-    fun active(): Boolean = delaySeconds()?.let(::stealthDelayUsesServer) == true
+    /** True whenever the account requires stealth sending, including an invalid legacy lead. */
+    fun active(): Boolean = delaySeconds() != null
 
     /**
      * Options for one send to [chatId]. Local [media] is uploaded first and the date is fixed only afterwards: Telegram
@@ -37,8 +34,9 @@ internal class TdStealthScheduler(private val request: TdRequests, private val d
         chatId: Long, options: MessageSendOptions, media: List<OutgoingMedia> = emptyList(), liveLocation: Boolean = false
     ): StealthSend {
         val lead = delaySeconds() ?: return StealthSend(options, media, scheduled = false)
-        if (options.scheduledAtSeconds != null || options.sendNowConsent) return StealthSend(options, media, scheduled = false)
-        if (!stealthDelayUsesServer(lead)) return StealthSend(options, media, scheduled = false, localDelaySeconds = lead)
+        if (options.sendNowConsent) return StealthSend(options, media, scheduled = false)
+        if (!stealthDelayUsesServer(lead)) throw unavailable(R.string.stealth_schedule_short_warning)
+        if (options.scheduledAtSeconds != null) return StealthSend(options, media, scheduled = false)
         if (options.viewOnce || liveLocation) throw unavailable(R.string.stealth_schedule_unavailable_content)
         chatRestriction(chatId)?.let { throw unavailable(it) }
         val uploaded = media.map { preupload(it) }
@@ -52,7 +50,6 @@ internal class TdStealthScheduler(private val request: TdRequests, private val d
      * scheduled queue far enough ahead; anything else would go out at once, so it needs the user's consent.
      */
     suspend fun checkResend(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean) {
-        // A short local lead sends ordinary messages anyway, so a resend changes nothing about what Telegram shows.
         if (!active() || sendNowConsent) return
         val now = serverUnixTime()
         val allScheduled = messageIds.all { id ->
@@ -88,14 +85,21 @@ internal class TdStealthScheduler(private val request: TdRequests, private val d
     }
 
     /**
-     * Runs a send that [resolve] prepared. A short local lead is waited out first; leaving the screen does not cancel the
-     * wait, so the message is not lost halfway. A refusal that names scheduling becomes [StealthScheduleUnavailableException],
-     * so the caller can ask the user instead of reporting a plain failure.
+     * Runs a prepared send. Recheck the live policy and the server clock before dispatch: a send prepared before
+     * protection was enabled must not become an ordinary send. Never retry an ambiguous outcome automatically.
      */
     suspend fun <T> scheduledRequest(send: StealthSend, block: suspend () -> T): T {
-        if (send.localDelaySeconds > 0) return withContext(NonCancellable) {
-            delay(send.localDelaySeconds * 1000L)
-            block()
+        if (!send.options.sendNowConsent && (active() || send.scheduled)) {
+            val at = send.options.scheduledAtSeconds
+                ?: throw unavailable(R.string.stealth_schedule_failed)
+            if (at <= serverUnixTime() + MessageSendOptions.MIN_SCHEDULE_LEAD_SECONDS) {
+                throw unavailable(R.string.stealth_schedule_failed)
+            }
+            // If settings changed during the server-time request, still never fall back to an ordinary send.
+            val currentLead = delaySeconds()
+            if (currentLead != null && !stealthDelayUsesServer(currentLead)) {
+                throw unavailable(R.string.stealth_schedule_short_warning)
+            }
         }
         if (!send.scheduled) return block()
         return try {
@@ -138,11 +142,10 @@ internal class TdStealthScheduler(private val request: TdRequests, private val d
 }
 
 /**
- * A send after [TdStealthScheduler.resolve]: [scheduled] is true when stealth mode added the server-side date, and
- * [localDelaySeconds] is the app-side wait for a lead too short for the server.
+ * A send after [TdStealthScheduler.resolve]: [scheduled] is true when stealth mode added the server-side date.
  */
 internal class StealthSend(
-    val options: MessageSendOptions, val media: List<OutgoingMedia>, val scheduled: Boolean, val localDelaySeconds: Int = 0
+    val options: MessageSendOptions, val media: List<OutgoingMedia>, val scheduled: Boolean
 )
 
 private const val PRELIMINARY_UPLOAD_PRIORITY = 16
