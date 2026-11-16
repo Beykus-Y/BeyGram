@@ -50,8 +50,12 @@ internal object YandexWaveResume {
         val savedAtMs: Long,
     )
 
-    /** The wave that plays, for the account [uid]. [sessionOf] gives the live session, which a settings change replaces. */
+    /**
+     * The wave that plays, for the sign-in [generation] (runtime) and the account [uid] (the saved place).
+     * [sessionOf] gives the live session, which a settings change replaces.
+     */
     private class Active(
+        val generation: Long,
         val uid: String,
         val sessionOf: () -> YandexWaveSession,
         val radio: PlaybackRadio,
@@ -98,7 +102,7 @@ internal object YandexWaveResume {
             var signedIn = false
             provider.state.collect { state ->
                 // First: a wave of another account (or of nobody) ends before anything else can write or restore.
-                if (YandexWaveAccountGuard.shouldEndWave(active?.uid, state)) endActiveWave()
+                if (activeWaveIsStale()) endActiveWave()
                 when (state) {
                     is MusicProviderState.SignedIn -> {
                         signedIn = true
@@ -116,11 +120,13 @@ internal object YandexWaveResume {
     }
 
     /** Called when a wave starts: from now on its place is saved while it plays. */
-    fun attach(context: Context, sessionOf: () -> YandexWaveSession, radio: PlaybackRadio, seeds: List<String>, subtitle: String) {
-        // The wave belongs to the account signed in now; without one nothing is attached.
-        val uid = YandexWaveAccountGuard.uidOf(provider?.state?.value) ?: return
+    fun attach(context: Context, generation: Long, sessionOf: () -> YandexWaveSession, radio: PlaybackRadio, seeds: List<String>, subtitle: String) {
+        // The wave belongs to the sign-in it started under; if that is gone already, or nobody is signed in, nothing is attached.
+        val source = provider ?: return
+        if (YandexWaveAccountGuard.shouldEndWave(generation, source.accountGeneration())) return
+        val uid = YandexWaveAccountGuard.uidOf(source.state.value) ?: return
         appContext = context.applicationContext
-        active = Active(uid, sessionOf, radio, seeds, subtitle)
+        active = Active(generation, uid, sessionOf, radio, seeds, subtitle)
         ensureWatching()
     }
 
@@ -139,8 +145,14 @@ internal object YandexWaveResume {
         PlaybackEngine.resume(key) {}
     }
 
+    /** True when the playing wave belongs to a sign-in that is gone (signed out, or signed in again, even as the same account). */
+    private fun activeWaveIsStale(): Boolean {
+        val current = active ?: return false
+        return YandexWaveAccountGuard.shouldEndWave(current.generation, provider?.accountGeneration())
+    }
+
     /**
-     * Ends the wave of the account that is gone: no more saves first, then the saved place, the feedback and the
+     * Ends the wave of the sign-in that is gone: no more saves first, then the saved place, the feedback and the
      * player's radio queue (so it asks for no more tracks). Feedback stops before the player does, so the queue
      * closing is not reported to the service as a skip.
      */
@@ -169,7 +181,7 @@ internal object YandexWaveResume {
         }
         val current = active
         if (current != null && PlaybackEngine.activeRadio === current.radio) {
-            if (YandexWaveAccountGuard.shouldEndWave(current.uid, provider?.state?.value)) {
+            if (activeWaveIsStale()) {
                 endActiveWave()
                 return
             }
@@ -183,7 +195,10 @@ internal object YandexWaveResume {
     }
 
     private fun save(current: Active, state: PlaybackState, item: PlaybackItem) {
-        if (!YandexWaveAccountGuard.canSave(current.uid, provider?.state?.value)) return
+        if (!YandexWaveAccountGuard.canSave(current.generation, provider?.accountGeneration())) {
+            endActiveWave()
+            return
+        }
         val track = ProviderTracks.byKey(item.key) ?: return
         val now = System.currentTimeMillis()
         val second = state.positionMs / POSITION_STEP_MS
@@ -220,6 +235,8 @@ internal object YandexWaveResume {
             return
         }
         if (PlaybackEngine.state.value.item != null) return
+        // The restored wave is bound to the sign-in that is current now; its saved uid was checked above.
+        val generation = yandex.accountGeneration() ?: return
         restoredThisProcess = true
         if (!saved.track.isAvailable) {
             clearSaved()
@@ -228,16 +245,16 @@ internal object YandexWaveResume {
         ProviderTracks.remember(listOf(saved.track))
         val session = YandexWaveSession(
             seeds = saved.seeds,
-            start = { s, queue -> YandexWaveAccountGuard.request(saved.uid, yandex.state.value) { yandex.waveStart(s, queue) } },
-            next = { id, queue -> YandexWaveAccountGuard.request(saved.uid, yandex.state.value) { yandex.waveNext(id, queue) } },
+            start = { s, queue -> yandex.waveStart(generation, s, queue) },
+            next = { id, queue -> yandex.waveNext(generation, id, queue) },
             initialGiven = saved.given,
         )
         session.seed(saved.track)
         val radio = PlaybackRadio(title = app.getString(R.string.yandex_wave_title), subtitle = saved.subtitle)
-        active = Active(saved.uid, { session }, radio, saved.seeds, saved.subtitle)
+        active = Active(generation, saved.uid, { session }, radio, saved.seeds, saved.subtitle)
         // Paused: nothing plays and no request goes out until the person presses Play.
         PlaybackEngine.restoreYandexRadio(app, saved.track, saved.positionMs, { session.more() }, radio)
-        YandexWaveFeedback.start(yandex, saved.uid, session, radio)
+        YandexWaveFeedback.start(yandex, generation, session, radio)
     }
 
     private fun clearSaved() {

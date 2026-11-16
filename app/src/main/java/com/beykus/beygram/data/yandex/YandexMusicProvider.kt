@@ -60,6 +60,16 @@ internal class YandexMusicProvider(
         mutableState.value = store.load()?.let { MusicProviderState.SignedIn(it.toAccount()) } ?: MusicProviderState.SignedOut
     }
 
+    /**
+     * The generation of the account signed in now, or null when signed out. A lock-free snapshot, safe on the main
+     * thread (a token refresh holds [refreshLock] during its request). It lets a caller bind work to one sign-in; the
+     * authoritative check is the one `withSessionGen` makes under the lock when it captures the session.
+     */
+    fun accountGeneration(): Long? {
+        val gen = generation
+        return if (mutableState.value is MusicProviderState.SignedIn) gen else null
+    }
+
     /** Moves to the next account generation and forgets what was cached for the previous one. Call under [refreshLock]. */
     private fun bumpGeneration() {
         generation += 1
@@ -86,8 +96,17 @@ internal class YandexMusicProvider(
 
     /** Drops the pending attempt, so a poll still in flight for it cannot sign anyone in. */
     fun clearPendingSignIn() {
-        synchronized(pendingLock) { pending = null }
+        synchronized(pendingLock) {
+            attemptId += 1
+            pending = null
+        }
     }
+
+    /**
+     * Numbers the sign-in attempts. Written under [pendingLock]. An attempt reserves a number before it asks for a
+     * device code; cancelling, signing out or starting another attempt bumps it, so a late code is never published.
+     */
+    private var attemptId = 0L
 
     /** True while [code] is the current attempt and has not expired. Call under [pendingLock]. */
     private fun isCurrentAttempt(code: YandexDeviceCode): Boolean {
@@ -97,14 +116,26 @@ internal class YandexMusicProvider(
 
     suspend fun startSignIn(): ProviderResult<YandexDeviceCode> = withContext(Dispatchers.IO) {
         if (!isConfigured()) return@withContext ProviderResult.Failure(MusicProviderFailure.Unavailable)
+        // Reserve the attempt before the request: a cancel or a newer attempt during it makes this one stale.
+        val attempt = synchronized(pendingLock) {
+            attemptId += 1
+            attemptId
+        }
         when (val result = auth.requestDeviceCode(deviceId = store.deviceId())) {
             is ProviderResult.Failure -> result
             is ProviderResult.Success -> {
+                // A cancelled screen does not interrupt the blocking request above, so check again here.
+                ensureActive()
                 // A new attempt replaces the old one, so polls of the old code become stale.
-                synchronized(pendingLock) {
-                    pending = PendingSignIn(result.value, now() + result.value.expiresInSec * 1_000L)
+                val published = synchronized(pendingLock) {
+                    if (attemptId == attempt) {
+                        pending = PendingSignIn(result.value, now() + result.value.expiresInSec * 1_000L)
+                        true
+                    } else {
+                        false
+                    }
                 }
-                result
+                if (published) result else ProviderResult.Failure(MusicProviderFailure.NotSignedIn)
             }
         }
     }
@@ -191,7 +222,10 @@ internal class YandexMusicProvider(
     /** Deletes the stored session and publishes SignedOut. Under the lock, so a refresh cannot write it back. */
     private fun clearSession() {
         synchronized(refreshLock) {
-            synchronized(pendingLock) { pending = null }
+            synchronized(pendingLock) {
+                attemptId += 1
+                pending = null
+            }
             store.clear()
             bumpGeneration()
             mutableState.value = MusicProviderState.SignedOut
@@ -376,17 +410,22 @@ internal class YandexMusicProvider(
 
     // «Моя волна» ---------------------------------------------------------------------------------------------------
 
-    /** Starts a radio session from [seeds]. Without a subscription nothing would play, so it fails at once. */
-    suspend fun waveStart(seeds: List<String>, queue: List<String>): ProviderResult<YandexWaveBatch> = withSession { s ->
-        if (!s.hasSubscription) ProviderResult.Failure(MusicProviderFailure.SubscriptionRequired)
-        else api.waveStart(s.accessToken, seeds, queue)
-    }
+    /**
+     * Starts a radio session from [seeds]. Without a subscription nothing would play, so it fails at once. The calls
+     * of a wave carry the [generation] (see [accountGeneration]) the wave belongs to: the session is captured under
+     * the lock only if it is still that sign-in, otherwise the call fails with NotSignedIn before any request.
+     */
+    suspend fun waveStart(generation: Long, seeds: List<String>, queue: List<String>): ProviderResult<YandexWaveBatch> =
+        withSessionGen(generation) { s, _ ->
+            if (!s.hasSubscription) ProviderResult.Failure(MusicProviderFailure.SubscriptionRequired)
+            else api.waveStart(s.accessToken, seeds, queue)
+        }
 
-    suspend fun waveNext(sessionId: String, queue: List<String>): ProviderResult<YandexWaveBatch> =
-        withSession { s -> api.waveNext(s.accessToken, sessionId, queue) }
+    suspend fun waveNext(generation: Long, sessionId: String, queue: List<String>): ProviderResult<YandexWaveBatch> =
+        withSessionGen(generation) { s, _ -> api.waveNext(s.accessToken, sessionId, queue) }
 
-    suspend fun waveFeedback(sessionId: String, event: YandexWaveEvent, batchId: String?): ProviderResult<Unit> =
-        withSession { s -> api.waveFeedback(s.accessToken, sessionId, event, batchId) }
+    suspend fun waveFeedback(generation: Long, sessionId: String, event: YandexWaveEvent, batchId: String?): ProviderResult<Unit> =
+        withSessionGen(generation) { s, _ -> api.waveFeedback(s.accessToken, sessionId, event, batchId) }
 
     // Session handling --------------------------------------------------------------------------------------------
 
@@ -400,9 +439,23 @@ internal class YandexMusicProvider(
      * request never switches to another account and never publishes what an old account got.
      */
     private suspend fun <T> withSessionGen(block: (YandexSession, Long) -> ProviderResult<T>): ProviderResult<T> =
+        withSessionGen(null, block)
+
+    /**
+     * As above. When [expectedGeneration] is not null, the session is captured only if the stored generation equals it,
+     * checked in the same locked block that reads the store: a sign-in that completed after the caller looked can never
+     * lend its token to the caller's request.
+     */
+    private suspend fun <T> withSessionGen(
+        expectedGeneration: Long?,
+        block: (YandexSession, Long) -> ProviderResult<T>,
+    ): ProviderResult<T> =
         withContext(Dispatchers.IO) {
             if (!isConfigured()) return@withContext ProviderResult.Failure(MusicProviderFailure.Unavailable)
             val (stored, gen) = synchronized(refreshLock) { store.load() to generation }
+            if (expectedGeneration != null && gen != expectedGeneration) {
+                return@withContext ProviderResult.Failure(MusicProviderFailure.NotSignedIn)
+            }
             if (stored == null) return@withContext ProviderResult.Failure(MusicProviderFailure.NotSignedIn)
             val current = when (val fresh = ensureFresh(stored, gen)) {
                 is ProviderResult.Failure -> return@withContext fresh
