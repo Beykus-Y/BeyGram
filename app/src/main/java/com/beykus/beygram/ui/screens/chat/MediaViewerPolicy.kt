@@ -15,7 +15,8 @@ internal object MediaViewerPolicy {
     fun concealed(media: MessageMedia, active: Boolean): Boolean = media.isSecret && !active
 
     /** Экран защищён, пока видна секретная страница. Защита следует за видимой страницей, а не за выбранным вложением. */
-    fun secureWhileShowing(settled: MessageMedia, viewOnce: Boolean = false): Boolean = settled.isSecret || viewOnce
+    fun secureWhileShowing(settled: MessageMedia, viewOnce: Boolean = false, forceSecure: Boolean = false): Boolean =
+        forceSecure || settled.isSecret || viewOnce
 
     /**
      * Права действуют только для того сообщения, для которого их загрузили. Ответ на соседнее вложение, пришедший позже
