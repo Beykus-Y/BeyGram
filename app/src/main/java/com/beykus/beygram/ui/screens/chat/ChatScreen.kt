@@ -781,6 +781,9 @@ fun ChatScreen(
     val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
         scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
     }
+    val daySeparators = remember(messageListItems, history.hasOlderMessages) {
+        chatDaySeparators(messageListItems, showOldestDay = !history.hasOlderMessages)
+    }
     // In a private chat the peer is already named in the header; groups need the author once per block, not per bubble.
     val senderHeaderByKey = remember(messageListItems, chat.isGroup, chat.isChannel, chat.isSavedMessages) {
         senderHeaderVisibility(chat, messageListItems)
@@ -1639,16 +1642,20 @@ fun ChatScreen(
     var sendWaitingForDelay by remember(chat.id, forumTopicId) { mutableStateOf<HeldDelayedSend?>(null) }
     var paidTextConfirmation by remember(conversation, chat.id, forumTopicId) { mutableStateOf<PaidTextConfirmation?>(null) }
     val paidTextContext by rememberUpdatedState(Triple(conversation, chat.id, forumTopicId))
+    val paidTextDestination by rememberUpdatedState(com.beykus.beygram.domain.model.PaidTextDestination(accountId, chat.id, forumTopicId))
     /**
      * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
      * the choice applies to this send only and is not kept for the next one.
      */
     fun sendCurrentDraft(options: MessageSendOptions, priceChecked: Boolean = false) {
         if (secretChatClosed || editId != null || inlineSending || sending || paidTextConfirmation != null || textSendQueue.isComposerWriting(textSendScopeKey)) return
-        // Check only ordinary private text. Every other send retains a zero Stars authorization.
-        if (!priceChecked && allowViewOnce && forumTopicId == 0L && pendingSticker == null && !attachments.active && draft.isNotBlank()) {
+        // Check ordinary private and group text (including explicit forum topics).
+        // Other content continues to carry zero Stars authorization.
+        if (!priceChecked && com.beykus.beygram.domain.model.supportsPaidTextQuote(chat) &&
+            pendingSticker == null && !attachments.active && draft.isNotBlank()) {
             val submitted = composerDraft
             val target = Triple(conversation, chat.id, forumTopicId)
+            val destination = paidTextDestination
             sending = true
             scope.launch {
                 var ordinary = false
@@ -1656,7 +1663,7 @@ fun ChatScreen(
                     // If the read fails, TDLib can still accept a regular message with a zero Stars authorization.
                     // Never translate a failed lookup into permission to spend.
                     val price = conversation.paidTextPrice(chat.id).getOrNull()
-                    if (paidTextContext != target || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
+                    if (paidTextContext != target || paidTextDestination != destination || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
                     if (price == null || price <= 0L) {
                         ordinary = true
                     } else {
@@ -1668,13 +1675,13 @@ fun ChatScreen(
                             error = it.userMessage(context, R.string.stars_load_error)
                             return@launch
                         }
-                        if (paidTextContext != target || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
-                        paidTextConfirmation = PaidTextConfirmation(submitted, price, balance, options.disableNotification)
+                        if (paidTextContext != target || paidTextDestination != destination || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
+                        paidTextConfirmation = PaidTextConfirmation(submitted, price, balance, options.disableNotification, destination, options.disableLinkPreview)
                     }
                 } finally {
                     sending = false
                 }
-                if (ordinary && paidTextContext == target && composerDraft == submitted && !attachments.active && pendingSticker == null) {
+                if (ordinary && paidTextContext == target && paidTextDestination == destination && composerDraft == submitted && !attachments.active && pendingSticker == null) {
                     sendCurrentDraft(options, priceChecked = true)
                 }
             }
@@ -2046,6 +2053,8 @@ fun ChatScreen(
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = metrics.listPadding + chromeTopPad, bottom = metrics.listPadding + chromeBottomPad), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }) { listItem ->
+                ChatScreenColumn(Modifier.fillMaxWidth()) {
+                daySeparators[listItem.key]?.let { ChatHistoryDateSeparator(it) }
                 if (listItem.unreadSeparator) {
                     UnreadMessagesSeparator()
                 } else if (listItem.pendingVideoNote != null) {
@@ -2292,6 +2301,7 @@ fun ChatScreen(
                         }
                         }
                     }
+                }
                 }
             }
             history.error?.let { historyError -> item(key = "history_error") {
@@ -2865,7 +2875,8 @@ fun ChatScreen(
                 // Ignore a second callback from a dialog that already consumed its confirmation.
                 if (paidTextConfirmation === confirmation) {
                     paidTextConfirmation = null
-                    if (composerDraft != confirmation.draft || attachments.active || pendingSticker != null || editId != null) {
+                    if (paidTextDestination != confirmation.destination || !canPostHere ||
+                        composerDraft != confirmation.draft || attachments.active || pendingSticker != null || editId != null) {
                         error = context.getString(R.string.paid_text_draft_changed)
                     } else if (!conversation.stealthHoldsSends() && !textSendQueue.isComposerWriting(textSendScopeKey)) {
                         val outgoing = composerLaunchPayload(confirmation.draft.text, confirmation.draft.entities, limits.text)
@@ -2873,8 +2884,9 @@ fun ChatScreen(
                         // Process-scoped composer mutex, but no queued/persisted retryable payment authorization.
                         textSendQueue.launchComposerWrite(textSendScopeKey) {
                             val result = conversation.sendPaidTextMessage(
-                                chat.id, outgoing.text, confirmation.draft.replyToMessageId, outgoing.entities,
-                                confirmation.price, confirmation.disableNotification
+                                confirmation.destination.chatId, outgoing.text, confirmation.draft.replyToMessageId, outgoing.entities,
+                                confirmation.price, confirmation.disableNotification,
+                                confirmation.destination.forumTopicId, confirmation.disableLinkPreview
                             )
                             if (result.isSuccess) {
                                 updateDraft { if (it == confirmation.draft) MessageDraft() else it }
@@ -3327,7 +3339,6 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
-    val glassBubbles = LocalDesignSystem.current.surfaces.treatment == SurfaceTreatment.Glass
     // The versions sheet belongs to the bubble that opened it, and is composed only while it is open.
     var showVersions by remember(message.id) { mutableStateOf(false) }
     val loadVersions = onLoadVersions
@@ -3358,11 +3369,14 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
+    val compactCollection = message.media?.let { com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument(it) } == true && !hasText && message.reply == null && renderedSpecial == null && message.linkPreview == null && translation == null
     val inlineMeta = useInlineTextMetadata(
         message,
         hasSenderHeader = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank(),
         hasTranslation = translation != null
     )
+    // Preserve the existing cheap one-line path; measure actual final lines only for the other plain text bubbles.
+    val lastLineMeta = showText && !inlineMeta && useLastLineTextMetadata(message, hasTranslation = translation != null)
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
     val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
     val longPressLabel = stringResource(if (longPressSelects) R.string.message_action_select else R.string.a11y_message_actions)
@@ -3421,6 +3435,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         if (showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                                 .then(if (onSenderClick != null) Modifier.clickable { onSenderClick?.invoke() } else Modifier))
+                        ForwardedMessageHeader(message)
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
                         message.media?.let { media ->
                             if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile,
@@ -3462,16 +3477,16 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         }
                         message.expiredMediaKind?.let { kind -> ExpiredMediaCard(kind) }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
-                        if (showText || renderedSpecial != null || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
+                        if (showText || renderedSpecial != null || message.reply != null || (!overlayMeta && !compactCollection)) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
-                                // Liquid Glass: the quote is a tint of its own bubble, not a second outline inside it.
-                                val quoteShape = RoundedCornerShape(metrics.replyRadius)
-                                Column(Modifier.padding(vertical = 4.dp).clip(quoteShape)
-                                    .then(if (glassBubbles) Modifier.background(palette.accent.copy(alpha = 0.12f)) else Modifier.border(1.dp, palette.accent, quoteShape))
-                                    .clickable { if (selectionMode) onToggleSelection() else onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                                    Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                    Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                }
+                                ReplyQuote(
+                                    reply = reply,
+                                    modifier = Modifier.padding(bottom = 5.dp),
+                                    onClick = { if (selectionMode) onToggleSelection() else onReplyClick(reply) },
+                                    onLongClick = if (selectionMode) onToggleSelection else onActions,
+                                    onClickLabel = selectionLabel,
+                                    onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
+                                )
                             }
                             renderedSpecial?.let { content ->
                                 SpecialMessageContentView(
@@ -3491,9 +3506,20 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     paidContent = paidContent
                                 )
                             }
-                            if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
                             if (isWave && waveAccountId != null) BgWaveMessageCard(message, waveAccountId)
-                            else MessageMusicLinkCard(message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards)
+                            else MessageMusicLinkCard(
+                                message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile,
+                                onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards,
+                                messageText = {
+                                    if (lastLineMeta) {
+                                        PlainMessageWithMeta(message.text, modifier = if (message.reply != null) Modifier.fillMaxWidth() else Modifier) {
+                                            BubbleMeta(message, isRead, retryAvailable = false, overlay = false,
+                                                onRetry = onRetry, inline = true, insideTextInsets = true)
+                                        }
+                                    } else if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile,
+                                        onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
+                                }
+                            )
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,
@@ -3510,10 +3536,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     }
                 },
                 meta = {
-                    if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
+                    if (!inCircle && !lastLineMeta) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
                         overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta,
                         onShowVersions = if (onLoadVersions != null) openVersions else null,
-                        connectionState = connectionState, onShowFailureDetails = onShowFailureDetails)
+                        connectionState = connectionState, onShowFailureDetails = onShowFailureDetails, compactDocument = compactCollection)
                 },
                 footer = {
                     // Inline keyboards and reactions must stack, never paint over one another.

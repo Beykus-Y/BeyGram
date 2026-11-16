@@ -57,6 +57,22 @@ object BgMusicSourceResolver {
         repository: TelegramRepository,
         accountId: String,
         manifest: BgMusicManifest,
+    ): Map<String, BgMusicResolvedTrack> = resolve(
+        accountId = accountId,
+        manifest = manifest,
+        resolveChat = { repository.resolvePublicChat(it).getOrNull() },
+        resolveOrigins = { resolveMusicOrigins(repository, accountId, it) },
+    )
+
+    /**
+     * The same rounds as [resolve], with the two repository calls passed in: [resolveChat] turns a public username into a chat id
+     * (null when it does not resolve), and [resolveOrigins] turns each origin into a playable item (null when it is dead).
+     */
+    internal suspend fun resolve(
+        accountId: String,
+        manifest: BgMusicManifest,
+        resolveChat: suspend (String) -> Long?,
+        resolveOrigins: suspend (List<PlaybackOrigin?>) -> List<PlaybackItem?>,
     ): Map<String, BgMusicResolvedTrack> {
         val chatIdByUsername = HashMap<String, Long?>()
         val found = LinkedHashMap<String, BgMusicResolvedTrack>()
@@ -67,7 +83,7 @@ object BgMusicSourceResolver {
             for (track in manifest.tracks) {
                 if (track.id in found || round >= track.sources.size) continue
                 val hint = track.sources[round] as? BgMusicSourceHint.TelegramPublic ?: continue
-                val chatId = chatIdFor(repository, hint.username, chatIdByUsername) ?: continue
+                val chatId = chatIdFor(hint.username, chatIdByUsername, resolveChat) ?: continue
                 owners += track.id
                 origins += PlaybackOrigin(
                     chatId = chatId,
@@ -76,7 +92,7 @@ object BgMusicSourceResolver {
                 )
             }
             if (owners.isEmpty()) continue
-            val items = resolveMusicOrigins(repository, accountId, origins)
+            val items = resolveOrigins(origins)
             owners.forEachIndexed { index, trackId ->
                 val item = items.getOrNull(index) ?: return@forEachIndexed
                 val origin = origins[index] ?: return@forEachIndexed
@@ -88,12 +104,12 @@ object BgMusicSourceResolver {
 
     /** Resolves a public username once per call. A username that does not resolve is remembered as null. */
     private suspend fun chatIdFor(
-        repository: TelegramRepository,
         username: String,
         known: MutableMap<String, Long?>,
+        resolveChat: suspend (String) -> Long?,
     ): Long? {
         if (known.containsKey(username)) return known[username]
-        val chatId = repository.resolvePublicChat(username).getOrNull()
+        val chatId = resolveChat(username)
         known[username] = chatId
         return chatId
     }
