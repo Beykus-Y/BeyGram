@@ -85,7 +85,7 @@ class BgWaveSession private constructor(@Volatile private var handle: Long) : Bg
         if (handle != 0L) BgWaveSessionNative.nativeOpenHostTap(handle) else 0L
     }
 
-    fun stats(): String = nativeGuard.read {
+    override fun stats(): String = nativeGuard.read {
         if (handle != 0L) BgWaveSessionNative.nativeStats(handle) else ""
     }
 
