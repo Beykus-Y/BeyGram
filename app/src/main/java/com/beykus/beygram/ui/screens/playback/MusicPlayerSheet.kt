@@ -79,13 +79,10 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -95,6 +92,9 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -216,9 +216,11 @@ private fun CoverPlayerSheet(
     content: @Composable ColumnScope.() -> Unit
 ) {
     CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
-        ModalBottomSheet(
+        // The player lays out its own lists at a fixed height, so the sheet must not add a scroll around it.
+        BeyGramSheet(
             onDismissRequest = onDismissRequest,
             sheetState = sheetState,
+            scrollableContent = false,
             containerColor = cover.surface,
             contentColor = cover.tokens.text,
             dragHandle = { BottomSheetDefaults.DragHandle(color = cover.tokens.muted) }
@@ -440,7 +442,7 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
         IconButton(onClick = { menuOpen = true }) {
             Icon(Icons.Rounded.MoreVert, stringResource(R.string.player_menu), tint = palette.textSecondary)
         }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             // Wave by track and album of a source track. The like is in the bottom row, and the share is merged below.
             PlayerProviderTrackMenuItems(
                 key = item.key,
@@ -510,8 +512,8 @@ private fun PlayerTrackMenu(item: PlaybackItem, onCollapse: () -> Unit, onOpenMy
 @Composable
 private fun PlayerMenuEntry(label: String, icon: ImageVector, onClick: () -> Unit) {
     val palette = beyGramPalette()
-    DropdownMenuItem(
-        text = { Text(label, color = palette.textPrimary) },
+    BeyGramPopoverItem(
+        text = label,
         leadingIcon = { Icon(icon, null, tint = palette.accent) },
         onClick = onClick
     )
@@ -1377,17 +1379,17 @@ private fun QueuePanel(
                 IconButton(onClick = { queueMenuOpen = true }) {
                     Icon(Icons.Rounded.MoreVert, stringResource(R.string.queue_actions), tint = palette.textSecondary)
                 }
-                DropdownMenu(expanded = queueMenuOpen, onDismissRequest = { queueMenuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.queue_clear)) },
+                BeyGramPopover(expanded = queueMenuOpen, onDismissRequest = { queueMenuOpen = false }) {
+                    BeyGramPopoverItem(
+                        text = stringResource(R.string.queue_clear),
                         enabled = current.size > 1,
                         onClick = {
                             queueMenuOpen = false
                             PlaybackEngine.clearUpcoming()
                         }
                     )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.queue_save_as_playlist)) },
+                    BeyGramPopoverItem(
+                        text = stringResource(R.string.queue_save_as_playlist),
                         enabled = current.rows.any { it.item.toPlaylistTrack() != null },
                         onClick = {
                             queueMenuOpen = false
@@ -1869,32 +1871,33 @@ private fun QueueUpcomingRow(
             IconButton(onClick = { menuOpen = true }) {
                 Icon(Icons.Rounded.MoreVert, actionsLabel, tint = palette.textSecondary)
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(playNowLabel) },
+            BeyGramPopover(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                BeyGramPopoverItem(
+                    text = playNowLabel,
                     onClick = {
                         menuOpen = false
                         onPlayNow()
                     }
                 )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.queue_play_next)) },
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.queue_play_next),
                     onClick = {
                         menuOpen = false
                         onPlayNext()
                     }
                 )
                 if (onShowInChat != null) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.media_show_in_chat)) },
+                    BeyGramPopoverItem(
+                        text = stringResource(R.string.media_show_in_chat),
                         onClick = {
                             menuOpen = false
                             onShowInChat()
                         }
                     )
                 }
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.queue_remove), color = palette.danger) },
+                BeyGramPopoverItem(
+                    text = stringResource(R.string.queue_remove),
+                    danger = true,
                     onClick = {
                         menuOpen = false
                         onRemove()

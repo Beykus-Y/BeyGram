@@ -19,6 +19,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -36,6 +37,8 @@ import com.beykus.beygram.ui.design.styledTopShape
  *   two scroll areas do not nest.
  * - [sheetState] defaults to Material's state, which opens partially when the content is tall. Pass
  *   rememberModalBottomSheetState(skipPartiallyExpanded = true) to open the sheet fully.
+ * - [containerColor], [contentColor] and [dragHandle] keep the BeyGram look by default. Pass them only for a surface
+ *   with colors of its own, such as the full player, which takes the tint of its cover.
  * - Insets use the ModalBottomSheet defaults. A text field inside a sheet must be checked with the keyboard open.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,6 +49,9 @@ fun BeyGramSheet(
     title: String? = null,
     sheetState: SheetState = rememberModalBottomSheetState(),
     scrollableContent: Boolean = true,
+    containerColor: Color = sheetSurfaceColor(),
+    contentColor: Color = beyGramPalette().textPrimary,
+    dragHandle: @Composable () -> Unit = { BeyGramDragHandle() },
     content: @Composable ColumnScope.() -> Unit
 ) {
     val palette = beyGramPalette()
@@ -54,9 +60,9 @@ fun BeyGramSheet(
         modifier = if (title != null) modifier.semantics { paneTitle = title } else modifier,
         sheetState = sheetState,
         shape = styledTopShape(28.dp),
-        containerColor = sheetSurfaceColor(),
-        contentColor = palette.textPrimary,
-        dragHandle = { BeyGramDragHandle() }
+        containerColor = containerColor,
+        contentColor = contentColor,
+        dragHandle = dragHandle
     ) {
         Column(
             Modifier

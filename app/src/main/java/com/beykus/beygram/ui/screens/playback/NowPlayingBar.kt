@@ -57,9 +57,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -91,7 +91,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.beykus.beygram.ui.components.sheetSurfaceColor
 import com.beykus.beygram.R
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import com.beykus.beygram.media.bgwave.BgWavePhase
@@ -750,10 +749,11 @@ private fun VoiceNowPlayingSheet(onDismiss: () -> Unit) {
     val state by PlaybackEngine.state.collectAsStateWithLifecycle()
     val palette = beyGramPalette()
     val item = state.item ?: return
-    ModalBottomSheet(
+    BeyGramSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = sheetSurfaceColor()
+        // The controls scroll on their own, so the sheet must not add a second scroll around them.
+        scrollableContent = false
     ) {
         NowPlayingControls(
             state = state,
