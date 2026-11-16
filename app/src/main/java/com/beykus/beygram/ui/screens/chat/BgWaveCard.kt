@@ -2,6 +2,8 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,11 +20,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
@@ -40,6 +47,7 @@ import com.beykus.beygram.media.bgwave.BgWaveErrors
 import com.beykus.beygram.media.bgwave.BgWaveHub
 import com.beykus.beygram.media.bgwave.BgWaveLink
 import com.beykus.beygram.media.bgwave.BgWaveNative
+import com.beykus.beygram.media.bgwave.BgWaveRole
 import com.beykus.beygram.media.bgwave.bgWaveCardStateFor
 import com.beykus.beygram.media.bgwave.bgWaveCardView
 import com.beykus.beygram.ui.components.Button
@@ -81,6 +89,7 @@ private fun errorRes(key: String?): Int? = when (key) {
     BgWaveErrors.BUSY -> R.string.bgwave_error_busy
     BgWaveErrors.EXPIRED -> R.string.bgwave_error_expired
     BgWaveErrors.REJECTED -> R.string.bgwave_error_rejected
+    BgWaveErrors.OFFER_TOO_LARGE -> R.string.bgwave_error_offer_too_large
     else -> null
 }
 
@@ -109,21 +118,39 @@ private fun statusRes(status: BgWaveCardStatus): Int = when (status) {
 internal fun BgWaveMessageCard(message: ChatMessage, accountId: String) {
     val resolved = remember(message.id, message.text, message.entities, message.isForwarded, message.senderId) { bgWaveStateOf(message) } ?: return
     when (val state = resolved.second) {
-        is BgWaveCardState.SafeText -> SafeWaveText(state.messageKey)
+        is BgWaveCardState.SafeText -> SafeWaveText(state.messageKey, resolved.first)
         is BgWaveCardState.Signal -> Unit
         is BgWaveCardState.Invite -> WaveCard(message, state, accountId)
     }
 }
 
 @Composable
-private fun SafeWaveText(messageKey: String) {
+private fun SafeWaveText(messageKey: String, link: String) {
     val palette = beyGramPalette()
-    Text(
-        stringResource(safeTextRes(messageKey)),
-        color = palette.textSecondary,
-        fontSize = 14.sp,
-        modifier = Modifier.padding(vertical = 4.dp),
-    )
+    val context = LocalContext.current
+    val linkLabel = stringResource(R.string.bgwave_service_label)
+    val openLabel = stringResource(R.string.a11y_open_link, linkLabel)
+    Column(Modifier.padding(vertical = 4.dp)) {
+        Text(
+            stringResource(safeTextRes(messageKey)),
+            color = palette.textSecondary,
+            fontSize = 14.sp,
+        )
+        // The service link is shown, never opened by itself: only an explicit tap goes to the usual message-link path.
+        Text(
+            link,
+            color = palette.accent,
+            fontSize = 13.sp,
+            textDecoration = TextDecoration.Underline,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .clickable(onClickLabel = openLabel, role = Role.Button) { openWithSystemHandler(context, link) }
+                .padding(vertical = 12.dp)
+                .semantics { contentDescription = linkLabel },
+        )
+    }
 }
 
 @Composable
@@ -149,6 +176,13 @@ private fun WaveCard(message: ChatMessage, invite: BgWaveCardState.Invite, accou
         (session?.accountId != accountId || session?.chatId != message.chatId)) emptyList() else view.actions
     val statusText = stringResource(statusRes(view.status))
     val errorText = errorRes(view.errorKey)?.let { stringResource(it) }
+    val roleText = (view.role ?: if (message.isOutgoing) BgWaveRole.Host else BgWaveRole.Listener).let {
+        stringResource(if (it == BgWaveRole.Host) R.string.bgwave_card_role_host else R.string.bgwave_card_role_listener)
+    }
+    val listenersText = view.listeners?.let { stringResource(R.string.bgwave_card_listeners, it) }
+    val routeText = if (view.directRoute) stringResource(R.string.bgwave_card_route_direct) else null
+    val sourceText = if (view.sourceUnsupported) stringResource(R.string.bgwave_status_source_unsupported) else null
+    val iconDescription = stringResource(R.string.bgwave_card_invite_title)
     Column(
         Modifier.fillMaxWidth().padding(top = 6.dp)
             .clip(styledShape(8.dp))
@@ -157,11 +191,15 @@ private fun WaveCard(message: ChatMessage, invite: BgWaveCardState.Invite, accou
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).clip(CircleShape).background(palette.accent), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = palette.onAccent, modifier = Modifier.size(22.dp))
+                Icon(Icons.Rounded.GraphicEq, contentDescription = iconDescription, tint = palette.onAccent, modifier = Modifier.size(22.dp))
             }
             Column(Modifier.weight(1f).padding(start = 10.dp).semantics { liveRegion = LiveRegionMode.Polite }) {
                 Text(stringResource(R.string.bgwave_card_invite_title), color = palette.messageText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(roleText, color = palette.textSecondary, fontSize = 12.sp)
                 Text(statusText, color = palette.textSecondary, fontSize = 12.sp)
+                if (listenersText != null) Text(listenersText, color = palette.textSecondary, fontSize = 12.sp)
+                if (routeText != null) Text(routeText, color = palette.textSecondary, fontSize = 12.sp)
+                if (sourceText != null) Text(sourceText, color = palette.danger, fontSize = 12.sp)
                 if (errorText != null) Text(errorText, color = palette.danger, fontSize = 12.sp)
             }
         }

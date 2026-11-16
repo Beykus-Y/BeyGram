@@ -13,6 +13,11 @@
     <string name="bgwave_status_awaiting">En attente de réponse…</string>
     <string name="bgwave_status_connecting">Connexion…</string>
     <string name="bgwave_status_live">La vague est en cours</string>
+    <string name="bgwave_card_role_host">Vous êtes l’hôte</string>
+    <string name="bgwave_card_role_listener">Vous êtes l’auditeur</string>
+    <string name="bgwave_card_listeners">Auditeurs : %1$d/1</string>
+    <string name="bgwave_card_route_direct">Connexion directe</string>
+    <string name="bgwave_status_source_unsupported">Cette source ne peut pas être diffusée dans la vague</string>
     <string name="bgwave_status_reconnecting">Reconnexion…</string>
     <string name="bgwave_status_failed">Connexion impossible</string>
     <string name="bgwave_status_ended">La vague est terminée</string>
@@ -28,6 +33,7 @@
     <string name="bgwave_error_busy">Une autre vague est déjà en cours. Arrêtez-la d\'abord.</string>
     <string name="bgwave_error_expired">L\'invitation a expiré.</string>
     <string name="bgwave_error_rejected">La réponse ne correspond pas à cette vague.</string>
+    <string name="bgwave_error_offer_too_large">Impossible de préparer l’invitation : trop de données de connexion. Essayez un autre réseau.</string>
     <string name="bgwave_share_action">Partager la vague</string>
     <string name="bgwave_action_stop_wave">Arrêter la vague</string>
     <string name="bgwave_share_one_person">Choisissez une personne : une vague ne s\'écoute qu\'à deux.</string>
@@ -37,8 +43,8 @@
     <string name="bgwave_share_confirm_send">Envoyer</string>
     <string name="bgwave_share_confirm_cancel">Annuler</string>
     <string name="bgwave_mini_title">Onde</string>
+    <string name="bgwave_mini_a11y">Vague : %1$s</string>
     <string name="bgwave_listener_channel_name">Écoute partagée</string>
     <string name="bgwave_listener_notification_title">Vous écoutez une vague</string>
     <string name="bgwave_listener_notification_text">Le son continue, écran éteint</string>
-    <string name="bgwave_listener_notification_stop">Quitter</string>
 </resources>
