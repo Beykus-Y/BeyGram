@@ -1642,16 +1642,20 @@ fun ChatScreen(
     var sendWaitingForDelay by remember(chat.id, forumTopicId) { mutableStateOf<HeldDelayedSend?>(null) }
     var paidTextConfirmation by remember(conversation, chat.id, forumTopicId) { mutableStateOf<PaidTextConfirmation?>(null) }
     val paidTextContext by rememberUpdatedState(Triple(conversation, chat.id, forumTopicId))
+    val paidTextDestination by rememberUpdatedState(com.beykus.beygram.domain.model.PaidTextDestination(accountId, chat.id, forumTopicId))
     /**
      * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
      * the choice applies to this send only and is not kept for the next one.
      */
     fun sendCurrentDraft(options: MessageSendOptions, priceChecked: Boolean = false) {
         if (secretChatClosed || editId != null || inlineSending || sending || paidTextConfirmation != null || textSendQueue.isComposerWriting(textSendScopeKey)) return
-        // Check only ordinary private text. Every other send retains a zero Stars authorization.
-        if (!priceChecked && allowViewOnce && forumTopicId == 0L && pendingSticker == null && !attachments.active && draft.isNotBlank()) {
+        // Check ordinary private and group text (including explicit forum topics).
+        // Other content continues to carry zero Stars authorization.
+        if (!priceChecked && com.beykus.beygram.domain.model.supportsPaidTextQuote(chat) &&
+            pendingSticker == null && !attachments.active && draft.isNotBlank()) {
             val submitted = composerDraft
             val target = Triple(conversation, chat.id, forumTopicId)
+            val destination = paidTextDestination
             sending = true
             scope.launch {
                 var ordinary = false
@@ -1659,7 +1663,7 @@ fun ChatScreen(
                     // If the read fails, TDLib can still accept a regular message with a zero Stars authorization.
                     // Never translate a failed lookup into permission to spend.
                     val price = conversation.paidTextPrice(chat.id).getOrNull()
-                    if (paidTextContext != target || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
+                    if (paidTextContext != target || paidTextDestination != destination || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
                     if (price == null || price <= 0L) {
                         ordinary = true
                     } else {
@@ -1671,13 +1675,13 @@ fun ChatScreen(
                             error = it.userMessage(context, R.string.stars_load_error)
                             return@launch
                         }
-                        if (paidTextContext != target || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
-                        paidTextConfirmation = PaidTextConfirmation(submitted, price, balance, options.disableNotification)
+                        if (paidTextContext != target || paidTextDestination != destination || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
+                        paidTextConfirmation = PaidTextConfirmation(submitted, price, balance, options.disableNotification, destination, options.disableLinkPreview)
                     }
                 } finally {
                     sending = false
                 }
-                if (ordinary && paidTextContext == target && composerDraft == submitted && !attachments.active && pendingSticker == null) {
+                if (ordinary && paidTextContext == target && paidTextDestination == destination && composerDraft == submitted && !attachments.active && pendingSticker == null) {
                     sendCurrentDraft(options, priceChecked = true)
                 }
             }
@@ -2871,7 +2875,8 @@ fun ChatScreen(
                 // Ignore a second callback from a dialog that already consumed its confirmation.
                 if (paidTextConfirmation === confirmation) {
                     paidTextConfirmation = null
-                    if (composerDraft != confirmation.draft || attachments.active || pendingSticker != null || editId != null) {
+                    if (paidTextDestination != confirmation.destination || !canPostHere ||
+                        composerDraft != confirmation.draft || attachments.active || pendingSticker != null || editId != null) {
                         error = context.getString(R.string.paid_text_draft_changed)
                     } else if (!conversation.stealthHoldsSends() && !textSendQueue.isComposerWriting(textSendScopeKey)) {
                         val outgoing = composerLaunchPayload(confirmation.draft.text, confirmation.draft.entities, limits.text)
@@ -2879,8 +2884,9 @@ fun ChatScreen(
                         // Process-scoped composer mutex, but no queued/persisted retryable payment authorization.
                         textSendQueue.launchComposerWrite(textSendScopeKey) {
                             val result = conversation.sendPaidTextMessage(
-                                chat.id, outgoing.text, confirmation.draft.replyToMessageId, outgoing.entities,
-                                confirmation.price, confirmation.disableNotification
+                                confirmation.destination.chatId, outgoing.text, confirmation.draft.replyToMessageId, outgoing.entities,
+                                confirmation.price, confirmation.disableNotification,
+                                confirmation.destination.forumTopicId, confirmation.disableLinkPreview
                             )
                             if (result.isSuccess) {
                                 updateDraft { if (it == confirmation.draft) MessageDraft() else it }
