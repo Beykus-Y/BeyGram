@@ -62,6 +62,9 @@ import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftBlockReason
 import com.beykus.beygram.domain.model.GiftCatalogItem
 import com.beykus.beygram.domain.model.GiftCollectionItem
+import com.beykus.beygram.domain.model.GiftListingQuote
+import com.beykus.beygram.domain.model.GiftListingOutcome
+import androidx.compose.runtime.key
 import com.beykus.beygram.domain.model.GiftSendEvent
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftSendStep
@@ -103,11 +106,16 @@ fun GiftsScreen(
     load: suspend () -> Result<GiftsInfo>,
     loadMoreReceived: suspend (offset: String) -> Result<ReceivedGiftsPage>,
     send: suspend (giftId: Long, text: String, isPrivate: Boolean) -> GiftSendOutcome,
+    loadListing: suspend (String) -> Result<GiftListingQuote> = { Result.failure(UnsupportedOperationException()) },
+    updateListing: suspend (GiftListingQuote, Long?) -> GiftListingOutcome = { _, _ -> GiftListingOutcome.Changed },
     onOpenStars: () -> Unit,
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
+    var listingGift by remember(accountId, profileId) { mutableStateOf<ReceivedGiftItem?>(null) }
+    val listingState by GiftListingStore.state.collectAsState()
+    val listingOperation = listingState[accountId]
     var info by remember { mutableStateOf<GiftsInfo?>(null) }
     var loading by remember { mutableStateOf(true) }
     var unsupported by remember { mutableStateOf(false) }
@@ -135,6 +143,9 @@ fun GiftsScreen(
     var hideSenderName by rememberSaveable { mutableStateOf(false) }
 
     BackHandler { if (!sending) onBack() }
+    LaunchedEffect(listingOperation, isSelf) {
+        if (isSelf && listingOperation != null && listingOperation?.outcome != null) reload++
+    }
     LaunchedEffect(Unit) {
         if (RetainedGiftSendStore.states.value[accountId] == null && pendingGiftId != 0L) {
             notice = context.getString(R.string.gifts_send_uncertain)
@@ -402,7 +413,16 @@ fun GiftsScreen(
                                 )
                             }
                         } else {
-                            items(gifts.received, key = { it.id }) { gift -> ReceivedGiftRow(gift) }
+                            items(gifts.received, key = { it.id }) { gift ->
+                                ReceivedGiftRow(gift)
+                                if (gift.isUpgraded && !gift.wasRefunded && gift.id.isNotBlank()) {
+                                    TextButton(
+                                        onClick = { listingGift = gift },
+                                        enabled = !sending && pendingGiftId == 0L && listingOperation?.inFlight != true,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                    ) { Text(stringResource(R.string.gift_listing_manage)) }
+                                }
+                            }
                             if (receivedNextOffset.isNotBlank()) item("received_more") {
                                 TextButton(
                                     onClick = ::requestMoreReceived,
@@ -526,6 +546,17 @@ fun GiftsScreen(
         }
     }
 
+    listingGift?.takeIf { isSelf }?.let { gift ->
+        key(accountId, gift.id) {
+            GiftListingDialog(
+                accountId = accountId,
+                gift = gift,
+                load = loadListing,
+                update = updateListing,
+                onDismiss = { listingGift = null }
+            )
+        }
+    }
     val dialogGift = selectedGift
     if (dialogGift != null && (step is GiftSendStep.Confirming || step is GiftSendStep.Sending)) {
         val textMaxLength = info?.textMaxLength ?: GIFT_TEXT_MAX_LENGTH_DEFAULT

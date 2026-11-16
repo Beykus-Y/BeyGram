@@ -298,4 +298,18 @@
         <item quantity="many">%1$d файлов</item>
         <item quantity="other">%1$d файла</item>
     </plurals>
+    <string name="gift_listing_title">Продать подарок</string>
+    <string name="gift_listing_price">Цена в Stars</string>
+    <string name="gift_listing_range">Допустимая цена: %1$s–%2$s Stars</string>
+    <string name="gift_listing_proceeds">При продаже получите примерно %1$s Stars</string>
+    <string name="gift_listing_submit">Выставить за %1$s Stars</string>
+    <string name="gift_listing_remove">Снять с продажи</string>
+    <string name="gift_listing_remove_confirm">Снять подарок с продажи?</string>
+    <string name="gift_listing_confirm">Выставить подарок за %1$s Stars? После покупки он перейдёт другому владельцу.</string>
+    <string name="gift_listing_updated">Предложение обновлено</string>
+    <string name="gift_listing_uncertain">Не удалось подтвердить изменение. Обновите данные подарка перед повтором.</string>
+    <string name="gift_listing_changed">Цена или условия продажи изменились. Откройте подарок заново.</string>
+    <string name="gift_listing_unavailable">Продажа пока недоступна или предложение использует TON.</string>
+    <string name="gift_listing_current">Сейчас выставлен за %1$s Stars</string>
+    <string name="gift_listing_manage">Управление продажей</string>
 </resources>

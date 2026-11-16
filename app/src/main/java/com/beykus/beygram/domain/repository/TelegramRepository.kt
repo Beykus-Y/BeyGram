@@ -15,6 +15,8 @@ import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftListingQuote
+import com.beykus.beygram.domain.model.GiftListingOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
@@ -206,6 +208,11 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
         text: String,
         isPrivate: Boolean
     ): GiftSendOutcome
+
+    suspend fun giftListingQuote(receivedId: String): Result<GiftListingQuote> =
+        Result.failure(UnsupportedOperationException())
+    suspend fun updateGiftListing(quote: GiftListingQuote, newStars: Long?): GiftListingOutcome =
+        GiftListingOutcome.Changed
 
     /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
     suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>

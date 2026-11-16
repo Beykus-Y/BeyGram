@@ -294,4 +294,18 @@
         <item quantity="one">%1$d Datei</item>
         <item quantity="other">%1$d Dateien</item>
     </plurals>
+    <string name="gift_listing_title">Geschenk verkaufen</string>
+    <string name="gift_listing_price">Preis in Stars</string>
+    <string name="gift_listing_range">Erlaubter Preis: %1$s–%2$s Stars</string>
+    <string name="gift_listing_proceeds">Geschätzter Erlös: %1$s Stars</string>
+    <string name="gift_listing_submit">Für %1$s Stars anbieten</string>
+    <string name="gift_listing_remove">Angebot entfernen</string>
+    <string name="gift_listing_remove_confirm">Dieses Geschenk vom Marktplatz entfernen?</string>
+    <string name="gift_listing_confirm">Dieses Geschenk für %1$s Stars anbieten? Beim Kauf wechselt der Besitzer.</string>
+    <string name="gift_listing_updated">Angebot aktualisiert</string>
+    <string name="gift_listing_uncertain">Änderung nicht bestätigt. Aktualisieren Sie das Geschenk vor einem erneuten Versuch.</string>
+    <string name="gift_listing_changed">Preis oder Verkaufsbedingungen geändert. Öffnen Sie das Geschenk erneut.</string>
+    <string name="gift_listing_unavailable">Weiterverkauf nicht verfügbar oder Angebot in TON.</string>
+    <string name="gift_listing_current">Aktuell für %1$s Stars angeboten</string>
+    <string name="gift_listing_manage">Angebot verwalten</string>
 </resources>
