@@ -51,6 +51,7 @@ internal fun lastLineMetadataFits(
 @Composable
 internal fun PlainMessageWithMeta(
     text: String,
+    modifier: Modifier = Modifier,
     meta: @Composable () -> Unit,
 ) {
     val size = LocalMessageTextSize.current
@@ -62,7 +63,7 @@ internal fun PlainMessageWithMeta(
         color = beyGramPalette().messageText,
     ))
     val measurer = rememberTextMeasurer()
-    Layout(content = { Text(text, style = style); androidx.compose.foundation.layout.Box { meta() } }) { children, constraints ->
+    Layout(modifier = modifier, content = { Text(text, style = style); androidx.compose.foundation.layout.Box { meta() } }) { children, constraints ->
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val textPlaceable = children[0].measure(loose)
         val metaPlaceable = children[1].measure(loose)
