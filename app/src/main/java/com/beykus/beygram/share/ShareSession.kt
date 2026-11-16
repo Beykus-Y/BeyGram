@@ -7,9 +7,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.OutgoingMediaImporter
-import com.beykus.beygram.diagnostics.recordAppEvent
-import com.beykus.beygram.diagnostics.report.EventKind
-import com.beykus.beygram.diagnostics.report.Severity
 import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.MediaKind
@@ -31,27 +28,50 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     /** Всё отправлено: экран закрывается и открывает чат. */
     var sent by mutableStateOf(false)
     var sentChatId by mutableStateOf(0L)
+    var sentTopicId by mutableStateOf(0L)
+        private set
+    var retryBlocked by mutableStateOf(false)
+        private set
+    var selectedDestinations by mutableStateOf<List<ShareDestination>>(emptyList())
+        private set
+    var deliveryStarted by mutableStateOf(false)
+        private set
+    var pendingDestinations by mutableStateOf<List<ShareDestination>>(emptyList())
+        private set
+    private var ledger: ShareBatchLedger? = null
+    private var frozenBatches: List<List<OutgoingMedia>> = emptyList()
+    private var frozenDraft = ""
+    fun addDestination(destination: ShareDestination) {
+        if (deliveryStarted) return
+        if (selectedDestinations.none { it.chatId == destination.chatId && it.topicId == destination.topicId })
+            selectedDestinations = selectedDestinations + destination
+    }
+    fun removeDestination(destination: ShareDestination) {
+        if (!deliveryStarted) selectedDestinations = selectedDestinations.filterNot {
+            it.chatId == destination.chatId && it.topicId == destination.topicId
+        }
+    }
     var error by mutableStateOf<UiText?>(null)
     /** Подготовка файлов не удалась: её можно повторить на месте, без нового запроса из «Поделиться». */
     var stagingFailed by mutableStateOf(false)
     private var started = false
+    var invalidFileCount by mutableStateOf(false)
+        private set
     private var released = false
-    /** Сколько файлов ушло из этого запроса за все попытки: нужно, чтобы честно сказать о частичном успехе. */
-    private var sentItems = 0
     private var importer: OutgoingMediaImporter? = null
 
     /** Копирует файлы в приватную папку один раз; вызов после поворота ничего не запускает повторно. */
     fun startStaging(context: Context, scope: CoroutineScope) {
-        if (started || uris.isEmpty()) return
+        if (started || released || uris.isEmpty()) return
         started = true
         val staging = OutgoingMediaImporter(context, accountId)
         importer = staging
-        scope.launch { stage(staging, context, scope) }
+        scope.launch(Dispatchers.Main.immediate) { stage(staging, context, scope) }
     }
 
     /** Повторяет копирование после сбоя: файлы уже переданы приложению, поэтому системный «Поделиться» не нужен. */
     fun retryStaging(context: Context, scope: CoroutineScope) {
-        if (!stagingFailed) return
+        if (!stagingFailed || released || deliveryStarted) return
         stagingFailed = false
         error = null
         started = false
@@ -62,6 +82,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     private suspend fun stage(importer: OutgoingMediaImporter, context: Context, scope: CoroutineScope) {
         if (uris.size > IncomingShareParser.MAX_FILES) {
             error = UiText.Res(R.string.composer_too_many_attachments)
+            invalidFileCount = true
             staging = false
             return
         }
@@ -69,12 +90,15 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
         try {
             for (uri in uris) {
                 // Фото и видео уходят как медиа, остальное как документ.
+                if (released) break
                 val asDocument = withContext(Dispatchers.IO) { !isPhotoOrVideo(context, uri) }
                 items += importer.prepare(uri, asDocument)
             }
-            staged = items
             // Экран уже закрыли, пока копировали: копии никто не заберёт.
-            if (released) discard(importer, scope, items)
+            if (released) discard(importer, scope, items) else staged = items
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            withContext(kotlinx.coroutines.NonCancellable) { items.forEach { importer.discard(it) } }
+            throw cancelled
         } catch (failure: Exception) {
             discard(importer, scope, items)
             error = UiText.Res(R.string.composer_prepare_failed)
@@ -85,75 +109,111 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     }
 
     /**
-     * Отправляет подготовленные файлы или текст. [topicId] — тема группы с темами, 0 для остальных чатов.
+     * Отправляет подготовленные файлы или текст в выбранные чаты и темы.
      * Отправка идёт в [scope], переживает поворот экрана и не запускается дважды.
      */
     fun send(
-        chatId: Long,
-        topicId: Long,
+        destinations: List<ShareDestination>,
         scope: CoroutineScope,
+        validateDestination: suspend (ShareDestination) -> Result<Unit>,
         sendText: suspend (chatId: Long, topicId: Long, text: String) -> Result<Unit>,
         sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>
     ) {
-        if (sending) return
+        if (sending || sent || retryBlocked || staging || stagingFailed || invalidFileCount || released) return
+        if (ledger == null) {
+            if (destinations.isEmpty() || (staged.isEmpty() && draft.isBlank())) return
+            frozenDraft = draft.trim()
+            val album = staged.size in 2..IncomingShareParser.MAX_FILES && staged.all {
+                it.kind == MediaKind.Photo || it.kind == MediaKind.Video
+            }
+            frozenBatches = if (album) listOf(staged) else staged.map { listOf(it) }
+            ledger = ShareBatchLedger(destinations, frozenBatches.size.coerceAtLeast(1))
+            deliveryStarted = true
+            selectedDestinations = ledger!!.destinations
+            pendingDestinations = selectedDestinations
+        }
+        val delivery = checkNotNull(ledger)
         sending = true
         error = null
-        scope.launch {
+        scope.launch(Dispatchers.Main.immediate) {
             try {
-                // Все файлы убраны пользователем — отправляем только текст.
-                val mode = if (staged.isNotEmpty()) "files" else "text"
-                recordAppEvent(EventKind.UI, "share_send_started", "Отправка из «Поделиться» начата", attrs = mapOf("mode" to mode, "files" to staged.size.toString()))
-                val result = if (staged.isNotEmpty()) sendStaged(chatId, topicId, sendMedia) else sendText(chatId, topicId, draft.trim())
-                result
-                    .onSuccess {
-                        sentChatId = chatId
-                        sent = true
-                        recordAppEvent(EventKind.UI, "share_send_done", "Отправка из «Поделиться» завершена", attrs = mapOf("mode" to mode, "sent" to sentItems.toString()))
+                for (destination in delivery.pending()) {
+                    if (released || retryBlocked) break
+                    val validation = withContext(Dispatchers.Default) { validateDestination(destination) }
+                    if (validation.isFailure) {
+                        error = (validation.exceptionOrNull() as? UserMessageException)?.text ?: UiText.Res(R.string.share_unavailable_recipient)
+                        continue
                     }
-                    .onFailure {
-                        // Только числа и тип ошибки: текст и имена файлов в журнал не пишем.
-                        recordAppEvent(
-                            EventKind.UI,
-                            "share_send_failed",
-                            "Отправка из «Поделиться» не удалась",
-                            Severity.WARNING,
-                            mapOf("mode" to mode, "sent" to sentItems.toString(), "remaining" to staged.size.toString(), "cause" to it.javaClass.simpleName.ifEmpty { "unknown" })
-                        )
-                        // Часть файлов уже в чате: показываем, сколько ушло, а не общую ошибку.
-                        error = if (sentItems > 0) {
-                            UiText.Res(R.string.share_partial_failed, listOf(sentItems, sentItems + staged.size))
+                    for (index in delivery.nextBatch(destination) until delivery.batchCount) {
+                        if (released) break
+                        val result = if (frozenBatches.isEmpty()) {
+                            withContext(Dispatchers.Default) { sendText(destination.chatId, destination.topicId, frozenDraft) }
                         } else {
-                            (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed)
+                            val owner = checkNotNull(importer)
+                            val copies = mutableListOf<OutgoingMedia>()
+                            val preparation = try {
+                                for (item in frozenBatches[index]) copies += owner.copyForShareDelivery(item)
+                                Result.success(Unit)
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                withContext(kotlinx.coroutines.NonCancellable) { copies.forEach { owner.discard(it) } }
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                copies.forEach { owner.discard(it) }
+                                Result.failure(failure)
+                            }
+                            if (preparation.isFailure) preparation
+                            else if (released) {
+                                copies.forEach { owner.discard(it) }
+                                break
+                            } else {
+                                // From this point TDLib owns these paths, even when its response is uncertain.
+                                val sent = withContext(Dispatchers.Default) {
+                                    sendMedia(destination.chatId, destination.topicId, copies, if (index == 0) frozenDraft else "")
+                                }
+                                if (sent.exceptionOrNull() is ShareMediaNotHandedOffException) copies.forEach { owner.discard(it) }
+                                sent
+                            }
                         }
-                        // Экран уже закрыт: повторить отправку будет некому, копии не должны остаться в папке.
-                        val leftover = staged
-                        if (released) importer?.let { staging -> scope.launch { leftover.forEach { staging.discard(it) } } }
+                        if (result.isFailure) {
+                            if (isShareOutcomeUnknown(result.exceptionOrNull())) retryBlocked = true
+                            val failure = result.exceptionOrNull()
+                            val shown = if (failure is ShareMediaNotHandedOffException) failure.cause else failure
+                            error = (shown as? UserMessageException)?.text ?: UiText.Res(R.string.share_send_failed)
+                            break
+                        }
+                        delivery.confirm(destination, index)
+                        pendingDestinations = delivery.pending()
                     }
+                }
+                pendingDestinations = delivery.pending()
+                if (pendingDestinations.isEmpty()) {
+                    val first = delivery.destinations.first()
+                    sentChatId = first.chatId
+                    sentTopicId = first.topicId
+                    sent = true
+                } else if (delivery.confirmedCount() > 0) {
+                    error = UiText.Res(R.string.share_delivery_progress, listOf(delivery.completedCount(), delivery.destinations.size))
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                retryBlocked = true
+                throw cancelled
+            } catch (failure: Exception) {
+                retryBlocked = true
+                error = UiText.Res(R.string.share_send_failed)
             } finally {
+                pendingDestinations = delivery.pending()
                 sending = false
+                if (released || sent) {
+                    val masters = staged
+                    staged = emptyList()
+                    withContext(kotlinx.coroutines.NonCancellable) { importer?.let { owner -> masters.forEach { owner.discard(it) } } }
+                }
             }
         }
     }
 
-    // Файлы уходят по одному, а группы из 2–10 фото и видео — альбомом. Подпись уходит с первой отправленной частью.
-    private suspend fun sendStaged(
-        chatId: Long,
-        topicId: Long,
-        sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>
-    ): Result<Unit> {
-        val album = staged.size in 2..IncomingShareParser.MAX_FILES && staged.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video }
-        val batches = if (album) listOf(staged) else staged.map { listOf(it) }
-        for (batch in batches) {
-            val result = sendMedia(chatId, topicId, batch, draft.trim())
-            if (result.isFailure) return result
-            staged = staged.filterNot { item -> batch.any { it.path == item.path } }
-            sentItems += batch.size
-            draft = ""
-        }
-        return Result.success(Unit)
-    }
-
     fun removeStaged(item: OutgoingMedia, importer: OutgoingMediaImporter, scope: CoroutineScope) {
+        if (sending || retryBlocked || deliveryStarted) return
         staged = staged.filterNot { it.path == item.path }
         scope.launch { importer.discard(item) }
     }
@@ -162,7 +222,7 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
     fun release(context: Context, scope: CoroutineScope) {
         released = true
         if (sending) return
-        discard(OutgoingMediaImporter(context), scope, staged)
+        discard(OutgoingMediaImporter(context, accountId), scope, staged)
         staged = emptyList()
     }
 
@@ -181,6 +241,11 @@ internal class ShareSession(val requestId: Long, val uris: List<Uri>, initialDra
 /** Единственный активный запрос «Поделиться»: держит его состояние между поворотами экрана. */
 internal object ShareSessions {
     private var current: ShareSession? = null
+    // All mutations are invoked by the UI; asynchronous staging and send also resume on Main.
+
+    fun hasSession(requestId: Long): Boolean = current?.requestId == requestId
+
+    fun deliveryAccount(requestId: Long): String? = current?.takeIf { it.requestId == requestId && it.deliveryStarted }?.accountId
 
     fun of(context: Context, requestId: Long, uris: List<Uri>, text: String, accountId: String = "legacy"): ShareSession {
         current?.takeIf { it.requestId == requestId && it.accountId == accountId }?.let { return it }

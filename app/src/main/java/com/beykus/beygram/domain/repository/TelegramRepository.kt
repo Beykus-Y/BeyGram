@@ -15,8 +15,11 @@ import com.beykus.beygram.domain.model.ChatStories
 import com.beykus.beygram.domain.model.InviteJoinOutcome
 import com.beykus.beygram.domain.model.MessageLinkTarget
 import com.beykus.beygram.domain.model.GiftSendOutcome
+import com.beykus.beygram.domain.model.GiftListingQuote
+import com.beykus.beygram.domain.model.GiftListingOutcome
 import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
+import com.beykus.beygram.domain.model.ResaleGiftsPage
 import com.beykus.beygram.domain.model.PremiumCheckoutOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeApplyOutcome
 import com.beykus.beygram.domain.model.PremiumGiftCodeInfo
@@ -190,6 +193,10 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
 
     /** Gift catalog and, for the own profile, received gifts and collections. */
     suspend fun giftsInfo(profileId: Long, isSelf: Boolean): Result<GiftsInfo>
+    suspend fun resaleGifts(giftId: Long, offset: String): Result<ResaleGiftsPage> =
+        Result.failure(UnsupportedOperationException())
+    suspend fun buyResoldGift(profileId: Long, name: String, confirmedStars: Long): GiftSendOutcome =
+        GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(com.beykus.beygram.R.string.err_gift_unavailable))
 
     /** Next page of the signed-in user's received gifts, from [GiftsInfo.receivedNextOffset]. */
     suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> =
@@ -206,6 +213,11 @@ interface TelegramRepository : ConversationRepository, NotificationRepository, R
         text: String,
         isPrivate: Boolean
     ): GiftSendOutcome
+
+    suspend fun giftListingQuote(receivedId: String): Result<GiftListingQuote> =
+        Result.failure(UnsupportedOperationException())
+    suspend fun updateGiftListing(quote: GiftListingQuote, newStars: Long?): GiftListingOutcome =
+        GiftListingOutcome.Changed
 
     /** Переносит чат в архив или возвращает его в основной список. Списки обновятся по ответу TDLib. */
     suspend fun setChatArchived(chatId: Long, archived: Boolean): Result<Unit>

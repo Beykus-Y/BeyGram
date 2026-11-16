@@ -6,7 +6,13 @@ import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.domain.model.ExternalPaymentMethod
 import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftCatalogItem
+import com.beykus.beygram.domain.model.ResaleGiftItem
+import com.beykus.beygram.domain.model.ResaleGiftsPage
+import com.beykus.beygram.domain.model.resalePriceMatches
 import com.beykus.beygram.domain.model.GiftCollectionItem
+import com.beykus.beygram.domain.model.GiftListingQuote
+import com.beykus.beygram.domain.model.GiftListingOutcome
+import com.beykus.beygram.domain.model.giftListingAllowed
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftTextValidation
 import com.beykus.beygram.domain.model.GiftsInfo
@@ -391,6 +397,75 @@ internal class TdPayments(private val requests: TdRequests) {
         )
     }
 
+    /** Read-only market request. The listed price is specific to the collectible name and currency. */
+    suspend fun resaleGifts(giftId: Long, offset: String): Result<ResaleGiftsPage> = monetizationResult {
+        val page = requests(TdApi.SearchGiftsForResale().apply {
+            this.giftId = giftId
+            order = TdApi.GiftForResaleOrderPrice()
+            attributes = emptyArray()
+            this.offset = offset
+            limit = 20
+        })
+        ResaleGiftsPage(
+            items = page.gifts.orEmpty().mapNotNull { listing ->
+                val gift = listing.gift ?: return@mapNotNull null
+                val name = gift.name.orEmpty()
+                val price = gift.resaleParameters ?: return@mapNotNull null
+                if (name.isBlank() || gift.id <= 0L) return@mapNotNull null
+                ResaleGiftItem(
+                    id = gift.id,
+                    name = name,
+                    title = gift.title.orEmpty(),
+                    number = gift.number,
+                    emoji = gift.symbol?.sticker?.emoji.orEmpty(),
+                    starCount = price.starCount.takeIf { it > 0L && !price.toncoinOnly },
+                    isOwned = listing.receivedGiftId.orEmpty().isNotBlank()
+                )
+            }.distinctBy { it.name },
+            nextOffset = page.nextOffset.orEmpty()
+        )
+    }
+
+    /** One explicit Stars resale purchase. No TON, no retries, no authorization at an increased price. */
+    suspend fun buyResoldGift(profileId: Long, name: String, confirmedStars: Long): GiftSendOutcome {
+        fun blocked() = GiftSendOutcome.Blocked(UiText.Res(R.string.gifts_resale_changed))
+        if (name.isBlank() || confirmedStars <= 0L) return blocked()
+        if (!sendInFlight.compareAndSet(false, true)) {
+            return GiftSendOutcome.Blocked(UiText.Res(R.string.err_gift_send_busy))
+        }
+        var dispatched = false
+        return try {
+            val recipient = giftOwner(profileId)
+            val gift = requests(TdApi.GetUpgradedGift(name))
+            val price = gift.resaleParameters
+            val owner = gift.ownerId as? TdApi.MessageSenderUser
+            val ownId = myUserId()
+            if (gift.name != name || owner?.userId == ownId ||
+                !resalePriceMatches(confirmedStars, price?.starCount, price?.toncoinOnly != false)) {
+                return blocked()
+            }
+            val balance = currentBalanceOrNull()
+            if (balance == null || balance.starCount < confirmedStars) {
+                return GiftSendOutcome.Blocked(UiText.Res(R.string.err_gift_insufficient_stars))
+            }
+            dispatched = true
+            when (requests(TdApi.SendResoldGift(name, recipient, TdApi.GiftResalePriceStar(confirmedStars)),
+                timeoutMillis = GIFT_SEND_TIMEOUT_MS)) {
+                is TdApi.GiftResaleResultOk -> GiftSendOutcome.Sent
+                is TdApi.GiftResaleResultPriceIncreased -> blocked()
+                else -> GiftSendOutcome.Uncertain
+            }
+        } catch (timeout: TimeoutCancellationException) {
+            if (dispatched) GiftSendOutcome.Uncertain else GiftSendOutcome.Failed(failureText(timeout))
+        } catch (cancelled: CancellationException) {
+            if (dispatched) GiftSendOutcome.Uncertain else throw cancelled
+        } catch (error: Exception) {
+            if (dispatched) GiftSendOutcome.Uncertain else GiftSendOutcome.Failed(failureText(error))
+        } finally {
+            sendInFlight.set(false)
+        }
+    }
+
     /** Next page of the signed-in user's received gifts; the screen owns the cursor and the merge. */
     suspend fun receivedGifts(offset: String): Result<ReceivedGiftsPage> = monetizationResult {
         receivedGiftsPage(myUserId(), offset)
@@ -606,6 +681,62 @@ internal class TdPayments(private val requests: TdRequests) {
         else -> PaidContentFormKind.Unknown
     }
 
+    /** Reads a specific owned collectible, current listing and authoritative limits. No mutation. */
+    suspend fun giftListingQuote(receivedId: String): Result<GiftListingQuote> = monetizationResult {
+        require(receivedId.isNotBlank())
+        val received = requests(TdApi.GetReceivedGift(receivedId))
+        val gift = (received.gift as? TdApi.SentGiftUpgraded)?.gift
+            ?: throw UserMessageException(UiText.Res(R.string.gift_listing_unavailable))
+        val owner = gift.ownerId as? TdApi.MessageSenderUser
+        if (received.receivedGiftId != receivedId || received.wasRefunded || owner?.userId != myUserId()) {
+            throw UserMessageException(UiText.Res(R.string.gift_listing_unavailable))
+        }
+        suspend fun option(name: String): Long? =
+            (requests(TdApi.GetOption(name)) as? TdApi.OptionValueInteger)?.value
+        val now = option("unix_time") ?: 0L
+        val minimum = option("gift_resale_star_count_min") ?: 0L
+        val maximum = option("gift_resale_star_count_max") ?: 0L
+        val earnings = option("gift_resale_star_earnings_per_mille") ?: -1L
+        val listed = gift.resaleParameters
+        GiftListingQuote(
+            receivedId = receivedId,
+            collectibleName = gift.name.orEmpty(),
+            currentStars = listed?.takeUnless { it.toncoinOnly }?.starCount?.takeIf { it > 0L },
+            tonOnly = listed?.toncoinOnly == true,
+            eligible = now > 0L && received.nextResaleDate > 0 && received.nextResaleDate.toLong() <= now,
+            minimum = minimum,
+            maximum = maximum,
+            earningsPerMille = earnings
+        )
+    }
+
+    /** One confirmed listing mutation, using the received gift ID (not the catalog ID). */
+    suspend fun updateGiftListing(quote: GiftListingQuote, newStars: Long?): GiftListingOutcome {
+        if (!giftListingAllowed(quote, newStars)) return GiftListingOutcome.Changed
+        if (!sendInFlight.compareAndSet(false, true)) {
+            return GiftListingOutcome.Failed(UiText.Res(R.string.err_gift_send_busy))
+        }
+        var dispatched = false
+        return try {
+            val current = giftListingQuote(quote.receivedId).getOrThrow()
+            if (current != quote || !giftListingAllowed(current, newStars)) return GiftListingOutcome.Changed
+            dispatched = true
+            requests(
+                TdApi.SetGiftResalePrice(quote.receivedId, newStars?.let { TdApi.GiftResalePriceStar(it) }),
+                timeoutMillis = GIFT_SEND_TIMEOUT_MS
+            )
+            GiftListingOutcome.Updated
+        } catch (timeout: TimeoutCancellationException) {
+            if (dispatched) GiftListingOutcome.Uncertain else GiftListingOutcome.Failed(failureText(timeout))
+        } catch (cancelled: CancellationException) {
+            if (dispatched) GiftListingOutcome.Uncertain else throw cancelled
+        } catch (error: Exception) {
+            if (dispatched) GiftListingOutcome.Uncertain else GiftListingOutcome.Failed(failureText(error))
+        } finally {
+            sendInFlight.set(false)
+        }
+    }
+
     private suspend fun availableGift(giftId: Long): TdApi.Gift? =
         requests(TdApi.GetAvailableGifts()).gifts.orEmpty()
             .firstOrNull { it.gift?.id == giftId }
@@ -785,7 +916,10 @@ private fun TdApi.AvailableGift.toCatalogItem(): GiftCatalogItem? {
         isPremiumOnly = value.isPremium,
         remainingCount = remaining,
         isSoldOut = remaining != null && remaining <= 0,
-        isAuctionOnly = value.auctionInfo != null
+        isAuctionOnly = value.auctionInfo != null,
+        resaleCount = resaleCount.coerceAtLeast(0),
+        minResaleStarCount = minResaleStarCount.coerceAtLeast(0L),
+        resaleTitle = title.orEmpty()
     )
 }
 

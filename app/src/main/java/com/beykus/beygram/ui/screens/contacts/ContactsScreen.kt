@@ -67,11 +67,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
+import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.ChatAvatar
+import com.beykus.beygram.ui.screens.chat.ForwardChatDialog
+import com.beykus.beygram.ui.screens.chat.ForwardTarget
 import com.beykus.beygram.ui.components.SearchField
 import com.beykus.beygram.ui.components.TelegramAvatar
 import com.beykus.beygram.ui.components.beyGramPalette
@@ -104,7 +108,10 @@ fun ContactsScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onChatOpened: (chatId: Long) -> Unit,
-    accountId: String = "legacy"
+    accountId: String = "legacy",
+    loadShareTopics: (suspend (Long) -> Result<List<ForumTopic>?>)? = null,
+    sendContactToTopic: (suspend (Long, Long, Long) -> Result<Unit>)? = null,
+    recipientRepository: TelegramRepository? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -136,7 +143,7 @@ fun ContactsScreen(
         groups.filterKeys { it != CONTACT_SYMBOL_GROUP } + groups.filterKeys { it == CONTACT_SYMBOL_GROUP }
     }
     val shareChats = remember(chats) {
-        chats.filter { it.canPost }.distinctBy { it.id }.sortedBy { it.title.lowercase() }
+        chats
     }
 
     fun reload() {
@@ -290,6 +297,9 @@ fun ContactsScreen(
             contact = contact,
             chats = shareChats,
             sendContact = sendContact,
+            loadTopics = loadShareTopics,
+            sendContactToTopic = sendContactToTopic,
+            recipientRepository = recipientRepository,
             observeFile = observeFile,
             downloadFile = downloadFile,
             onDismiss = { sharingContact = null },
@@ -554,54 +564,54 @@ private fun ShareContactDialog(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     onDismiss: () -> Unit,
-    onSent: () -> Unit
+    onSent: () -> Unit,
+    loadTopics: (suspend (Long) -> Result<List<ForumTopic>?>)?,
+    sendContactToTopic: (suspend (Long, Long, Long) -> Result<Unit>)?,
+    recipientRepository: TelegramRepository?
 ) {
-    val palette = beyGramPalette()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var retryBlocked by rememberSaveable { mutableStateOf(false) }
+    val completed = rememberSaveable { arrayListOf<String>() }
     val displayName = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
-    BeyGramDialog(
-        onDismissRequest = { if (!sending) onDismiss() },
-        title = stringResource(R.string.contacts_share_title),
-        content = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(displayName, color = palette.textPrimary, fontWeight = FontWeight.SemiBold)
-                if (sending) Text(stringResource(R.string.contacts_share_sending), color = palette.textSecondary, fontSize = 13.sp)
-                error?.let { Text(it, color = palette.danger, fontSize = 14.sp) }
-                if (chats.isEmpty()) {
-                    Text(stringResource(R.string.contacts_share_no_chats), color = palette.textSecondary, fontSize = 14.sp)
-                } else {
-                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                        items(chats, key = { it.id }) { chat ->
-                            Row(
-                                Modifier.fillMaxWidth()
-                                    .combinedClickable(enabled = !sending, onClick = {
-                                        if (!sending) scope.launch {
-                                            sending = true
-                                            error = null
-                                            sendContact(chat.id, contact.userId)
-                                                .onSuccess { onSent(); onDismiss() }
-                                                .onFailure { error = it.userMessage(context, R.string.contacts_share_failed) }
-                                            sending = false
-                                        }
-                                    })
-                                    .padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ChatAvatar(chat, 40.dp, observeFile, downloadFile)
-                                Spacer(Modifier.width(12.dp))
-                                Text(chat.title, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            }
-                        }
+    ForwardChatDialog(
+        chats = chats,
+        busy = sending,
+        error = error,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        allowComment = false,
+        retryBlocked = retryBlocked,
+        loadTopics = loadTopics.takeIf { sendContactToTopic != null },
+        recipientRepository = recipientRepository,
+        titleOverride = stringResource(R.string.contacts_share_title),
+        previewText = displayName,
+        onSend = { targets, _ ->
+            sending = true
+            error = null
+            val failed = mutableListOf<ForwardTarget>()
+            try {
+                for (target in targets) {
+                    val key = "${target.chatId}:${target.topicId}"
+                    if (key in completed) continue
+                    val result = if (target.topicId == 0L) sendContact(target.chatId, contact.userId)
+                        else sendContactToTopic?.invoke(target.chatId, contact.userId, target.topicId)
+                            ?: Result.failure(IllegalStateException())
+                    if (result.isSuccess) completed.add(key)
+                    else {
+                        failed += target
+                        if (com.beykus.beygram.share.isShareOutcomeUnknown(result.exceptionOrNull())) retryBlocked = true
+                        error = result.exceptionOrNull().userMessage(context, R.string.contacts_share_failed)
                     }
                 }
+                if (failed.isEmpty()) onSent()
+                else error = context.getString(R.string.forward_failed_chats, failed.size) + error?.let { "\n$it" }.orEmpty()
+                failed
+            } finally {
+                sending = false
             }
         },
-        confirmText = stringResource(R.string.common_cancel),
-        confirmEnabled = !sending,
-        onConfirm = onDismiss,
-        scrollableContent = false
+        onClose = onDismiss
     )
 }

@@ -83,7 +83,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -656,6 +658,7 @@ private fun WaveListenerBar(bottomInset: Boolean, floatingDock: Boolean, compact
     val palette = beyGramPalette()
     val scope = rememberCoroutineScope()
     val minHeight = if (compact) 48.dp else 56.dp
+    val summary = stringResource(R.string.bgwave_mini_a11y, stringResource(R.string.bgwave_status_live))
     val row: @Composable () -> Unit = {
         Row(
             Modifier
@@ -664,7 +667,12 @@ private fun WaveListenerBar(bottomInset: Boolean, floatingDock: Boolean, compact
                 .padding(start = 18.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(Modifier.weight(1f)) {
+            Column(
+                Modifier.weight(1f).semantics(mergeDescendants = true) {
+                    contentDescription = summary
+                    liveRegion = LiveRegionMode.Polite
+                }
+            ) {
                 Text(
                     stringResource(R.string.bgwave_mini_title),
                     color = palette.textPrimary,

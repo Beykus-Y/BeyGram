@@ -283,4 +283,31 @@
         <item quantity="one">%1$d elemento</item>
         <item quantity="other">%1$d elementos</item>
     </plurals>
+    <string name="paid_text_title">Mensaje de pago</string>
+    <string name="paid_text_confirm">¿Enviar este mensaje ahora por %1$s Stars? Saldo: %2$s Stars. No se aplicará el retraso de envío local.</string>
+    <string name="paid_text_price_changed">El precio del mensaje ha cambiado. Compruébalo y vuelve a confirmar.</string>
+    <string name="paid_text_uncertain">No se pudo confirmar el envío del mensaje de pago. Revisa el chat y el saldo antes de intentarlo de nuevo.</string>
+    <string name="paid_text_draft_changed">El borrador ha cambiado. Revisa el mensaje y pulsa enviar de nuevo.</string>
+    <string name="gifts_resale_title">Reventa</string>
+    <string name="gifts_resale_summary">%1$s ofertas · desde %2$s Stars (equivalente)</string>
+    <string name="gifts_resale_empty">No hay ofertas de reventa disponibles</string>
+    <string name="gifts_resale_buy">Comprar por %1$s Stars</string>
+    <string name="gifts_resale_confirm">¿Comprar %1$s para %2$s por hasta %3$s Stars? Saldo: %4$s Stars.</string>
+    <string name="gifts_resale_ton_unavailable">Las compras con TON no están disponibles</string>
+    <string name="gifts_resale_changed">El precio cambió o el regalo no está disponible. Actualiza la lista.</string>
+    <string name="gifts_resale_market">Mercado de regalos</string>
+    <string name="gift_listing_title">Vender regalo</string>
+    <string name="gift_listing_price">Precio en Stars</string>
+    <string name="gift_listing_range">Precio permitido: %1$s–%2$s Stars</string>
+    <string name="gift_listing_proceeds">Ingreso estimado: %1$s Stars</string>
+    <string name="gift_listing_submit">Poner a la venta por %1$s Stars</string>
+    <string name="gift_listing_remove">Retirar de la venta</string>
+    <string name="gift_listing_remove_confirm">¿Retirar este regalo del mercado?</string>
+    <string name="gift_listing_confirm">¿Poner este regalo a la venta por %1$s Stars? Cambiará de propietario si alguien lo compra.</string>
+    <string name="gift_listing_updated">Oferta actualizada</string>
+    <string name="gift_listing_uncertain">No se confirmó el cambio. Actualiza el regalo antes de intentarlo de nuevo.</string>
+    <string name="gift_listing_changed">El precio o las condiciones cambiaron. Abre el regalo de nuevo.</string>
+    <string name="gift_listing_unavailable">Reventa no disponible u oferta en TON.</string>
+    <string name="gift_listing_current">En venta por %1$s Stars</string>
+    <string name="gift_listing_manage">Gestionar venta</string>
 </resources>

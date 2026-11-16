@@ -185,3 +185,25 @@ data class BgBeatAnalysis(
         }
     }
 }
+
+/**
+ * Lowest [BgBeatAnalysis.bpmConfidence] at which a tempo is kept for the library's Tempo sort. Below it the BPM is a guess, so
+ * it is not stored. Chosen conservatively: a sort on a wrong tempo is worse than a sort without one.
+ */
+const val BG_BEAT_TRUSTED_BPM_CONFIDENCE = 0.6f
+
+/**
+ * The BPM of [analysis] when it is trustworthy enough to keep, otherwise null. It must come from a successful analysis that built
+ * the musical timeline ([BgBeatAnalysis.analyzed]), with a positive finite BPM whose confidence reaches
+ * [BG_BEAT_TRUSTED_BPM_CONFIDENCE], a stable tempo, and no octave ambiguity (the tempo could be half or double the real one).
+ */
+fun trustedTempoBpm(analysis: BgBeatAnalysis): Double? {
+    val trusted = analysis.status == BgBeatStatus.OK &&
+        analysis.analyzed &&
+        !analysis.octaveAmbiguous &&
+        analysis.tempoStable &&
+        analysis.bpm.isFinite() &&
+        analysis.bpm > 0.0 &&
+        analysis.bpmConfidence >= BG_BEAT_TRUSTED_BPM_CONFIDENCE
+    return if (trusted) analysis.bpm else null
+}

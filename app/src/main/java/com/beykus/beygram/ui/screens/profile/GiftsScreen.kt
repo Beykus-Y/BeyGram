@@ -62,6 +62,8 @@ import com.beykus.beygram.domain.model.GIFT_TEXT_MAX_LENGTH_DEFAULT
 import com.beykus.beygram.domain.model.GiftBlockReason
 import com.beykus.beygram.domain.model.GiftCatalogItem
 import com.beykus.beygram.domain.model.GiftCollectionItem
+import com.beykus.beygram.domain.model.GiftListingQuote
+import com.beykus.beygram.domain.model.GiftListingOutcome
 import com.beykus.beygram.domain.model.GiftSendEvent
 import com.beykus.beygram.domain.model.GiftSendOutcome
 import com.beykus.beygram.domain.model.GiftSendStep
@@ -70,6 +72,10 @@ import com.beykus.beygram.domain.model.GiftsInfo
 import com.beykus.beygram.domain.model.MonetizationUnavailableException
 import com.beykus.beygram.domain.model.ReceivedGiftItem
 import com.beykus.beygram.domain.model.ReceivedGiftsPage
+import com.beykus.beygram.domain.model.ResaleGiftItem
+import com.beykus.beygram.domain.model.ResaleGiftsPage
+import com.beykus.beygram.domain.model.resaleCanBuy
+import androidx.compose.runtime.key
 import com.beykus.beygram.domain.model.StarBalance
 import com.beykus.beygram.domain.model.formatStarAmount
 import com.beykus.beygram.domain.model.giftBlockReason
@@ -103,11 +109,18 @@ fun GiftsScreen(
     load: suspend () -> Result<GiftsInfo>,
     loadMoreReceived: suspend (offset: String) -> Result<ReceivedGiftsPage>,
     send: suspend (giftId: Long, text: String, isPrivate: Boolean) -> GiftSendOutcome,
+    loadListing: suspend (String) -> Result<GiftListingQuote> = { Result.failure(UnsupportedOperationException()) },
+    updateListing: suspend (GiftListingQuote, Long?) -> GiftListingOutcome = { _, _ -> GiftListingOutcome.Changed },
     onOpenStars: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    loadResale: suspend (Long, String) -> Result<ResaleGiftsPage> = { _, _ -> Result.failure(UnsupportedOperationException()) },
+    buyResale: suspend (Long, String, Long) -> GiftSendOutcome = { _, _, _ -> GiftSendOutcome.Blocked(com.beykus.beygram.domain.UiText.Res(R.string.err_gift_unavailable)) }
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
+    var listingGift by remember(accountId, profileId) { mutableStateOf<ReceivedGiftItem?>(null) }
+    val listingState by GiftListingStore.state.collectAsState()
+    val listingOperation = listingState[accountId]
     var info by remember { mutableStateOf<GiftsInfo?>(null) }
     var loading by remember { mutableStateOf(true) }
     var unsupported by remember { mutableStateOf(false) }
@@ -115,6 +128,7 @@ fun GiftsScreen(
     var reload by remember { mutableIntStateOf(0) }
     var step by remember { mutableStateOf<GiftSendStep>(GiftSendStep.Idle) }
     var selectedGift by remember { mutableStateOf<GiftCatalogItem?>(null) }
+    var resaleCatalog by remember(accountId, profileId, isSelf) { mutableStateOf<GiftCatalogItem?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeIsError by remember { mutableStateOf(false) }
     // A send runs in the process-scoped store below, so rotation and navigation cannot
@@ -123,7 +137,7 @@ fun GiftsScreen(
     val retainedByAccount by RetainedGiftSendStore.states.collectAsState()
     val retained = retainedByAccount[accountId]
     val retainedRelevant = retained?.let { it.profileId == profileId && it.isSelf == isSelf } == true
-    val sending = step is GiftSendStep.Sending || retained?.inFlight == true
+    val sending = step is GiftSendStep.Sending || retained?.inFlight == true || listingOperation?.inFlight == true
     val scope = rememberCoroutineScope()
     // The token drops a "load more" response that arrives after a refresh started.
     var generation by remember { mutableIntStateOf(0) }
@@ -135,6 +149,9 @@ fun GiftsScreen(
     var hideSenderName by rememberSaveable { mutableStateOf(false) }
 
     BackHandler { if (!sending) onBack() }
+    LaunchedEffect(listingOperation, isSelf) {
+        if (isSelf && listingOperation != null && listingOperation?.outcome != null) reload++
+    }
     LaunchedEffect(Unit) {
         if (RetainedGiftSendStore.states.value[accountId] == null && pendingGiftId != 0L) {
             notice = context.getString(R.string.gifts_send_uncertain)
@@ -379,6 +396,24 @@ fun GiftsScreen(
                         )
                     }
                     if (isSelf) {
+                        if (listingGift == null && listingOperation != null) item("listing_status") {
+                            val result = listingOperation?.outcome
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                                Text(
+                                    when (result) {
+                                        GiftListingOutcome.Updated -> stringResource(R.string.gift_listing_updated)
+                                        GiftListingOutcome.Changed -> stringResource(R.string.gift_listing_changed)
+                                        GiftListingOutcome.Uncertain -> stringResource(R.string.gift_listing_uncertain)
+                                        is GiftListingOutcome.Failed -> result.reason.resolve(context)
+                                        null -> stringResource(R.string.gifts_sending)
+                                    },
+                                    color = palette.textPrimary
+                                )
+                                if (result != null) TextButton(onClick = { GiftListingStore.acknowledge(accountId); reload++ }) {
+                                    Text(stringResource(R.string.common_close))
+                                }
+                            }
+                        }
                         item("received_header") {
                             MonetizationSectionHeader(stringResource(R.string.gifts_received_title))
                         }
@@ -402,7 +437,16 @@ fun GiftsScreen(
                                 )
                             }
                         } else {
-                            items(gifts.received, key = { it.id }) { gift -> ReceivedGiftRow(gift) }
+                            items(gifts.received, key = { it.id }) { gift ->
+                                ReceivedGiftRow(gift)
+                                if (gift.isUpgraded && !gift.wasRefunded && gift.id.isNotBlank()) {
+                                    TextButton(
+                                        onClick = { listingGift = gift },
+                                        enabled = !sending && pendingGiftId == 0L && listingOperation?.inFlight != true,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                    ) { Text(stringResource(R.string.gift_listing_manage)) }
+                                }
+                            }
                             if (receivedNextOffset.isNotBlank()) item("received_more") {
                                 TextButton(
                                     onClick = ::requestMoreReceived,
@@ -481,7 +525,8 @@ fun GiftsScreen(
                                     blockReason = null,
                                     enabled = false,
                                     showSend = false,
-                                    onSend = {}
+                                    onSend = {},
+                                    onResale = { resaleCatalog = gift }
                                 )
                             }
                         }
@@ -511,7 +556,8 @@ fun GiftsScreen(
                                     gift = gift,
                                     blockReason = blockReason,
                                     enabled = !sending && pendingGiftId == 0L,
-                                    onSend = { chooseGift(gift) }
+                                    onSend = { chooseGift(gift) },
+                                    onResale = { if (!sending && pendingGiftId == 0L) resaleCatalog = gift }
                                 )
                             }
                         }
@@ -526,6 +572,40 @@ fun GiftsScreen(
         }
     }
 
+    resaleCatalog?.let { catalog ->
+        key(accountId, profileId, isSelf, catalog.id) {
+            GiftResaleDialog(
+                catalog = catalog,
+                profileTitle = profileTitle,
+                balance = info?.balance,
+                purchaseEnabled = !isSelf && !sending && pendingGiftId == 0L,
+                load = { offset -> loadResale(catalog.id, offset) },
+                onDismiss = { resaleCatalog = null },
+                onBuy = { listing ->
+                    val price = listing.starCount
+                    if (price != null && !isSelf && !sending && pendingGiftId == 0L &&
+                        resaleCanBuy(listing, info?.balance) &&
+                        RetainedGiftSendStore.start(accountId, profileId, isSelf, listing.id) {
+                            buyResale(profileId, listing.name, price)
+                        }) {
+                        pendingGiftId = listing.id
+                        resaleCatalog = null
+                    }
+                }
+            )
+        }
+    }
+    listingGift?.takeIf { isSelf }?.let { gift ->
+        key(accountId, gift.id) {
+            GiftListingDialog(
+                accountId = accountId,
+                gift = gift,
+                load = loadListing,
+                update = updateListing,
+                onDismiss = { listingGift = null }
+            )
+        }
+    }
     val dialogGift = selectedGift
     if (dialogGift != null && (step is GiftSendStep.Confirming || step is GiftSendStep.Sending)) {
         val textMaxLength = info?.textMaxLength ?: GIFT_TEXT_MAX_LENGTH_DEFAULT
@@ -668,7 +748,8 @@ private fun GiftCatalogRow(
     blockReason: GiftBlockReason?,
     enabled: Boolean,
     showSend: Boolean = true,
-    onSend: () -> Unit
+    onSend: () -> Unit,
+    onResale: () -> Unit
 ) {
     val palette = beyGramPalette()
     Column(
@@ -685,6 +766,7 @@ private fun GiftCatalogRow(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+                if (gift.resaleTitle.isNotBlank()) Text(gift.resaleTitle, color = palette.textPrimary, fontSize = 14.sp)
                 val details = mutableListOf<String>()
                 if (gift.isPremiumOnly) details += stringResource(R.string.gifts_premium_only)
                 if (gift.isAuctionOnly) details += stringResource(R.string.gifts_auction_only)
@@ -714,6 +796,15 @@ private fun GiftCatalogRow(
                 }
             } else if (blockReason != null) {
                 Icon(Icons.Rounded.CardGiftcard, null, tint = palette.disabled, modifier = Modifier.size(24.dp))
+            }
+        }
+        if (gift.resaleCount > 0) {
+            if (gift.minResaleStarCount > 0L) Text(
+                stringResource(R.string.gifts_resale_summary, gift.resaleCount.toString(), formatStarAmount(gift.minResaleStarCount)),
+                color = palette.textSecondary, fontSize = 13.sp
+            )
+            TextButton(onClick = onResale, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.gifts_resale_title))
             }
         }
     }

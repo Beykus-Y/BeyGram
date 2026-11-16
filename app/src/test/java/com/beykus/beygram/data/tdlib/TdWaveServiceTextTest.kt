@@ -36,4 +36,9 @@ class TdWaveServiceTextTest {
             assertTrue(expected.message.orEmpty().isNotEmpty())
         }
     }
+
+    @Test fun `entities helper used by the sender covers the whole label`() {
+        val label = "😀 Служебное"
+        assertEquals(listOf(MessageTextEntity(0, label.length, TextStyleKind.Url, link)), waveServiceEntities(label, link))
+    }
 }

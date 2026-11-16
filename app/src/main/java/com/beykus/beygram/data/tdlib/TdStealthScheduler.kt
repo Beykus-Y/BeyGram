@@ -31,7 +31,8 @@ internal class TdStealthScheduler(private val request: TdRequests, private val d
      * point at the uploaded files; only the final part and the thumbnail are left, and the date allows for them.
      */
     suspend fun resolve(
-        chatId: Long, options: MessageSendOptions, media: List<OutgoingMedia> = emptyList(), liveLocation: Boolean = false
+        chatId: Long, options: MessageSendOptions, media: List<OutgoingMedia> = emptyList(), liveLocation: Boolean = false,
+        onMediaHandoff: () -> Unit = {}
     ): StealthSend {
         val lead = delaySeconds() ?: return StealthSend(options, media, scheduled = false)
         if (options.sendNowConsent) return StealthSend(options, media, scheduled = false)
@@ -39,7 +40,10 @@ internal class TdStealthScheduler(private val request: TdRequests, private val d
         if (options.scheduledAtSeconds != null) return StealthSend(options, media, scheduled = false)
         if (options.viewOnce || liveLocation) throw unavailable(R.string.stealth_schedule_unavailable_content)
         chatRestriction(chatId)?.let { throw unavailable(it) }
-        val uploaded = media.map { preupload(it) }
+        val uploaded = media.map {
+            if (it.remoteFileId <= 0 && it.path.isNotBlank()) onMediaHandoff()
+            preupload(it)
+        }
         val remaining = uploaded.sumOf { it.second } + media.sumOf { it.thumbnailBytes() }
         val at = stealthScheduleAt(serverUnixTime(), lead, remaining)
         return StealthSend(options.copy(scheduledAtSeconds = at), uploaded.map { it.first }, scheduled = true)

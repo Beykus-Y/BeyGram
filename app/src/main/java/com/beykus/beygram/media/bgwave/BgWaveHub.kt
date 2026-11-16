@@ -1,6 +1,7 @@
 package com.beykus.beygram.media.bgwave
 
 import android.media.AudioManager
+import android.net.ConnectivityManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +34,7 @@ object BgWaveHub {
 
     private val senders = ConcurrentHashMap<String, BgWaveSender>()
     @Volatile private var audioManager: AudioManager? = null
+    @Volatile private var appContext: android.content.Context? = null
     @Volatile private var listenerAudio: BgWaveListenerAudio? = null
     private var bgMixTapAttached = false
     private var hostTapMissingLogged = false
@@ -45,10 +47,19 @@ object BgWaveHub {
     @Volatile var hostTap: ((sessionHandle: Long, attach: Boolean) -> Boolean)? = null
 
     /** Called once from the application, so the listener can take audio focus and play. */
-    fun attachAudioManager(manager: AudioManager) {
+    fun attachAudioManager(manager: AudioManager, context: android.content.Context? = null) {
         audioManager = manager
+        appContext = context?.applicationContext
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var networkWatcher: BgWaveNetworkWatcher? = null
+
+    /** Called once from the application: a network switch during a failed wave then triggers one automatic retry. */
+    @Synchronized
+    fun attachConnectivityManager(manager: ConnectivityManager) {
+        if (networkWatcher != null) return
+        networkWatcher = BgWaveNetworkWatcher(manager, scope, controller.state, { retry() }).also { it.start() }
+    }
     @Volatile private var ticker: Job? = null
 
     fun nowSeconds(): Long = System.currentTimeMillis() / 1000L
@@ -159,6 +170,7 @@ object BgWaveHub {
             if (!live) BgWaveHostTap.close()
             val tap = hostTap
             if (tap == null) {
+                if (live) controller.setHostSourceUnsupported(state.sidHex, true)
                 if (live && !hostTapMissingLogged) {
                     BgWaveLog.w("host.bgmix.tap", null, "reason" to "no-provider")
                     hostTapMissingLogged = true
@@ -171,13 +183,19 @@ object BgWaveHub {
                 BgWaveLog.i("host.bgmix.tap", "attached" to attached)
             }
             bgMixTapAttached = attached && live
+            // The tap is refused for a source that must not be broadcast (a private or non-file track), and BG Mix owns the
+            // audio then, so the host is told instead of the listener silently getting nothing.
+            if (live) {
+                val unsupported = !BgWaveHostTap.captureEligible || (!attached && BgWaveHostTap.exoSuppressedForBgMix)
+                controller.setHostSourceUnsupported(state.sidHex, unsupported)
+            }
             return
         }
         if (live && listenerAudio == null && focusLostSid != state.sidHex) {
             val source = controller.activeSession()
             val manager = audioManager
             if (source != null && manager != null) {
-                val output = BgWaveListenerAudio(source, manager) {
+                val output = BgWaveListenerAudio(source, manager, appContext) {
                     focusLostSid = state.sidHex
                     scope.launch {
                         val link = controller.stopIfCurrent(state, nowSeconds())
@@ -191,6 +209,29 @@ object BgWaveHub {
         } else if (!live) {
             listenerAudio?.stop()
             listenerAudio = null
+        }
+    }
+
+    /** Live only: one stats line per tick under the BgWave tag. Never throws, so the ticker keeps running. */
+    private fun logLiveStats() {
+        try {
+            val state = controller.state.value ?: return
+            if (state.phase != BgWavePhase.Live) return
+            val raw = controller.activeSession()?.stats() ?: return
+            val stats = BgWaveStats.parse(raw) ?: return
+            BgWaveLog.i(
+                "session.stats",
+                "role" to state.role,
+                "sent" to stats.sent,
+                "received" to stats.received,
+                "lost" to stats.lost,
+                "plc" to stats.plc,
+                "jitterMs" to stats.jitterMs,
+                "bitrate" to stats.bitrateBps,
+                "depthMs" to stats.depthMs,
+            )
+        } catch (_: Exception) {
+            // Stats are diagnostics only; a failed read must not stop the wave's ticker.
         }
     }
 
@@ -209,6 +250,7 @@ object BgWaveHub {
                 val links = controller.poll(nowSeconds())
                 for (link in links) send(state.accountId, state.chatId, link)
                 syncAudio()
+                logLiveStats()
                 if (controller.state.value?.phase.let { it == null || it == BgWavePhase.Ended || it == BgWavePhase.Failed }) break
             }
             } finally {

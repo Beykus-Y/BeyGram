@@ -1413,13 +1413,18 @@ private fun BeyGramAppContent(
     // A generic Android ACTION_SEND has no trustworthy Telegram account
     // identity. Require an explicit account choice BEFORE resolving numeric
     // chat IDs; published Direct Share shortcuts remain legacy-only.
-    var shareAccountTarget by remember(incomingShare?.requestId) {
-        mutableStateOf<String?>(if (incomingShare?.targetChatId != 0L) TdAccountStorageLayout.LEGACY_ACCOUNT_ID else null)
+    var shareAccountTarget by rememberSaveable(incomingShare?.requestId) {
+        mutableStateOf(incomingShare?.let { ShareSessions.deliveryAccount(it.requestId) }
+            ?: if (incomingShare?.targetChatId?.let { it != 0L } == true) TdAccountStorageLayout.LEGACY_ACCOUNT_ID else null)
+    }
+    val startedShareAccount = incomingShare?.let { ShareSessions.deliveryAccount(it.requestId) }
+    LaunchedEffect(startedShareAccount) {
+        if (startedShareAccount != null) shareAccountTarget = startedShareAccount
     }
     // A legacy Direct Share shortcut's numeric chat ID belongs ONLY to legacy.
     // Choosing another account discards that shortcut but keeps the attachment.
-    var shareLegacyShortcut by remember(incomingShare?.requestId) {
-        mutableStateOf(incomingShare?.targetChatId != 0L)
+    var shareLegacyShortcut by rememberSaveable(incomingShare?.requestId) {
+        mutableStateOf(incomingShare?.targetChatId?.let { it != 0L } == true)
     }
     val shareLegacyFinalLogout = legacyAuthState is AuthState.WaitingForPhone ||
         legacyAuthState is AuthState.WaitingForQr ||
@@ -1504,67 +1509,63 @@ private fun BeyGramAppContent(
     if (incomingShare != null && shareAccountTarget != null &&
         shareAccountTarget != selectedAccountId && accountRegistryReady && !accountRegistryError) {
         val target = shareAccountTarget!!
+        val cancelSwitch: () -> Unit = {
+            if (startedShareAccount != null) onIncomingShareHandled(incomingShare.requestId)
+            else shareAccountTarget = null
+        }
         BeyGramDialog(
-            onDismissRequest = { shareAccountTarget = null },
+            onDismissRequest = cancelSwitch,
             title = stringResource(R.string.multi_share_switch_title),
             message = stringResource(R.string.multi_share_switch_note),
             confirmText = stringResource(R.string.multi_share_switch_action),
             onConfirm = { chooseAccount(target) },
-            dismissText = stringResource(R.string.multi_share_choose_other),
-            onDismiss = { shareAccountTarget = null }
+            dismissText = stringResource(if (startedShareAccount != null) R.string.common_close else R.string.multi_share_choose_other),
+            onDismiss = cancelSwitch
         )
     }
     if (incomingShare != null && shareAccountTarget == selectedAccountId &&
-        authState == AuthState.Ready && accountRegistryReady && !accountRegistryError) {
+        (startedShareAccount == null || startedShareAccount == selectedAccountId) && authState == AuthState.Ready && accountRegistryReady && !accountRegistryError) {
         // Архивные чаты тоже можно выбрать: отправка в них не требует вынимать их из архива.
         val shareChats by repository.chats.collectAsStateWithLifecycle()
         val shareArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
         val shareCaptionLimit = repository.messageLimits.collectAsStateWithLifecycle().value.caption
         // Отправка идёт в этой сессии. Пока она не закончилась, диалог не закрывается: иначе результат и частичная отправка пропадают вместе с ним.
         val shareSession = remember(incomingShare.requestId, selectedAccountId) { ShareSessions.of(context, incomingShare.requestId, incomingShare.uris, incomingShare.text, selectedAccountId) }
-        val shareSending = shareSession.sending
-        Dialog(
-            onDismissRequest = { if (!shareSending) onIncomingShareHandled(incomingShare.requestId) },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-                dismissOnBackPress = !shareSending,
-                dismissOnClickOutside = !shareSending
+        // Новый запрос из «Поделиться» получает свежее состояние выбора, даже если диалог уже открыт.
+        key(incomingShare.requestId, selectedAccountId) {
+            ShareTargetScreen(
+                requestId = incomingShare.requestId,
+                initialChatId = if (shareLegacyShortcut &&
+                    selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
+                    incomingShare.targetChatId else 0L,
+                text = incomingShare.text,
+                uris = incomingShare.uris,
+                session = shareSession,
+                captionLimit = shareCaptionLimit,
+                observeFile = repository::observeFile,
+                downloadFile = repository::downloadFile,
+                chats = shareChats + shareArchivedChats,
+                recipientRepository = repository,
+                loadTopics = { chatId -> repository.forumTopics(chatId) },
+                sendText = { chatId, topicId, text ->
+                    repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)
+                },
+                sendMedia = { chatId, topicId, media, caption ->
+                    if (media.size == 1) repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId, options = com.beykus.beygram.domain.model.MessageSendOptions(shareDelivery = true))
+                    else repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId, options = com.beykus.beygram.domain.model.MessageSendOptions(shareDelivery = true))
+                },
+                onSent = { chatId, topicId ->
+                    onIncomingShareHandled(incomingShare.requestId)
+                    selectedTopicChatId = chatId
+                    selectedForumTopicId = topicId
+                    trustedForumTopicId = topicId
+                    selectedChatId = chatId
+                    linkReturnChatId = 0L
+                    chatBackRouteName = AppRoute.Chats.name
+                    routeName = AppRoute.Chat.name
+                },
+                onCancel = { onIncomingShareHandled(incomingShare.requestId) }
             )
-        ) {
-            // Новый запрос из «Поделиться» получает свежее состояние выбора, даже если диалог уже открыт.
-            key(incomingShare.requestId, selectedAccountId) {
-                ShareTargetScreen(
-                    requestId = incomingShare.requestId,
-                    initialChatId = if (shareLegacyShortcut &&
-                        selectedAccountId == TdAccountStorageLayout.LEGACY_ACCOUNT_ID)
-                        incomingShare.targetChatId else 0L,
-                    text = incomingShare.text,
-                    uris = incomingShare.uris,
-                    session = shareSession,
-                    captionLimit = shareCaptionLimit,
-                    chats = shareChats + shareArchivedChats,
-                    loadTopics = { chatId -> repository.forumTopics(chatId) },
-                    sendText = { chatId, topicId, text ->
-                        repository.sendMessage(chatId, text, forumTopicId = topicId, clearDraft = false)
-                    },
-                    sendMedia = { chatId, topicId, media, caption ->
-                        if (media.size == 1) repository.sendMedia(chatId, media.single(), caption, forumTopicId = topicId)
-                        else repository.sendMediaAlbum(chatId, media, caption, forumTopicId = topicId)
-                    },
-                    onSent = { chatId, topicId ->
-                        onIncomingShareHandled(incomingShare.requestId)
-                        selectedTopicChatId = chatId
-                        selectedForumTopicId = topicId
-                        trustedForumTopicId = topicId
-                        selectedChatId = chatId
-                        linkReturnChatId = 0L
-                        chatBackRouteName = AppRoute.Chats.name
-                        routeName = AppRoute.Chat.name
-                    },
-                    onCancel = { onIncomingShareHandled(incomingShare.requestId) }
-                )
-            }
         }
     }
 
@@ -1858,6 +1859,7 @@ private fun BeyGramAppContent(
     // resolved must not replace the whole tab there: the list is already beside it.
     val chatRoute: @Composable (Boolean) -> Unit = { twoPane ->
         val chats by repository.chats.collectAsStateWithLifecycle()
+        val forwardArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
         val myAccount by repository.myProfile.collectAsStateWithLifecycle()
         val accountLabel = myAccount.info?.title?.takeIf { it.isNotBlank() } ?: myAccount.info?.phone.orEmpty()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
@@ -2115,7 +2117,7 @@ private fun BeyGramAppContent(
                         lastSeenStyle = lastSeenStyle,
                         history = history,
                         conversation = repository,
-                        chats = chats,
+                        chats = chats + forwardArchivedChats,
                         observeFile = repository::observeFile,
                         onDownloadFile = repository::downloadFile,
                         onAutoDownloadFile = repository::autoDownloadFile,
@@ -2235,6 +2237,7 @@ private fun BeyGramAppContent(
         val mediaChatId = selectedChatId
         val mediaRepository = repository
         val chats by repository.chats.collectAsStateWithLifecycle()
+        val forwardArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
         // Chat information includes shared media; a protected chat must stay out of screenshots here too.
         val chatInfoSecure = selectedChat?.let { it.isSecret || it.hasProtectedContent } == true
@@ -2286,7 +2289,12 @@ private fun BeyGramAppContent(
             },
             confirmExport = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull()?.canSave == true },
             messageRights = { messageId -> repository.messageCapabilities(selectedChatId, messageId).getOrNull() },
-            forwardMessage = { messageId, toChatId -> repository.forwardMessage(selectedChatId, messageId, toChatId) }, chats = chats,
+            forwardMessage = { messageId, toChatId -> mediaRepository.forwardMessage(mediaChatId, messageId, toChatId) }, chats = chats + forwardArchivedChats,
+            recipientRepository = mediaRepository,
+            loadForwardTopics = { mediaRepository.forumTopics(it) },
+            forwardToTopic = { messageId, toChatId, topicId ->
+                mediaRepository.forwardMessage(mediaChatId, messageId, toChatId, messageThreadId = topicId)
+            },
             onContentOpened = { messageId -> repository.openMessageContent(selectedChatId, messageId) },
             onOpenMessage = { messageId, topicId ->
                 if (topicId > 0L) {
@@ -2870,9 +2878,13 @@ GlobalSearchScreen(
                         isSelf = giftsProfileSelf,
                         load = { repository.giftsInfo(giftsProfileId, giftsProfileSelf) },
                         loadMoreReceived = repository::receivedGifts,
+                        loadResale = repository::resaleGifts,
+                        buyResale = repository::buyResoldGift,
                         send = { giftId, text, isPrivate ->
                             repository.sendGift(giftsProfileId, giftsProfileSelf, giftId, text, isPrivate)
                         },
+                        loadListing = repository::giftListingQuote,
+                        updateListing = repository::updateGiftListing,
                         onOpenStars = { openStars(AppRoute.Gifts) },
                         onBack = { routeName = giftsReturnRouteName }
                     )
@@ -2988,6 +3000,7 @@ GlobalSearchScreen(
                 }
                 AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) {
                     val contactChats by repository.chats.collectAsStateWithLifecycle()
+                    val contactArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
                     ContactsScreen(
                         accountId = selectedAccountId,
                         loadContacts = repository::loadContacts,
@@ -2995,7 +3008,10 @@ GlobalSearchScreen(
                         updateContact = repository::updateContact,
                         deleteContact = repository::deleteContact,
                         sendContact = repository::sendContact,
-                        chats = contactChats,
+                        recipientRepository = repository,
+                        loadShareTopics = { repository.forumTopics(it) },
+                        sendContactToTopic = { chatId, userId, topicId -> repository.sendContactCard(chatId, userId, forumTopicId = topicId) },
+                        chats = contactChats + contactArchivedChats,
                         openPrivateChat = repository::openPrivateChat,
                         observeFile = repository::observeFile,
                         downloadFile = repository::downloadFile,

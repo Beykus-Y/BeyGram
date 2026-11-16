@@ -44,7 +44,8 @@ class BeyGramApplication : Application() {
         super.onCreate()
         PendingTextSendSessions.scheduleStartupQuarantine(this)
         MultiAccountDiagnostics.initialize(this)
-        BgWaveHub.attachAudioManager(getSystemService(android.media.AudioManager::class.java))
+        BgWaveHub.attachAudioManager(getSystemService(android.media.AudioManager::class.java), this)
+        BgWaveHub.attachConnectivityManager(getSystemService(android.net.ConnectivityManager::class.java))
         // Keeps a listener's wave alive with the screen off; installed once, for the life of the process.
         BgWaveListenerKeepAlive.install(this, applicationScope)
         // Stage A of multi-account: metadata-only zero-copy migration. The existing

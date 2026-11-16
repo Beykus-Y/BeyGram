@@ -288,6 +288,7 @@ fun ChatScreen(
     var selectionBusy by remember { mutableStateOf(false) }
     var selectionError by remember { mutableStateOf<String?>(null) }
     var selectionForwardOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
+    var frozenForwardSelection by rememberSaveable(accountId, chat.id) { mutableStateOf(longArrayOf()) }
     var selectionDeleteOpen by rememberSaveable(chat.id) { mutableStateOf(false) }
     var selectionDeleteRights by remember { mutableStateOf<BatchDeleteRights?>(null) }
     var selectionDeleteEveryone by remember { mutableStateOf(false) }
@@ -784,6 +785,9 @@ fun ChatScreen(
     val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
         scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
     }
+    val daySeparators = remember(messageListItems, history.hasOlderMessages) {
+        chatDaySeparators(messageListItems, showOldestDay = !history.hasOlderMessages)
+    }
     // In a private chat the peer is already named in the header; groups need the author once per block, not per bubble.
     val senderHeaderByKey = remember(messageListItems, chat.isGroup, chat.isChannel, chat.isSavedMessages) {
         senderHeaderVisibility(chat, messageListItems)
@@ -938,6 +942,7 @@ fun ChatScreen(
         selectionAnchorId = null
         selectionError = null
         selectionForwardOpen = false
+        frozenForwardSelection = longArrayOf()
         selectionDeleteOpen = false
         selectionDeleteRights = null
         selectionDeleteBusy = false
@@ -1228,7 +1233,7 @@ fun ChatScreen(
     BackHandler(enabled = !threadOpen && (stickerPanelOpen || searching || searchMatchSession.isActive || actionMessage != null || editMessage != null || attachments.menuOpen || attachments.active || selectionMode)) {
         when {
             selectionDeleteOpen -> { selectionDeleteOpen = false; selectionDeleteError = null }
-            selectionForwardOpen -> { selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
+            selectionForwardOpen -> { if (!forwardBusy) { selectionForwardOpen = false; frozenForwardSelection = longArrayOf(); forwardError = null; forwardAsCopy = false } }
             selectionMode -> exitSelection()
             searching || searchMatchSession.isActive -> closeSearch()
             deleting -> { deleting = false; deleteError = null }
@@ -1640,12 +1645,53 @@ fun ChatScreen(
     // A plain text send that came before the account's delay was read. It is sent again once that is known, if the composer still
     // holds it; see below.
     var sendWaitingForDelay by remember(chat.id, forumTopicId) { mutableStateOf<HeldDelayedSend?>(null) }
+    var paidTextConfirmation by remember(conversation, chat.id, forumTopicId) { mutableStateOf<PaidTextConfirmation?>(null) }
+    val paidTextContext by rememberUpdatedState(Triple(conversation, chat.id, forumTopicId))
+    val paidTextDestination by rememberUpdatedState(com.beykus.beygram.domain.model.PaidTextDestination(accountId, chat.id, forumTopicId))
     /**
      * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
      * the choice applies to this send only and is not kept for the next one.
      */
-    fun sendCurrentDraft(options: MessageSendOptions) {
-        if (secretChatClosed || editId != null || inlineSending || textSendQueue.isComposerWriting(textSendScopeKey)) return
+    fun sendCurrentDraft(options: MessageSendOptions, priceChecked: Boolean = false) {
+        if (secretChatClosed || editId != null || inlineSending || sending || paidTextConfirmation != null || textSendQueue.isComposerWriting(textSendScopeKey)) return
+        // Check ordinary private and group text (including explicit forum topics).
+        // Other content continues to carry zero Stars authorization.
+        if (!priceChecked && com.beykus.beygram.domain.model.supportsPaidTextQuote(chat) &&
+            pendingSticker == null && !attachments.active && draft.isNotBlank()) {
+            val submitted = composerDraft
+            val target = Triple(conversation, chat.id, forumTopicId)
+            val destination = paidTextDestination
+            sending = true
+            scope.launch {
+                var ordinary = false
+                try {
+                    // If the read fails, TDLib can still accept a regular message with a zero Stars authorization.
+                    // Never translate a failed lookup into permission to spend.
+                    val price = conversation.paidTextPrice(chat.id).getOrNull()
+                    if (paidTextContext != target || paidTextDestination != destination || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
+                    if (price == null || price <= 0L) {
+                        ordinary = true
+                    } else {
+                        if (options.scheduledAtSeconds != null || conversation.stealthHoldsSends()) {
+                            error = context.getString(R.string.stealth_schedule_unavailable_paid)
+                            return@launch
+                        }
+                        val balance = conversation.starBalance().getOrElse {
+                            error = it.userMessage(context, R.string.stars_load_error)
+                            return@launch
+                        }
+                        if (paidTextContext != target || paidTextDestination != destination || composerDraft != submitted || attachments.active || pendingSticker != null) return@launch
+                        paidTextConfirmation = PaidTextConfirmation(submitted, price, balance, options.disableNotification, destination, options.disableLinkPreview)
+                    }
+                } finally {
+                    sending = false
+                }
+                if (ordinary && paidTextContext == target && paidTextDestination == destination && composerDraft == submitted && !attachments.active && pendingSticker == null) {
+                    sendCurrentDraft(options, priceChecked = true)
+                }
+            }
+            return
+        }
         pendingSticker?.let { sticker ->
             pendingSticker = null
             attachments.sendStickerWithOptions(sticker, options)
@@ -1847,7 +1893,13 @@ fun ChatScreen(
             canSave = selectionCanSave,
             onClose = ::exitSelection,
             onMore = singleActionTarget?.let { id -> { exitSelection(); actionAnchorBounds = bubbleBounds[id]; actionsId = id } },
-            onForward = { forwardAsCopy = false; selectionForwardOpen = true; selectionError = null },
+            onForward = {
+                val ids = forwardIdsForSelection(messages, selectionIds)
+                if (ids.isNotEmpty()) {
+                    frozenForwardSelection = ids.toLongArray()
+                    forwardAsCopy = false; selectionForwardOpen = true; selectionError = null
+                }
+            },
             onDelete = ::requestSelectionDelete,
             onCopy = ::copySelection,
             onSave = ::saveSelection
@@ -2014,6 +2066,8 @@ fun ChatScreen(
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = metrics.listPadding + chromeTopPad, bottom = metrics.listPadding + chromeBottomPad), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }) { listItem ->
+                ChatScreenColumn(Modifier.fillMaxWidth()) {
+                daySeparators[listItem.key]?.let { ChatHistoryDateSeparator(it) }
                 if (listItem.unreadSeparator) {
                     UnreadMessagesSeparator()
                 } else if (listItem.pendingVideoNote != null) {
@@ -2260,6 +2314,7 @@ fun ChatScreen(
                         }
                         }
                     }
+                }
                 }
             }
             history.error?.let { historyError -> item(key = "history_error") {
@@ -2737,67 +2792,101 @@ fun ChatScreen(
     )
     val forwardIds = when {
         forwardId != null -> listOf(forwardId!!)
-        selectionForwardOpen -> forwardIdsForSelection(messages, selectionIds)
+        selectionForwardOpen -> frozenForwardSelection.toList()
         else -> emptyList()
     }
-    if (forwardIds.isNotEmpty()) ForwardChatDialog(
-        chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
-        commentLimit = limits.text,
-        loadTopics = { conversation.forumTopics(it) },
-        // Each target is one forward request. A target that refuses the messages, or refuses the comment after them,
-        // stays selected so a retry only touches it; the others are already sent and drop out of the selection.
-        onSend = { targets, comment ->
-            forwardBusy = true; forwardError = null
-            val failed = mutableListOf<ForwardTarget>()
-            var lastError: String? = null
-            try {
-                for (target in targets) {
-                    val topic = target.topicId.takeIf { it > 0L }
-                    val forwarded = if (forwardIds.size == 1) {
-                        conversation.forwardMessage(
-                            chat.id, forwardIds.single(), target.chatId, asCopy = forwardAsCopy, messageThreadId = topic
-                        ).map { ForwardedMessages(forwardedIds = forwardIds, failedIds = emptyList()) }
-                    } else {
-                        conversation.forwardMessages(chat.id, forwardIds, target.chatId, asCopy = forwardAsCopy, messageThreadId = topic)
-                    }
-                    if (forwarded.getOrNull()?.isComplete != true) {
-                        failed += target
-                        lastError = forwarded.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
-                        continue
-                    }
-                    if (comment.isNotEmpty()) {
-                        // The draft belongs to the destination composer, which this forward must not clear.
-                        conversation.sendMessage(target.chatId, comment, forumTopicId = target.topicId, clearDraft = false).onFailure {
-                            failed += target
-                            lastError = it.userMessage(context, R.string.chat_forward_failed)
+    if (forwardIds.isNotEmpty()) {
+        // Scoped to this open picker, not to the lifetime of a chat screen.
+        val delivery = rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen, saver = ForwardDeliveryLedger.saver) { ForwardDeliveryLedger() }
+        val pendingIds = forwardIds
+        var removeCaption by rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen) { mutableStateOf(false) }
+        var retryBlocked by rememberSaveable(accountId, chat.id, forwardId, selectionForwardOpen) { mutableStateOf(false) }
+        val canRemoveCaption = messages.any { message ->
+            message.id in pendingIds && message.text.isNotBlank() && message.media?.kind in setOf(
+                MediaKind.Photo, MediaKind.Video, MediaKind.Animation, MediaKind.Audio, MediaKind.Document
+            )
+        }
+        val preview = messages.firstOrNull { it.id == pendingIds.singleOrNull() }
+            ?.takeIf { !it.isViewOnce && !chat.isSecret && !chat.hasProtectedContent && it.entities.isEmpty() }
+            ?.text?.takeIf { it.isNotBlank() }?.take(240)
+            ?: stringResource(R.string.share_forward_message_count, pendingIds.size)
+        ForwardChatDialog(
+            chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
+            commentLimit = limits.text,
+            previewText = preview,
+            previewMedia = messages.firstOrNull { it.id == pendingIds.singleOrNull() }
+                ?.takeUnless { it.isViewOnce || chat.isSecret || chat.hasProtectedContent }?.media,
+            previewAlbum = if (pendingIds.size > 1 && !chat.isSecret && !chat.hasProtectedContent) messages
+                .filter { it.id in pendingIds && !it.isViewOnce }.mapNotNull { it.media }
+                .filter { !it.hasSpoiler && !it.isSecret && !it.isSecretChat && it.kind in setOf(MediaKind.Photo, MediaKind.Video, MediaKind.Animation) }.take(10)
+                else emptyList(),
+            onAsCopyChange = { showCopy -> forwardAsCopy = showCopy; if (!showCopy) removeCaption = false },
+            removeCaption = removeCaption,
+            onRemoveCaptionChange = if (canRemoveCaption) ({ remove: Boolean -> removeCaption = remove; if (remove) forwardAsCopy = true }) else null,
+            retryBlocked = retryBlocked,
+            recipientRepository = conversation as? com.beykus.beygram.domain.repository.TelegramRepository,
+            loadTopics = { conversation.forumTopics(it) },
+            // Track confirmed delivery per destination and message; a comment failure must not re-forward content.
+            onSend = { targets, comment ->
+                forwardBusy = true; forwardError = null
+                val failed = mutableListOf<ForwardTarget>()
+                var lastError: String? = null
+                try {
+                    for (target in targets) {
+                        val topic = target.topicId.takeIf { it > 0L }
+                        if (delivery.isComplete(target)) continue
+                        val remaining = delivery.pendingIds(target, pendingIds)
+                        if (remaining.isNotEmpty()) {
+                            val forwarded = conversation.forwardMessages(
+                                chat.id, remaining, target.chatId, asCopy = forwardAsCopy, messageThreadId = topic,
+                                options = MessageSendOptions(removeForwardCaption = removeCaption)
+                            )
+                            forwarded.getOrNull()?.let { delivery.recordForwarded(target, it.forwardedIds) }
+                            if (delivery.pendingIds(target, pendingIds).isNotEmpty()) {
+                                failed += target
+                                if (com.beykus.beygram.share.isShareOutcomeUnknown(forwarded.exceptionOrNull())) retryBlocked = true
+                                lastError = forwarded.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                                continue
+                            }
                         }
+                        if (comment.isNotEmpty()) {
+                            // The draft belongs to the destination composer, which this forward must not clear.
+                            val result = conversation.sendMessage(target.chatId, comment, forumTopicId = target.topicId, clearDraft = false)
+                            if (result.isFailure) {
+                                failed += target
+                                if (com.beykus.beygram.share.isShareOutcomeUnknown(result.exceptionOrNull())) retryBlocked = true
+                                lastError = result.exceptionOrNull().userMessage(context, R.string.chat_forward_failed)
+                                continue
+                            }
+                        }
+                        delivery.markComplete(target)
                     }
+                } finally {
+                    forwardBusy = false
                 }
-            } finally {
-                forwardBusy = false
-            }
-            if (failed.isEmpty()) {
-                val copied = forwardAsCopy
-                forwardError = null
-                if (selectionMode) exitSelection()
-                Toast.makeText(
-                    context,
-                    when {
-                        targets.size > 1 -> context.getString(R.string.forward_sent_to_chats, targets.size)
-                        forwardIds.size > 1 -> context.getString(R.string.message_selection_forwarded, forwardIds.size)
-                        copied -> context.getString(R.string.message_forwarded_without_author)
-                        else -> context.getString(R.string.chat_message_forwarded)
-                    },
-                    Toast.LENGTH_SHORT
-                ).show()
-            } else {
-                // Only the failed targets stay selected, so a retry cannot duplicate a chat that already has the messages.
-                forwardError = context.getString(R.string.forward_failed_chats, failed.size) + lastError?.let { "\n$it" }.orEmpty()
-            }
-            failed
-        },
-        onClose = { forwardId = null; selectionForwardOpen = false; forwardError = null; forwardAsCopy = false }
-    )
+                if (failed.isEmpty()) {
+                    val copied = forwardAsCopy
+                    forwardError = null
+                    if (selectionMode) exitSelection()
+                    Toast.makeText(
+                        context,
+                        when {
+                            targets.size > 1 -> context.getString(R.string.forward_sent_to_chats, targets.size)
+                            pendingIds.size > 1 -> context.getString(R.string.message_selection_forwarded, pendingIds.size)
+                            copied -> context.getString(R.string.message_forwarded_without_author)
+                            else -> context.getString(R.string.chat_message_forwarded)
+                        },
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    // Only failed targets stay selected; confirmed message IDs are excluded from retry.
+                    forwardError = context.getString(R.string.forward_failed_chats, failed.size) + lastError?.let { "\n$it" }.orEmpty()
+                }
+                failed
+            },
+            onClose = { forwardId = null; selectionForwardOpen = false; frozenForwardSelection = longArrayOf(); forwardError = null; forwardAsCopy = false }
+        )
+    }
     contextMessageId?.let { id -> MessageContextDialog(contextChatId, id, conversation, riskGuard, observeFile, onDownloadFile, onClose = { contextMessageId = null }, autoDownloadFile = onAutoDownloadFile, onOpenMessageEntity = onOpenMessageEntity, allowEntityCopy = !chat.hasProtectedContent) }
     playlistTrack?.let { track -> AddToPlaylistSheet(accountId = accountId, track = track, onDismiss = { playlistTrack = null }) }
     if (copyLinks.isNotEmpty()) MessageLinkCopyDialog(
@@ -2818,6 +2907,55 @@ fun ChatScreen(
         dismissText = stringResource(R.string.common_cancel),
         onDismiss = { pinConfirm = false }
     )
+    paidTextConfirmation?.let { confirmation ->
+        BeyGramDialog(
+            onDismissRequest = { paidTextConfirmation = null },
+            title = stringResource(R.string.paid_text_title),
+            message = stringResource(
+                R.string.paid_text_confirm,
+                formatStarAmount(confirmation.price),
+                formatStarAmount(confirmation.balance.starCount, confirmation.balance.nanostarCount)
+            ),
+            confirmText = stringResource(R.string.common_send),
+            confirmEnabled = paidTextCanConfirm(confirmation.price, confirmation.balance),
+            onConfirm = {
+                // Ignore a second callback from a dialog that already consumed its confirmation.
+                if (paidTextConfirmation === confirmation) {
+                    paidTextConfirmation = null
+                    if (paidTextDestination != confirmation.destination || !canPostHere ||
+                        composerDraft != confirmation.draft || attachments.active || pendingSticker != null || editId != null) {
+                        error = context.getString(R.string.paid_text_draft_changed)
+                    } else if (!conversation.stealthHoldsSends() && !textSendQueue.isComposerWriting(textSendScopeKey)) {
+                        val outgoing = composerLaunchPayload(confirmation.draft.text, confirmation.draft.entities, limits.text)
+                        val forceReply = botKeyboard?.takeIf { it.forceReply }?.messageId
+                        // Process-scoped composer mutex, but no queued/persisted retryable payment authorization.
+                        textSendQueue.launchComposerWrite(textSendScopeKey) {
+                            val result = conversation.sendPaidTextMessage(
+                                confirmation.destination.chatId, outgoing.text, confirmation.draft.replyToMessageId, outgoing.entities,
+                                confirmation.price, confirmation.disableNotification,
+                                confirmation.destination.forumTopicId, confirmation.disableLinkPreview
+                            )
+                            if (result.isSuccess) {
+                                updateDraft { if (it == confirmation.draft) MessageDraft() else it }
+                                forceReply?.let { conversation.dismissBotKeyboard(chat.id, it) }
+                            } else {
+                                val reason = result.exceptionOrNull()?.userMessage(context, R.string.err_chat_send_failed).orEmpty()
+                                Toast.makeText(
+                                    context.applicationContext,
+                                    reason + "\n" + context.getString(R.string.paid_text_uncertain),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    } else {
+                        error = context.getString(R.string.stealth_schedule_unavailable_paid)
+                    }
+                }
+            },
+            dismissText = stringResource(R.string.common_cancel),
+            onDismiss = { paidTextConfirmation = null }
+        )
+    }
     sendGuard.Dialog()
     riskGuard.Dialog()
     attachments.stealthFallback.Dialog()
@@ -3283,7 +3421,6 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
-    val glassBubbles = LocalDesignSystem.current.surfaces.treatment == SurfaceTreatment.Glass
     // The versions sheet belongs to the bubble that opened it, and is composed only while it is open.
     var showVersions by remember(message.id) { mutableStateOf(false) }
     val loadVersions = onLoadVersions
@@ -3314,11 +3451,14 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
+    val compactCollection = message.media?.let { com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument(it) } == true && !hasText && message.reply == null && renderedSpecial == null && message.linkPreview == null && translation == null
     val inlineMeta = useInlineTextMetadata(
         message,
         hasSenderHeader = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank(),
         hasTranslation = translation != null
     )
+    // Preserve the existing cheap one-line path; measure actual final lines only for the other plain text bubbles.
+    val lastLineMeta = showText && !inlineMeta && useLastLineTextMetadata(message, hasTranslation = translation != null)
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
     val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
     val longPressLabel = stringResource(if (longPressSelects) R.string.message_action_select else R.string.a11y_message_actions)
@@ -3377,6 +3517,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         if (showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                                 .then(if (onSenderClick != null) Modifier.clickable { onSenderClick?.invoke() } else Modifier))
+                        ForwardedMessageHeader(message)
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
                         message.media?.let { media ->
                             if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile,
@@ -3418,16 +3559,16 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         }
                         message.expiredMediaKind?.let { kind -> ExpiredMediaCard(kind) }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
-                        if (showText || renderedSpecial != null || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
+                        if (showText || renderedSpecial != null || message.reply != null || (!overlayMeta && !compactCollection)) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
-                                // Liquid Glass: the quote is a tint of its own bubble, not a second outline inside it.
-                                val quoteShape = RoundedCornerShape(metrics.replyRadius)
-                                Column(Modifier.padding(vertical = 4.dp).clip(quoteShape)
-                                    .then(if (glassBubbles) Modifier.background(palette.accent.copy(alpha = 0.12f)) else Modifier.border(1.dp, palette.accent, quoteShape))
-                                    .clickable { if (selectionMode) onToggleSelection() else onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                                    Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                    Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                }
+                                ReplyQuote(
+                                    reply = reply,
+                                    modifier = Modifier.padding(bottom = 5.dp),
+                                    onClick = { if (selectionMode) onToggleSelection() else onReplyClick(reply) },
+                                    onLongClick = if (selectionMode) onToggleSelection else onActions,
+                                    onClickLabel = selectionLabel,
+                                    onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
+                                )
                             }
                             renderedSpecial?.let { content ->
                                 SpecialMessageContentView(
@@ -3447,9 +3588,20 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     paidContent = paidContent
                                 )
                             }
-                            if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
                             if (isWave && waveAccountId != null) BgWaveMessageCard(message, waveAccountId)
-                            else MessageMusicLinkCard(message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards)
+                            else MessageMusicLinkCard(
+                                message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile,
+                                onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards,
+                                messageText = {
+                                    if (lastLineMeta) {
+                                        PlainMessageWithMeta(message.text, modifier = if (message.reply != null) Modifier.fillMaxWidth() else Modifier) {
+                                            BubbleMeta(message, isRead, retryAvailable = false, overlay = false,
+                                                onRetry = onRetry, inline = true, insideTextInsets = true)
+                                        }
+                                    } else if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile,
+                                        onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
+                                }
+                            )
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,
@@ -3466,10 +3618,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     }
                 },
                 meta = {
-                    if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
+                    if (!inCircle && !lastLineMeta) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
                         overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta,
                         onShowVersions = if (onLoadVersions != null) openVersions else null,
-                        connectionState = connectionState, onShowFailureDetails = onShowFailureDetails)
+                        connectionState = connectionState, onShowFailureDetails = onShowFailureDetails, compactDocument = compactCollection)
                 },
                 footer = {
                     // Inline keyboards and reactions must stack, never paint over one another.

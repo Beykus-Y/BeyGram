@@ -1,6 +1,10 @@
 package com.beykus.beygram.ui.screens.share
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,12 +21,20 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.rememberUpdatedState
+import com.beykus.beygram.ui.components.BeyGramSheet
+import com.beykus.beygram.ui.screens.chat.LocalMediaImage
+import com.beykus.beygram.domain.model.MediaKind
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,6 +58,10 @@ import androidx.compose.ui.unit.dp
 import com.beykus.beygram.BeyGramApplication
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.repository.TelegramRepository
+import com.beykus.beygram.domain.model.MediaFileState
+import com.beykus.beygram.ui.components.SearchField
+import kotlinx.coroutines.flow.StateFlow
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.OutgoingMedia
@@ -54,30 +70,9 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.UserMessageException
 import com.beykus.beygram.share.IncomingShareParser
 import com.beykus.beygram.share.ShareSession
+import com.beykus.beygram.share.ShareDestination
+import com.beykus.beygram.share.isShareTopicValid
 import com.beykus.beygram.ui.text.resolve
-
-/**
- * Offer the user's recent writable conversations, not alphabetical suggestions that bury
- * the intended chat. Saved Messages has a separate quick action and is never duplicated.
- */
-internal fun shareTargetCandidates(
-    chats: List<ChatPreview>, query: String, excludeSaved: Boolean = false
-): List<ChatPreview> {
-    val needle = query.trim()
-    return chats.asSequence()
-        .filter { it.canPost && it.title.isNotBlank() }
-        .filter { !excludeSaved || !it.isSavedMessages }
-        .filter { needle.isEmpty() || it.title.contains(needle, ignoreCase = true) }
-        .distinctBy { it.id }
-        .sortedWith(
-            compareByDescending<ChatPreview> { it.isSavedMessages }
-                .thenByDescending { it.order > 0L }
-                .thenByDescending { it.order }
-                .thenByDescending { it.archiveOrder }
-                .thenBy { it.title.lowercase() }
-                .thenBy { it.id }
-        ).toList()
-}
 
 /**
  * Экран «Отправить в BeyGram»: выбор чата, в группе с темами — выбор темы, потом предпросмотр с явной кнопкой отправки.
@@ -86,6 +81,7 @@ internal fun shareTargetCandidates(
  * Копирование и отправка живут в [ShareSession], поэтому поворот экрана их не прерывает и не дублирует отправку.
  * Пока идёт отправка, системный «Назад» не закрывает экран.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ShareTargetScreen(
     requestId: Long,
@@ -95,60 +91,118 @@ internal fun ShareTargetScreen(
     session: ShareSession,
     chats: List<ChatPreview>,
     captionLimit: Int,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
     loadTopics: suspend (chatId: Long) -> Result<List<ForumTopic>?>,
     sendText: suspend (chatId: Long, topicId: Long, text: String) -> Result<Unit>,
     sendMedia: suspend (chatId: Long, topicId: Long, media: List<OutgoingMedia>, caption: String) -> Result<Unit>,
     onSent: (chatId: Long, topicId: Long) -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    recipientRepository: TelegramRepository? = null
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
     val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
     val importer = remember(context, session.accountId) { OutgoingMediaImporter(context, session.accountId) }
 
+    val directory = rememberShareRecipientDirectory(chats, recipientRepository)
     var targetId by rememberSaveable(requestId, session.accountId) { mutableStateOf(0L) }
     var shortcutApplied by rememberSaveable(requestId, session.accountId) { mutableStateOf(false) }
+    var reviewSelected by rememberSaveable(requestId, session.accountId) { mutableStateOf(false) }
     // TDLib chat list arrives asynchronously on a cold start: apply the Direct Share
     // target only when it becomes an actual writable chat. Never override user choice.
-    LaunchedEffect(initialChatId, chats) {
-        if (!shortcutApplied && targetId == 0L && initialChatId != 0L &&
-            chats.any { it.id == initialChatId && it.canPost }) {
+    LaunchedEffect(initialChatId, directory.chats) {
+        if (!shortcutApplied && !session.deliveryStarted && targetId == 0L && initialChatId != 0L &&
+            directory.chats.any { it.id == initialChatId && it.canPost }) {
             targetId = initialChatId
             shortcutApplied = true
         }
     }
     var query by rememberSaveable { mutableStateOf("") }
+    var topicQuery by rememberSaveable(targetId) { mutableStateOf("") }
     // Тема группы с темами; 0 — чат без тем, тема не нужна.
     var topicId by rememberSaveable(requestId, session.accountId) { mutableStateOf(0L) }
     var topics by remember(requestId, session.accountId) { mutableStateOf<List<ForumTopic>?>(null) }
-    var topicsReady by remember(requestId, session.accountId) { mutableStateOf(false) }
+    var topicsReadyFor by remember(requestId, session.accountId) { mutableStateOf<Long?>(null) }
     var topicsError by remember(requestId, session.accountId) { mutableStateOf<UiText?>(null) }
     var topicsAttempt by remember(requestId, session.accountId) { mutableIntStateOf(0) }
-    val target = chats.firstOrNull { it.id == targetId }
+    val target = directory.chats.firstOrNull { it.id == targetId && it.canPost }
     val hasFiles = uris.isNotEmpty()
     // С файлами подпись идёт в её лимите; без файлов — лимит текста сообщения.
     val limit = if (session.staged.isNotEmpty()) captionLimit else IncomingShareParser.MAX_TEXT_LENGTH
     val tooLong = session.draft.codePointCount(0, session.draft.length) > limit
     // Без готовых файлов текст уйдёт, только если файлов не было или пользователь убрал их все сам; при сбое подготовки не отправляем.
-    val canSend = !session.sending && !session.staging &&
-        (session.staged.isNotEmpty() || (session.draft.isNotBlank() && (!hasFiles || session.error == null)))
+    val topicsReady = topicsReadyFor == targetId && targetId != 0L
+    val validTopic = topicsReady && (topics?.any { it.id == topicId } ?: (topicId == 0L))
+    val currentDestination = target?.takeIf { validTopic }?.let {
+        ShareDestination(it.id, topicId, it.title + (topics?.firstOrNull { topic -> topic.id == topicId }?.let { topic -> " · "+topic.title } ?: ""))
+    }
+    val destinations = if (session.deliveryStarted) session.selectedDestinations else
+        (session.selectedDestinations + listOfNotNull(currentDestination)).distinctBy { it.chatId to it.topicId }
+    val canSend = !session.sending && !session.staging && !session.stagingFailed && !session.invalidFileCount && !session.retryBlocked && !tooLong &&
+        destinations.isNotEmpty() && (session.deliveryStarted || destinations.all { destination ->
+            directory.chats.any { it.id == destination.chatId && it.canPost }
+        }) &&
+        (session.staged.isNotEmpty() || session.draft.isNotBlank())
 
+    val validateDestination: suspend (ShareDestination) -> Result<Unit> = { destination ->
+        val current = if (recipientRepository != null) {
+            (recipientRepository.chats.value + recipientRepository.archivedChats.value + recipientRepository.folderChats.value.values.flatten())
+                .firstOrNull { it.id == destination.chatId }
+        } else directory.chats.firstOrNull { it.id == destination.chatId }
+        if (current?.canPost != true) Result.failure(UserMessageException(UiText.Res(R.string.share_unavailable_recipient)))
+        else loadTopics(destination.chatId).mapCatching { loaded ->
+            if (!isShareTopicValid(destination.topicId, Result.success(loaded))) {
+                throw UserMessageException(UiText.Res(R.string.share_topics_failed))
+            }
+        }
+    }
     LaunchedEffect(session) { session.startStaging(context, appScope) }
     // Загружаем темы выбранного чата: null означает, что это не группа с темами и тема не нужна. После сбоя загрузка повторяется.
     LaunchedEffect(targetId, topicsAttempt) {
-        topicsReady = false
+        topicsReadyFor = null
         topics = null
         topicsError = null
-        if (targetId == 0L) return@LaunchedEffect
-        loadTopics(targetId)
+        val requestedId = targetId
+        if (requestedId == 0L) return@LaunchedEffect
+        loadTopics(requestedId)
             // A closed topic the user can't post to is not a share destination.
-            .onSuccess { loaded -> topics = loaded?.filter { it.canWrite }; topicsReady = true }
-            .onFailure { topicsError = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_topics_failed) }
+            .onSuccess { loaded ->
+                if (targetId != requestedId) return@onSuccess
+                val writable = loaded?.filter { it.canWrite }
+                topics = writable
+                if (writable == null || writable.none { it.id == topicId }) topicId = 0L
+                topicsReadyFor = requestedId
+            }
+            .onFailure { if (targetId == requestedId) topicsError = (it as? UserMessageException)?.text ?: UiText.Res(R.string.share_topics_failed) }
     }
     // Отправка могла закончиться, пока экрана не было (поворот): тогда открываем чат, куда ушло сообщение.
-    LaunchedEffect(session.sent) { if (session.sent) onSent(session.sentChatId, topicId) }
+    LaunchedEffect(session.sent) { if (session.sent) onSent(session.sentChatId, session.sentTopicId) }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+
+    val sendingNow by rememberUpdatedState(session.sending)
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { next -> next != SheetValue.Hidden || !sendingNow }
+    )
+    fun backToRecipients() {
+        reviewSelected = false
+        targetId = 0L
+        topicId = 0L
+        topicsReadyFor = null
+        if (!session.stagingFailed && !session.invalidFileCount) session.error = null
+    }
+    val paneLabel = stringResource(R.string.share_title)
+    BeyGramSheet(
+        onDismissRequest = { if (!session.sending) onCancel() },
+        modifier = Modifier.semantics { paneTitle = paneLabel },
+        sheetState = sheetState,
+        scrollableContent = false,
+        bottomPadding = 0.dp
+    ) {
+        BackHandler(enabled = session.sending || (!session.deliveryStarted && (reviewSelected || targetId != 0L))) {
+            if (!session.sending) backToRecipients()
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -162,13 +216,14 @@ internal fun ShareTargetScreen(
                 TextButton(
                     enabled = !session.sending,
                     onClick = {
-                        if (target != null) { targetId = 0L; topicId = 0L; session.error = null } else onCancel()
+                        if (session.deliveryStarted) onCancel()
+                        else if (reviewSelected || targetId != 0L) backToRecipients() else onCancel()
                     }
                 ) {
-                    Text(stringResource(if (target != null) R.string.common_back else R.string.common_cancel))
+                    Text(stringResource(if ((reviewSelected || target != null) && !session.deliveryStarted) R.string.common_back else R.string.common_cancel))
                 }
                 Column(modifier = Modifier.padding(start = 8.dp)) {
-                    Text(text = stringResource(R.string.share_title), style = MaterialTheme.typography.titleLarge)
+                    Text(text = paneLabel, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                     Text(
                         text = stringResource(if (target == null) R.string.share_pick_destination else R.string.share_review_before_send),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -177,12 +232,12 @@ internal fun ShareTargetScreen(
                 }
             }
 
-            if (target == null) {
+            if (target == null && !session.deliveryStarted && !reviewSelected) {
                 // A concise preview gives context before choosing a recipient; never sends anything on selection.
                 if (text.isNotEmpty() || hasFiles) {
                     Surface(
                         shape = styledShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        color = palette.accentSoft,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -202,108 +257,43 @@ internal fun ShareTargetScreen(
                 if (session.staging) Text(stringResource(R.string.share_preparing), style = MaterialTheme.typography.bodyMedium)
                 session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }
-                val quickSaved = if (query.isBlank()) chats.firstOrNull { it.isSavedMessages && it.canPost } else null
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text(stringResource(R.string.share_search)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                if (session.selectedDestinations.isNotEmpty()) {
+                    Text(stringResource(R.string.forward_selected_count, session.selectedDestinations.size), style = MaterialTheme.typography.bodyMedium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(session.selectedDestinations, key = { "${it.chatId}:${it.topicId}" }) { destination ->
+                            TextButton(onClick = { session.removeDestination(destination) }) { Text(destination.title + " ×", maxLines = 1) }
+                        }
+                    }
+                    Button(onClick = { reviewSelected = true }, enabled = !session.sending) {
+                        Text(stringResource(R.string.share_review_before_send))
+                    }
+                }
+                SearchField(query, { query = it }, stringResource(R.string.share_search))
+                ShareRecipientBrowser(
+                    directory = directory,
+                    repository = recipientRepository,
+                    query = query,
+                    observeFile = observeFile,
+                    downloadFile = downloadFile,
+                    modifier = Modifier.weight(1f),
+                    enabled = !session.sending && !session.deliveryStarted,
+                    selectedIds = session.selectedDestinations.map { it.chatId }.toSet(),
+                    onChoose = { chat -> shortcutApplied = true; targetId = chat.id; topicId = 0L; topicsReadyFor = null; session.error = null }
                 )
-                val shown = shareTargetCandidates(chats, query, excludeSaved = quickSaved != null)
-                if (shown.isEmpty() && quickSaved == null) {
-                    Text(stringResource(R.string.share_no_chats), style = MaterialTheme.typography.bodyMedium)
-                }
-                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    if (quickSaved != null) {
-                        item(key = "quick-saved") {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                shape = styledShape(16.dp),
-                                modifier = Modifier.fillMaxWidth().clip(styledShape(16.dp))
-                                    .clickable {
-                                        targetId = quickSaved.id
-                                        topicId = 0L
-                                        session.error = null
-                                    }
-                            ) {
-                                Row(
-                                    Modifier.fillMaxWidth().padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Box(
-                                        Modifier.size(46.dp).clip(styledShape(15.dp))
-                                            .background(MaterialTheme.colorScheme.primary),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("★", color = MaterialTheme.colorScheme.onPrimary,
-                                            style = MaterialTheme.typography.titleMedium)
-                                    }
-                                    Column(Modifier.weight(1f)) {
-                                        Text(stringResource(R.string.share_saved_quick_action),
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            style = MaterialTheme.typography.titleSmall)
-                                        Text(stringResource(R.string.share_saved_target),
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (shown.isNotEmpty() && query.isBlank()) {
-                        item(key = "recent-heading") {
-                            Text(stringResource(R.string.share_recent_destinations),
-                                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                    items(shown, key = { it.id }) { chat ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth()
-                                .clickable { targetId = chat.id; topicId = 0L; session.error = null }
-                                .padding(horizontal = 4.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(
-                                Modifier.size(46.dp)
-                                    .clip(styledShape(16.dp))
-                                    .background(if (chat.isSavedMessages) palette.accentSoft else MaterialTheme.colorScheme.surfaceContainerHighest),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    if (chat.isSavedMessages) "★" else chat.initials.take(2).ifBlank { chat.title.take(1) },
-                                    color = if (chat.isSavedMessages) palette.accentInk else MaterialTheme.colorScheme.onSurface,
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                            }
-                            Column(Modifier.weight(1f)) {
-                                Text(chat.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    stringResource(if (chat.isSavedMessages) R.string.share_saved_target else R.string.share_select_chat),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = 62.dp))
-                    }
-                }
-            } else if (!topicsReady) {
+            } else if (!session.deliveryStarted && target != null && !topicsReady) {
                 Text(stringResource(R.string.share_send_to, target.title), style = MaterialTheme.typography.titleSmall)
                 topicsError?.let {
                     Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = { topicsAttempt++ }) { Text(stringResource(R.string.common_retry)) }
                 }
                 if (topicsError == null) Text(stringResource(R.string.share_loading), style = MaterialTheme.typography.bodyMedium)
-            } else if (topics != null && topicId == 0L) {
+            } else if (!session.deliveryStarted && target != null && topics != null && topicId == 0L) {
                 Text(stringResource(R.string.share_choose_topic, target.title), style = MaterialTheme.typography.titleSmall)
                 if (topics.isNullOrEmpty()) Text(stringResource(R.string.share_no_topics), style = MaterialTheme.typography.bodyMedium)
+                SearchField(topicQuery, { topicQuery = it }, stringResource(R.string.share_search_topics))
+                val filteredTopics = topics.orEmpty().filter { it.title.contains(topicQuery.trim(), ignoreCase = true) }
                 LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    items(topics.orEmpty(), key = { it.id }) { topic ->
+                    items(filteredTopics, key = { it.id }) { topic ->
                         Text(
                             text = topic.title,
                             maxLines = 1,
@@ -311,7 +301,7 @@ internal fun ShareTargetScreen(
                             style = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { topicId = topic.id; session.error = null }
+                                .clickable(enabled = !session.deliveryStarted) { topicId = topic.id; session.error = null }
                                 .padding(vertical = 14.dp)
                         )
                     }
@@ -321,13 +311,23 @@ internal fun ShareTargetScreen(
                     modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = stringResource(R.string.share_send_to, target.title),
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    Text(stringResource(R.string.forward_selected_count, destinations.size), style = MaterialTheme.typography.titleMedium)
+                    val shownDestinations = if (session.deliveryStarted) session.pendingDestinations else destinations
+                    shownDestinations.forEach { destination ->
+                        Text(destination.title, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (!session.deliveryStarted) TextButton(onClick = {
+                        currentDestination?.let { session.addDestination(it) }
+                        reviewSelected = false
+                        targetId = 0L
+                        topicId = 0L
+                        topicsReadyFor = null
+                    }) { Text(stringResource(R.string.share_add_recipient)) }
                     Text(stringResource(R.string.share_send_review_hint), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     session.staged.forEach { item ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val previewPath = item.thumbnailPath ?: item.path.takeIf { item.kind == MediaKind.Photo }
+                            if (previewPath != null) LocalMediaImage(previewPath, Modifier.size(48.dp).clip(styledShape(8.dp)), maxDimension = 160, animate = false)
                             Text(
                                 text = item.fileName,
                                 maxLines = 1,
@@ -336,7 +336,7 @@ internal fun ShareTargetScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             TextButton(
-                                enabled = !session.sending,
+                                enabled = !session.sending && !session.deliveryStarted,
                                 onClick = { session.removeStaged(item, importer, appScope) }
                             ) { Text(stringResource(R.string.common_delete)) }
                         }
@@ -345,22 +345,23 @@ internal fun ShareTargetScreen(
                         value = session.draft,
                         onValueChange = { session.draft = it },
                         placeholder = { Text(stringResource(if (hasFiles) R.string.share_caption_placeholder else R.string.share_text_placeholder)) },
-                        enabled = !session.sending,
+                        enabled = !session.sending && !session.deliveryStarted,
                         minLines = 3,
-                        isError = false,
+                        isError = tooLong,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (session.retryBlocked) Text(stringResource(R.string.share_interrupted_warning), color = MaterialTheme.colorScheme.error)
                     if (tooLong) {
                         Text(stringResource(R.string.share_truncated_notice, limit), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                     session.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                     if (session.stagingFailed) TextButton(onClick = { session.retryStaging(context, appScope) }) { Text(stringResource(R.string.common_retry)) }
                     Button(
-                        enabled = canSend && target != null,
-                        onClick = { session.send(target.id, topicId, appScope, sendText, sendMedia) },
+                        enabled = canSend,
+                        onClick = { session.send(destinations, appScope, validateDestination, sendText, sendMedia) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(stringResource(R.string.share_send))
+                        Text(stringResource(R.string.share_send_count, if (session.deliveryStarted) session.pendingDestinations.size else destinations.size))
                     }
                 }
             }

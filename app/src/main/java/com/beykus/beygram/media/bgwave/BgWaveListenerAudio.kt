@@ -1,10 +1,15 @@
 package com.beykus.beygram.media.bgwave
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import androidx.core.content.ContextCompat
 
 /**
  * Plays the decoded BG Wave stream on a listener device.
@@ -16,6 +21,8 @@ import android.media.AudioTrack
 class BgWaveListenerAudio(
     private val session: BgWaveSessionPort,
     private val audioManager: AudioManager,
+    /** Used only for the headphones-unplugged receiver; null disables it. */
+    private val context: Context? = null,
     private val onFocusLost: () -> Unit,
 ) {
     @Volatile private var track: AudioTrack? = null
@@ -24,18 +31,60 @@ class BgWaveListenerAudio(
     private var thread: Thread? = null
     @Volatile private var running = false
 
+    @Volatile private var noisyReceiver: BroadcastReceiver? = null
+
+    /**
+     * Ends the listening off the calling thread: stop() joins the pump for up to [JOIN_TIMEOUT_MS], which must not block
+     * the audio focus callback or the main thread. Runs at most once per instance.
+     */
+    private val leaving = java.util.concurrent.atomic.AtomicBoolean(false)
+    private fun leaveAsync(reason: String) {
+        if (!leaving.compareAndSet(false, true)) return
+        BgWaveLog.i("audio.leave", "reason" to reason)
+        Thread({
+            stop()
+            onFocusLost()
+        }, "bgwave-listener-leave").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         BgWaveLog.i("audio.focus", "change" to change)
         when (change) {
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                stop()
-                onFocusLost()
+            AudioManager.AUDIOFOCUS_LOSS -> leaveAsync("focus-loss")
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pausedForFocus = true
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> track?.setVolume(DUCK_VOLUME)
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                pausedForFocus = false
+                track?.setVolume(FULL_VOLUME)
             }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                pausedForFocus = true
-            }
-            AudioManager.AUDIOFOCUS_GAIN -> pausedForFocus = false
         }
+    }
+
+    private fun registerNoisyReceiver() {
+        val ctx = context ?: return
+        if (noisyReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) leaveAsync("noisy")
+            }
+        }
+        try {
+            ContextCompat.registerReceiver(
+                ctx, receiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_EXPORTED,
+            )
+            noisyReceiver = receiver
+        } catch (e: RuntimeException) {
+            BgWaveLog.w("audio.noisy.register", e)
+        }
+    }
+
+    private fun unregisterNoisyReceiver() {
+        val receiver = noisyReceiver ?: return
+        noisyReceiver = null
+        runCatching { context?.unregisterReceiver(receiver) }
     }
 
     /** Returns false when focus or the output could not be started. */
@@ -92,6 +141,7 @@ class BgWaveListenerAudio(
             return false
         }
         BgWaveLog.i("audio.start", "rate" to SAMPLE_RATE)
+        registerNoisyReceiver()
         thread = Thread({ pumpLoop(out) }, "bgwave-listener-audio").apply {
             isDaemon = true
             start()
@@ -102,6 +152,7 @@ class BgWaveListenerAudio(
     /** The pump owns the AudioTrack until it exits; stop never releases a track being written. */
     @Synchronized
     fun stop() {
+        unregisterNoisyReceiver()
         running = false
         track = null
         val pump = thread
@@ -182,6 +233,7 @@ class BgWaveListenerAudio(
                         running = false
                         track = null
                         thread = null
+                        unregisterNoisyReceiver()
                         abandonFocus()
                     }
                 }
@@ -217,5 +269,7 @@ class BgWaveListenerAudio(
         const val FLOAT_BYTES = 4
         const val FRAMES_PER_READ = 960
         const val JOIN_TIMEOUT_MS = 500L
+        const val DUCK_VOLUME = 0.3f
+        const val FULL_VOLUME = 1.0f
     }
 }

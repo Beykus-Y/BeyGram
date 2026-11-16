@@ -2419,6 +2419,7 @@
     <string name="music_sort_artist">По исполнителю</string>
     <string name="music_sort_duration">По длительности</string>
     <string name="music_sort_manual">Вручную</string>
+    <string name="music_sort_tempo">По темпу (BPM)</string>
     <string name="music_sort_title">По названию</string>
     <string name="music_storage_error">Не удалось прочитать библиотеку. Изменения не сохраняются.</string>
     <plurals name="music_track_count">
@@ -2497,4 +2498,15 @@
     <string name="chat_peek_failed">Предпросмотр сейчас недоступен</string>
     <string name="chat_peek_hint">Чат останется непрочитанным</string>
     <string name="chat_peek_media">Вложение</string>
+    <string name="share_expand_picker">Развернуть меню</string>
+    <string name="share_show_author">Показывать автора</string>
+    <string name="share_search_topics">Поиск тем</string>
+    <string name="share_interrupted_warning">Отправка была прервана. Проверьте чат получателя перед повторной отправкой.</string>
+    <string name="share_forward_message_count">Сообщений к пересылке: %1$d</string>
+    <string name="share_load_more_chats">Загрузить ещё чаты</string>
+    <string name="share_unavailable_recipient">Один или несколько получателей недоступны. Снимите их выделение.</string>
+    <string name="share_remove_caption">Скрыть подпись медиа</string>
+    <string name="share_send_count">Отправить (%1$d)</string>
+    <string name="share_add_recipient">Добавить получателя</string>
+    <string name="share_delivery_progress">Отправлено получателям: %1$d из %2$d. Остались неотправленные части.</string>
 </resources>

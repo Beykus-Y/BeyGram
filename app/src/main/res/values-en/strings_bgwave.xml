@@ -13,6 +13,11 @@
     <string name="bgwave_status_awaiting">Waiting for an answer…</string>
     <string name="bgwave_status_connecting">Connecting…</string>
     <string name="bgwave_status_live">Wave is playing</string>
+    <string name="bgwave_card_role_host">You are the host</string>
+    <string name="bgwave_card_role_listener">You are the listener</string>
+    <string name="bgwave_card_listeners">Listeners: %1$d/1</string>
+    <string name="bgwave_card_route_direct">Direct connection</string>
+    <string name="bgwave_status_source_unsupported">This source cannot be played into the wave</string>
     <string name="bgwave_status_reconnecting">Reconnecting…</string>
     <string name="bgwave_status_failed">Could not connect</string>
     <string name="bgwave_status_ended">The wave has ended</string>
@@ -28,6 +33,7 @@
     <string name="bgwave_error_busy">Another wave is already running. Stop it first.</string>
     <string name="bgwave_error_expired">The invitation has expired.</string>
     <string name="bgwave_error_rejected">The answer did not match this wave.</string>
+    <string name="bgwave_error_offer_too_large">Could not prepare the invitation: too much connection data. Try a different network.</string>
     <string name="bgwave_share_action">Share wave</string>
     <string name="bgwave_action_stop_wave">Stop wave</string>
     <string name="bgwave_share_one_person">Pick one person: a wave plays for a single listener.</string>
@@ -37,8 +43,9 @@
     <string name="bgwave_share_confirm_send">Send</string>
     <string name="bgwave_share_confirm_cancel">Cancel</string>
     <string name="bgwave_mini_title">Wave</string>
+    <string name="bgwave_mini_a11y">Wave: %1$s</string>
     <string name="bgwave_listener_channel_name">Listening together</string>
     <string name="bgwave_listener_notification_title">You are listening to a wave</string>
     <string name="bgwave_listener_notification_text">Sound keeps playing with the screen off</string>
-    <string name="bgwave_listener_notification_stop">Leave</string>
+    <string name="bgwave_chat_preview">Listening together</string>
 </resources>

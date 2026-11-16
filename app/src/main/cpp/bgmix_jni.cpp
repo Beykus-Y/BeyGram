@@ -40,6 +40,11 @@
 namespace {
 
 constexpr std::uint32_t kMixSampleRate = 48000;
+constexpr std::uint64_t kMiB = 1024ull * 1024ull;
+constexpr std::uint64_t kMaxTrackPcmBytes = 128 * kMiB;
+// A current deck plus one source/output or reallocating decoder, with PCM scratch headroom.
+constexpr std::uint64_t kPreparationPcmReserve = 272 * kMiB;
+constexpr std::uint64_t kSessionPcmBudget = kMaxTrackPcmBytes + kPreparationPcmReserve;
 
 jbyteArray stringToBytes(JNIEnv* env, std::string_view text) {
     jbyteArray out = env->NewByteArray(static_cast<jsize>(text.size()));
@@ -120,8 +125,11 @@ struct MixHost {
                 bgmedia::MixTrackLoadOptions options;
                 options.cacheDirectory = cacheDirectory;
                 options.targetSampleRate = kMixSampleRate;
+                // Bound each full source/output buffer on mobile; oversized tracks stay on ExoPlayer.
+                options.maxPcmBytes = kMaxTrackPcmBytes;
                 return bgmedia::prepareMixTrack(path, options, out, error, progress);
-            });
+            }, bgmedia::mix::MixPlanner{}, bgmedia::mix::MixPcmBudget{
+                kMaxTrackPcmBytes, kPreparationPcmReserve, kSessionPcmBudget});
     }
 };
 
@@ -139,6 +147,12 @@ std::string statusJson(const MixSessionSnapshot& s, bool paused) {
     json << "\"transitionAvailable\":" << (s.transitionAvailable ? "true" : "false") << ",";
     json << "\"transitionType\":\"" << escapeJson(bgmedia::mix::transitionTypeShortName(s.engine.transitionType)) << "\",";
     json << "\"transitionProgress\":" << s.engine.transitionProgress << ",";
+    json << "\"preparedPcmBytes\":" << s.preparedPcmBytes << ",";
+    json << "\"retiredPcmBytes\":" << s.retiredPcmBytes << ",";
+    json << "\"preparationReservedBytes\":" << s.preparationReservedBytes << ",";
+    json << "\"pcmBudgetBytes\":" << s.pcmBudgetBytes << ",";
+    json << "\"preparedCount\":" << s.preparedCount << ",";
+    json << "\"preparingCount\":" << s.preparingCount << ",";
     json << "\"preparingNext\":" << (s.preparingNext ? "true" : "false") << ",";
     json << "\"preparingName\":\"" << escapeJson(s.preparingName) << "\",";
     json << "\"preparingProgress\":" << s.preparingProgress << ",";
@@ -149,6 +163,7 @@ std::string statusJson(const MixSessionSnapshot& s, bool paused) {
         const auto& deck = s.engine.decks[i];
         if (i > 0) json << ",";
         json << "{\"loaded\":" << (deck.loaded ? "true" : "false")
+             << ",\"trackId\":" << deck.trackId
              << ",\"playing\":" << (deck.playing ? "true" : "false")
              << ",\"ended\":" << (deck.ended ? "true" : "false")
              << ",\"positionSeconds\":" << deck.positionSeconds
