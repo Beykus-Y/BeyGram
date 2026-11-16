@@ -7,11 +7,11 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.snapshotFlow
 import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.ui.components.BeyGramDialog
+import com.beykus.beygram.ui.components.BeyGramPopover
+import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.ui.components.LocalWindowLayout
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.animation.core.animateFloatAsState
@@ -641,38 +641,38 @@ fun ChatsScreen(
                     androidx.compose.material3.IconButton(onClick = { moreOpen = true }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Rounded.MoreVert, stringResource(R.string.feature_more_actions), tint = palette.textSecondary)
                     }
-                    DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.chats_read_all)) },
+                    BeyGramPopover(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.chats_read_all),
                             enabled = hasUnreadChats,
                             leadingIcon = { Icon(Icons.Rounded.DoneAll, null, tint = palette.textSecondary) },
                             onClick = { moreOpen = false; confirmReadAll = true }
                         )
                         savedMessagesChat?.let { saved ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.saved_messages_open_description)) },
+                            BeyGramPopoverItem(
+                                text = stringResource(R.string.saved_messages_open_description),
                                 leadingIcon = { Icon(Icons.Rounded.Bookmark, null, tint = palette.textSecondary) },
                                 onClick = { moreOpen = false; openChat(saved) }
                             )
                         }
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.account_switcher_title)) },
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.account_switcher_title),
                             leadingIcon = { Icon(Icons.Rounded.People, null, tint = palette.textSecondary) },
                             onClick = { moreOpen = false; onAccountPicker() }
                         )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.music_library_title)) },
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.music_library_title),
                             // The music note is the one accent of this menu; the rest stay in ink.
                             leadingIcon = { Icon(Icons.Rounded.MusicNote, null, tint = palette.accentInk) },
                             onClick = { moreOpen = false; focusManager.clearFocus(); onOpenMusic() }
                         )
-                        if (folderSnapshot.initialized) DropdownMenuItem(
-                            text = { Text(stringResource(R.string.folder_manage_title)) },
+                        if (folderSnapshot.initialized) BeyGramPopoverItem(
+                            text = stringResource(R.string.folder_manage_title),
                             leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = palette.textSecondary) },
                             onClick = { moreOpen = false; managingFolders = true }
                         )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.chats_swipe_settings)) },
+                        BeyGramPopoverItem(
+                            text = stringResource(R.string.chats_swipe_settings),
                             leadingIcon = { Icon(Icons.Rounded.Tune, null, tint = palette.textSecondary) },
                             onClick = { moreOpen = false; showSwipeSettings = true }
                         )
@@ -1108,10 +1108,10 @@ private fun ChatSwipeSettingsDialog(
                     TextButton(onClick = { leftOpen = true }) {
                         Text(chatSwipeKindLabel(preferences.left))
                     }
-                    DropdownMenu(expanded = leftOpen, onDismissRequest = { leftOpen = false }) {
+                    BeyGramPopover(expanded = leftOpen, onDismissRequest = { leftOpen = false }, alignEnd = false) {
                         ChatSwipeActionKind.entries.forEach { kind ->
-                            DropdownMenuItem(
-                                text = { Text(chatSwipeKindLabel(kind)) },
+                            BeyGramPopoverItem(
+                                text = chatSwipeKindLabel(kind),
                                 onClick = {
                                     leftOpen = false
                                     onChange(preferences.copy(left = kind))
@@ -1125,10 +1125,10 @@ private fun ChatSwipeSettingsDialog(
                     TextButton(onClick = { rightOpen = true }) {
                         Text(chatSwipeKindLabel(preferences.right))
                     }
-                    DropdownMenu(expanded = rightOpen, onDismissRequest = { rightOpen = false }) {
+                    BeyGramPopover(expanded = rightOpen, onDismissRequest = { rightOpen = false }, alignEnd = false) {
                         ChatSwipeActionKind.entries.forEach { kind ->
-                            DropdownMenuItem(
-                                text = { Text(chatSwipeKindLabel(kind)) },
+                            BeyGramPopoverItem(
+                                text = chatSwipeKindLabel(kind),
                                 onClick = {
                                     rightOpen = false
                                     onChange(preferences.copy(right = kind))
