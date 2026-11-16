@@ -782,6 +782,9 @@ fun ChatScreen(
     val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
         scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
     }
+    val daySeparators = remember(messageListItems, history.hasOlderMessages) {
+        chatDaySeparators(messageListItems, showOldestDay = !history.hasOlderMessages)
+    }
     // In a private chat the peer is already named in the header; groups need the author once per block, not per bubble.
     val senderHeaderByKey = remember(messageListItems, chat.isGroup, chat.isChannel, chat.isSavedMessages) {
         senderHeaderVisibility(chat, messageListItems)
@@ -2054,6 +2057,8 @@ fun ChatScreen(
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = metrics.listPadding + chromeTopPad, bottom = metrics.listPadding + chromeBottomPad), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }) { listItem ->
+                ChatScreenColumn(Modifier.fillMaxWidth()) {
+                daySeparators[listItem.key]?.let { ChatHistoryDateSeparator(it) }
                 if (listItem.unreadSeparator) {
                     UnreadMessagesSeparator()
                 } else if (listItem.pendingVideoNote != null) {
@@ -2300,6 +2305,7 @@ fun ChatScreen(
                         }
                         }
                     }
+                }
                 }
             }
             history.error?.let { historyError -> item(key = "history_error") {
@@ -3369,7 +3375,6 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
-    val glassBubbles = LocalDesignSystem.current.surfaces.treatment == SurfaceTreatment.Glass
     // The versions sheet belongs to the bubble that opened it, and is composed only while it is open.
     var showVersions by remember(message.id) { mutableStateOf(false) }
     val loadVersions = onLoadVersions
@@ -3400,11 +3405,14 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     // Фото, видео и гифки без подписи: время ставится поверх нижнего правого угла, как в Telegram.
     val overlayMeta = !circle && !hasText && message.reply == null && message.sendState != MessageSendState.Failed &&
         message.media?.kind?.let { it == MediaKind.Photo || it == MediaKind.Video || it == MediaKind.Animation } == true
+    val compactCollection = message.media?.let { com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument(it) } == true && !hasText && message.reply == null && renderedSpecial == null && message.linkPreview == null && translation == null
     val inlineMeta = useInlineTextMetadata(
         message,
         hasSenderHeader = showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank(),
         hasTranslation = translation != null
     )
+    // Preserve the existing cheap one-line path; measure actual final lines only for the other plain text bubbles.
+    val lastLineMeta = showText && !inlineMeta && useLastLineTextMetadata(message, hasTranslation = translation != null)
     val openMediaLabel = stringResource(R.string.a11y_open_attachment)
     val openStickerSetLabel = if (sticker && onStickerOpen != null) stringResource(R.string.sticker_picker_open_set) else null
     val longPressLabel = stringResource(if (longPressSelects) R.string.message_action_select else R.string.a11y_message_actions)
@@ -3463,6 +3471,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         if (showSenderHeader && !message.isOutgoing && message.senderName.isNotBlank()) Text(message.senderName, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                                 .then(if (onSenderClick != null) Modifier.clickable { onSenderClick?.invoke() } else Modifier))
+                        ForwardedMessageHeader(message)
                         // Media sits flush against the bubble's top and side edges; text keeps its own padding.
                         message.media?.let { media ->
                             if (media.kind == MediaKind.VideoNote) VideoNoteBubble(media, observeFile, onDownloadFile,
@@ -3504,16 +3513,16 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         }
                         message.expiredMediaKind?.let { kind -> ExpiredMediaCard(kind) }
                         // Без текста и ответа под фото нет строки: время уже стоит поверх него.
-                        if (showText || renderedSpecial != null || message.reply != null || !overlayMeta) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
+                        if (showText || renderedSpecial != null || message.reply != null || (!overlayMeta && !compactCollection)) Column(Modifier.padding(start = metrics.textInset, end = metrics.textInset, top = if (circle) metrics.circleTopInset else metrics.textTopInset)) {
                             message.reply?.let { reply ->
-                                // Liquid Glass: the quote is a tint of its own bubble, not a second outline inside it.
-                                val quoteShape = RoundedCornerShape(metrics.replyRadius)
-                                Column(Modifier.padding(vertical = 4.dp).clip(quoteShape)
-                                    .then(if (glassBubbles) Modifier.background(palette.accent.copy(alpha = 0.12f)) else Modifier.border(1.dp, palette.accent, quoteShape))
-                                    .clickable { if (selectionMode) onToggleSelection() else onReplyClick(reply) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                                    Text(reply.senderName.ifBlank { stringResource(R.string.chat_reply_to_message) }, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                    Text(reply.text.resolve(), color = palette.textSecondary, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                }
+                                ReplyQuote(
+                                    reply = reply,
+                                    modifier = Modifier.padding(bottom = 5.dp),
+                                    onClick = { if (selectionMode) onToggleSelection() else onReplyClick(reply) },
+                                    onLongClick = if (selectionMode) onToggleSelection else onActions,
+                                    onClickLabel = selectionLabel,
+                                    onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,
+                                )
                             }
                             renderedSpecial?.let { content ->
                                 SpecialMessageContentView(
@@ -3533,9 +3542,20 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                                     paidContent = paidContent
                                 )
                             }
-                            if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile, onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
                             if (isWave && waveAccountId != null) BgWaveMessageCard(message, waveAccountId)
-                            else MessageMusicLinkCard(message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile, onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards)
+                            else MessageMusicLinkCard(
+                                message, observeFile, onDownloadFile, autoDownloadFile = onAutoDownloadFile,
+                                onOpenEntity = onOpenMessageEntity, enabled = musicLinkCards,
+                                messageText = {
+                                    if (lastLineMeta) {
+                                        PlainMessageWithMeta(message.text, modifier = if (message.reply != null) Modifier.fillMaxWidth() else Modifier) {
+                                            BubbleMeta(message, isRead, retryAvailable = false, overlay = false,
+                                                onRetry = onRetry, inline = true, insideTextInsets = true)
+                                        }
+                                    } else if (showText) FormattedMessageText(message, observeCustomEmoji, observeFile, onDownloadFile,
+                                        onOpenEntity = onOpenMessageEntity, entityClicksEnabled = !selectionMode)
+                                }
+                            )
                             translation?.let { state ->
                                 TranslationBlock(
                                     state = state,
@@ -3552,10 +3572,10 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     }
                 },
                 meta = {
-                    if (!inCircle) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
+                    if (!inCircle && !lastLineMeta) BubbleMeta(message, isRead, retryAvailable = message.isOutgoing && message.sendState == MessageSendState.Failed,
                         overlay = overlayMeta, onRetry = onRetry, inline = inlineMeta,
                         onShowVersions = if (onLoadVersions != null) openVersions else null,
-                        connectionState = connectionState, onShowFailureDetails = onShowFailureDetails)
+                        connectionState = connectionState, onShowFailureDetails = onShowFailureDetails, compactDocument = compactCollection)
                 },
                 footer = {
                     // Inline keyboards and reactions must stack, never paint over one another.

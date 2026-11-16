@@ -214,6 +214,7 @@ internal fun useInlineTextMetadata(message: ChatMessage, hasSenderHeader: Boolea
         message.inlineKeyboard.isEmpty() &&
         message.sendState != MessageSendState.Failed &&
         !hasSenderHeader &&
+        !message.isForwarded &&
         !hasTranslation
 
 /** Время, статус отправки и кнопка повтора. При [overlay] — белым на тёмной плашке поверх фото. */
@@ -233,7 +234,9 @@ internal fun BubbleMeta(
     /** Confirmed TDLib connection state, used only to label queued outgoing messages while offline. */
     connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
     /** Opens compact failure details (reason, retry, copy, discard) for a failed outgoing message. */
-    onShowFailureDetails: (() -> Unit)? = null
+    onShowFailureDetails: (() -> Unit)? = null,
+    insideTextInsets: Boolean = false,
+    compactDocument: Boolean = false,
 ) {
     val palette = beyGramPalette()
     val failed = message.sendState == MessageSendState.Failed
@@ -252,7 +255,9 @@ internal fun BubbleMeta(
     val modifier = when {
         overlay -> Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
             .padding(horizontal = 6.dp, vertical = 2.dp)
+        insideTextInsets -> Modifier.padding(bottom = 4.dp)
         inline -> Modifier.padding(start = 4.dp, end = 8.dp, bottom = 4.dp)
+        compactDocument -> Modifier.padding(start = 12.dp, end = 12.dp, bottom = 5.dp)
         else -> Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
     }
     // Chat Memory marks: a kept deletion and a lost attachment. Empty for every message that Chat Memory did not keep.
