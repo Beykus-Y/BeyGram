@@ -22,11 +22,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -98,19 +98,16 @@ private fun spoilerUnit(seed: Int, salt: Int): Float {
  * Plumes are radial gradients positioned and sized relative to the current box, so they stay smooth
  * at any size. Nothing here is a bitmap, so there is no stretched texture.
  */
-private fun DrawScope.drawSpoilerPlumes(seed: Int) {
+private fun spoilerPlumeBrushes(seed: Int, size: Size): List<Brush> {
     val longest = max(size.width, size.height)
-    for (i in SPOILER_PLUME_COLORS.indices) {
-        val color = SPOILER_PLUME_COLORS[i]
+    return SPOILER_PLUME_COLORS.mapIndexed { i, color ->
         val cx = size.width * (0.12f + 0.76f * spoilerUnit(seed, i * 3))
         val cy = size.height * (0.12f + 0.76f * spoilerUnit(seed, i * 3 + 1))
         val radius = longest * (0.35f + 0.30f * spoilerUnit(seed, i * 3 + 2))
-        drawRect(
-            brush = Brush.radialGradient(
-                colors = listOf(color.copy(alpha = 0.85f), color.copy(alpha = 0f)),
-                center = Offset(cx, cy),
-                radius = radius
-            )
+        Brush.radialGradient(
+            colors = listOf(color.copy(alpha = 0.85f), color.copy(alpha = 0f)),
+            center = Offset(cx, cy),
+            radius = radius
         )
     }
 }
@@ -144,9 +141,13 @@ internal fun SafeSpoilerOverlay(seed: Int, modifier: Modifier = Modifier) {
     BoxWithConstraints(
         modifier
             .background(Color(0xFF211B32))
-            .drawBehind {
-                drawSpoilerPlumes(seed)
-                drawContext.canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, grain)
+            .drawWithCache {
+                // Brushes are rebuilt only when the size changes, not on every draw.
+                val plumes = spoilerPlumeBrushes(seed, size)
+                onDrawBehind {
+                    plumes.forEach { drawRect(brush = it) }
+                    drawContext.canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, grain)
+                }
             },
         contentAlignment = Alignment.Center
     ) {

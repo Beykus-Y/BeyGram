@@ -1603,6 +1603,7 @@ private fun MediaViewerPage(
             }
         }
         // The mask sits on top of the page and fades out on reveal, so the revealed content shows through without a black gap.
+        // While it fades, the click is disabled so gestures reach the revealed page.
         AnimatedVisibility(
             visible = spoilerHidden,
             enter = EnterTransition.None,
@@ -1611,7 +1612,7 @@ private fun MediaViewerPage(
         ) {
             Box(
                 Modifier.fillMaxSize()
-                    .clickable(role = Role.Button, onClick = onReveal)
+                    .clickable(enabled = spoilerHidden, role = Role.Button, onClick = onReveal)
                     .semantics { contentDescription = context.getString(R.string.media_spoiler_hint) },
                 contentAlignment = Alignment.Center
             ) {
