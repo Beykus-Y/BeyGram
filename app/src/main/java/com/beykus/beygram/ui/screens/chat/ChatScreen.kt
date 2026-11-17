@@ -2114,7 +2114,7 @@ fun ChatScreen(
                             Column(Modifier.fillMaxWidth()) {
                                 DisposableEffect(listItem.key) {
                                     onDispose {
-                                        listItem.messages.forEach { bubbleCoordinates.remove(it.id) }
+                                        listItem.messages.forEach { bubbleCoordinates.remove(it.id); mediaCoordinates.remove(it.id) }
                                     }
                                 }
                                 val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
@@ -2191,7 +2191,7 @@ fun ChatScreen(
                         ) {
                         Column(Modifier.fillMaxWidth()) {
                             DisposableEffect(message.id) {
-                                onDispose { bubbleCoordinates.remove(message.id) }
+                                onDispose { bubbleCoordinates.remove(message.id); mediaCoordinates.remove(message.id) }
                             }
                             val translationLanguage = translationLanguages[message.id]
                             val translationState = translationLanguage?.let { translationStates[message.id to it] }
