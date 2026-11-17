@@ -1,13 +1,19 @@
 package com.beykus.beygram.ui.screens.chat
 
 import android.graphics.Bitmap
-import androidx.compose.foundation.Image
+import android.graphics.BitmapShader
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Shader
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.Icon
@@ -16,16 +22,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /** Strict upper bound for the synthetic spoiler texture: it never contains real media pixels. */
@@ -61,37 +74,123 @@ internal fun safeSpoilerTexturePixels(seed: Int): IntArray {
     return pixels
 }
 
-/** Decorative-only component. The parent owns reveal click/accessibility and privacy policy. */
+/** Fraction of the texture that is visible as grain on top of the plumes. */
+private const val SPOILER_GRAIN_ALPHA = 0.35f
+
+/** Soft low-frequency plumes. Colours stay in the dark violet palette of the mask. */
+private val SPOILER_PLUME_COLORS = listOf(
+    Color(0xFF3C3058),
+    Color(0xFF2E2647),
+    Color(0xFF45375F),
+    Color(0xFF3C3058)
+)
+
+/** Deterministic value in 0..1 derived from the seed only (never from media contents). */
+private fun spoilerUnit(seed: Int, salt: Int): Float {
+    var h = seed * -0x61c88647 + salt * 0x27d4eb2f
+    h = h xor (h ushr 16)
+    h *= 0x7feb352d
+    h = h xor (h ushr 15)
+    return (h and 0xFFFF) / 65535f
+}
+
+/**
+ * Plumes are radial gradients positioned and sized relative to the current box, so they stay smooth
+ * at any size. Nothing here is a bitmap, so there is no stretched texture.
+ */
+private fun spoilerPlumeBrushes(seed: Int, size: Size): List<Brush> {
+    val longest = max(size.width, size.height)
+    return SPOILER_PLUME_COLORS.mapIndexed { i, color ->
+        val cx = size.width * (0.12f + 0.76f * spoilerUnit(seed, i * 3))
+        val cy = size.height * (0.12f + 0.76f * spoilerUnit(seed, i * 3 + 1))
+        val radius = longest * (0.35f + 0.30f * spoilerUnit(seed, i * 3 + 2))
+        Brush.radialGradient(
+            colors = listOf(color.copy(alpha = 0.85f), color.copy(alpha = 0f)),
+            center = Offset(cx, cy),
+            radius = radius
+        )
+    }
+}
+
+/**
+ * Fine grain: the synthetic 64x64 texture tiled at a constant scale of one texture pixel per dp.
+ * Built once per seed and density; the paint is reused for every draw.
+ */
+private fun spoilerGrainPaint(seed: Int, density: Float): Paint {
+    val dim = SAFE_SPOILER_TEXTURE_DIM
+    val bitmap = Bitmap.createBitmap(dim, dim, Bitmap.Config.ARGB_8888).apply {
+        setPixels(safeSpoilerTexturePixels(seed), 0, dim, 0, 0, dim, dim)
+    }
+    val grainShader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT).apply {
+        setLocalMatrix(Matrix().apply { setScale(density, density) })
+    }
+    return Paint().apply {
+        shader = grainShader
+        alpha = (255 * SPOILER_GRAIN_ALPHA).roundToInt()
+    }
+}
+
+/**
+ * Decorative-only component. The parent owns reveal click/accessibility and privacy policy.
+ * The mask is fully opaque and never draws any media pixels.
+ */
 @Composable
 internal fun SafeSpoilerOverlay(seed: Int, modifier: Modifier = Modifier) {
-    val texture = remember(seed) {
-        Bitmap.createBitmap(SAFE_SPOILER_TEXTURE_DIM, SAFE_SPOILER_TEXTURE_DIM, Bitmap.Config.ARGB_8888).apply {
-            setPixels(safeSpoilerTexturePixels(seed), 0, SAFE_SPOILER_TEXTURE_DIM, 0, 0,
-                SAFE_SPOILER_TEXTURE_DIM, SAFE_SPOILER_TEXTURE_DIM)
-        }.asImageBitmap()
-    }
-    Box(modifier.background(Color(0xFF211B32)), contentAlignment = Alignment.Center) {
-        Image(
-            bitmap = texture, contentDescription = null,
-            contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()
-        )
+    val density = LocalDensity.current.density
+    val grain = remember(seed, density) { spoilerGrainPaint(seed, density) }
+    BoxWithConstraints(
+        modifier
+            .background(Color(0xFF211B32))
+            .drawWithCache {
+                // Brushes are rebuilt only when the size changes, not on every draw.
+                val plumes = spoilerPlumeBrushes(seed, size)
+                onDrawBehind {
+                    plumes.forEach { drawRect(brush = it) }
+                    drawContext.canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, grain)
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.27f)))
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(Icons.Rounded.Lock, contentDescription = null, tint = Color.White)
-            Text(
-                stringResource(R.string.media_spoiler_title),
-                color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                stringResource(R.string.media_spoiler_reveal),
-                color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp,
-                textAlign = TextAlign.Center
-            )
+        val side = if (maxWidth < maxHeight) maxWidth else maxHeight
+        if (side >= 140.dp) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(Icons.Rounded.Lock, contentDescription = null, tint = Color.White)
+                Text(
+                    stringResource(R.string.media_spoiler_title),
+                    color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    stringResource(R.string.media_spoiler_reveal),
+                    color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp,
+                    textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis
+                )
+            }
+        } else if (side >= 56.dp) {
+            Box(
+                Modifier.size(36.dp).background(Color.Black.copy(alpha = 0.35f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+            }
         }
+    }
+}
+
+/**
+ * Size of a media rectangle fitted inside a container, keeping the media aspect ratio.
+ * Uses only the media metadata width and height; unknown sizes fall back to 3:4.
+ */
+internal fun spoilerFitSize(containerW: Float, containerH: Float, mediaW: Int, mediaH: Int): Pair<Float, Float> {
+    val ratio = if (mediaW > 0 && mediaH > 0) (mediaW.toFloat() / mediaH).coerceIn(0.2f, 5f) else 3f / 4f
+    return if (containerW / containerH > ratio) {
+        containerH * ratio to containerH
+    } else {
+        containerW to containerW / ratio
     }
 }

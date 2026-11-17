@@ -1,5 +1,10 @@
 package com.beykus.beygram.ui.screens.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
@@ -49,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
+import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.deeplink.MessageEntityLink
@@ -300,6 +306,7 @@ private fun AlbumMediaTile(
     val context = LocalContext.current
     val mediaLabel = media.kind.label(context)
     val spoilerLabel = stringResource(R.string.media_spoiler_hint)
+    val reduced = systemReducedMotion()
     val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
     val longPressLabel = stringResource(R.string.a11y_message_actions)
     // Only the progress indicator reads byte counters, through the handle.
@@ -358,8 +365,17 @@ private fun AlbumMediaTile(
             placeholder = originalPlaceholder
         )
         else if (revealed && minithumbnail != null) SoftMinithumbnail(minithumbnail, Modifier.fillMaxSize())
+        // Drawn after the image layers so the mask covers them; it fades out on reveal.
+        AnimatedVisibility(
+            visible = !revealed,
+            enter = EnterTransition.None,
+            exit = if (reduced) ExitTransition.None else fadeOut(tween(180)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
+        }
         when {
-            !revealed -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
+            !revealed -> Unit
             imagePath == null && (file.isDownloading || thumb.isDownloading) -> CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
             imagePath == null -> Icon(Icons.Rounded.Download, null, tint = Color.White,
                 modifier = Modifier.size(36.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(8.dp))
