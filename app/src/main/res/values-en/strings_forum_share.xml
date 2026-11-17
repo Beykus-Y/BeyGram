@@ -81,6 +81,7 @@
     <string name="forum_topic_time_yesterday">Yesterday</string>
     <string name="forum_topic_draft">Draft</string>
     <string name="forum_topic_muted">Muted</string>
+    <string name="forum_topic_mute_default">Same as group</string>
     <string name="forum_topic_mentions">Mentions: %1$d</string>
     <string name="forum_topic_reactions">Reactions: %1$d</string>
     <string name="forum_topic_poll_votes">Poll votes: %1$d</string>

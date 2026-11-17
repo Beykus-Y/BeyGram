@@ -2620,6 +2620,7 @@ class TdLibTelegramRepository private constructor(
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean) = conversationActions.closeTopic(chatId, forumTopicId, closed)
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
+    override suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?) = conversationActions.setTopicMuted(chatId, forumTopicId, muted)
 
     override suspend fun forumTopicsPage(chatId: Long, query: String, onPage: (ForumTopicsPage) -> Unit): Result<ForumTopicsPage?> =
         conversationActions.forumTopicsPage(chatId, query) { page ->
@@ -3328,15 +3329,16 @@ class TdLibTelegramRepository private constructor(
         publishChat(chatId)
     }
 
-    /** Republishes the chat only when a posting/poll right changed, so unrelated group updates do not wake its observers. */
+    /** Republishes the chat only when a posting/poll right or the forum mark changed, so unrelated group updates do not wake its observers. */
     private fun refreshPostingRight(chatId: Long) {
         val existing = chatCache[chatId] ?: return
         val chat = profiles.chat(chatId) ?: return
         val canPost = profiles.canPost(chat)
         val canSendPolls = profiles.canSendPolls(chat)
         val isChannelAdmin = profiles.isChannelAdministrator(chat)
-        if (canPost == existing.canPost && canSendPolls == existing.canSendPolls && isChannelAdmin == existing.isChannelAdmin) return
-        chatCache[chatId] = existing.copy(canPost = canPost, canSendPolls = canSendPolls, isChannelAdmin = isChannelAdmin)
+        val isForum = profiles.isForum(chat)
+        if (canPost == existing.canPost && canSendPolls == existing.canSendPolls && isChannelAdmin == existing.isChannelAdmin && isForum == existing.isForum) return
+        chatCache[chatId] = existing.copy(canPost = canPost, canSendPolls = canSendPolls, isChannelAdmin = isChannelAdmin, isForum = isForum)
         publishChat(chatId)
     }
 
@@ -3873,6 +3875,7 @@ class TdLibTelegramRepository private constructor(
             canPost = profiles.canPost(this),
             canSendPolls = profiles.canSendPolls(this),
             isChannelAdmin = profiles.isChannelAdministrator(this),
+            isForum = profiles.isForum(this),
             photo = profiles.photo(photo),
             folderPositions = folderPositions
         )

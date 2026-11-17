@@ -118,6 +118,11 @@ internal class TdProfiles(private val client: () -> Client, private val files: M
         val status = supers[supergroupId]?.status
         status is TdApi.ChatMemberStatusCreator || status is TdApi.ChatMemberStatusAdministrator
     }
+    /** The forum flag is part of the cached supergroup, so the chat list learns it without another request. */
+    fun isForum(chat: TdApi.Chat): Boolean = synchronized(lock) {
+        val supergroupId = (chat.type as? TdApi.ChatTypeSupergroup)?.supergroupId ?: return@synchronized false
+        supers[supergroupId]?.isForum == true
+    }
     fun observe(chatId: Long): StateFlow<ProfileState> = synchronized(lock) {
         details.getOrPut(chatId) { MutableStateFlow(ProfileState(info = chatInfo(chatId))) }.asStateFlow()
     }
