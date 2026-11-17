@@ -81,6 +81,7 @@
     <string name="forum_topic_time_yesterday">Hier</string>
     <string name="forum_topic_draft">Brouillon</string>
     <string name="forum_topic_muted">En sourdine</string>
+    <string name="forum_topic_mute_default">Comme le groupe</string>
     <string name="forum_topic_mentions">Mentions : %1$d</string>
     <string name="forum_topic_reactions">Réactions : %1$d</string>
     <string name="forum_topic_poll_votes">Votes aux sondages : %1$d</string>

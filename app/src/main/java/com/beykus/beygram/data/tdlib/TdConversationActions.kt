@@ -369,6 +369,13 @@ internal class TdConversationActions(
         Unit
     }
 
+    /** Reads the topic's current settings first, so everything except the mute state goes back to TDLib as it was. */
+    suspend fun setTopicMuted(chatId: Long, topicId: Long, muted: Boolean?): Result<Unit> = conversationResult {
+        val topic = request(TdApi.GetForumTopic(chatId, topicId.toInt()))
+        request(TdApi.SetForumTopicNotificationSettings(chatId, topicId.toInt(), forumTopicMuteSettings(topic.notificationSettings, muted)))
+        Unit
+    }
+
     suspend fun sendText(chatId: Long, text: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, clearDraft: Boolean = true, options: MessageSendOptions = MessageSendOptions()): Result<Unit> = conversationResult<Unit> {
         requireFutureSchedule(options)
         if (options.viewOnce) throw UserMessageException(UiText.Res(R.string.err_view_once_media_only))
@@ -1313,3 +1320,14 @@ internal fun hasDraftContent(draft: TdApi.DraftMessage?): Boolean {
 /** The short text of a topic draft, or an empty string for a reply-only draft. */
 internal fun forumTopicDraftPreview(draft: TdApi.DraftMessage?): String =
     ((draft?.content as? TdApi.DraftMessageContentText)?.text?.text ?: "").trim().take(180)
+
+/**
+ * The settings a forum topic gets for a mute change: null hands the topic back to the group, true mutes it for good and
+ * false unmutes it. [current] is the object TDLib returned for this topic, so its other fields (sounds, previews, story
+ * and pinned-message switches) keep their values; the same in-place update is used for chat mute settings.
+ */
+internal fun forumTopicMuteSettings(current: TdApi.ChatNotificationSettings?, muted: Boolean?): TdApi.ChatNotificationSettings =
+    (current ?: TdApi.ChatNotificationSettings()).apply {
+        useDefaultMuteFor = muted == null
+        muteFor = if (muted == true) Int.MAX_VALUE else 0
+    }

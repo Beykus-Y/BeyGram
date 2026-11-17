@@ -143,6 +143,7 @@ import com.beykus.beygram.ui.screens.playback.parseShareTimecodeMs
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -2262,9 +2263,11 @@ fun ChatScreen(
                                     }
                                 },
                                 onPollStop = { messageId ->
-                                    scope.launch {
-                                        conversation.stopPoll(chat.id, messageId)
-                                            .onFailure { error = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                    riskGuard.run {
+                                        scope.launch {
+                                            conversation.stopPoll(chat.id, messageId)
+                                                .onFailure { error = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                        }
                                     }
                                 },
                                 onStopLiveLocation = { target ->
@@ -2279,7 +2282,8 @@ fun ChatScreen(
                                 },
                                 onLoadVersions = { chatId, messageId -> conversation.messageVersions(chatId, messageId) },
                                 onAddPollOption = { messageId, text ->
-                                    conversation.addPollOption(chat.id, messageId, text)
+                                    if (riskGuard.confirm()) conversation.addPollOption(chat.id, messageId, text)
+                                    else Result.failure(CancellationException("stealth risk declined"))
                                 },
                                 onAutoDownloadFile = onAutoDownloadFile,
                                 onMusicPlay = { selected, startMs ->

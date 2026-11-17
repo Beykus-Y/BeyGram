@@ -150,6 +150,8 @@ interface ConversationRepository {
     suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit>
     suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit>
     suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>
+    /** Per-topic notifications: true mutes the topic, false unmutes it, and null lets the topic follow the group again. */
+    suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?): Result<Unit>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     /** Poll, location, contact and dice are sent as TDLib content, never as formatted text. */

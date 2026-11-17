@@ -1951,6 +1951,7 @@
     <string name="forum_topic_time_yesterday">Вчера</string>
     <string name="forum_topic_draft">Черновик</string>
     <string name="forum_topic_muted">Без звука</string>
+    <string name="forum_topic_mute_default">Как в группе</string>
     <string name="forum_topic_mentions">Упоминаний: %1$d</string>
     <string name="forum_topic_reactions">Реакций: %1$d</string>
     <string name="forum_topic_poll_votes">Голосов в опросах: %1$d</string>
@@ -2124,6 +2125,7 @@
     <string name="a11y_secret_chat_ttl">Таймер самоуничтожения: %1$s</string>
     <string name="a11y_view_once_chip">Одноразовое фото или видео</string>
     <string name="chats_secret_chat">Секретный чат</string>
+    <string name="chats_forum">Форум</string>
     <string name="app_lock_title">Блокировка приложения</string>
     <string name="app_lock_intro">Запрашивать PIN или биометрию при запуске BeyGram и после возврата в приложение. Блокировка общая для всех аккаунтов на этом устройстве.</string>
     <string name="app_lock_enable_title">Блокировка приложения</string>

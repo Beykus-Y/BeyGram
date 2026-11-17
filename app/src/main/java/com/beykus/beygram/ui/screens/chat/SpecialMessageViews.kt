@@ -88,6 +88,7 @@ import com.beykus.beygram.domain.model.PollVotersPage
 import com.beykus.beygram.domain.model.appendPollVoters
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -446,9 +447,13 @@ private fun AddPollOptionDialog(
                     serverError = null
                     val result = onAdd(text.trim())
                     busy = false
-                    if (result.isSuccess) onDismiss()
-                    else serverError = result.exceptionOrNull()
-                        .userMessage(context, R.string.chat_poll_add_option_failed)
+                    val failure = result.exceptionOrNull()
+                    if (result.isSuccess) {
+                        onDismiss()
+                    } else if (failure !is CancellationException) {
+                        // A declined stealth warning keeps the dialog open without an error.
+                        serverError = failure.userMessage(context, R.string.chat_poll_add_option_failed)
+                    }
                 }
             }
         },

@@ -81,6 +81,7 @@
     <string name="forum_topic_time_yesterday">Ayer</string>
     <string name="forum_topic_draft">Borrador</string>
     <string name="forum_topic_muted">Silenciado</string>
+    <string name="forum_topic_mute_default">Igual que el grupo</string>
     <string name="forum_topic_mentions">Menciones: %1$d</string>
     <string name="forum_topic_reactions">Reacciones: %1$d</string>
     <string name="forum_topic_poll_votes">Votos en encuestas: %1$d</string>

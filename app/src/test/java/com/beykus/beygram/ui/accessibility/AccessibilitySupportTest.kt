@@ -59,6 +59,19 @@ class AccessibilitySupportTest {
         assertEquals("Alice, 1 unread message", duplicated)
     }
 
+    @Test fun chatRowDescriptionAnnouncesForumChats() {
+        val description = accessibleChatRowDescription(
+            title = "Dev group",
+            preview = "New topic",
+            time = "18:00",
+            unreadLabel = null,
+            mutedLabel = null,
+            statusLabel = null,
+            forumLabel = "Forum"
+        )
+        assertEquals("Dev group, New topic, 18:00, Forum", description)
+    }
+
     @Test fun descriptionNeverEndsWithSeparatorsForEmptyRows() {
         assertEquals("", accessibleDescription(null, "", "   "))
         assertFalse(accessibleDescription("Title").contains(','))

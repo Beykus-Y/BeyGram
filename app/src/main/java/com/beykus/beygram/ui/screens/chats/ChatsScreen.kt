@@ -66,6 +66,7 @@ import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.Refresh
@@ -1797,7 +1798,8 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         unreadLabel = unreadLabel,
         mutedLabel = if (chat.isMuted) stringResource(R.string.a11y_chat_muted) else null,
         statusLabel = sendStatusLabel(chat),
-        secretLabel = if (chat.isSecret) stringResource(R.string.chats_secret_chat) else null
+        secretLabel = if (chat.isSecret) stringResource(R.string.chats_secret_chat) else null,
+        forumLabel = if (chat.isForum) stringResource(R.string.chats_forum) else null
     )
     // Signature draws the row as a rounded tile inside the list: the press and the open-chat highlight stop short of the
     // screen edge. The content keeps the same 20dp start position as every other style.
@@ -1824,6 +1826,7 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(chat.title, color = palette.textPrimary, fontSize = 16.sp, fontWeight = main.rowTitleWeight, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (chat.isSecret) Icon(Icons.Rounded.Lock, null, tint = palette.accent, modifier = Modifier.padding(start = 4.dp).size(14.dp))
+                if (chat.isForum) Icon(Icons.Rounded.Forum, null, tint = palette.textSecondary, modifier = Modifier.padding(start = 4.dp).size(14.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(
                     chat.lastMessageTime,
