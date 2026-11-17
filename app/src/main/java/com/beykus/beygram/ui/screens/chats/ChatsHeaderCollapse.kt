@@ -176,16 +176,21 @@ internal class ChatsHeaderScrollConnection(
         return Velocity.Zero
     }
 
-    /** Ends a gesture at the nearer resting place. A move to the top already running is left to finish. */
+    /**
+     * Ends a gesture at the nearer resting place. At rest, the beginning of the list always shows the expanded header
+     * (#950): when the list itself has not moved, the collapse is undone. A move to the top already running is left to finish.
+     */
     suspend fun settle() {
         val range = state.rangePx
         val start = state.offsetPx
+        val ls = listState()
+        val atTop = ls.firstVisibleItemIndex == 0 && ls.firstVisibleItemScrollOffset == 0
         // A settle the newest owner already runs is not restarted (the fling end and the scroll end both ask for one).
-        if (toTop || settlingOwner == owner || range <= 0f || start <= 0f || start >= range) return
+        if (toTop || settlingOwner == owner || range <= 0f || start <= 0f || (start >= range && !atTop)) return
         val id = ++owner
         settlingOwner = id
         try {
-            animateTo(if (start / range < 0.5f) 0f else range, id)
+            animateTo(if (atTop || start / range < 0.5f) 0f else range, id)
         } finally {
             if (settlingOwner == id) settlingOwner = -1
         }
