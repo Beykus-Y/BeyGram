@@ -510,7 +510,7 @@ internal fun MessageThreadScreen(
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                items(visiblePending.map { it.toChatMessage() } + messages.asReversed(), key = { it.id }) { message ->
+                items(visiblePending.map { it.toChatMessage() } + messages.asReversed(), key = { it.id }, contentType = { chatMessageContentType(it) }) { message ->
                     val localAttempt = visiblePending.firstOrNull { -it.attemptId == message.id }
                     val failedLocal = localAttempt?.takeIf { it.phase == TextSendAttemptPhase.Failed }
                     ThreadCommentRow(

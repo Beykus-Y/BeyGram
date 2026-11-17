@@ -84,6 +84,7 @@ import com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -252,6 +253,17 @@ private object DecodedImageCache {
     }
 }
 
+/** Минипревью TDLib ~40x40: кэш по числу записей, а не по байтам. Ключ — hashCode данных, при коллизии сверяем байты. */
+private object MinithumbnailCache {
+    private val cache = LruCache<Int, Pair<ByteArray, ImageBitmap>>(128)
+
+    fun get(data: ByteArray): ImageBitmap? = cache.get(data.contentHashCode())?.takeIf { it.first.contentEquals(data) }?.second
+
+    fun put(data: ByteArray, bitmap: ImageBitmap) {
+        cache.put(data.contentHashCode(), data to bitmap)
+    }
+}
+
 /**
  * Decode still artwork normally. Telegram GIFs are often MP4 animations: their thumbnails can be
  * missing, stale or non-image files. Only animation/video callers opt in to a bounded frame fallback.
@@ -348,10 +360,18 @@ private fun decodeVideoPosterFrame(path: String, maxDimension: Int): Bitmap? = r
     }
 }.getOrNull()
 
-/** Минипревью TDLib: крошечный JPEG, растянутый на весь кадр, поэтому выглядит размытым. */
+/** Минипревью TDLib: крошечный JPEG, растянутый на весь кадр, поэтому выглядит размытым. Декодирование идёт вне UI-потока, результат кэшируется. */
 @Composable
 internal fun MinithumbnailImage(data: ByteArray, modifier: Modifier = Modifier) {
-    val bitmap = remember(data) { BitmapFactory.decodeByteArray(data, 0, data.size)?.asImageBitmap() }
+    val cached = remember(data) { MinithumbnailCache.get(data) }
+    val bitmap by produceState(cached, data) {
+        // Переиспользованная строка не должна показывать минипревью предыдущего сообщения, пока идёт декодирование.
+        value = cached
+        if (cached != null) return@produceState
+        val decoded = withContext(Dispatchers.Default) { runCatching { BitmapFactory.decodeByteArray(data, 0, data.size)?.asImageBitmap() }.getOrNull() }
+        if (decoded != null) MinithumbnailCache.put(data, decoded)
+        value = decoded
+    }
     bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier) }
 }
 

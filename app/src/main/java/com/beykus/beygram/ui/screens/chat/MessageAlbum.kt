@@ -82,6 +82,20 @@ internal data class ChatMessageListItem(
     val unreadSeparator: Boolean = false
 )
 
+/** contentType для LazyColumn: строки одного типа переиспользуют композицию друг друга при прокрутке. */
+internal fun chatListContentType(item: ChatMessageListItem): String = when {
+    item.unreadSeparator -> "unread"
+    item.pendingVideoNote != null -> "pendingVideoNote"
+    item.mediaAlbumId != 0L -> "album"
+    else -> item.messages.firstOrNull()?.let(::chatMessageContentType) ?: "empty"
+}
+
+internal fun chatMessageContentType(message: ChatMessage): String = when {
+    message.serviceText != null -> "service"
+    message.media != null -> "media:${message.media.kind}"
+    else -> "text"
+}
+
 /** Combines messages only when TDLib supplied the same nonzero mediaAlbumId. */
 internal fun groupTelegramMediaAlbums(messages: List<ChatMessage>): List<ChatMessageListItem> {
     val albumMembers = HashMap<Long, MutableList<ChatMessage>>()

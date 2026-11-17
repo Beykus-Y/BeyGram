@@ -751,7 +751,7 @@ fun ChatScreen(
         }
     }
     val messages = history.messages
-    val selectedMessages = remember(messages, selectionIds) { messages.filter { it.id in selectionIds } }
+    val selectedMessages = remember(messages, selectionIds) { if (selectionIds.isEmpty()) emptyList() else messages.filter { it.id in selectionIds } }
     val selectionCanCopy = selectedMessages.any { it.text.isNotBlank() }
     val selectionCanSave = selectedMessages.any { it.media != null }
     // A deleted or reloaded-away message must not keep a phantom selection count. Wait for the first loaded page,
@@ -763,8 +763,8 @@ fun ChatScreen(
             if (kept != selectionIds) selectionIds = kept
         }
     }
-    // Sender picker is built from the loaded history; no extra TDLib member request is needed in the search bar.
-    val searchSenders = remember(messages) { chatSearchSenders(messages) }
+    // Sender picker is built from the loaded history, only while the search bar is open; no extra TDLib member request is needed in the search bar.
+    val searchSenders = remember(messages, searching) { if (searching) chatSearchSenders(messages) else emptyList() }
     // Album grouping reads only the messages, so a pending video note does not regroup the whole loaded history.
     val waveChat = !chat.isGroup && !chat.isChannel && !chat.isSecret && !chat.isSavedMessages
     val albumItems = remember(messages, waveChat) {
@@ -911,10 +911,10 @@ fun ChatScreen(
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }
     val bubbleBounds = remember(chat.id) { HashMap<Long, Rect>() }
     var actionAnchorBounds by remember(chat.id) { mutableStateOf<Rect?>(null) }
-    val actionMessage = messages.firstOrNull { it.id == actionsId }
+    val actionMessage = actionsId?.let { id -> messages.firstOrNull { it.id == id } }
     // An album's reactions sit on one of its messages, so the picker and the chips act on that message.
     val reactionOwner = actionMessage?.let { target -> messageListItems.firstOrNull { item -> item.messages.any { it.id == target.id } }?.messages?.let(::reactionMessage) }
-    val editMessage = messages.firstOrNull { it.id == editId }
+    val editMessage = editId?.let { id -> messages.firstOrNull { it.id == id } }
     // A swipe reply needs an idle composer on screen: no search, deletion, edit, recording or open action menu, and no
     // send in flight, because a finished send clears the reply target it used.
     val swipeReplyAllowed = canPostHere && !searching && !deleting && !selectionMode && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
@@ -2065,7 +2065,7 @@ fun ChatScreen(
         val chromeBottomPad = if (chatBackdrop != null) with(chromeDensity) { bottomChromePx.toDp() } else 0.dp
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = metrics.listPadding + chromeTopPad, bottom = metrics.listPadding + chromeBottomPad), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
-            items(messageListItems, key = { it.key }) { listItem ->
+            items(messageListItems, key = { it.key }, contentType = { chatListContentType(it) }) { listItem ->
                 ChatScreenColumn(Modifier.fillMaxWidth()) {
                 daySeparators[listItem.key]?.let { ChatHistoryDateSeparator(it) }
                 if (listItem.unreadSeparator) {
@@ -2456,7 +2456,7 @@ fun ChatScreen(
         key(chat.id) {
             AnimatedTypingRow(if (!deleting && !searching && !selectionMode) typingNames else emptyList())
         }
-        val replyTarget = messages.firstOrNull { it.id == replyId }
+        val replyTarget = replyId?.let { id -> messages.firstOrNull { it.id == id } }
         if (deleting && actionMessage != null) {
             val caps = capabilities
             if (caps != null) DeleteConfirmPanel(caps, deleteEveryone, deleteBusy, deleteError, onChoose = { deleteEveryone = it },
@@ -2740,7 +2740,7 @@ fun ChatScreen(
     var openedViewOnceIds by remember(chat.id) { mutableStateOf(emptySet<Long>()) }
     // Фото и видео листаются вместе; остальные вложения открываются по одному.
     // Действия над сообщением есть только у сообщений из загруженной истории: редактирование ищет их в ленте.
-    val viewedInChat = messages.firstOrNull { it.id == selectedMediaId && it.media != null }
+    val viewedInChat = selectedMediaId?.let { id -> messages.firstOrNull { it.id == id && it.media != null } }
     val liveViewed = viewedInChat ?: mediaWindow.messages.firstOrNull { it.id == selectedMediaId }
     val retainedViewed = retainedViewOnce?.takeIf { it.id == selectedMediaId }
     val viewed = liveViewed?.takeIf { it.media != null } ?: retainedViewed
