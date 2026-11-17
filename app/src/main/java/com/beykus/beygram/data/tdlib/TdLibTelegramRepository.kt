@@ -1016,22 +1016,12 @@ class TdLibTelegramRepository private constructor(
         chat.id
     }
 
-    override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = requestResult {
-        tdRequests(TdApi.GetActiveSessions()).sessions.orEmpty().map { session ->
-            com.beykus.beygram.domain.model.DeviceSession(
-                id = session.id,
-                current = session.isCurrent,
-                device = session.deviceModel.orEmpty().ifBlank { session.platform.orEmpty() },
-                application = session.applicationName.orEmpty(),
-                location = session.location.orEmpty(),
-                ip = session.ipAddress.orEmpty(),
-                lastActive = session.lastActiveDate.toLong()
-            )
-        }
+    override suspend fun activeSessions(): Result<com.beykus.beygram.domain.model.ActiveSessions> = requestResult {
+        activeSessionsOf(tdRequests(TdApi.GetActiveSessions()))
     }
 
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = requestResult {
-        require(sessionId > 0 && activeSessions().getOrThrow().any { it.id == sessionId && !it.current }) {
+        require(sessionId > 0 && activeSessions().getOrThrow().sessions.any { it.id == sessionId && !it.current }) {
             "Cannot terminate the current session"
         }
         tdRequests(TdApi.TerminateSession(sessionId))
@@ -1040,6 +1030,30 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun terminateAllOtherSessions(): Result<Unit> = requestResult {
         tdRequests(TdApi.TerminateAllOtherSessions())
+        Unit
+    }
+
+    override suspend fun confirmSession(sessionId: Long): Result<Unit> = requestResult {
+        require(sessionId > 0) { "Invalid session id" }
+        tdRequests(TdApi.ConfirmSession(sessionId))
+        Unit
+    }
+
+    override suspend fun setInactiveSessionTtl(days: Int): Result<Unit> = requestResult {
+        require(days in 1..366) { "Inactive session TTL must be 1 to 366 days" }
+        tdRequests(TdApi.SetInactiveSessionTtl(days))
+        Unit
+    }
+
+    override suspend fun setSessionCanAcceptCalls(sessionId: Long, enabled: Boolean): Result<Unit> = requestResult {
+        require(sessionId > 0) { "Invalid session id" }
+        tdRequests(TdApi.ToggleSessionCanAcceptCalls(sessionId, enabled))
+        Unit
+    }
+
+    override suspend fun setSessionCanAcceptSecretChats(sessionId: Long, enabled: Boolean): Result<Unit> = requestResult {
+        require(sessionId > 0) { "Invalid session id" }
+        tdRequests(TdApi.ToggleSessionCanAcceptSecretChats(sessionId, enabled))
         Unit
     }
 
