@@ -919,4 +919,9 @@
     <string name="forum_navigation_tabs">Onglets en haut</string>
     <string name="forum_navigation_rail">Panneau latéral</string>
     <string name="forum_panel_all_topics">Tous les sujets</string>
+    <string name="forum_all_messages">Tous les messages</string>
+    <string name="forum_all_messages_tab">Tous</string>
+    <string name="forum_all_messages_hint">Choisissez un sujet ou répondez à un message</string>
+    <string name="forum_all_messages_open_topic">Ouvrir le sujet</string>
+    <string name="forum_all_messages_unknown_topic">Sujet</string>
 </resources>

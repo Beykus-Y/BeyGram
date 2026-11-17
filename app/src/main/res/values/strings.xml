@@ -1971,6 +1971,11 @@
     <string name="forum_navigation_tabs">Вкладки сверху</string>
     <string name="forum_navigation_rail">Панель сбоку</string>
     <string name="forum_panel_all_topics">Все темы</string>
+    <string name="forum_all_messages">Все сообщения</string>
+    <string name="forum_all_messages_tab">Все</string>
+    <string name="forum_all_messages_hint">Выберите тему или ответьте на сообщение</string>
+    <string name="forum_all_messages_open_topic">Открыть тему</string>
+    <string name="forum_all_messages_unknown_topic">Тема</string>
     <string name="share_saved_quick_action">Избранное</string>
     <string name="share_recent_destinations">Недавние и другие чаты</string>
     <string name="sessions_load_timeout">Не удалось получить сеансы за отведённое время. Проверь подключение и нажми «Повторить».</string>

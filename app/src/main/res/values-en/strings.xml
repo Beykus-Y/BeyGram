@@ -893,4 +893,9 @@
     <string name="forum_navigation_tabs">Tabs on top</string>
     <string name="forum_navigation_rail">Side panel</string>
     <string name="forum_panel_all_topics">All topics</string>
+    <string name="forum_all_messages">All messages</string>
+    <string name="forum_all_messages_tab">All</string>
+    <string name="forum_all_messages_hint">Choose a topic or reply to a message</string>
+    <string name="forum_all_messages_open_topic">Open topic</string>
+    <string name="forum_all_messages_unknown_topic">Topic</string>
 </resources>

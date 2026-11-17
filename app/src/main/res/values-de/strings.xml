@@ -893,4 +893,9 @@
     <string name="forum_navigation_tabs">Registerkarten oben</string>
     <string name="forum_navigation_rail">Seitenleiste</string>
     <string name="forum_panel_all_topics">Alle Themen</string>
+    <string name="forum_all_messages">Alle Nachrichten</string>
+    <string name="forum_all_messages_tab">Alle</string>
+    <string name="forum_all_messages_hint">Wähle ein Thema oder antworte auf eine Nachricht</string>
+    <string name="forum_all_messages_open_topic">Thema öffnen</string>
+    <string name="forum_all_messages_unknown_topic">Thema</string>
 </resources>

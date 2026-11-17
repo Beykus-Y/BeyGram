@@ -524,6 +524,15 @@ private fun BeyGramAppContent(
     // The selected forum topic follows its parent chat. Other chats must never inherit the previous topic.
     var selectedTopicChatId by rememberSaveable { mutableStateOf(0L) }
     var selectedForumTopicId by rememberSaveable { mutableStateOf(0L) }
+    // The all-messages feed of a forum: the messages of every topic in the chat's own history. It belongs to one chat visit, so a
+    // chat or account switch starts with the topic list again; opening a topic or leaving for the chat list ends it.
+    var forumAllMessages by rememberSaveable(selectedAccountId, selectedChatId) { mutableStateOf(false) }
+    LaunchedEffect(selectedForumTopicId) {
+        if (selectedForumTopicId > 0L) forumAllMessages = false
+    }
+    LaunchedEffect(routeName) {
+        if (routeName == AppRoute.Chats.name) forumAllMessages = false
+    }
     // A topic named by a notification or shared media may be hidden from the visible topics list.
     var trustedForumTopicId by rememberSaveable { mutableStateOf(0L) }
     // Вложение из профиля открывает чат у своего сообщения; 0 значит, что переход не нужен.
@@ -1983,6 +1992,8 @@ private fun BeyGramAppContent(
                         selectedForumTopicId > 0L && selectedForumTopicId == trustedForumTopicId
                 )
             ) selectedForumTopicId else 0L
+            // The all-messages feed is ChatScreen without a topic: the chat's history of every topic. It never coexists with a topic.
+            val allMessagesOpen = forumAllMessages && activeTopicId == 0L
             // A link can lead to a forum group, whose first screen is the topic list rather than ChatScreen. Every
             // Back path in this route consumes the same saved origin so it does not fall through to the chat list.
             fun restoreLinkReturnChat(): Boolean {
@@ -2066,6 +2077,8 @@ private fun BeyGramAppContent(
             }
             val topicsPage = topicsResult?.getOrNull()
             val topics = topicsPage?.topics
+            // The feed names each message's topic and opens it; this lookup keeps those labels off the list scan.
+            val forumTopicsById = remember(topics) { topics.orEmpty().associateBy { it.id } }
             val selectedTopic = topics?.firstOrNull { it.id == activeTopicId }
                 ?: selectedTopicSnapshot?.takeIf { it.id == activeTopicId }
             val historyFlow = remember(repository, selectedChatId, activeTopicId) {
@@ -2101,7 +2114,7 @@ private fun BeyGramAppContent(
             val topicTabsActive = topicPanelsActive && forumMode == ForumNavigationMode.Tabs
             val topicRailActive = topicPanelsActive && forumMode == ForumNavigationMode.Rail
             // A panel view with no open topic opens one at once, so the topic list does not flash in between.
-            val topicPanelOpenPending = topicPanelsActive && activeTopicId == 0L && !forumListRequested && !topics.isNullOrEmpty()
+            val topicPanelOpenPending = topicPanelsActive && activeTopicId == 0L && !forumListRequested && !allMessagesOpen && !topics.isNullOrEmpty()
             val topicTabsState = rememberLazyListState()
             val topicRailState = rememberLazyListState()
             // Opens a topic in this chat and remembers it as the topic to open first next time.
@@ -2113,17 +2126,28 @@ private fun BeyGramAppContent(
                 trustedForumTopicId = topic.id
                 selectedTopicSnapshot = topic
                 forumListRequested = false
+                forumAllMessages = false
                 forumNavigation.setLastTopic(forumChatId, topic.id)
             }
             val setForumMode: (ForumNavigationMode) -> Unit = { mode ->
-                if (isCurrentForum() && mode != forumMode) {
+                // Choosing the view that is current still leaves the all-messages feed, which is not a view of its own.
+                if (isCurrentForum() && (mode != forumMode || allMessagesOpen)) {
                     forumNavigation.setMode(forumChatId, mode)
                     forumListRequested = false
+                    forumAllMessages = false
                     // Classic opens on the topic list, as it always has.
                     if (mode == ForumNavigationMode.Classic) selectedForumTopicId = 0L
                 }
             }
-            val openPanelList: () -> Unit = { if (isCurrentForum()) { forumListRequested = true } }
+            // The feed of every topic's messages. Its selection clears the open topic, so the topic list and the panels stay one tap away.
+            val openAllMessages: () -> Unit = {
+                if (isCurrentForum()) {
+                    selectedForumTopicId = 0L
+                    forumListRequested = false
+                    forumAllMessages = true
+                }
+            }
+            val openPanelList: () -> Unit = { if (isCurrentForum()) { forumAllMessages = false; forumListRequested = true } }
             val selectPanelTopic: (com.beykus.beygram.domain.model.ForumTopic) -> Unit = { topic -> openTopic(topic) }
             val panelTopics = topics.orEmpty()
             LaunchedEffect(topicPanelOpenPending, topics, topicsLoading) {
@@ -2146,7 +2170,9 @@ private fun BeyGramAppContent(
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile,
                     observeCustomEmoji = repository::observeCustomEmoji,
-                    listState = topicTabsState
+                    listState = topicTabsState,
+                    allMessagesSelected = allMessagesOpen,
+                    onAllMessages = openAllMessages
                 )
             }
             when {
@@ -2156,7 +2182,7 @@ private fun BeyGramAppContent(
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile
                 )
-                topicsResult?.isFailure == true && activeTopicId == 0L -> ForumTopicsFailureScreen(
+                topicsResult?.isFailure == true && activeTopicId == 0L && !allMessagesOpen -> ForumTopicsFailureScreen(
                     chat = chat,
                     onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName },
                     onRetry = { topicsReload++ },
@@ -2170,7 +2196,7 @@ private fun BeyGramAppContent(
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile
                 )
-                topics != null && (activeTopicId == 0L || topicPanelsActive && forumListRequested) -> ForumTopicsScreen(
+                topics != null && !allMessagesOpen && (activeTopicId == 0L || topicPanelsActive && forumListRequested) -> ForumTopicsScreen(
                     accountId = selectedAccountId,
                     chatId = selectedChatId,
                     chat = chat,
@@ -2255,9 +2281,10 @@ private fun BeyGramAppContent(
                     onDelete = { topic -> forumAction { repository.deleteForumTopic(forumChatId, topic.id) } },
                     onDismissActionError = { forumActionError = null },
                     navigationMode = forumMode,
-                    onNavigationMode = setForumMode
+                    onNavigationMode = setForumMode,
+                    onAllMessages = openAllMessages
                 )
-                else -> key(selectedAccountId, selectedChatId, activeTopicId) {
+                else -> key(selectedAccountId, selectedChatId, activeTopicId, allMessagesOpen) {
                     val commentsOpen = route == AppRoute.MessageThread &&
                         threadChannelChatId == selectedChatId && threadPostId > 0L
                     LaunchedEffect(route, commentsOpen) {
@@ -2285,7 +2312,10 @@ private fun BeyGramAppContent(
                             onAutoDownloadFile = repository::autoDownloadFile,
                             onBack = {
                                 if (!restoreLinkReturnChat()) {
-                                    if (chatBackRouteName == AppRoute.GlobalSearch.name) {
+                                    // Back from the feed returns to the topic list, or to the open topic in a panel view.
+                                    if (allMessagesOpen) {
+                                        forumAllMessages = false
+                                    } else if (chatBackRouteName == AppRoute.GlobalSearch.name) {
                                         chatFocusMessageId = 0L
                                         selectedForumTopicId = 0L
                                         routeName = AppRoute.GlobalSearch.name
@@ -2359,7 +2389,10 @@ private fun BeyGramAppContent(
                             chatOverrides = chatOverrides,
                             topicStrip = if (topicTabsActive) tabStrip else null,
                             forumNavigationMode = if (topics != null) forumMode else null,
-                            onForumNavigationMode = if (topics != null) setForumMode else null
+                            onForumNavigationMode = if (topics != null) setForumMode else null,
+                            forumAllMessages = allMessagesOpen,
+                            forumTopicsById = forumTopicsById,
+                            onOpenForumTopic = { topic -> openTopic(topic) }
                         )
                     }
                     if (topicRailActive) {
@@ -2372,7 +2405,9 @@ private fun BeyGramAppContent(
                             observeFile = repository::observeFile,
                             downloadFile = repository::downloadFile,
                             observeCustomEmoji = repository::observeCustomEmoji,
-                            listState = topicRailState
+                            listState = topicRailState,
+                            allMessagesSelected = allMessagesOpen,
+                            onAllMessages = openAllMessages
                         ) {
                             chatContent()
                         }
