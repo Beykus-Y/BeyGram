@@ -2065,7 +2065,7 @@ fun ChatScreen(
         val chromeBottomPad = if (chatBackdrop != null) with(chromeDensity) { bottomChromePx.toDp() } else 0.dp
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = metrics.listPadding + chromeTopPad, bottom = metrics.listPadding + chromeBottomPad), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
-            items(messageListItems, key = { it.key }) { listItem ->
+            items(messageListItems, key = { it.key }, contentType = { chatListContentType(it) }) { listItem ->
                 ChatScreenColumn(Modifier.fillMaxWidth()) {
                 daySeparators[listItem.key]?.let { ChatHistoryDateSeparator(it) }
                 if (listItem.unreadSeparator) {
