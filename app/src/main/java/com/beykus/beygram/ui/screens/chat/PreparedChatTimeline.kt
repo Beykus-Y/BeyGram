@@ -16,7 +16,8 @@ internal fun isWaveChat(chat: ChatPreview): Boolean = !chat.isGroup && !chat.isC
  * A history snapshot with its timeline rows, grouped off the main thread. [waveFiltered] tells whether the BG Wave signal
  * messages were left out of [rows], so the screen uses the rows only together with the same filter.
  */
-internal class PreparedChatTimeline(val history: ChatHistory, val rows: TimelineRows, val waveFiltered: Boolean)
+// Public only because ChatScreen is public; the rows stay internal.
+class PreparedChatTimeline internal constructor(val history: ChatHistory, internal val rows: TimelineRows, internal val waveFiltered: Boolean)
 
 /**
  * Groups every history snapshot on [Dispatchers.Default]. Each collection has its own grouper, used one call at a time.
