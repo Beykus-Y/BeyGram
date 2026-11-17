@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
+import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.roundToInt
 
 /** Gap between the search pill and the actions group in the collapsed row. */
@@ -36,6 +37,12 @@ internal class ChatsHeaderCollapseState(initialOffsetPx: Float = 0f) {
     var rangePx: Float = 0f
 
     val progress: Float get() = if (rangePx <= 0f) 0f else (offsetPx / rangePx).coerceIn(0f, 1f)
+
+    /** The collapse in px the header shows now (observed: reads [offsetPx]). */
+    val currentPx: Float get() = if (rangePx <= 0f) 0f else offsetPx.coerceIn(0f, rangePx)
+
+    /** The collapse in px used by the header's last measure; plain field, written by the layout. */
+    var appliedPx: Float = 0f
 
     companion object {
         val Saver: Saver<ChatsHeaderCollapseState, Float> = androidx.compose.runtime.saveable.Saver(
@@ -123,6 +130,8 @@ internal class ChatsHeaderScrollConnection(
     private var owner = 0
     /** True while the newest owner is a move to the top, which settling must not reverse. */
     private var toTop = false
+    /** Owner id of the settle animation in progress, or -1. */
+    private var settlingOwner = -1
 
     /** Spec of the settle and of the move to the top; null = instant (reduced motion). */
     var settleSpec: AnimationSpec<Float>? = null
@@ -171,9 +180,15 @@ internal class ChatsHeaderScrollConnection(
     suspend fun settle() {
         val range = state.rangePx
         val start = state.offsetPx
-        if (toTop || range <= 0f || start <= 0f || start >= range) return
+        // A settle the newest owner already runs is not restarted (the fling end and the scroll end both ask for one).
+        if (toTop || settlingOwner == owner || range <= 0f || start <= 0f || start >= range) return
         val id = ++owner
-        animateTo(if (start / range < 0.5f) 0f else range, id)
+        settlingOwner = id
+        try {
+            animateTo(if (start / range < 0.5f) 0f else range, id)
+        } finally {
+            if (settlingOwner == id) settlingOwner = -1
+        }
     }
 
     /** Moves the header to the top: a tap on the title, a folder switch, or a list that fits on screen. */
@@ -228,6 +243,8 @@ internal fun CollapsingChatsHeaderLayout(
         // The range comes from the sizes alone. It is set before the progress is read, so a new range never uses a stale one.
         collapse.rangePx = chatsHeaderGeometry(0f, w, th, aw, ah, sh, gapPx, actionGapPx).rangePx
         val g = chatsHeaderGeometry(collapse.progress, w, th, aw, ah, sh, gapPx, actionGapPx)
+        collapse.appliedPx = g.rangePx * collapse.progress
+        val pivotX = if (layoutDirection == LayoutDirection.Rtl) 1f else 0f
         val searchWidth = g.searchWidth.roundToInt()
         val searchPlaceable = measurables[2].measure(
             Constraints(minWidth = searchWidth, maxWidth = searchWidth, minHeight = 0, maxHeight = constraints.maxHeight)
@@ -245,7 +262,7 @@ internal fun CollapsingChatsHeaderLayout(
                     scaleY = g.titleScale
                     alpha = g.titleAlpha
                     // The pivot is the bottom edge, so the scaled title keeps the bottom that the translation placed above the pill.
-                    transformOrigin = TransformOrigin(0f, 1f)
+                    transformOrigin = TransformOrigin(pivotX, 1f)
                 }
             }
         }

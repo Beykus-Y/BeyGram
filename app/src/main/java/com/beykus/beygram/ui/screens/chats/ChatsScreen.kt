@@ -158,6 +158,7 @@ import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.pluralForm
 import java.text.NumberFormat
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
@@ -519,15 +520,14 @@ fun ChatsScreen(
         }
     }
     // Если жест прервали системой, onPreFling не придёт: сбрасываем протяжку, когда список перестал скроллиться.
-    // The header ends its gesture here too, for the same reason; a list that fits on screen stays expanded.
+    // The header ends its gesture here too, for the same reason.
     LaunchedEffect(listState.isScrollInProgress) {
         if (!listState.isScrollInProgress) {
             pullPx = 0f
             headerConnection.resetGesture()
-            val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
-            // Before the first measure the list reports no items, which is not a list that fits: it must not expand the header.
-            val fitsOnScreen = listState.layoutInfo.totalItemsCount > 0 && !listState.canScrollForward
-            if (atTop && fitsOnScreen) headerConnection.animateToTop() else headerConnection.settle()
+            // A list that only overflows while the header is expanded fits once it collapses: re-expanding it here would
+            // make the header bounce on every gesture, so the header just settles. A short list never starts collapsing.
+            headerConnection.settle()
         }
     }
     // The list's top edge is a viewport edge, not a boundary between rows: once it has moved, rows scrolled under the
@@ -969,6 +969,12 @@ fun ChatsScreen(
     val glassChrome = design.usesGlassPanels
     val chatsBackdrop = if (glassChrome && design.recordsGlassBackdrop) rememberGlassBackdrop() else null
     var glassHeaderHeightPx by remember { mutableIntStateOf(0) }
+    // The pane's size is reported after layout, one frame behind the collapse. The collapse applied in that measured size
+    // is kept beside it, so the list padding follows the current collapse in the same frame instead of trailing it.
+    val glassHeaderAppliedCollapse = remember { FloatArray(1) }
+    val glassHeaderTopPx: () -> Int = {
+        (glassHeaderHeightPx + glassHeaderAppliedCollapse[0] - headerCollapse.currentPx).roundToInt().coerceAtLeast(0)
+    }
     // How far the archive pull has opened. A lambda, so a pull step re-lays out the layouts that read it, not the screen.
     val pullShownPx: () -> Float = { if (archiveAvailable && archiveHidden) min(pullPx, archivePullThresholdPx) else 0f }
 
@@ -1000,9 +1006,9 @@ fun ChatsScreen(
           // list is recorded for the pane, never the pane itself, so it cannot sample a layer it is drawn into (#623).
           Box(Modifier.fillMaxSize().then(if (chatsBackdrop != null) Modifier.glassBackdropSource(chatsBackdrop) else Modifier)) {
               // The top padding is read when the list measures: the glass header changes height while it collapses.
-              chatList(Modifier.fillMaxSize(), { with(density) { glassHeaderHeightPx.toDp() + pullShownPx().toDp() } }, true)
+              chatList(Modifier.fillMaxSize(), { with(density) { glassHeaderTopPx().toDp() + pullShownPx().toDp() } }, true)
               // The pull hint opens the same gap the list leaves for it, right under the glass.
-              Box(Modifier.offset { IntOffset(0, glassHeaderHeightPx) }) { ArchivePullSlot(shownPx = pullShownPx) }
+              Box(Modifier.offset { IntOffset(0, glassHeaderTopPx()) }) { ArchivePullSlot(shownPx = pullShownPx) }
           }
           CompositionLocalProvider(LocalGlassBackdrop provides chatsBackdrop) {
               GlassPanel(
@@ -1015,7 +1021,10 @@ fun ChatsScreen(
                   edge = GlassEdge.BottomHairline,
                   // The pane is hit-tested as a whole: a tap on the title or a gap must not reach a chat row
                   // scrolled underneath. Its own buttons and the search field still receive input first.
-                  modifier = Modifier.fillMaxWidth().onSizeChanged { glassHeaderHeightPx = it.height }
+                  modifier = Modifier.fillMaxWidth().onSizeChanged {
+                      glassHeaderAppliedCollapse[0] = headerCollapse.appliedPx
+                      glassHeaderHeightPx = it.height
+                  }
                       .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
               ) {
                   // The pane covers the status bar, so the title still starts below it and no seam shows at the edge.
