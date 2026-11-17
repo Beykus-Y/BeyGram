@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.List
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -215,6 +216,7 @@ fun ForumTopicRailPane(
     content: @Composable () -> Unit
 ) {
     BoxWithConstraints(modifier.fillMaxSize()) {
+        val expandedRail = this.maxWidth >= ForumRailExpandedMinPaneWidth
         Row(Modifier.fillMaxSize()) {
             ForumTopicRail(
                 topics = topics,
@@ -225,7 +227,7 @@ fun ForumTopicRailPane(
                 observeFile = observeFile,
                 downloadFile = downloadFile,
                 observeCustomEmoji = observeCustomEmoji,
-                expanded = maxWidth >= ForumRailExpandedMinPaneWidth,
+                expanded = expandedRail,
                 listState = listState
             )
             Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -236,6 +238,7 @@ fun ForumTopicRailPane(
 }
 
 /** The forum's view choice: offered from the topic list and from a topic's menu. The current view carries a check. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ForumNavigationModeSheet(
     current: ForumNavigationMode,
