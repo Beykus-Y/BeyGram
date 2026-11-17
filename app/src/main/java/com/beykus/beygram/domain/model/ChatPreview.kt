@@ -32,6 +32,8 @@ data class ChatPreview(
     val canSendPolls: Boolean = true,
     /** True for a channel owner or administrator, independently of the separate permission to post messages. */
     val isChannelAdmin: Boolean = false,
+    /** TDLib Supergroup.isForum: the list shows a forum mark. The topics themselves load only when the forum is opened. */
+    val isForum: Boolean = false,
     /** TDLib main-list position; zero means the chat is outside the main list. */
     val order: Long = 0L,
     /** TDLib archive-list position; zero means the chat is not archived. */

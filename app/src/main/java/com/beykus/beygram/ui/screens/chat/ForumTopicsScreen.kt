@@ -43,6 +43,9 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -240,6 +243,8 @@ fun ForumTopicsScreen(
     onRename: (ForumTopic, String, (String?) -> Unit) -> Unit,
     onClosed: (ForumTopic, Boolean) -> Unit,
     onPinned: (ForumTopic, Boolean) -> Unit,
+    /** Null hands the topic back to the group's notification setting. */
+    onMuted: (ForumTopic, Boolean?) -> Unit = { _, _ -> },
     onDelete: (ForumTopic) -> Unit,
     onDismissActionError: () -> Unit = {}
 ) {
@@ -605,6 +610,30 @@ fun ForumTopicsScreen(
                     }
                 )
             }
+            // Mute works for every topic. A topic that inherits the group reads the group's state; the reset row hands it back.
+            val topicMuted = topic.isMutedIn(chat.isMuted)
+            SheetActionRow(
+                icon = if (topicMuted) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff,
+                title = stringResource(if (topicMuted) R.string.feature_unmute_chat else R.string.feature_mute_chat),
+                enabled = !busy,
+                onClick = {
+                    managing = null
+                    searchAttempt++
+                    onMuted(topic, !topicMuted)
+                }
+            )
+            if (!topic.useDefaultMuteFor) {
+                SheetActionRow(
+                    icon = Icons.Rounded.People,
+                    title = stringResource(R.string.forum_topic_mute_default),
+                    enabled = !busy,
+                    onClick = {
+                        managing = null
+                        searchAttempt++
+                        onMuted(topic, null)
+                    }
+                )
+            }
             if (canDeleteForumTopic(topic)) {
                 SheetActionRow(
                     icon = Icons.Rounded.Delete,
@@ -801,7 +830,8 @@ private fun LazyItemScope.ForumTopicListItem(
             // Opening a topic is safe while another topic's rename is in flight; only management waits for busy.
             enabled = true,
             onOpen = { onTopic(topic) },
-            onLongPress = if (!busy && (topic.canManage || topic.canPin)) ({ onManage(topic) }) else null,
+            // Every topic opens the sheet, where mute is always offered; the management rows inside still follow permissions.
+            onLongPress = if (!busy) ({ onManage(topic) }) else null,
             observeFile = observeFile,
             downloadFile = downloadFile,
             observeCustomEmoji = observeCustomEmoji

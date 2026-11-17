@@ -81,6 +81,7 @@
     <string name="forum_topic_time_yesterday">Gestern</string>
     <string name="forum_topic_draft">Entwurf</string>
     <string name="forum_topic_muted">Stumm</string>
+    <string name="forum_topic_mute_default">Wie in der Gruppe</string>
     <string name="forum_topic_mentions">Erwähnungen: %1$d</string>
     <string name="forum_topic_reactions">Reaktionen: %1$d</string>
     <string name="forum_topic_poll_votes">Umfragenstimmen: %1$d</string>

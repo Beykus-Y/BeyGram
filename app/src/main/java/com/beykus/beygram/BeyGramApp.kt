@@ -2172,6 +2172,7 @@ private fun BeyGramAppContent(
                     },
                     onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(forumChatId, topic.id, closed) } },
                     onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(forumChatId, topic.id, pinned) } },
+                    onMuted = { topic, muted -> forumAction { repository.setForumTopicMuted(forumChatId, topic.id, muted) } },
                     onDelete = { topic -> forumAction { repository.deleteForumTopic(forumChatId, topic.id) } },
                     onDismissActionError = { forumActionError = null }
                 )

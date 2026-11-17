@@ -474,6 +474,7 @@
     <string name="a11y_secret_chat_ttl">Self-destruct timer: %1$s</string>
     <string name="a11y_view_once_chip">View-once photo or video</string>
     <string name="chats_secret_chat">Secret chat</string>
+    <string name="chats_forum">Forum</string>
     <string name="app_lock_title">App lock</string>
     <string name="app_lock_intro">Ask for a PIN or biometrics when BeyGram starts and after returning from the background. The lock is shared by every account on this device.</string>
     <string name="app_lock_enable_title">App lock</string>
