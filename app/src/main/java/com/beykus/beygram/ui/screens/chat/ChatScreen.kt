@@ -205,7 +205,9 @@ fun ChatScreen(
     accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
     accountLabel: String = "",
     /** Repository-backed automatic download; absent means the local policy gates the plain download callback. */
-    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
+    onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
+    /** Rows of [history] grouped off the main thread; a null or mismatched value makes the screen group them itself. */
+    preparedTimeline: PreparedChatTimeline? = null
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val composerDraftState = remember(conversation, chat.id, forumTopicId) {
@@ -768,11 +770,13 @@ fun ChatScreen(
     // Sender picker is built from the loaded history, only while the search bar is open; no extra TDLib member request is needed in the search bar.
     val searchSenders = remember(messages, searching) { if (searching) chatSearchSenders(messages) else emptyList() }
     // Album grouping reads only the messages, so a pending video note does not regroup the whole loaded history.
-    val waveChat = !chat.isGroup && !chat.isChannel && !chat.isSecret && !chat.isSavedMessages
+    val waveChat = isWaveChat(chat)
     // Rows keep their instances across content-only updates, so untouched bubbles skip recomposition; see ChatTimelineGrouper.
     val timelineGrouper = remember(chat.id, forumTopicId) { ChatTimelineGrouper() }
-    val timelineRows = remember(messages, waveChat, timelineGrouper) {
-        timelineGrouper.group(if (waveChat) messages.filterNot(::isBgWaveSignalMessage) else messages)
+    // BeyGramApp groups the history off the main thread; this screen groups it only for the first frame or a mismatch.
+    val timelineRows = remember(messages, waveChat, timelineGrouper, preparedTimeline) {
+        preparedTimeline?.takeIf { it.history.messages === messages && it.waveFiltered == waveChat }?.rows
+            ?: timelineGrouper.group(if (waveChat) messages.filterNot(::isBgWaveSignalMessage) else messages)
     }
     val albumItems = timelineRows.items
     val visibleTextAttempts = remember(queuedTextAttempts, history) {
@@ -2764,7 +2768,11 @@ fun ChatScreen(
         if (liveViewed?.media != null && liveViewed.isViewOnce) retainedViewOnce = liveViewed
     }
     val windowPages = mediaWindow.messages.mapNotNull { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } }
-    val historyPages = remember(messages) { messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } } }
+    // Only an open viewer pages through the whole history; while it is closed, the scan of every update is skipped.
+    val viewerOpen = selectedMediaId != null
+    val historyPages = remember(messages, viewerOpen) {
+        if (!viewerOpen) emptyList<MediaViewerItem>() else messages.mapNotNull { m -> m.media?.takeIf { it.kind in viewerSwipeKinds }?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } }
+    }
     // Пока окно не пришло или не загрузилось, листаем уже загруженную историю чата; без неё показываем вложение одно.
     val viewerPages = listOf(windowPages, historyPages).firstOrNull { pages -> pages.any { it.messageId == selectedMediaId } }
         ?: listOfNotNull(viewed?.let { m -> m.media?.let { MediaViewerItem(m.id, it, m.isViewOnce, chat.id, m.text) } })
