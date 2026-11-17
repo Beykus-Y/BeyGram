@@ -1966,6 +1966,11 @@
     <string name="forum_editor_name_placeholder">Название темы</string>
     <string name="forum_editor_color_n">Цвет %1$d</string>
     <string name="forum_editor_icon_n">Иконка %1$d</string>
+    <string name="forum_navigation_title">Вид тем</string>
+    <string name="forum_navigation_classic">Список тем</string>
+    <string name="forum_navigation_tabs">Вкладки сверху</string>
+    <string name="forum_navigation_rail">Панель сбоку</string>
+    <string name="forum_panel_all_topics">Все темы</string>
     <string name="share_saved_quick_action">Избранное</string>
     <string name="share_recent_destinations">Недавние и другие чаты</string>
     <string name="sessions_load_timeout">Не удалось получить сеансы за отведённое время. Проверь подключение и нажми «Повторить».</string>

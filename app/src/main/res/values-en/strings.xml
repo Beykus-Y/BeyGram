@@ -888,4 +888,9 @@
     <string name="share_send_count">Send (%1$d)</string>
     <string name="share_add_recipient">Add recipient</string>
     <string name="share_delivery_progress">Sent to %1$d of %2$d recipients. Some parts remain unsent.</string>
+    <string name="forum_navigation_title">Topic view</string>
+    <string name="forum_navigation_classic">Topic list</string>
+    <string name="forum_navigation_tabs">Tabs on top</string>
+    <string name="forum_navigation_rail">Side panel</string>
+    <string name="forum_panel_all_topics">All topics</string>
 </resources>
