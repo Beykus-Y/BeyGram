@@ -91,7 +91,12 @@ internal class TdForumTopicBriefs(
     }
 
     private fun answer(key: ForumTopicKey, brief: ForumTopicBrief?) {
-        synchronized(lock) { asked.remove(key) }
-        store(key, brief ?: unresolvedForumTopicBrief(key.topicId))
+        synchronized(lock) {
+            asked.remove(key)
+            val state = briefs.stateLocked(key)
+            // An update or a listing may have described the topic while the question was open; a failed answer keeps that.
+            if (brief != null) state.value = brief
+            else if (state.value == null) state.value = unresolvedForumTopicBrief(key.topicId)
+        }
     }
 }

@@ -37,7 +37,7 @@ internal fun rememberRowTopicBrief(
     observe: ((Long, Long) -> StateFlow<ForumTopicBrief?>)?
 ): State<ForumTopicBrief?> {
     if (topicId == 0L || observe == null) return remember { mutableStateOf<ForumTopicBrief?>(null) }
-    val flow = remember(chatId, topicId) { observe(chatId, topicId) }
+    val flow = remember(observe, chatId, topicId) { observe(chatId, topicId) }
     return flow.collectAsStateWithLifecycle()
 }
 
