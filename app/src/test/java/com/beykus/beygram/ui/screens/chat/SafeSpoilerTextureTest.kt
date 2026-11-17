@@ -33,4 +33,39 @@ class SafeSpoilerTextureTest {
             red in 0..95 && green in 0..95 && blue in 0..110
         })
     }
+    @Test fun portraitNineBySixteenInTallContainerIsWidthLimited() {
+        val (w, h) = spoilerFitSize(1080f, 2000f, 1080, 1920)
+        assertEquals(1080f, w, 0.01f)
+        assertEquals(1920f, h, 0.01f)
+    }
+
+    @Test fun landscapeSixteenByNineIsWidthLimitedWithSmallerHeight() {
+        val (w, h) = spoilerFitSize(1080f, 2000f, 1920, 1080)
+        assertEquals(1080f, w, 0.01f)
+        assertEquals(607.5f, h, 0.01f)
+    }
+
+    @Test fun landscapeInWideContainerIsHeightLimited() {
+        val (w, h) = spoilerFitSize(1000f, 400f, 1920, 1080)
+        assertEquals(400f * 1920f / 1080f, w, 0.01f)
+        assertEquals(400f, h, 0.01f)
+    }
+
+    @Test fun panoramaIsClampedToFiveToOne() {
+        val (w, h) = spoilerFitSize(1080f, 2000f, 5000, 100)
+        assertEquals(1080f, w, 0.01f)
+        assertEquals(216f, h, 0.01f)
+    }
+
+    @Test fun unknownSizeFallsBackToThreeByFour() {
+        val (w, h) = spoilerFitSize(1080f, 2000f, 0, 0)
+        assertEquals(1080f, w, 0.01f)
+        assertEquals(1440f, h, 0.01f)
+    }
+
+    @Test fun squareMediaFitsWidthOfTallContainer() {
+        val (w, h) = spoilerFitSize(1080f, 2000f, 1000, 1000)
+        assertEquals(1080f, w, 0.01f)
+        assertEquals(1080f, h, 0.01f)
+    }
 }

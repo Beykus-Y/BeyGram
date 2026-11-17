@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import android.content.Context
 import android.content.res.Configuration
 import com.beykus.beygram.ui.accessibility.rememberHasMousePointer
+import com.beykus.beygram.ui.accessibility.systemReducedMotion
 import com.beykus.beygram.ui.accessibility.rememberTouchExplorationEnabled
 import com.beykus.beygram.ui.design.LocalDesignSystem
 import com.beykus.beygram.ui.design.styledShape
@@ -30,6 +31,8 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -717,6 +720,7 @@ internal fun MediaPreview(
         val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
         val downloadLabel = stringResource(R.string.a11y_media_download, mediaLabel)
         val spoilerLabel = stringResource(R.string.media_spoiler_hint)
+        val reduced = systemReducedMotion()
         val longPressLabel = stringResource(R.string.a11y_message_actions)
         val viewOnceLabel = stringResource(R.string.media_view_once_label)
         val viewOnceHint = stringResource(R.string.media_view_once_hint, mediaLabel)
@@ -766,12 +770,21 @@ internal fun MediaPreview(
                 } else softMinithumbnailSlot(media.minithumbnail)
             )
             if (!viewOnce) {
-                if (!revealed) SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
-                else if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
-                else if (posterFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
-                    val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
-                    Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
-                        modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
+                AnimatedVisibility(
+                    visible = !revealed,
+                    enter = EnterTransition.None,
+                    exit = if (reduced) ExitTransition.None else fadeOut(tween(180)),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
+                }
+                if (revealed) {
+                    if (awaitingFile) DownloadBadge(downloading = file.isDownloading, contentDescription = downloadLabel, onClick = { downloadFile(media.fileId) })
+                    else if (posterFile == null || media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")) {
+                        val isVideo = media.kind == MediaKind.Video || media.kind == MediaKind.Animation || media.mimeType.startsWith("video/")
+                        Icon(if (isVideo) Icons.Rounded.PlayArrow else Icons.Rounded.Download, contentDescription = null, tint = Color.White,
+                            modifier = Modifier.size(52.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape).padding(10.dp))
+                    }
                 }
                 if (revealed) Text(
                     media.kind.label(context) + if (media.durationSeconds > 0) " · ${duration(media.durationSeconds)}" else "",
@@ -1412,6 +1425,7 @@ private fun MediaViewerPage(
 ) {
     val media = item.media
     val context = LocalContext.current
+    val reduced = systemReducedMotion()
     val accountId = LocalPlaybackAccountId.current
     val policySettings by remember(context, accountId) {
         AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
@@ -1520,15 +1534,8 @@ private fun MediaViewerPage(
         val audioPath = audioSource?.path
         val growingAudio = audioSource?.growing
         when {
-            spoilerHidden -> Box(
-                modifier = Modifier.fillMaxSize()
-                    .clickable(role = Role.Button, onClick = onReveal)
-                    .semantics { contentDescription = context.getString(R.string.media_spoiler_hint) },
-                contentAlignment = Alignment.Center
-            ) {
-                // A viewer page must stay opaque until explicitly revealed; never draw its real thumbnail.
-                SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
-            }
+            // A viewer page must stay opaque until explicitly revealed; nothing of the real media is drawn here.
+            spoilerHidden -> Unit
             concealed -> Unit
             tgs -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 val preview: @Composable () -> Unit = {
@@ -1595,6 +1602,33 @@ private fun MediaViewerPage(
                 if (exportable) TextButton(onClick = { onOpenFile(path) }) { Text(stringResource(R.string.media_open_file)) }
             }
         }
+        // The mask sits on top of the page and fades out on reveal, so the revealed content shows through without a black gap.
+        AnimatedVisibility(
+            visible = spoilerHidden,
+            enter = EnterTransition.None,
+            exit = if (reduced) ExitTransition.None else fadeOut(tween(200)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                Modifier.fillMaxSize()
+                    .clickable(role = Role.Button, onClick = onReveal)
+                    .semantics { contentDescription = context.getString(R.string.media_spoiler_hint) },
+                contentAlignment = Alignment.Center
+            ) {
+                SpoilerFitFrame(media.width, media.height) {
+                    SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())
+                }
+            }
+        }
+    }
+}
+
+/** Places [content] at the media's aspect ratio inside the available space. Uses only metadata, never decodes the image. */
+@Composable
+private fun SpoilerFitFrame(width: Int, height: Int, content: @Composable () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val (fitW, fitH) = spoilerFitSize(maxWidth.value, maxHeight.value, width, height)
+        Box(Modifier.size(fitW.dp, fitH.dp)) { content() }
     }
 }
 
