@@ -208,12 +208,14 @@ fun ChatScreen(
     onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
-    val composerDraft by remember(conversation, chat.id, forumTopicId) {
+    val composerDraftState = remember(conversation, chat.id, forumTopicId) {
         if (forumTopicId > 0L) conversation.observeForumTopicDraft(chat.id, forumTopicId) else conversation.observeMessageDraft(chat.id)
     }.collectAsStateWithLifecycle()
-    val draft = composerDraft.text
-    val draftEntities = composerDraft.entities
-    val replyId = composerDraft.replyToMessageId
+    val composerDraft by composerDraftState
+    // Read where used, not here: a keystroke then invalidates only the composer scope, not the whole screen.
+    val draft by remember(composerDraftState) { derivedStateOf { composerDraftState.value.text } }
+    val draftEntities by remember(composerDraftState) { derivedStateOf { composerDraftState.value.entities } }
+    val replyId by remember(composerDraftState) { derivedStateOf { composerDraftState.value.replyToMessageId } }
     fun updateDraft(transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) =
         if (forumTopicId > 0L) conversation.updateForumTopicDraft(chat.id, forumTopicId, transform)
         else conversation.updateMessageDraft(chat.id, transform)
@@ -834,12 +836,16 @@ fun ChatScreen(
     var composerLaunchCounter by remember { mutableLongStateOf(0L) }
     var composerDraftLaunchKey by remember { mutableStateOf<Long?>(null) }
     // Hiding is bound to the exact send attempt, not to the text value: a new identical draft must stay visible.
-    val hidingComposerForLaunch = shouldHideComposerDraft(
-        editing = editId != null,
-        draft = draft,
-        activeLaunchKey = composerDraftLaunchKey,
-        launch = composerLaunches.firstOrNull { it.key == composerDraftLaunchKey }
-    )
+    val hidingComposerForLaunch by remember(composerLaunches, composerDraftState) {
+        derivedStateOf {
+            shouldHideComposerDraft(
+                editing = editId != null,
+                draft = draft,
+                activeLaunchKey = composerDraftLaunchKey,
+                launch = composerLaunches.firstOrNull { it.key == composerDraftLaunchKey }
+            )
+        }
+    }
     // Follow sends across the temporary-to-server id replacement and cancel transitions for failed messages.
     LaunchedEffect(composerLaunches.toList(), history.messages, history.liveArrivals, history.recentReplacements, queuedTextAttempts) {
         if (composerLaunches.isEmpty()) return@LaunchedEffect
@@ -1860,7 +1866,10 @@ fun ChatScreen(
     var pinnedPreviewShown by remember(chat.id, forumTopicId) { mutableStateOf(false) }
     val windowLayout = LocalWindowLayout.current
     // In a short window the keyboard leaves the messages almost nothing: the pinned strip yields its line while it is up.
-    val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val imeInsets = WindowInsets.ime
+    val imeDensity = LocalDensity.current
+    // Only the open/closed flip recomposes the screen, not every frame of the keyboard animation.
+    val keyboardOpen by remember(imeInsets, imeDensity) { derivedStateOf { imeInsets.getBottom(imeDensity) > 0 } }
     val compactChrome = windowLayout.heightCompact
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     // The system bar bands take the colour of the bar next to them (header on top, composer at the bottom), so the edges
