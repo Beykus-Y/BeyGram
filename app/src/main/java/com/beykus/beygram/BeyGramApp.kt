@@ -2252,6 +2252,9 @@ private fun BeyGramAppContent(
                         forumActionWithResult({ repository.editForumTopic(forumChatId, topic.id, name, iconCustomEmojiId) }, done)
                     },
                     loadDefaultIcons = { repository.forumTopicDefaultIcons() },
+                    premium = myAccount.info?.isPremium == true,
+                    loadCustomEmojiSets = { repository.installedCustomEmojiSets() },
+                    loadCustomEmojiSetIds = { setId -> repository.customEmojiSetIds(setId) },
                     onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(forumChatId, topic.id, closed) } },
                     onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(forumChatId, topic.id, pinned) } },
                     onPinnedOrder = { order, done ->

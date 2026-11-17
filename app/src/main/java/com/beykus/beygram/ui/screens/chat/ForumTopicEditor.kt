@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -35,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,8 +53,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.ForumTopicCreationColors
 import com.beykus.beygram.domain.model.MediaFileState
@@ -60,7 +66,15 @@ import com.beykus.beygram.ui.components.Button
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.styledShape
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /** TDLib's createForumTopic and editForumTopic both accept at most 128 code points in a name. */
 internal const val ForumTopicNameLimit = 128
@@ -86,6 +100,85 @@ internal fun forumTopicIconUpdate(topic: ForumTopic, selectedEmojiId: Long): Lon
 internal fun forumTopicIconOptions(current: Long, defaults: List<Long>): List<Long> =
     (listOf(0L) + listOfNotNull(current.takeIf { it != 0L }) + defaults).distinct()
 
+/** The emoji of one installed set in the premium grid: the covers show until the set's own emoji have arrived. */
+internal sealed interface CustomEmojiSetState {
+    data object Loading : CustomEmojiSetState
+    data object Failed : CustomEmojiSetState
+    data class Loaded(val ids: List<Long>) : CustomEmojiSetState
+}
+
+/**
+ * Asks for a set's emoji only when the editor asks for that set, which the grid does once the set's title is on screen.
+ * At most [maxConcurrent] sets load at once. A loaded set is never asked again; a failed one is asked again the next time
+ * its title comes into view.
+ */
+internal class CustomEmojiSetLoader(
+    private val scope: CoroutineScope,
+    private val maxConcurrent: Int = 2,
+    private val load: suspend (Long) -> Result<List<Long>>
+) {
+    private val permits = Semaphore(maxConcurrent)
+    private val mutableStates = MutableStateFlow<Map<Long, CustomEmojiSetState>>(emptyMap())
+    val states: StateFlow<Map<Long, CustomEmojiSetState>> = mutableStates.asStateFlow()
+
+    /** Starts loading [setId] unless it is loading or loaded already. The outcome arrives through [states]. */
+    fun request(setId: Long) {
+        val current = mutableStates.value[setId]
+        if (current == CustomEmojiSetState.Loading || current is CustomEmojiSetState.Loaded) return
+        mutableStates.update { it + (setId to CustomEmojiSetState.Loading) }
+        scope.launch {
+            val outcome = try {
+                permits.withPermit { load(setId) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Result.failure<List<Long>>(error)
+            }
+            val next: CustomEmojiSetState = outcome.fold(
+                onSuccess = { CustomEmojiSetState.Loaded(it) },
+                onFailure = { CustomEmojiSetState.Failed }
+            )
+            mutableStates.update { it + (setId to next) }
+        }
+    }
+}
+
+/** A row of the premium emoji grid: a set's title, or one custom emoji of a set, numbered from 1 within that set. */
+internal sealed interface PremiumEmojiRow {
+    /** Stable across loads, so a row keeps its place and its state when a set's covers give way to its emoji. */
+    val key: String
+
+    data class Header(val setId: Long, val title: String) : PremiumEmojiRow {
+        override val key: String get() = "set-$setId"
+    }
+
+    data class Emoji(val setId: Long, val customEmojiId: Long, val number: Int) : PremiumEmojiRow {
+        override val key: String get() = "emoji-$setId-$customEmojiId"
+    }
+}
+
+/**
+ * The grid rows of the installed sets in the order TDLib gave them. A set shows its covers until its own emoji have
+ * loaded, and a set that failed keeps its covers, so a section is not empty while it is on its way.
+ */
+internal fun premiumEmojiRows(sets: List<CustomEmojiSetBrief>, states: Map<Long, CustomEmojiSetState>): List<PremiumEmojiRow> =
+    buildList<PremiumEmojiRow> {
+        sets.distinctBy { it.id }.forEach { set ->
+            add(PremiumEmojiRow.Header(set.id, set.title))
+            val emoji = (states[set.id] as? CustomEmojiSetState.Loaded)?.ids ?: set.covers
+            emoji.distinct().forEachIndexed { index, customEmojiId ->
+                add(PremiumEmojiRow.Emoji(set.id, customEmojiId, index + 1))
+            }
+        }
+    }
+
+/** The installed sets of a Premium account: still loading, failed, or the sets in TDLib's order. */
+private sealed interface PremiumSetsState {
+    data object Loading : PremiumSetsState
+    data object Failed : PremiumSetsState
+    data class Loaded(val sets: List<CustomEmojiSetBrief>) : PremiumSetsState
+}
+
 /** The default icons load when the editor opens; the grid shows its own state until they arrive. */
 private sealed interface ForumIconsState {
     data object Loading : ForumIconsState
@@ -110,6 +203,10 @@ internal fun ForumTopicEditorSheet(
     iconEmojiId: Long,
     onIconChange: (Long) -> Unit,
     loadDefaultIcons: suspend () -> Result<List<Long>>,
+    /** Premium accounts can take the icon from their installed custom emoji sets; other accounts see a hint instead. */
+    premium: Boolean,
+    loadCustomEmojiSets: suspend () -> Result<List<CustomEmojiSetBrief>>,
+    loadCustomEmojiSetIds: suspend (Long) -> Result<List<Long>>,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
@@ -265,6 +362,26 @@ internal fun ForumTopicEditorSheet(
                     }
                     is ForumIconsState.Loaded -> Unit
                 }
+                if (premium) {
+                    PremiumEmojiSection(
+                        base = base,
+                        tileColor = tileColor,
+                        selectedEmojiId = iconEmojiId,
+                        onPick = onIconChange,
+                        loadSets = loadCustomEmojiSets,
+                        loadSetIds = loadCustomEmojiSetIds,
+                        observeFile = observeFile,
+                        downloadFile = downloadFile,
+                        observeCustomEmoji = observeCustomEmoji
+                    )
+                } else {
+                    Text(
+                        stringResource(R.string.forum_editor_premium_emoji_hint),
+                        color = palette.textSecondary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                }
             }
             Spacer(Modifier.height(20.dp))
             Button(
@@ -391,6 +508,130 @@ private fun ForumTopicIconCell(
         )
         if (selected) {
             Box(Modifier.size(46.dp).border(2.dp, palette.accent, ringShape))
+        }
+    }
+}
+
+/**
+ * The emoji of the account's installed sets, each set under its title, for a Premium account. The list of sets loads once
+ * the section is shown; a set's own emoji load only when its title scrolls into view.
+ */
+@Composable
+private fun PremiumEmojiSection(
+    base: ForumTopic,
+    tileColor: Int,
+    selectedEmojiId: Long,
+    onPick: (Long) -> Unit,
+    loadSets: suspend () -> Result<List<CustomEmojiSetBrief>>,
+    loadSetIds: suspend (Long) -> Result<List<Long>>,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>
+) {
+    val palette = beyGramPalette()
+    val latestLoadSets by rememberUpdatedState(loadSets)
+    val latestLoadSetIds by rememberUpdatedState(loadSetIds)
+    var setsState by remember { mutableStateOf<PremiumSetsState>(PremiumSetsState.Loading) }
+    var setsAttempt by remember { mutableIntStateOf(0) }
+    LaunchedEffect(setsAttempt) {
+        setsState = PremiumSetsState.Loading
+        setsState = latestLoadSets().fold(
+            onSuccess = { PremiumSetsState.Loaded(it) },
+            onFailure = { PremiumSetsState.Failed }
+        )
+    }
+    val scope = rememberCoroutineScope()
+    val setLoader = remember(scope) { CustomEmojiSetLoader(scope) { setId -> latestLoadSetIds(setId) } }
+    val setStates by setLoader.states.collectAsStateWithLifecycle()
+    val loadingLabel = stringResource(R.string.forum_editor_premium_loading)
+    when (val state = setsState) {
+        PremiumSetsState.Loading -> CircularProgressIndicator(
+            modifier = Modifier
+                .padding(top = 10.dp)
+                .size(20.dp)
+                .semantics { contentDescription = loadingLabel },
+            color = palette.accent,
+            strokeWidth = 2.dp
+        )
+        PremiumSetsState.Failed -> Row(
+            Modifier.padding(top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                stringResource(R.string.forum_editor_premium_failed),
+                color = palette.textSecondary,
+                fontSize = 13.sp
+            )
+            TextButton(onClick = { setsAttempt++ }) {
+                Text(
+                    stringResource(R.string.common_retry),
+                    color = palette.accent,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+        is PremiumSetsState.Loaded -> {
+            val rows = remember(state.sets, setStates) { premiumEmojiRows(state.sets, setStates) }
+            if (rows.isNotEmpty()) {
+                PremiumEmojiGrid(
+                    rows = rows,
+                    base = base,
+                    tileColor = tileColor,
+                    selectedEmojiId = selectedEmojiId,
+                    onRequestSet = { setId -> setLoader.request(setId) },
+                    onPick = onPick,
+                    observeFile = observeFile,
+                    downloadFile = downloadFile,
+                    observeCustomEmoji = observeCustomEmoji
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The premium emoji as one lazy grid, so only the rows on screen are composed. A set's title is a full-width row and its
+ * emoji follow it; composing the title is what asks for that set's emoji.
+ */
+@Composable
+private fun PremiumEmojiGrid(
+    rows: List<PremiumEmojiRow>,
+    base: ForumTopic,
+    tileColor: Int,
+    selectedEmojiId: Long,
+    onRequestSet: (Long) -> Unit,
+    onPick: (Long) -> Unit,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(48.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(
+            count = rows.size,
+            key = { index -> rows[index].key },
+            span = { index -> GridItemSpan(if (rows[index] is PremiumEmojiRow.Header) maxLineSpan else 1) },
+            contentType = { index -> if (rows[index] is PremiumEmojiRow.Header) "set" else "emoji" }
+        ) { index ->
+            when (val row = rows[index]) {
+                is PremiumEmojiRow.Header -> {
+                    LaunchedEffect(row.setId) { onRequestSet(row.setId) }
+                    ForumTopicEditorLabel(row.title)
+                }
+                is PremiumEmojiRow.Emoji -> ForumTopicIconCell(
+                    topic = base.withIcon(tileColor, row.customEmojiId),
+                    selected = row.customEmojiId == selectedEmojiId,
+                    description = stringResource(R.string.forum_editor_premium_icon_n, row.number),
+                    observeFile = observeFile,
+                    downloadFile = downloadFile,
+                    observeCustomEmoji = observeCustomEmoji,
+                    onSelect = { onPick(row.customEmojiId) }
+                )
+            }
         }
     }
 }

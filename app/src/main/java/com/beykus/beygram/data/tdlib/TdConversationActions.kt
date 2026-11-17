@@ -345,12 +345,21 @@ internal class TdConversationActions(
     suspend fun forumTopicDefaultIcons(): Result<List<Long>> {
         defaultTopicIconIds?.let { return Result.success(it) }
         return requestResult {
-            val ids = request(TdApi.GetForumTopicDefaultIcons()).stickers.mapNotNull { sticker ->
-                (sticker.fullType as? TdApi.StickerFullTypeCustomEmoji)?.customEmojiId?.takeIf { it != 0L }
-            }
+            val ids = request(TdApi.GetForumTopicDefaultIcons()).stickers.mapNotNull { it?.customEmojiIdOrNull() }
             if (ids.isNotEmpty()) defaultTopicIconIds = ids
             ids
         }
+    }
+
+    /** The custom emoji sets the account has installed. A set's covers are custom emoji too, so the editor can preview each set. */
+    suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = requestResult {
+        request(TdApi.GetInstalledStickerSets(TdApi.StickerTypeCustomEmoji())).sets.orEmpty()
+            .mapNotNull { it?.toCustomEmojiSetBrief() }
+    }
+
+    /** The custom emoji of one installed set, in the set's order. */
+    suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = requestResult {
+        request(TdApi.GetStickerSet(setId)).customEmojiIds()
     }
 
     suspend fun closeTopic(chatId: Long, topicId: Long, closed: Boolean): Result<Unit> = conversationResult {
@@ -1336,3 +1345,16 @@ internal fun forumTopicMuteSettings(current: TdApi.ChatNotificationSettings?, mu
         useDefaultMuteFor = muted == null
         muteFor = if (muted == true) Int.MAX_VALUE else 0
     }
+
+/** The custom emoji id of a sticker that is a custom emoji; null for a regular sticker and for an id TDLib left at 0. */
+internal fun TdApi.Sticker.customEmojiIdOrNull(): Long? =
+    (fullType as? TdApi.StickerFullTypeCustomEmoji)?.customEmojiId?.takeIf { it != 0L }
+
+internal fun TdApi.StickerSetInfo.toCustomEmojiSetBrief(): CustomEmojiSetBrief = CustomEmojiSetBrief(
+    id = id,
+    title = title.orEmpty(),
+    covers = covers.orEmpty().mapNotNull { it?.customEmojiIdOrNull() }
+)
+
+/** The custom emoji ids of a set's stickers, in the order TDLib gives them; regular stickers are skipped. */
+internal fun TdApi.StickerSet.customEmojiIds(): List<Long> = stickers.orEmpty().mapNotNull { it?.customEmojiIdOrNull() }

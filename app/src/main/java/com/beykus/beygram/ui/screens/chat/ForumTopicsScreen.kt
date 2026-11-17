@@ -98,6 +98,7 @@ import com.beykus.beygram.data.settings.ForumNavigationMode
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.model.ForumTopic
 import com.beykus.beygram.domain.model.ForumTopicDefaultColor
 import com.beykus.beygram.domain.model.ForumTopicIcon
@@ -276,6 +277,10 @@ fun ForumTopicsScreen(
     /** The custom emoji id is null when the icon is left as it is; 0 removes the custom emoji. */
     onEdit: (ForumTopic, String, Long?, (String?) -> Unit) -> Unit,
     loadDefaultIcons: suspend () -> Result<List<Long>>,
+    /** Premium accounts get their installed custom emoji sets in the icon editor; other accounts get a hint. */
+    premium: Boolean = false,
+    loadCustomEmojiSets: suspend () -> Result<List<CustomEmojiSetBrief>> = { Result.success(emptyList()) },
+    loadCustomEmojiSetIds: suspend (Long) -> Result<List<Long>> = { Result.success(emptyList()) },
     onClosed: (ForumTopic, Boolean) -> Unit,
     onPinned: (ForumTopic, Boolean) -> Unit,
     /**
@@ -605,6 +610,9 @@ fun ForumTopicsScreen(
             iconEmojiId = iconEmojiId,
             onIconChange = { iconEmojiId = it },
             loadDefaultIcons = loadDefaultIcons,
+            premium = premium,
+            loadCustomEmojiSets = loadCustomEmojiSets,
+            loadCustomEmojiSetIds = loadCustomEmojiSetIds,
             observeFile = observeFile,
             downloadFile = downloadFile,
             observeCustomEmoji = observeCustomEmoji,

@@ -1972,6 +1972,10 @@
     <string name="forum_editor_name_placeholder">Название темы</string>
     <string name="forum_editor_color_n">Цвет %1$d</string>
     <string name="forum_editor_icon_n">Иконка %1$d</string>
+    <string name="forum_editor_premium_emoji_hint">Другие эмодзи доступны с Premium</string>
+    <string name="forum_editor_premium_loading">Загружаем эмодзи Premium…</string>
+    <string name="forum_editor_premium_failed">Не удалось загрузить эмодзи Premium</string>
+    <string name="forum_editor_premium_icon_n">Эмодзи Premium %1$d</string>
     <string name="forum_navigation_title">Вид тем</string>
     <string name="forum_navigation_classic">Список тем</string>
     <string name="forum_navigation_tabs">Вкладки сверху</string>

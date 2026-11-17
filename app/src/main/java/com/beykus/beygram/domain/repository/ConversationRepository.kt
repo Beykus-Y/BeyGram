@@ -147,6 +147,10 @@ interface ConversationRepository {
     suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit>
     /** Custom emoji ids of Telegram's default topic icons. They are the same for every account and need no Premium. */
     suspend fun forumTopicDefaultIcons(): Result<List<Long>>
+    /** The custom emoji sets the account has installed. A Premium account may take topic icons from their emoji. */
+    suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>>
+    /** The custom emoji ids of one installed set, in the set's order. */
+    suspend fun customEmojiSetIds(setId: Long): Result<List<Long>>
     suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit>
     suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit>
     /** The new order of the pinned topics, first id on top. The server takes the whole pinned set, so pass every pinned topic. */
