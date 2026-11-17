@@ -1887,7 +1887,8 @@ fun ChatScreen(
     val compactChrome = windowLayout.heightCompact
     Box(Modifier.fillMaxSize().onGloballyPositioned { launchOverlayBounds = it.boundsInWindow() }) {
     // The system bar bands take the colour of the bar next to them (header on top, composer at the bottom), so the edges
-    // of the screen are not two-toned. In Liquid Glass that is the pane tint over the screen colour.
+    // of the screen are not two-toned. In Liquid Glass that is the pane tint over the screen colour. The status bar band
+    // is drawn only for non-glass styles; in glass the header pane covers the status bar.
     val systemBarDensity = LocalDensity.current
     val statusBarPx = WindowInsets.statusBars.getTop(systemBarDensity).toFloat()
     val navBarPx = WindowInsets.navigationBars.getBottom(systemBarDensity).toFloat()
@@ -1905,9 +1906,9 @@ fun ChatScreen(
     }
     Column(Modifier.fillMaxSize().drawBehind {
         drawRect(palette.screen)
-        drawRect(topBandFill, size = Size(size.width, statusBarPx))
+        if (!chatGlass) drawRect(topBandFill, size = Size(size.width, statusBarPx))
         drawRect(bottomBandFill, topLeft = Offset(0f, size.height - navBarPx), size = Size(size.width, navBarPx))
-    }.windowInsetsPadding(WindowInsets.safeDrawing)) {
+    }.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))) {
         ChatChromeHost(chatGlass, GlassEdge.BottomHairline, chatBackdrop, { topChromePx = it }) {
         if (selectionMode) SelectionActionBar(
             count = selectionIds.size,
