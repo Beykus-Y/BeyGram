@@ -23,6 +23,9 @@ data class ForumTopicBrief(
     val isNameImplicit: Boolean = false
 )
 
+/** An installed custom emoji set that a Premium topic icon can come from: its [title] and the custom emoji of its [covers]. */
+data class CustomEmojiSetBrief(val id: Long, val title: String, val covers: List<Long> = emptyList())
+
 /** The colours Telegram offers for a new topic icon, as 0xRRGGBB. TDLib refuses any other colour when a topic is created. */
 val ForumTopicCreationColors: List<Int> = listOf(0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2, 0xFB6F5F)
 
