@@ -89,6 +89,7 @@ import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
 import com.beykus.beygram.ui.text.userMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -552,16 +553,19 @@ internal fun MessageThreadScreen(
                             }
                         },
                         onPollStop = { chatId, messageId ->
-                            scope.launch {
-                                conversation.stopPoll(chatId, messageId)
-                                    .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                            riskGuard.run {
+                                scope.launch {
+                                    conversation.stopPoll(chatId, messageId)
+                                        .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                }
                             }
                         },
                         onLoadPollVoters = { chatId, messageId, optionIndex, offset ->
                             conversation.pollVoters(chatId, messageId, optionIndex, offset)
                         },
                         onAddPollOption = { chatId, messageId, text ->
-                            conversation.addPollOption(chatId, messageId, text)
+                            if (riskGuard.confirm()) conversation.addPollOption(chatId, messageId, text)
+                            else Result.failure(CancellationException("stealth risk declined"))
                         },
                         paidContent = rememberPaidContentActions(conversation),
                         onOpenMessageEntity = onOpenMessageEntity
@@ -610,16 +614,19 @@ internal fun MessageThreadScreen(
                                     }
                                 },
                                 onPollStop = { messageId ->
-                                    scope.launch {
-                                        conversation.stopPoll(channelChatId, messageId)
-                                            .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                    riskGuard.run {
+                                        scope.launch {
+                                            conversation.stopPoll(channelChatId, messageId)
+                                                .onFailure { sendError = it.userMessage(context, R.string.chat_poll_stop_failed) }
+                                        }
                                     }
                                 },
                                 onLoadPollVoters = { messageId, optionIndex, offset ->
                                     conversation.pollVoters(channelChatId, messageId, optionIndex, offset)
                                 },
                                 onAddPollOption = { messageId, text ->
-                                    conversation.addPollOption(channelChatId, messageId, text)
+                                    if (riskGuard.confirm()) conversation.addPollOption(channelChatId, messageId, text)
+                                    else Result.failure(CancellationException("stealth risk declined"))
                                 },
                                 onRetry = {},
                                 paidContent = rememberPaidContentActions(conversation) { reloadPost() },
