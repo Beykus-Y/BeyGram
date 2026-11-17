@@ -68,11 +68,12 @@ internal class TdStories(
     private val uploadsRoot: File,
     /** Stealth mode: false means this account must not open the stories posted by [posterChatId]. */
     private val canViewStory: (posterChatId: Long) -> Boolean,
-    stealthDelaySeconds: () -> Int? = { null }
+    stealthDelaySeconds: () -> Int? = { null },
+    stealthLock: (() -> Unit) -> Unit = { it() }
 ) {
     private val requests = TdRequests(client)
     // A story reply is a chat message, so stealth mode schedules it on the server like any other send (#541).
-    private val stealth = TdStealthScheduler(requests, stealthDelaySeconds)
+    private val stealth = TdStealthScheduler(requests, stealthDelaySeconds, stealthLock)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private val active = mutableMapOf<Long, TdApi.ChatActiveStories>()
@@ -474,17 +475,15 @@ internal class TdStories(
         }
         val options = MessageSendOptions(sendNowConsent = sendNowConsent)
         val resolved = stealth.resolve(posterChatId, options)
-        stealth.scheduledRequest(resolved) {
-            requests(TdApi.SendMessage().apply {
-                this.chatId = posterChatId
-                this.replyTo = TdApi.InputMessageReplyToStory(posterChatId, storyId)
-                this.options = sendOptions(resolved.options)
-                this.inputMessageContent = TdApi.InputMessageText().apply {
-                    this.text = TdApi.FormattedText(body, emptyArray())
-                    this.clearDraft = false
-                }
-            })
-        }
+        stealth.scheduledRequest(resolved, TdApi.SendMessage().apply {
+            this.chatId = posterChatId
+            this.replyTo = TdApi.InputMessageReplyToStory(posterChatId, storyId)
+            this.options = sendOptions(resolved.options)
+            this.inputMessageContent = TdApi.InputMessageText().apply {
+                this.text = TdApi.FormattedText(body, emptyArray())
+                this.clearDraft = false
+            }
+        })
         Unit
     }
 

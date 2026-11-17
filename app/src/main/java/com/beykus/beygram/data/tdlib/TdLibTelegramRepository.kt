@@ -554,7 +554,8 @@ class TdLibTelegramRepository private constructor(
     }
     private val stories = TdStories({ client }, profiles, mediaFiles, accountId, File(appContext.filesDir, "uploads"),
         canViewStory = { chatId -> policy.allows(InteractionEffect.StoryView, chatId) },
-        stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
+        stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay },
+        stealthLock = { send -> stealthSettings.whileUnchanged { send() } })
     private val groupAdministration = TdGroupAdministration(tdRequests, profiles)
     private val privacy = TdPrivacy({ client }, profiles)
     /** Chats being moved back from the archive: their alerts are not archived while the move is in flight. */
@@ -1511,7 +1512,8 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun loadCallHistory(offset: String): Result<CallHistoryPage> = requestResult { callHistory.page(offset) }
     private val botKeyboards = TdBotKeyboards { client }
-    private val botFeatures = TdBotFeatures({ client }, stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
+    private val botFeatures = TdBotFeatures({ client }, stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay },
+        stealthLock = { send -> stealthSettings.whileUnchanged { send() } })
     private val musicBotCacheDir = File(context.cacheDir, MusicBotCache.DIR_NAME)
     override fun observeBotKeyboard(chatId: Long) = botKeyboards.observe(chatId)
     override suspend fun dismissBotKeyboard(chatId: Long, messageId: Long) = botKeyboards.dismiss(chatId, messageId)
@@ -1558,7 +1560,8 @@ class TdLibTelegramRepository private constructor(
         map = { it.toChatMessage() },
         mapLastMessage = { it.toForumTopicLastMessage() },
         onTopicDraft = { chatId, topicId, raw -> messageDrafts.receiveTopic(chatId, topicId.toLong(), raw) },
-        stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay })
+        stealthDelaySeconds = { stealthSettings.current.scheduledSendDelay },
+        stealthLock = { send -> stealthSettings.whileUnchanged { send() } })
     private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
     private val messageEffects = TdMessageEffects(client = { client })

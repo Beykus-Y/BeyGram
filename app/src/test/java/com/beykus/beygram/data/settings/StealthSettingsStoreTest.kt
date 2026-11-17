@@ -242,6 +242,13 @@ class StealthSettingsStoreTest {
         assertFalse(policy.allows(InteractionEffect.Typing, 1L))
     }
 
+    @Test fun whileUnchangedSeesTheCurrentSwitchesAndReturnsTheBlockValue() {
+        val store = StealthSettingsStore(FakeStealthStorage())
+        assertTrue(store.update { it.copy(hideTyping = true) })
+        assertTrue(store.whileUnchanged { !it.allows(InteractionEffect.Typing, 1L) })
+        assertEquals("decided", store.whileUnchanged { "decided" })
+    }
+
     @Test fun accountsKeepSeparateSwitches() {
         val first = StealthSettingsStore(FakeStealthStorage())
         val second = StealthSettingsStore(FakeStealthStorage())

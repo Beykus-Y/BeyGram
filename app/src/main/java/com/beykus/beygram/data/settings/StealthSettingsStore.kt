@@ -176,6 +176,12 @@ class StealthSettingsStore internal constructor(private val storage: StealthStor
         return saved
     }
 
+    /**
+     * Runs [block] while no settings change can land, with the settings in force. Used to decide a send and hand it to TDLib
+     * as one step. [block] must not suspend, block on I/O or call back into this store's update/clear.
+     */
+    fun <T> whileUnchanged(block: (StealthSettings) -> T): T = synchronized(this) { block(_state.value) }
+
     /** Called after every change, outside the lock. */
     fun addListener(listener: () -> Unit) {
         listeners.add(listener)

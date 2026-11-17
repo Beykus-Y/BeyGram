@@ -19,9 +19,15 @@ import java.io.File
  *
  * A legacy lead shorter than 15 seconds is refused, never converted into an ordinary send or changed silently.
  *
- * [delaySeconds] is read on every send, so a changed switch applies to the next one.
+ * [delaySeconds] is read on every send, so a changed switch applies to the next one. The decision and the hand-off to TDLib
+ * are one step under [lock] (the settings store's lock, see StealthSettingsStore.whileUnchanged): a settings change lands
+ * either before the decision or after the request has been handed to TDLib, never between the two.
  */
-internal class TdStealthScheduler(private val request: TdRequests, private val delaySeconds: () -> Int?) {
+internal class TdStealthScheduler(
+    private val request: TdRequests,
+    private val delaySeconds: () -> Int?,
+    private val lock: (() -> Unit) -> Unit = { it() }
+) {
     /** True whenever the account requires stealth sending, including an invalid legacy lead. */
     fun active(): Boolean = delaySeconds() != null
 
@@ -89,31 +95,44 @@ internal class TdStealthScheduler(private val request: TdRequests, private val d
     }
 
     /**
-     * Runs a prepared send. Recheck the live policy and the server clock before dispatch: a send prepared before
-     * protection was enabled must not become an ordinary send. Never retry an ambiguous outcome automatically.
+     * Runs a prepared send: [function] is the TDLib request that carries it, and [beforeSend] runs right before that request
+     * is handed to TDLib. The server clock is checked first (it needs a suspending request). Then the live policy is decided
+     * and the request handed over as one step under [lock], so a settings change cannot land between the two. A refused send
+     * reaches neither [beforeSend] nor TDLib. A send prepared before protection was enabled must not become an ordinary send.
+     * Never retry an ambiguous outcome automatically.
      */
-    suspend fun <T> scheduledRequest(send: StealthSend, block: suspend () -> T): T {
+    suspend fun <T : TdApi.Object> scheduledRequest(send: StealthSend, function: TdApi.Function<T>, beforeSend: () -> Unit = {}): T {
         if (!send.options.sendNowConsent && (active() || send.scheduled)) {
             val at = send.options.scheduledAtSeconds
                 ?: throw unavailable(R.string.stealth_schedule_failed)
             if (at <= serverUnixTime() + MessageSendOptions.MIN_SCHEDULE_LEAD_SECONDS) {
                 throw unavailable(R.string.stealth_schedule_failed)
             }
-            // If settings changed during the server-time request, still never fall back to an ordinary send.
-            val currentLead = delaySeconds()
-            if (currentLead != null && !stealthDelayUsesServer(currentLead)) {
-                throw unavailable(R.string.stealth_schedule_short_warning)
-            }
         }
-        if (!send.scheduled) return block()
         return try {
-            block()
+            request.invokeAdmitted(function, lock, admit = { admitSend(send, beforeSend) })
         } catch (error: TdRequestError) {
-            if (error.message?.contains("schedul", ignoreCase = true) == true) {
+            if (send.scheduled && error.message?.contains("schedul", ignoreCase = true) == true) {
                 throw StealthScheduleUnavailableException(UiText.Res(R.string.stealth_schedule_failed), error)
             }
             throw error
         }
+    }
+
+    /**
+     * The decision on the live switches, made under the settings lock right before the hand-off. While protection is on, a
+     * send without a server date is refused, and so is a send prepared as scheduled. A lead that Telegram cannot schedule
+     * is refused too. Nothing falls back to an ordinary send.
+     */
+    private fun admitSend(send: StealthSend, beforeSend: () -> Unit) {
+        val lead = delaySeconds()
+        if (!send.options.sendNowConsent && (lead != null || send.scheduled) && send.options.scheduledAtSeconds == null) {
+            throw unavailable(R.string.stealth_schedule_failed)
+        }
+        if (!send.options.sendNowConsent && lead?.let { !stealthDelayUsesServer(it) } == true) {
+            throw unavailable(R.string.stealth_schedule_short_warning)
+        }
+        beforeSend()
     }
 
     /**
