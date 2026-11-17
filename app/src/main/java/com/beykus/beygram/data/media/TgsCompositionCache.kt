@@ -29,9 +29,10 @@ internal object TgsCompositionCache {
     private val cache = LruCache<String, LottieComposition>(MAX_ENTRIES)
     // Path -> key of the last successful load, so peek() can answer from composition without touching the disk.
     private val lastKeyByPath = LruCache<String, String>(MAX_ENTRIES * 2)
-    private val inFlight = HashMap<String, Deferred<Result<LottieComposition>>>()
+    private val inFlight = HashMap<String, InFlightLoad>()
     private val permits = Semaphore(PARALLEL_LOADS)
-    // Loads outlive the caller that started them: another row may be waiting for the same file.
+    // A load outlives the caller that started it while another row still waits for the same file; when the last waiter
+    // leaves (the rows scrolled away) it is cancelled, so a fast fling does not queue parses ahead of visible stickers.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** The composition last loaded for [path], if it is still cached. No disk access; safe to call from composition. */
@@ -49,13 +50,30 @@ internal object TgsCompositionCache {
             lastKeyByPath.put(path, key)
             return Result.success(cached)
         }
-        val deferred = synchronized(inFlight) {
-            inFlight[key] ?: scope.async { prepare(path, key, file) }.also { created ->
+        val load = synchronized(inFlight) {
+            val entry = inFlight[key] ?: InFlightLoad(scope.async { prepare(path, key, file) }).also { created ->
                 inFlight[key] = created
-                created.invokeOnCompletion { synchronized(inFlight) { if (inFlight[key] === created) inFlight.remove(key) } }
+                created.deferred.invokeOnCompletion { synchronized(inFlight) { if (inFlight[key] === created) inFlight.remove(key) } }
+            }
+            entry.waiters++
+            entry
+        }
+        try {
+            return load.deferred.await()
+        } finally {
+            synchronized(inFlight) {
+                load.waiters--
+                if (load.waiters == 0 && !load.deferred.isCompleted) {
+                    if (inFlight[key] === load) inFlight.remove(key)
+                    load.deferred.cancel()
+                }
             }
         }
-        return deferred.await()
+    }
+
+    /** One shared load and the number of callers still awaiting it; guarded by the [inFlight] lock. */
+    private class InFlightLoad(val deferred: Deferred<Result<LottieComposition>>) {
+        var waiters = 0
     }
 
     private suspend fun prepare(path: String, key: String, file: File): Result<LottieComposition> = permits.withPermit {
