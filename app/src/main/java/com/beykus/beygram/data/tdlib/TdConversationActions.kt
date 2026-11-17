@@ -349,7 +349,7 @@ internal class TdConversationActions(
             val ids = request(TdApi.GetForumTopicDefaultIcons()).stickers.mapNotNull { sticker ->
                 (sticker.fullType as? TdApi.StickerFullTypeCustomEmoji)?.customEmojiId?.takeIf { it != 0L }
             }
-            defaultTopicIconIds = ids
+            if (ids.isNotEmpty()) defaultTopicIconIds = ids
             ids
         }
     }
