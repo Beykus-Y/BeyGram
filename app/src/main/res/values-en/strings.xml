@@ -936,6 +936,4 @@
     <string name="forum_navigation_tabs">Tabs on top</string>
     <string name="forum_navigation_rail">Side panel</string>
     <string name="forum_panel_all_topics">All topics</string>
-    <string name="sessions_load_timeout">Couldn\'t load sessions in time. Check your connection and tap Retry.</string>
-    <string name="sessions_action_timeout">No confirmation from Telegram. Refresh the list before trying again: the action may have gone through.</string>
 </resources>

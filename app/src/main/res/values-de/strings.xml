@@ -936,6 +936,4 @@
     <string name="forum_navigation_tabs">Registerkarten oben</string>
     <string name="forum_navigation_rail">Seitenleiste</string>
     <string name="forum_panel_all_topics">Alle Themen</string>
-    <string name="sessions_load_timeout">Sitzungen konnten nicht rechtzeitig geladen werden. Prüfe die Verbindung und tippe auf „Wiederholen“.</string>
-    <string name="sessions_action_timeout">Keine Bestätigung von Telegram. Aktualisiere die Liste, bevor du es erneut versuchst: Die Aktion wurde eventuell ausgeführt.</string>
 </resources>

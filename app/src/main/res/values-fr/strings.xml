@@ -962,6 +962,4 @@
     <string name="forum_navigation_tabs">Onglets en haut</string>
     <string name="forum_navigation_rail">Panneau latéral</string>
     <string name="forum_panel_all_topics">Tous les sujets</string>
-    <string name="sessions_load_timeout">Impossible de charger les sessions à temps. Vérifiez la connexion et appuyez sur Réessayer.</string>
-    <string name="sessions_action_timeout">Aucune confirmation de Telegram. Actualisez la liste avant de réessayer : l’action a peut-être été effectuée.</string>
 </resources>

@@ -936,6 +936,4 @@
     <string name="forum_navigation_tabs">Pestañas arriba</string>
     <string name="forum_navigation_rail">Panel lateral</string>
     <string name="forum_panel_all_topics">Todos los temas</string>
-    <string name="sessions_load_timeout">No se pudieron cargar las sesiones a tiempo. Comprueba la conexión y toca Reintentar.</string>
-    <string name="sessions_action_timeout">Sin confirmación de Telegram. Actualiza la lista antes de volver a intentarlo: puede que la acción se haya realizado.</string>
 </resources>
