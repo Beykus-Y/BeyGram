@@ -132,7 +132,8 @@ fun ActiveSessionsScreen(
         onTimeout: () -> Unit,
         write: suspend () -> Result<Unit>
     ) {
-        if (busy) return
+        // A write during a reload could be overwritten by the late list.
+        if (busy || loading) return
         busy = true
         scope.launch {
             try {
@@ -408,7 +409,8 @@ fun ActiveSessionsScreen(
             session = detail,
             busy = busy,
             error = detailError,
-            onDismiss = { if (!busy) { detailId = null; detailError = null } },
+            // The sheet is already hidden when this fires; a running write keeps going.
+            onDismiss = { detailId = null; detailError = null },
             onConfirm = { confirmThisDevice(detail.id) },
             onTerminate = { askTerminate(detail.id) },
             onCanAcceptCallsChange = { setCalls(detail.id, it) },
@@ -421,7 +423,7 @@ fun ActiveSessionsScreen(
             currentDays = inactiveTtlDays,
             busy = busy,
             error = ttlError,
-            onDismiss = { if (!busy) { ttlOpen = false; ttlError = null } },
+            onDismiss = { ttlOpen = false; ttlError = null },
             onPick = ::applyTtl
         )
     }
