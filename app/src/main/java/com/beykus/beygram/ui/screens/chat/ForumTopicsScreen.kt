@@ -350,8 +350,13 @@ fun ForumTopicsScreen(
         // A new query starts at the top; keeping the old index would land the user in the middle of new results.
         if (searchActive) searchListState.scrollToItem(0)
     }
-    // A reload or a new server list replaces the shown order; after a successful move the reload brings the same order.
-    LaunchedEffect(topics) { pinnedDraft = null }
+    // The dropped order stays until the server list shows it, or until the server's pinned set changes (a topic was
+    // pinned or unpinned elsewhere). An unrelated update in between, such as a new message, keeps the dropped order.
+    LaunchedEffect(topics) {
+        val draft = pinnedDraft ?: return@LaunchedEffect
+        val serverPinned = orderedForumTopics(topics).filter(ForumTopic::isPinned).map(ForumTopic::id)
+        if (serverPinned == draft || serverPinned.toSet() != draft.toSet()) pinnedDraft = null
+    }
     LaunchedEffect(reordering) {
         // The pinned block sits at the top of the list, and a reorder needs all of it on screen.
         if (reordering && listState.firstVisibleItemIndex > 0) listState.animateScrollToItem(0)
@@ -844,7 +849,8 @@ private fun ForumTopicList(
     var drag by remember { mutableStateOf<PinnedTopicDrag?>(null) }
     LaunchedEffect(reordering) { if (!reordering) drag = null }
     fun startDrag(topicId: Long) {
-        if (busy || drag != null) return
+        // A row that left composition mid-drag never cancels its drag, so a new drag simply replaces the old one.
+        if (busy) return
         val fromRank = pinned.indexOfFirst { it.id == topicId }
         if (fromRank < 0) return
         val onScreen = listState.layoutInfo.visibleItemsInfo
