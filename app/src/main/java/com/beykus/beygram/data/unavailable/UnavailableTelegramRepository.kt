@@ -302,9 +302,13 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override suspend fun removeGroupPhoto(chatId: Long): Result<Unit> = unavailable()
 
-    override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = unavailable()
+    override suspend fun activeSessions(): Result<com.beykus.beygram.domain.model.ActiveSessions> = unavailable()
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = unavailable()
     override suspend fun terminateAllOtherSessions(): Result<Unit> = unavailable()
+    override suspend fun confirmSession(sessionId: Long): Result<Unit> = unavailable()
+    override suspend fun setInactiveSessionTtl(days: Int): Result<Unit> = unavailable()
+    override suspend fun setSessionCanAcceptCalls(sessionId: Long, enabled: Boolean): Result<Unit> = unavailable()
+    override suspend fun setSessionCanAcceptSecretChats(sessionId: Long, enabled: Boolean): Result<Unit> = unavailable()
     override suspend fun cloudPasswordState(): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
     override suspend fun setCloudPassword(
         currentPassword: String,
