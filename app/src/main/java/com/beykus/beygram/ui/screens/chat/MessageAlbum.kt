@@ -4,8 +4,7 @@ import androidx.compose.foundation.background
 import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -165,8 +164,8 @@ internal fun MessageAlbumBubble(
     selected: Boolean = false,
     onToggleSelection: () -> Unit = {},
     onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
-    /** Reports the window bounds of the album bubble; every member's viewer opens from the same rectangle. */
-    onMediaBounds: ((Rect) -> Unit)? = null,
+    /** Reports the layout of the album bubble; every member's viewer opens from the same rectangle. */
+    onMediaBounds: ((LayoutCoordinates) -> Unit)? = null,
     /** Loads the earlier texts that Chat Memory kept for a member; without it the album shows no versions link. */
     onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null
 ) {
@@ -203,7 +202,7 @@ internal fun MessageAlbumBubble(
             Box(swipe) {
                 BubbleLayout(
                     Modifier.widthIn(max = 292.dp).clip(shape)
-                        .then(if (onMediaBounds != null) Modifier.onGloballyPositioned { it.mediaScreenBounds()?.let(onMediaBounds) } else Modifier)
+                        .then(if (onMediaBounds != null) Modifier.onGloballyPositioned { onMediaBounds(it) } else Modifier)
                         .then(if (selected || highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
                         .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (selectionMode) Modifier.combinedClickable(

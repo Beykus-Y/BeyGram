@@ -75,6 +75,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -266,8 +267,9 @@ fun ChatScreen(
     var capabilitiesError by remember { mutableStateOf<String?>(null) }
     var capabilitiesAttempt by remember { mutableIntStateOf(0) }
     var selectedMediaId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
-    // Window bounds of the newest media bubbles, read when the viewer opens. A plain map: it must not recompose on scroll.
-    val mediaOrigins = remember { BoundedLruMap<Long, Rect>(MEDIA_ORIGIN_LIMIT) }
+    // Layout of the newest media bubbles; the viewer turns it into a screen rectangle when it opens. A plain map: it must
+    // not recompose on scroll.
+    val mediaCoordinates = remember { BoundedLruMap<Long, LayoutCoordinates>(MEDIA_ORIGIN_LIMIT) }
     // Sticker messages open their set instead of the generic media viewer. Zero means "not in a set" and gets a
     // friendly placeholder from StickerSetSheet rather than a failed TDLib request.
     var openStickerSetId by rememberSaveable(chat.id) { mutableStateOf<Long?>(null) }
@@ -919,7 +921,13 @@ fun ChatScreen(
     }
     val window = LocalWindowInfo.current
     val minimumVisible = with(LocalDensity.current) { 64.dp.roundToPx() }
-    val bubbleBounds = remember(chat.id) { HashMap<Long, Rect>() }
+    // Bubbles store their layout on every placement; rectangles are computed only when a menu, viewer or launch reads them.
+    val bubbleCoordinates = remember(chat.id) { HashMap<Long, LayoutCoordinates>() }
+    // Screen rectangle of a media bubble or album. A detached layout cannot be measured, so it reads as missing.
+    fun mediaOrigin(id: Long): Rect? = mediaCoordinates[id]?.mediaScreenBounds()
+    // Window rectangle of a single bubble. Album members have no bubble entry: they use the album's screen rectangle,
+    // as their menu anchor always has.
+    fun bubbleRect(id: Long): Rect? = bubbleCoordinates[id]?.takeIf { it.isAttached }?.boundsInWindow() ?: mediaOrigin(id)
     var actionAnchorBounds by remember(chat.id) { mutableStateOf<Rect?>(null) }
     val actionMessage = actionsId?.let { id -> messages.firstOrNull { it.id == id } }
     // An album's reactions sit on one of its messages, so the picker and the chips act on that message.
@@ -965,7 +973,7 @@ fun ChatScreen(
         // Remember the same anchor used by SelectionActionBar's single-message More action.
         // Entering Select from the action menu must not lose the original message context.
         selectionAnchorId = messageId
-        actionAnchorBounds = bubbleBounds[messageId]?.takeIf { !it.isEmpty }
+        actionAnchorBounds = bubbleRect(messageId)?.takeIf { !it.isEmpty }
         actionsId = messageId
         reactionPickerOpen = false
     }
@@ -1904,7 +1912,7 @@ fun ChatScreen(
             canCopy = selectionCanCopy,
             canSave = selectionCanSave,
             onClose = ::exitSelection,
-            onMore = singleActionTarget?.let { id -> { exitSelection(); actionAnchorBounds = bubbleBounds[id]; actionsId = id } },
+            onMore = singleActionTarget?.let { id -> { exitSelection(); actionAnchorBounds = bubbleRect(id); actionsId = id } },
             onForward = {
                 val ids = forwardIdsForSelection(messages, selectionIds)
                 if (ids.isNotEmpty()) {
@@ -2106,7 +2114,7 @@ fun ChatScreen(
                             Column(Modifier.fillMaxWidth()) {
                                 DisposableEffect(listItem.key) {
                                     onDispose {
-                                        listItem.messages.forEach { bubbleBounds.remove(it.id) }
+                                        listItem.messages.forEach { bubbleCoordinates.remove(it.id) }
                                     }
                                 }
                                 val commentsPost = listItem.messages.firstOrNull { it.replyCount > 0 }
@@ -2116,13 +2124,10 @@ fun ChatScreen(
                                     isRead = latest?.let { it.isOutgoing && it.sendState == MessageSendState.Sent && it.id <= history.lastReadOutboxMessageId } == true,
                                     highlighted = listItem.messages.any { it.id == highlighted || it.id == actionsId },
                                     onOpen = { selectedMediaId = it }, onActions = ::openActionsOnLongPress, onReplyClick = ::jump,
-                                    onMediaBounds = { rect ->
-                                        listItem.messages.forEach {
-                                            mediaOrigins[it.id] = rect
-                                            bubbleBounds[it.id] = rect
-                                        }
+                                    onMediaBounds = { coordinates ->
+                                        listItem.messages.forEach { mediaCoordinates[it.id] = coordinates }
                                         if (actionsId != null && listItem.messages.any { it.id == actionsId }) {
-                                            actionAnchorBounds = rect
+                                            coordinates.mediaScreenBounds()?.let { actionAnchorBounds = it }
                                         }
                                     }, onReply = if (swipeReplyAllowed) ::swipeReply else null,
                                     onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, onRetry = { retryFailedMessages(listItem.messages.filter { it.sendState == MessageSendState.Failed }.map { it.id }) },
@@ -2146,15 +2151,21 @@ fun ChatScreen(
                     val diceAnimationId = rememberDiceAnimationId(message.id, history.recentReplacements)
                     val launch = launchTargets[message.id]
                     val launchModifier = if (launch != null) Modifier.graphicsLayer { alpha = 0f } else Modifier
-                    val bubblePosition: (Rect) -> Unit = { rect ->
-                        bubbleBounds[message.id] = rect
-                        if (actionsId == message.id) actionAnchorBounds = rect
-                        launch?.let { target ->
-                            val fieldTop = composerFieldBounds?.top ?: Float.MAX_VALUE
-                            val screenTop = launchOverlayBounds?.top ?: 0f
-                            // Ignore prefetched or offscreen rows: the overlay must land on a bubble the user can see.
-                            if (rect.bottom <= fieldTop && rect.top >= screenTop && target.targetBounds != rect) {
-                                target.targetBounds = rect
+                    // Only an open action menu and an in-flight launch follow the bubble while the list moves. Other rows only
+                    // store their layout; the rectangle is computed when something reads it.
+                    val bubblePosition: (LayoutCoordinates) -> Unit = { coordinates ->
+                        bubbleCoordinates[message.id] = coordinates
+                        val inActionMenu = actionsId == message.id
+                        if (inActionMenu || launch != null) {
+                            val rect = coordinates.boundsInWindow()
+                            if (inActionMenu) actionAnchorBounds = rect
+                            launch?.let { target ->
+                                val fieldTop = composerFieldBounds?.top ?: Float.MAX_VALUE
+                                val screenTop = launchOverlayBounds?.top ?: 0f
+                                // Ignore prefetched or offscreen rows: the overlay must land on a bubble the user can see.
+                                if (rect.bottom <= fieldTop && rect.top >= screenTop && target.targetBounds != rect) {
+                                    target.targetBounds = rect
+                                }
                             }
                         }
                     }
@@ -2180,7 +2191,7 @@ fun ChatScreen(
                         ) {
                         Column(Modifier.fillMaxWidth()) {
                             DisposableEffect(message.id) {
-                                onDispose { bubbleBounds.remove(message.id) }
+                                onDispose { bubbleCoordinates.remove(message.id) }
                             }
                             val translationLanguage = translationLanguages[message.id]
                             val translationState = translationLanguage?.let { translationStates[message.id to it] }
@@ -2220,7 +2231,7 @@ fun ChatScreen(
                                     } else null,
                                     onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, riskGuard, ::requestBotWebApp, onOpenEntity = onOpenMessageEntity) },
                                 onBubblePositioned = bubblePosition,
-                                onMediaBounds = { rect -> mediaOrigins[message.id] = rect },
+                                onMediaBounds = { coordinates -> mediaCoordinates[message.id] = coordinates },
                                 translation = translationState,
                                 onTranslationRetry = { retryTranslation(message) },
                                 onTranslationCancel = { cancelTranslation(message.id) },
@@ -2772,7 +2783,7 @@ fun ChatScreen(
     val viewOnceAsked = viewed?.takeIf { viewOnceGate.needsConsent(chat.id, it.id, it.isViewOnce, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)) }
     if (viewOnceAsked != null) viewOnceGate.ConsentDialog(chat.id, viewOnceAsked.id) { selectedMediaId = null }
     if (viewed != null && viewed.media != null && viewOnceAsked == null) MediaViewer(
-        pages = viewOnceGate.swipeable(viewerPages, chat.id, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)), selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigins[viewed.id],
+        pages = viewOnceGate.swipeable(viewerPages, chat.id, viewed.id, conversation.interactionAllowed(InteractionEffect.OpenContent, chat.id)), selectedId = viewed.id, onSelect = { selectedMediaId = it }, originBounds = mediaOrigin(viewed.id),
         observeFile = observeFile, downloadFile = onDownloadFile,
         onViewed = { id ->
             val once = (messages.firstOrNull { it.id == id } ?: retainedViewOnce)?.isViewOnce == true
@@ -3395,9 +3406,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     /** Music link cards (Yandex Music) are drawn only where the caller turns them on: the chat list, not secret chats. */
     musicLinkCards: Boolean = false,
     waveAccountId: String? = null,
-    onBubblePositioned: ((Rect) -> Unit)? = null,
-    /** Reports the window bounds of a bubble that carries media, so the viewer can open from it. */
-    onMediaBounds: ((Rect) -> Unit)? = null,
+    onBubblePositioned: ((LayoutCoordinates) -> Unit)? = null,
+    /** Reports the layout of a bubble that carries media, so the viewer can open from it. */
+    onMediaBounds: ((LayoutCoordinates) -> Unit)? = null,
     translation: TranslationUiState? = null,
     onTranslationRetry: (() -> Unit)? = null,
     onTranslationCancel: (() -> Unit)? = null,
@@ -3492,8 +3503,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-                        .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it.boundsInWindow()) } else Modifier)
-                        .then(if (onMediaBounds != null && message.media != null) Modifier.onGloballyPositioned { it.mediaScreenBounds()?.let(onMediaBounds) } else Modifier)
+                        .then(if (onBubblePositioned != null) Modifier.onGloballyPositioned { onBubblePositioned(it) } else Modifier)
+                        .then(if (onMediaBounds != null && message.media != null) Modifier.onGloballyPositioned { onMediaBounds(it) } else Modifier)
                         .semantics {
                             if (selectionMode) {
                                 this.selected = selected
