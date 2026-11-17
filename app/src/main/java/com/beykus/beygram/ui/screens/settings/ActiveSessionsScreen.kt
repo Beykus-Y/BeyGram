@@ -508,6 +508,7 @@ private fun SessionRow(session: DeviceSession, onOpen: () -> Unit) {
  * The details of one session. It shows what the server recorded about the sign-in. Place and IP come from the
  * authorization and are labelled that way, never as the device's current location.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SessionDetailsSheet(
     session: DeviceSession,
@@ -621,6 +622,7 @@ private fun SessionDetailsSheet(
 }
 
 /** The inactivity limit, chosen from the usual periods. A value set elsewhere is listed too, as its own choice. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InactiveTtlSheet(
     currentDays: Int?,
