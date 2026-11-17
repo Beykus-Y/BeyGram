@@ -767,9 +767,12 @@ fun ChatScreen(
     val searchSenders = remember(messages, searching) { if (searching) chatSearchSenders(messages) else emptyList() }
     // Album grouping reads only the messages, so a pending video note does not regroup the whole loaded history.
     val waveChat = !chat.isGroup && !chat.isChannel && !chat.isSecret && !chat.isSavedMessages
-    val albumItems = remember(messages, waveChat) {
-        groupTelegramMediaAlbums(if (waveChat) messages.filterNot(::isBgWaveSignalMessage) else messages)
+    // Rows keep their instances across content-only updates, so untouched bubbles skip recomposition; see ChatTimelineGrouper.
+    val timelineGrouper = remember(chat.id, forumTopicId) { ChatTimelineGrouper() }
+    val timelineRows = remember(messages, waveChat, timelineGrouper) {
+        timelineGrouper.group(if (waveChat) messages.filterNot(::isBgWaveSignalMessage) else messages)
     }
+    val albumItems = timelineRows.items
     val visibleTextAttempts = remember(queuedTextAttempts, history) {
         visiblePendingTextAttempts(queuedTextAttempts, history)
     }
@@ -785,11 +788,12 @@ fun ChatScreen(
     val messageListItems = remember(rawMessageItems, scrollPosition.readBoundaryId) {
         scrollPosition.readBoundaryId?.let { withUnreadSeparator(rawMessageItems, it) } ?: rawMessageItems
     }
-    val daySeparators = remember(messageListItems, history.hasOlderMessages) {
+    // Keyed by the row structure, not the list: a content-only update leaves days and sender headers unchanged.
+    val daySeparators = remember(timelineRows.structureVersion, timelineGrouper, pendingVideoNotes, visibleTextAttempts, scrollPosition.readBoundaryId, history.hasOlderMessages) {
         chatDaySeparators(messageListItems, showOldestDay = !history.hasOlderMessages)
     }
     // In a private chat the peer is already named in the header; groups need the author once per block, not per bubble.
-    val senderHeaderByKey = remember(messageListItems, chat.isGroup, chat.isChannel, chat.isSavedMessages) {
+    val senderHeaderByKey = remember(timelineRows.structureVersion, timelineGrouper, pendingVideoNotes, visibleTextAttempts, scrollPosition.readBoundaryId, chat.isGroup, chat.isChannel, chat.isSavedMessages) {
         senderHeaderVisibility(chat, messageListItems)
     }
     val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
@@ -1256,9 +1260,6 @@ fun ChatScreen(
     var bottomChromePx by remember { mutableIntStateOf(0) }
     // With glass chrome the list also runs under the header and composer; those strips do not count as seen.
     val coveredByChrome by rememberUpdatedState(if (chatBackdrop != null) topChromePx to bottomChromePx else 0 to 0)
-    // The sent-message ids are rebuilt only when the history changes, not on every scroll frame of the receipt check.
-    val sentMessageIds = remember(messages) { messages.filter { it.sendState == MessageSendState.Sent }.mapTo(hashSetOf()) { it.id } }
-    val currentSentMessageIds by rememberUpdatedState(sentMessageIds)
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
     LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -1271,8 +1272,8 @@ fun ChatScreen(
                             maxOf(item.offset, layout.viewportStartOffset + coveredByChrome.second)
                         visible >= minOf(item.size / 2, minimumVisible).coerceAtLeast(1)
                     }.flatMap { visibleItem ->
-                        currentMessageItemsByKey[visibleItem.key as? String]?.messages.orEmpty().map { it.id }
-                    }.filter { it in currentSentMessageIds }.distinct().sorted()
+                        currentMessageItemsByKey[visibleItem.key as? String]?.messages.orEmpty().filter { it.sendState == MessageSendState.Sent }.map { it.id }
+                    }.distinct().sorted()
                 }
             }.debounce(350).distinctUntilChanged().collect { ids -> if (ids.isNotEmpty()) conversation.messagesVisible(chat.id, ids) }
         }
