@@ -21,14 +21,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.airbnb.lottie.LottieComposition
 import com.airbnb.lottie.compose.LottieAnimation
-import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.animateLottieCompositionAsState
-import com.airbnb.lottie.compose.rememberLottieComposition
 import com.beykus.beygram.R
 import com.beykus.beygram.data.media.AutoDownloadNetworkStatus
-import com.beykus.beygram.data.media.readTgsJson
+import com.beykus.beygram.data.media.TgsCompositionCache
 import com.beykus.beygram.data.settings.AutoDownloadSettingsStore
 import com.beykus.beygram.domain.model.AutoDownloadRequest
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -38,10 +37,7 @@ import com.beykus.beygram.domain.model.MessageMedia
 import com.beykus.beygram.playback.LocalPlaybackAccountId
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.rememberAutoplayEligible
-import java.io.File
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.withContext
 
 private val STICKER_SIZE = 160.dp
 internal const val TGS_MIME = "application/x-tgsticker"
@@ -154,39 +150,27 @@ private fun TgsAnimation(
     poster: (@Composable () -> Unit)?,
     fallback: @Composable () -> Unit
 ) {
-    val decoded by produceState<Result<String>?>(null, path) {
-        value = withContext(Dispatchers.IO) { runCatching { readTgsJson(File(path)) } }
+    // produceState keeps its previous value when path changes, so the producer always asks the cache instead of trusting
+    // the peeked value. A hit costs a file stat and a map lookup, and a rewritten file is parsed again.
+    val loaded by produceState<Result<LottieComposition>?>(TgsCompositionCache.peek(path)?.let { Result.success(it) }, path) {
+        value = TgsCompositionCache.load(path)
     }
-    val result = decoded
+    val result = loaded
     if (result == null) {
         if (poster != null) Box(modifier, contentAlignment = Alignment.Center) { poster() }
         return
     }
-    val json = result.getOrNull()
-    if (json != null) LottieSticker(json, modifier, playing, iterations, poster, fallback) else fallback()
+    val composition = result.getOrNull()
+    if (composition != null) LottieSticker(composition, modifier, playing, iterations) else fallback()
 }
 
 @Composable
 private fun LottieSticker(
-    json: String,
+    composition: LottieComposition,
     modifier: Modifier,
     playing: Boolean,
-    iterations: Int,
-    poster: (@Composable () -> Unit)?,
-    fallback: @Composable () -> Unit
+    iterations: Int
 ) {
-    val spec = remember(json) { LottieCompositionSpec.JsonString(json) }
-    val result = rememberLottieComposition(spec)
-    if (result.isFailure) {
-        fallback()
-        return
-    }
-    val composition = result.value
-    if (composition == null) {
-        // The composition is still being parsed; the poster keeps the place instead of an empty box.
-        if (poster != null) Box(modifier, contentAlignment = Alignment.Center) { poster() }
-        return
-    }
     val progress by animateLottieCompositionAsState(composition, isPlaying = playing, restartOnPlay = true, iterations = iterations)
     // Not playing means the first frame, so a paused sticker never keeps the frame it had when it left the screen.
     LottieAnimation(composition = composition, progress = { if (playing) progress else 0f }, modifier = modifier)
