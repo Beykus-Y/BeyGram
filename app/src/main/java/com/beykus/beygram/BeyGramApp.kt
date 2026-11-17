@@ -2123,9 +2123,13 @@ private fun BeyGramAppContent(
             val openPanelList: () -> Unit = { if (isCurrentForum()) { forumListRequested = true } }
             val selectPanelTopic: (com.beykus.beygram.domain.model.ForumTopic) -> Unit = { topic -> openTopic(topic) }
             val panelTopics = topics.orEmpty()
-            LaunchedEffect(topicPanelOpenPending, topics) {
+            LaunchedEffect(topicPanelOpenPending, topics, topicsLoading) {
                 if (topicPanelOpenPending) {
-                    val target = initialPanelTopicId(panelTopics, forumNavigation.lastTopic(forumChatId))
+                    val lastTopicId = forumNavigation.lastTopic(forumChatId)
+                    // The remembered topic may sit on a page that has not arrived yet: wait for it rather than
+                    // opening the first topic and overwriting the remembered one.
+                    if (lastTopicId > 0L && topicsLoading && panelTopics.none { it.id == lastTopicId }) return@LaunchedEffect
+                    val target = initialPanelTopicId(panelTopics, lastTopicId)
                     panelTopics.firstOrNull { it.id == target }?.let { openTopic(it) }
                 }
             }
