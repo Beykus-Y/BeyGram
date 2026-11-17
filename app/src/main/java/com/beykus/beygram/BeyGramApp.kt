@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -1925,13 +1926,15 @@ private fun BeyGramAppContent(
     // [twoPane] true when this chat is the right-hand pane of the wide layout. A chat that cannot be
     // resolved must not replace the whole tab there: the list is already beside it.
     val chatRoute: @Composable (Boolean) -> Unit = { twoPane ->
-        val chats by repository.chats.collectAsStateWithLifecycle()
-        val forwardArchivedChats by repository.archivedChats.collectAsStateWithLifecycle()
+        val chatsState = repository.chats.collectAsStateWithLifecycle()
+        val forwardArchivedChatsState = repository.archivedChats.collectAsStateWithLifecycle()
         val myAccount by repository.myProfile.collectAsStateWithLifecycle()
         val accountLabel = myAccount.info?.title?.takeIf { it.isNotBlank() } ?: myAccount.info?.phone.orEmpty()
         val selectedChat by remember(repository, selectedChatId) { repository.observeChat(selectedChatId) }.collectAsStateWithLifecycle()
         // The collected state can still hold the previous selection for a composition after a chat switch.
-        val chat = selectedChat?.takeIf { it.id == selectedChatId } ?: chats.firstOrNull { it.id == selectedChatId }
+        // The chat list is read only when the selected chat is missing, and recomposes only when the found chat changes.
+        val fallbackChat by remember(chatsState, selectedChatId) { derivedStateOf { chatsState.value.firstOrNull { it.id == selectedChatId } } }
+        val chat = selectedChat?.takeIf { it.id == selectedChatId } ?: fallbackChat
         // A secret or protected chat must not appear in screenshots or a screen recording.
         // The Activity owns the window flag; this effect only reports the current screen policy.
         val chatSecure = chat != null && (chat.isSecret || chat.hasProtectedContent)
@@ -2276,7 +2279,7 @@ private fun BeyGramAppContent(
                             history = prepared?.history ?: history,
                             preparedTimeline = prepared,
                             conversation = repository,
-                            chats = chats + forwardArchivedChats,
+                            chats = remember(chatsState, forwardArchivedChatsState) { { chatsState.value + forwardArchivedChatsState.value } },
                             observeFile = repository::observeFile,
                             onDownloadFile = repository::downloadFile,
                             onAutoDownloadFile = repository::autoDownloadFile,
