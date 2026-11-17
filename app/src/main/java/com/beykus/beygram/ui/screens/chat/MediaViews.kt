@@ -210,6 +210,25 @@ internal fun duration(seconds: Int) = "%d:%02d".format(seconds / 60, seconds % 6
 /** The visual state of the music bubble button, animated when the transport changes. */
 private enum class MusicCardPlayVisual { Play, Pause, Replay, Download, Loading }
 
+/** Status line under the track title. Only this line reads the download counter, so the card does not recompose per tick. */
+@Composable
+private fun MusicCardStatusLine(status: MusicPlaybackStatus, raw: State<MediaFileState>) {
+    val palette = beyGramPalette()
+    val progress = if (status == MusicPlaybackStatus.Downloading) raw.value.downloadProgress else 0f
+    val text = musicCardStatusText(status, progress) ?: return
+    Text(
+        text,
+        color = when (status) {
+            MusicPlaybackStatus.Failed, MusicPlaybackStatus.Unavailable -> palette.danger
+            MusicPlaybackStatus.Playing -> palette.accentInk
+            else -> palette.textSecondary
+        },
+        fontSize = 11.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
 /** Actual played fraction in the bubble; a leaf so the card does not read the 250 ms state stream itself. */
 @Composable
 private fun MusicCardProgress() {
@@ -427,11 +446,13 @@ private data class AudioPlaybackSource(val path: String, val growing: GrowingPla
 @Composable
 private fun rememberAudioPlaybackSource(
     media: MessageMedia,
-    file: MediaFileState,
+    readFile: () -> MediaFileState,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit
 ): AudioPlaybackSource? {
     if (media.kind != MediaKind.Audio && media.kind != MediaKind.Voice) return null
+    // Read after the kind check: the progressive path needs the byte counters, other kinds must not subscribe to them.
+    val file = readFile()
     file.localPath?.let { return AudioPlaybackSource(it, null) }
     val path = file.downloadPath ?: return null
     if (file.size <= 0L || file.downloadedPrefixBytes <= 0L) return null
@@ -500,9 +521,12 @@ internal fun MediaPreview(
     /** Selection mode is on: a tap on the bubble selects the message instead of opening it. */
     selectionActive: Boolean = false,
 ) {
-    val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
+    // The bubble reads [file] and [thumb] without byte counters; progress is read only in deferred lambdas through the handles.
     val thumbId = media.thumbnailFileId ?: media.fileId
-    val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
+    val fileHandle = rememberMediaFile(media.fileId, observeFile)
+    val file by fileHandle.content
+    val thumbHandle = rememberMediaFile(thumbId, observeFile)
+    val thumb by thumbHandle.content
     var revealed by remember(media.fileId) { mutableStateOf(!media.hasSpoiler) }
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -556,7 +580,7 @@ internal fun MediaPreview(
     }
     // Музыка играет в общем плеере. Тап запускает файл или ставит на паузу; если файл ещё не загружен, сначала грузит его.
     val audioTitle = media.kind.label(context)
-    val audioSource = rememberAudioPlaybackSource(media, file, observeFile, downloadFile)
+    val audioSource = rememberAudioPlaybackSource(media, { fileHandle.raw.value }, observeFile, downloadFile)
     val audioPath = audioSource?.path
     val partialGrowing = audioSource?.growing
     // Голосовое ждёт загрузки в своём пузыре, поэтому здесь ожидание относится только к музыке.
@@ -693,7 +717,7 @@ internal fun MediaPreview(
                 )
             }
             if (file.isDownloading || file.isUploading) LinearProgressIndicator(
-                progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+                progress = { fileHandle.raw.value.transferProgress() },
                 modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
             )
         }
@@ -714,10 +738,6 @@ internal fun MediaPreview(
             duration(media.durationSeconds).takeIf { media.durationSeconds > 0 },
             formatMediaSize(file.size).takeIf { it.isNotBlank() }
         ).joinToString(" · ")
-        val statusText = musicCardStatusText(
-            status = status,
-            downloadProgress = file.downloadProgress
-        )
         val playLabel = when {
             status == MusicPlaybackStatus.Downloading || status == MusicPlaybackStatus.NotDownloaded ->
                 stringResource(R.string.music_card_play_download)
@@ -772,26 +792,17 @@ internal fun MediaPreview(
                     if (artist.isNotBlank() && meta.isNotBlank()) {
                         Text(meta, color = palette.textSecondary, fontSize = 11.sp, maxLines = 1)
                     }
-                    if (statusText != null) {
+                    // musicCardStatusText is null only for Ready.
+                    if (status != MusicPlaybackStatus.Ready) {
                         if (artist.isNotBlank() && meta.isNotBlank()) {
                             Text(" · ", color = palette.textSecondary, fontSize = 11.sp)
                         }
-                        Text(
-                            statusText,
-                            color = when (status) {
-                                MusicPlaybackStatus.Failed, MusicPlaybackStatus.Unavailable -> palette.danger
-                                MusicPlaybackStatus.Playing -> palette.accentInk
-                                else -> palette.textSecondary
-                            },
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        MusicCardStatusLine(status, fileHandle.raw)
                     }
                 }
                 if (file.isDownloading || file.isUploading) {
                     LinearProgressIndicator(
-                        progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+                        progress = { fileHandle.raw.value.transferProgress() },
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                     )
                 } else if (card.isCurrent) {
@@ -859,21 +870,22 @@ internal fun MediaPreview(
     } else if (isBgMusicDocument(media)) {
         BgMusicChatDocument(
             media = media,
-            file = file,
+            file = fileHandle.raw.value,
             downloadFile = downloadFile,
             selectionActive = selectionActive,
             onOpen = onOpen,
             onLongPress = onLongPress,
-            fallback = { DocumentRow(media, file, onOpen, onLongPress) },
+            fallback = { DocumentRow(media, fileHandle, onOpen, onLongPress) },
         )
     } else {
-        DocumentRow(media, file, onOpen, onLongPress)
+        DocumentRow(media, fileHandle, onOpen, onLongPress)
     }
 }
 
 /** A file in the chat bubble: its name, size and download progress. The row is opened through [onOpen]. */
 @Composable
-private fun DocumentRow(media: MessageMedia, file: MediaFileState, onOpen: () -> Unit, onLongPress: (() -> Unit)?) {
+private fun DocumentRow(media: MessageMedia, fileHandle: MediaFileHandle, onOpen: () -> Unit, onLongPress: (() -> Unit)?) {
+    val file by fileHandle.content
     val context = LocalContext.current
     val palette = beyGramPalette()
     val mediaLabel = media.kind.label(context)
@@ -891,7 +903,7 @@ private fun DocumentRow(media: MessageMedia, file: MediaFileState, onOpen: () ->
             Text(formatMediaSize(file.size) + if (media.durationSeconds > 0) " · " + duration(media.durationSeconds) else "",
                 color = palette.textSecondary, fontSize = 13.sp)
             if (file.isDownloading || file.isUploading) LinearProgressIndicator(
-                progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+                progress = { fileHandle.raw.value.transferProgress() },
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
         }
     }
@@ -1436,7 +1448,7 @@ private fun MediaViewerPage(
             }
         )
     } else null
-    val audioSource = rememberAudioPlaybackSource(media, file, observeFile, downloadFile)
+    val audioSource = rememberAudioPlaybackSource(media, { file }, observeFile, downloadFile)
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val path = file.localPath
         // Keep the already playing progressive source when TDLib completes the same file path.

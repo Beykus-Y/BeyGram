@@ -302,9 +302,12 @@ private fun AlbumMediaTile(
     val spoilerLabel = stringResource(R.string.media_spoiler_hint)
     val openLabel = stringResource(R.string.a11y_media_open, mediaLabel)
     val longPressLabel = stringResource(R.string.a11y_message_actions)
-    val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
+    // Only the progress indicator reads byte counters, through the handle.
+    val fileHandle = rememberMediaFile(media.fileId, observeFile)
+    val file by fileHandle.content
     val thumbId = media.thumbnailFileId ?: media.fileId
-    val thumb by remember(thumbId) { observeFile(thumbId) }.collectAsStateWithLifecycle()
+    val thumbHandle = rememberMediaFile(thumbId, observeFile)
+    val thumb by thumbHandle.content
     val accountId = LocalPlaybackAccountId.current
     val policySettings by remember(context, accountId) {
         AutoDownloadSettingsStore.getInstance(context.applicationContext, accountId).settings
@@ -356,7 +359,7 @@ private fun AlbumMediaTile(
         if (media.durationSeconds > 0) Text(duration(media.durationSeconds), color = Color.White, fontSize = 11.sp,
             modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).background(Color.Black.copy(alpha = 0.55f), styledShape(5.dp)).padding(horizontal = 4.dp, vertical = 2.dp))
         if (file.isDownloading || file.isUploading) LinearProgressIndicator(
-            progress = { if (file.isUploading) file.uploadProgress else file.downloadProgress },
+            progress = { fileHandle.raw.value.transferProgress() },
             modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
         )
     }

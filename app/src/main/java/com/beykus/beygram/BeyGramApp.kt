@@ -132,6 +132,8 @@ import com.beykus.beygram.ui.motion.rememberRouteTransitionSpec
 import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.screens.chat.ChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.ChatScreen
+import com.beykus.beygram.ui.screens.chat.isWaveChat
+import com.beykus.beygram.ui.screens.chat.preparedTimeline
 import com.beykus.beygram.ui.screens.chat.LocalChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.LocalAutoDownloadFile
 import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
@@ -2179,13 +2181,20 @@ private fun BeyGramAppContent(
                     LaunchedEffect(route, commentsOpen) {
                         if (route == AppRoute.MessageThread && !commentsOpen) routeName = AppRoute.Chat.name
                     }
+                    // The timeline rows of the history are grouped off the main thread. The state lives in this key block,
+                    // because a collected state keeps its old value: a chat switch must not show the previous chat's rows.
+                    val waveChatFlag = isWaveChat(chat)
+                    val preparedFlow = remember(historyFlow, waveChatFlag) { historyFlow.preparedTimeline(waveChatFlag) }
+                    val prepared by preparedFlow.collectAsStateWithLifecycle(initialValue = null)
                     ChatScreen(
                         chat = chat,
                         accountId = selectedAccountId,
                         accountLabel = accountLabel,
                         info = chatInfo.info,
                         lastSeenStyle = lastSeenStyle,
-                        history = history,
+                        // Rows and history come from the same snapshot; the raw history is used only until the first one is ready.
+                        history = prepared?.history ?: history,
+                        preparedTimeline = prepared,
                         conversation = repository,
                         chats = chats + forwardArchivedChats,
                         observeFile = repository::observeFile,

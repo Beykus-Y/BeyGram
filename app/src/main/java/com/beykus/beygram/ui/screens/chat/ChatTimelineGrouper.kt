@@ -1,9 +1,16 @@
 package com.beykus.beygram.ui.screens.chat
 
 import com.beykus.beygram.domain.model.ChatMessage
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Rows of the feed plus a counter that changes only when the row structure changes. */
 internal class TimelineRows(val items: List<ChatMessageListItem>, val structureVersion: Int)
+
+/**
+ * Source of [TimelineRows.structureVersion] for every grouper. Rows can come from two groupers (the screen and the
+ * background preparation), and day separators are keyed on the version, so a number must never repeat across them.
+ */
+private val structureVersions = AtomicInteger()
 
 /**
  * The fields that decide where a message sits in the feed and how its row looks around it: grouping into albums,
@@ -16,7 +23,8 @@ internal fun sameTimelinePlace(a: ChatMessage, b: ChatMessage): Boolean =
 
 /**
  * Keeps the feed rows between history updates. A content-only update replaces just the rows that hold a changed
- * message, so the other rows keep their instances and Compose skips them. Not thread-safe: composition only.
+ * message, so the other rows keep their instances and Compose skips them. Not thread-safe: one caller at a time. Each
+ * caller, such as the composition or one background collection, uses its own instance.
  */
 internal class ChatTimelineGrouper {
     private var lastMessages: List<ChatMessage>? = null
@@ -70,7 +78,7 @@ internal class ChatTimelineGrouper {
         for (index in items.indices) {
             for (member in items[index].messages) rowIndexById[member.id] = index
         }
-        return TimelineRows(items, lastRows.structureVersion + 1)
+        return TimelineRows(items, structureVersions.incrementAndGet())
     }
 
     private fun sameMembers(old: List<ChatMessage>, fresh: List<ChatMessage>): Boolean =
