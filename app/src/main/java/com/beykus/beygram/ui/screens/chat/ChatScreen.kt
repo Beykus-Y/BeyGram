@@ -1726,7 +1726,9 @@ fun ChatScreen(
             DelayedSendRoute.Hold -> { sendWaitingForDelay = HeldDelayedSend(effectiveOptions, composerDraft); return }
             DelayedSendRoute.Queue -> {
                 // Only the text that was stored leaves the composer: text typed while the write ran stays.
-                delayed.enqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { current -> draftAfterDelayedQueue(current, storedText = draft) } })
+                // Snapshot now: draft is a live derived state, and the callback runs after the write.
+                val storedText = draft
+                delayed.enqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { current -> draftAfterDelayedQueue(current, storedText = storedText) } })
                 return
             }
             DelayedSendRoute.SendNow -> Unit
