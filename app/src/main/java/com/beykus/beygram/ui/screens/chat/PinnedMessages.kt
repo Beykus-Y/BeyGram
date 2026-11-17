@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.screens.chat
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.design.panelFill
 import com.beykus.beygram.ui.design.PanelFloor
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -13,9 +14,13 @@ import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,7 +62,7 @@ internal fun PinnedMessagesBar(
     forumTopicId: Long = 0L,
     /** Reports whether the preview row is drawn, so the header can give its bottom hairline to this row. */
     onPreviewShownChange: (Boolean) -> Unit = {},
-    /** A short window: one line of 36 dp (icon, counter, text, list) instead of the two-line 55 dp strip. */
+    /** A short window: tighter vertical padding. */
     compact: Boolean = false
 ) {
     val version by remember(conversation, chatId) { conversation.observePinnedMessagesVersion(chatId) }.collectAsStateWithLifecycle()
@@ -120,29 +125,43 @@ internal fun PinnedMessagesBar(
         val rowFill = if (design.components.topBar == TopBarVariant.Glass) design.surfaces.panelFill(palette.surface, PanelFloor.Bar) else palette.surface
         // Signature keeps the pin in ink: the accent is reserved for actions and unread marks there.
         val pinTint = if (design.components.topBar == TopBarVariant.Signature) palette.textPrimary else palette.accent
-        val position = stringResource(R.string.chat_pinned_position, index + 1, total.coerceAtLeast(pins.size))
+        val pinTotal = total.coerceAtLeast(pins.size)
+        val position = stringResource(R.string.chat_pinned_position, index + 1, pinTotal)
+        val previewText = pinnedPreview(shown)
+        // Indicator: at most 4 segments, newest pin at the bottom. Beyond 4 pins, the shown pin picks a slot by its place in the list.
+        val segments = minOf(pinTotal, 4)
+        val slot = if (pinTotal > 4) (index * 4 / pinTotal).coerceIn(0, 3) else index
+        val highlighted = segments - 1 - slot
         Row(Modifier.fillMaxWidth().chatChromeBackground(rowFill), verticalAlignment = Alignment.CenterVertically) {
             Row(
-                Modifier.weight(1f).clickable { onOpen(shown) }
-                    .padding(horizontal = 14.dp, vertical = if (compact) 4.dp else 8.dp),
+                Modifier.weight(1f)
+                    .semantics(mergeDescendants = true) { contentDescription = position + ", " + previewText }
+                    .clickable { onOpen(shown) }
+                    .padding(horizontal = 14.dp, vertical = if (compact) 2.dp else 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Rounded.PushPin, null, tint = pinTint, modifier = Modifier.size(if (compact) 18.dp else 20.dp))
-                Spacer(Modifier.width(10.dp))
-                if (compact) {
-                    Text(position, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    Spacer(Modifier.width(8.dp))
-                    Text(pinnedPreview(shown), color = palette.textPrimary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                } else {
-                    Column(Modifier.weight(1f)) {
-                        Text(position, color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(pinnedPreview(shown), color = palette.textPrimary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (pinTotal > 1) {
+                    Canvas(Modifier.size(width = 2.dp, height = 20.dp)) {
+                        val gap = 2.dp.toPx()
+                        val segmentHeight = (size.height - gap * (segments - 1)) / segments
+                        repeat(segments) { i ->
+                            drawRoundRect(
+                                color = if (i == highlighted) pinTint else pinTint.copy(alpha = 0.3f),
+                                topLeft = Offset(0f, i * (segmentHeight + gap)),
+                                size = Size(size.width, segmentHeight),
+                                cornerRadius = CornerRadius(size.width / 2f)
+                            )
+                        }
                     }
+                    Spacer(Modifier.width(8.dp))
                 }
-                if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                Icon(Icons.Rounded.PushPin, null, tint = pinTint, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(previewText, color = palette.textPrimary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (loading) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
             }
-            IconButton(onClick = { expanded = true }, modifier = if (compact) Modifier.size(36.dp) else Modifier) {
-                Icon(Icons.Rounded.List, stringResource(R.string.chat_pinned_list), tint = pinTint)
+            IconButton(onClick = { expanded = true }, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Rounded.List, stringResource(R.string.chat_pinned_list), tint = pinTint, modifier = Modifier.size(20.dp))
             }
         }
         HorizontalDivider(color = palette.divider)

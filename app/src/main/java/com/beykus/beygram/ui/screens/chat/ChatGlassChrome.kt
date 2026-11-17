@@ -3,7 +3,13 @@ package com.beykus.beygram.ui.screens.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -38,7 +44,7 @@ internal fun Modifier.chatChromeBackground(color: Color): Modifier =
 /**
  * The chat's header stack (top) or composer stack (bottom). In the Liquid Glass style it is one pane of glass that the
  * message list scrolls under, sampling [backdrop] (wallpaper and bubbles, recorded for this screen only). In every other
- * style it is a plain column, so nothing changes for them.
+ * style it is a plain column, so nothing changes for them. The top stack covers the status bar and pads its content below it.
  */
 @Composable
 internal fun ChatChromeHost(
@@ -49,9 +55,16 @@ internal fun ChatChromeHost(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val palette = beyGramPalette()
+    // The top stack's background covers the status bar; its content starts below the top safe inset.
+    val statusBarSpacer: @Composable ColumnScope.() -> Unit = {
+        if (edge == GlassEdge.BottomHairline) Spacer(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
+    }
     if (!glass) {
         // The top stack is drawn above the message list, so a header shadow (Material 2) is not painted over by it.
-        Column(Modifier.fillMaxWidth().zIndex(if (edge == GlassEdge.BottomHairline) 1f else 0f), content = content)
+        Column(Modifier.fillMaxWidth().zIndex(if (edge == GlassEdge.BottomHairline) 1f else 0f)) {
+            statusBarSpacer()
+            content()
+        }
         return
     }
     if (edge == GlassEdge.TopHairline) {
@@ -82,7 +95,10 @@ internal fun ChatChromeHost(
             modifier = Modifier.fillMaxWidth().zIndex(1f).onSizeChanged { onHeight(it.height) }
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
         ) {
-            Column(Modifier.fillMaxWidth(), content = content)
+            Column(Modifier.fillMaxWidth()) {
+                statusBarSpacer()
+                content()
+            }
         }
     }
 }
