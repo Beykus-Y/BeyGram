@@ -23,7 +23,7 @@
     <string name="forum_delete_confirm">Thema %1$s und seine Nachrichten löschen? Dies kann nicht rückgängig gemacht werden.</string>
     <string name="forum_manage">Thema verwalten</string>
     <string name="forum_pin">Thema anpinnen</string>
-    <string name="forum_rename">Thema umbenennen</string>
+    <string name="forum_edit">Thema bearbeiten</string>
     <string name="forum_reopen">Thema erneut öffnen</string>
     <string name="forum_topic_closed">Thema geschlossen</string>
     <string name="forum_topic_history_hint">Thema öffnen, um seinen Verlauf anzuzeigen</string>
@@ -87,4 +87,12 @@
     <string name="forum_topic_general">Allgemeines Thema</string>
     <string name="forum_topic_in_group">in %1$s</string>
     <string name="forum_topic_preview_sender">%1$s: %2$s</string>
+    <string name="forum_editor_color">Farbe</string>
+    <string name="forum_editor_icon">Symbol</string>
+    <string name="forum_editor_no_icon">Ohne Symbol</string>
+    <string name="forum_editor_icons_loading">Symbole werden geladen…</string>
+    <string name="forum_editor_icons_failed">Symbole konnten nicht geladen werden</string>
+    <string name="forum_editor_name_placeholder">Themenname</string>
+    <string name="forum_editor_color_n">Farbe %1$d</string>
+    <string name="forum_editor_icon_n">Symbol %1$d</string>
 </resources>

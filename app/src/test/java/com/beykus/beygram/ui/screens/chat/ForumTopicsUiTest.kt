@@ -102,8 +102,9 @@ class ForumTopicsUiTest {
                     onBack = {},
                     onOpenGroupInfo = {},
                     onTopic = {},
-                    onCreate = { _, done -> done(null) },
-                    onRename = { _, _, done -> done(null) },
+                    onCreate = { _, _, done -> done(null) },
+                    onEdit = { _, _, _, done -> done(null) },
+                    loadDefaultIcons = { Result.success(emptyList()) },
                     onClosed = { _, _ -> },
                     onPinned = { _, _ -> },
                     onDelete = {}

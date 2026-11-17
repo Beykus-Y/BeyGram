@@ -50,7 +50,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -90,6 +89,8 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.ForumTopic
+import com.beykus.beygram.domain.model.ForumTopicDefaultColor
+import com.beykus.beygram.domain.model.ForumTopicIcon
 import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.domain.model.ProfileInfo
@@ -117,9 +118,6 @@ import kotlinx.coroutines.flow.StateFlow
 
 /** Debounce of the topic search; typing a name must not fire a TDLib request per keystroke. */
 private const val ForumTopicSearchDelayMillis = 280L
-
-/** TDLib's createForumTopic and editForumTopic both accept at most 128 code points in a name. */
-private const val ForumTopicNameLimit = 128
 
 private sealed interface TopicSearchState {
     data object Idle : TopicSearchState
@@ -235,9 +233,11 @@ fun ForumTopicsScreen(
     onBack: () -> Unit,
     onOpenGroupInfo: () -> Unit,
     onTopic: (ForumTopic) -> Unit,
-    /** Reports null on success or a user-visible error while keeping the dialog and its input open. */
-    onCreate: (String, (String?) -> Unit) -> Unit,
-    onRename: (ForumTopic, String, (String?) -> Unit) -> Unit,
+    /** Reports null on success or a user-visible error while keeping the editor and its input open. */
+    onCreate: (String, ForumTopicIcon, (String?) -> Unit) -> Unit,
+    /** The custom emoji id is null when the icon is left as it is; 0 removes the custom emoji. */
+    onEdit: (ForumTopic, String, Long?, (String?) -> Unit) -> Unit,
+    loadDefaultIcons: suspend () -> Result<List<Long>>,
     onClosed: (ForumTopic, Boolean) -> Unit,
     onPinned: (ForumTopic, Boolean) -> Unit,
     onDelete: (ForumTopic) -> Unit,
@@ -253,11 +253,13 @@ fun ForumTopicsScreen(
     var unreadOnly by rememberSaveable(accountId, chatId) { mutableStateOf(false) }
     var creating by rememberSaveable(accountId, chatId) { mutableStateOf(false) }
     var name by rememberSaveable(accountId, chatId) { mutableStateOf("") }
+    var colorArgb by rememberSaveable(accountId, chatId) { mutableStateOf(ForumTopicDefaultColor) }
+    var iconEmojiId by rememberSaveable(accountId, chatId) { mutableStateOf(0L) }
     var editing by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
     var deleting by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
     var managing by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
     var submitting by remember(accountId, chatId) { mutableStateOf(false) }
-    var dialogError by remember(accountId, chatId) { mutableStateOf<String?>(null) }
+    var editorError by remember(accountId, chatId) { mutableStateOf<String?>(null) }
     var searchAttempt by remember(accountId, chatId) { mutableIntStateOf(0) }
     var searchState by remember(accountId, chatId) { mutableStateOf<TopicSearchState>(TopicSearchState.Idle) }
     var searchDebouncing by remember(accountId, chatId) { mutableStateOf(false) }
@@ -334,8 +336,10 @@ fun ForumTopicsScreen(
     val back: () -> Unit = { if (searchOpen || normalizedQuery.isNotEmpty()) closeSearch() else onBack() }
     val openCreate: () -> Unit = {
         name = ""
+        colorArgb = ForumTopicDefaultColor
+        iconEmojiId = 0L
         editing = null
-        dialogError = null
+        editorError = null
         creating = true
     }
     val manageTopic: (ForumTopic) -> Unit = { topic ->
@@ -489,60 +493,53 @@ fun ForumTopicsScreen(
     }
 
     if (creating || editing != null) {
-        val nameLength = name.codePointCount(0, name.length)
-        val dismissDialog = {
+        val target = editing
+        val dismissEditor = {
             if (!busy && !submitting) {
                 creating = false
                 editing = null
             }
         }
-        BeyGramDialog(
-            onDismissRequest = dismissDialog,
-            title = stringResource(if (creating) R.string.forum_create else R.string.forum_rename),
-            content = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it; dialogError = null },
-                        singleLine = true,
-                        label = { Text(stringResource(R.string.forum_topic_name)) },
-                        isError = nameLength > ForumTopicNameLimit,
-                        supportingText = {
-                            Text(stringResource(R.string.forum_topic_name_counter, nameLength, ForumTopicNameLimit))
-                        }
-                    )
-                    if (dialogError != null) {
-                        Text(
-                            dialogError.orEmpty(),
-                            color = palette.danger,
-                            fontSize = 13.sp,
-                            modifier = Modifier.errorAnnouncement()
-                        )
-                    }
-                }
+        ForumTopicEditorSheet(
+            topic = target,
+            name = name,
+            onNameChange = {
+                name = it
+                editorError = null
             },
-            confirmText = stringResource(R.string.common_save),
-            confirmEnabled = !busy && !submitting && name.isNotBlank() && nameLength <= ForumTopicNameLimit,
-            onConfirm = {
-                dialogError = null
+            colorArgb = colorArgb,
+            onColorChange = { colorArgb = it },
+            iconEmojiId = iconEmojiId,
+            onIconChange = { iconEmojiId = it },
+            loadDefaultIcons = loadDefaultIcons,
+            observeFile = observeFile,
+            downloadFile = downloadFile,
+            observeCustomEmoji = observeCustomEmoji,
+            busy = busy,
+            submitting = submitting,
+            error = editorError,
+            onSave = {
+                editorError = null
                 submitting = true
                 val done: (String?) -> Unit = { error ->
                     submitting = false
                     if (error == null) {
-                        // A rename changes the row in an open search result; reload it once the server accepted it.
-                        if (!creating) searchAttempt++
+                        // An edit changes the row in an open search result; reload it once the server accepted it.
+                        if (target != null) searchAttempt++
                         creating = false
                         editing = null
                     } else {
-                        // Keep the dialog and the typed name: a failed save must not throw away the user's input.
-                        dialogError = error
+                        // Keep the editor and the typed input: a failed save must not throw away the user's work.
+                        editorError = error
                     }
                 }
-                if (creating) onCreate(name.trim(), done) else editing?.let { onRename(it, name.trim(), done) }
+                if (target == null) {
+                    onCreate(name.trim(), ForumTopicIcon(colorArgb = colorArgb, customEmojiId = iconEmojiId), done)
+                } else {
+                    onEdit(target, name.trim(), forumTopicIconUpdate(target, iconEmojiId), done)
+                }
             },
-            dismissText = stringResource(R.string.common_cancel),
-            onDismiss = dismissDialog,
-            dismissEnabled = !busy && !submitting
+            onDismiss = dismissEditor
         )
     }
 
@@ -572,12 +569,13 @@ fun ForumTopicsScreen(
             if (topic.canManage) {
                 SheetActionRow(
                     icon = Icons.Rounded.Edit,
-                    title = stringResource(R.string.forum_rename),
+                    title = stringResource(R.string.forum_edit),
                     enabled = !busy,
                     onClick = {
                         managing = null
                         name = topic.title
-                        dialogError = null
+                        iconEmojiId = topic.icon?.customEmojiId ?: 0L
+                        editorError = null
                         creating = false
                         editing = topic
                     }

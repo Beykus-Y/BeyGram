@@ -45,6 +45,7 @@ import com.beykus.beygram.domain.model.MessageTranslation
 import com.beykus.beygram.domain.model.MessageContext
 import com.beykus.beygram.domain.model.MessageThread
 import com.beykus.beygram.domain.model.MessageThreadPage
+import com.beykus.beygram.domain.model.ForumTopicIcon
 import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.MessageLimits
@@ -451,8 +452,9 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override suspend fun forumTopicsPage(chatId: Long, query: String, onPage: (ForumTopicsPage) -> Unit): Result<ForumTopicsPage?> = unavailable()
     override suspend fun canCreateForumTopic(chatId: Long): Result<Boolean> = unavailable()
-    override suspend fun createForumTopic(chatId: Long, name: String): Result<Long> = unavailable()
-    override suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit> = unavailable()
+    override suspend fun createForumTopic(chatId: Long, name: String, icon: ForumTopicIcon): Result<Long> = unavailable()
+    override suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit> = unavailable()
+    override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = unavailable()
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = unavailable()
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = unavailable()
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = unavailable()

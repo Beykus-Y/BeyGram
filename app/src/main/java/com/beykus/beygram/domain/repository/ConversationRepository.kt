@@ -134,8 +134,19 @@ interface ConversationRepository {
      */
     suspend fun forumTopicsPage(chatId: Long, query: String = "", onPage: (ForumTopicsPage) -> Unit = {}): Result<ForumTopicsPage?>
     suspend fun canCreateForumTopic(chatId: Long): Result<Boolean>
-    suspend fun createForumTopic(chatId: Long, name: String): Result<Long>
-    suspend fun renameForumTopic(chatId: Long, forumTopicId: Long, name: String): Result<Unit>
+    /** [icon] carries the new topic's colour, which Telegram limits to a fixed set, and its optional custom emoji. */
+    suspend fun createForumTopic(
+        chatId: Long,
+        name: String,
+        icon: ForumTopicIcon = ForumTopicIcon(colorArgb = ForumTopicDefaultColor)
+    ): Result<Long>
+    /**
+     * Renames a topic. A null [iconCustomEmojiId] leaves the icon as it is; 0 removes the custom emoji and any other id
+     * sets it. The colour of an existing topic cannot change.
+     */
+    suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit>
+    /** Custom emoji ids of Telegram's default topic icons. They are the same for every account and need no Premium. */
+    suspend fun forumTopicDefaultIcons(): Result<List<Long>>
     suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit>
     suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit>
     suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>

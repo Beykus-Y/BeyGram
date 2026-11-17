@@ -10,6 +10,15 @@ data class ForumTopicIcon(
     val hasCustomEmoji: Boolean get() = customEmojiId != 0L
 }
 
+/** The colours Telegram offers for a new topic icon, as 0xRRGGBB. TDLib refuses any other colour when a topic is created. */
+val ForumTopicCreationColors: List<Int> = listOf(0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2, 0xFB6F5F)
+
+/** The blue every new topic has used so far; it is also the colour that a rejected creation colour falls back to. */
+const val ForumTopicDefaultColor: Int = 0x6FB9F0
+
+/** The creation colour to send: [rgb] when Telegram offers it, otherwise [ForumTopicDefaultColor]. */
+internal fun forumTopicCreationColor(rgb: Int): Int = if (rgb in ForumTopicCreationColors) rgb else ForumTopicDefaultColor
+
 /**
  * The newest message known for a topic. Its preview uses the same rules as the main chat list, so
  * media, files, stickers, voice notes and service events are not reduced to bare text.
