@@ -9,14 +9,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import com.beykus.beygram.R
 import com.beykus.beygram.ui.components.BeyGramDialog
+import kotlinx.coroutines.CompletableDeferred
 
 /** A risky action waits for the user's confirmation while hidden presence warns about them and this screen has not confirmed one. */
 internal fun stealthRiskNeedsConfirmation(warns: Boolean, confirmed: Boolean): Boolean = warns && !confirmed
 
 /**
- * Asks before a reaction, a poll vote or a bot button press while online status is hidden and warnings are on. Telegram can show
- * the account online for a short while after any of them, and stealth scheduling does not cover them. Asked once per screen: after
- * the user confirms, the risky actions that follow on that screen run without asking until the screen is opened again.
+ * Asks before a reaction, a poll vote, a poll stop, a poll option added or a bot button press while online status is hidden and
+ * warnings are on. Telegram can show the account online for a short while after any of them, and stealth scheduling does not cover
+ * them. Asked once per screen: after the user confirms, the risky actions that follow on that screen run without asking until the
+ * screen is opened again.
  */
 internal class StealthRiskGuard(private val warns: () -> Boolean) {
     private var confirmed by mutableStateOf(false)
@@ -26,6 +28,8 @@ internal class StealthRiskGuard(private val warns: () -> Boolean) {
     /** Runs [action] at once, or after the user confirms the question. [onCancel] undoes what the caller staged for it. */
     fun run(onCancel: () -> Unit = {}, action: () -> Unit) {
         if (stealthRiskNeedsConfirmation(warns(), confirmed)) {
+            // A newer action replaces the question on screen: cancel the older waiter so it is not lost.
+            if (pending != null) pendingCancel()
             pending = action
             pendingCancel = onCancel
         } else {
@@ -36,6 +40,20 @@ internal class StealthRiskGuard(private val warns: () -> Boolean) {
     private fun cancel() {
         pending = null
         pendingCancel().also { pendingCancel = {} }
+    }
+
+    /** Suspends until the user answers; true when the action may run. Used by actions that must wait for the answer, such as adding a poll option from its own dialog. */
+    suspend fun confirm(): Boolean {
+        if (!stealthRiskNeedsConfirmation(warns(), confirmed)) return true
+        val answer = CompletableDeferred<Boolean>()
+        val onAnswer: () -> Unit = { answer.complete(true) }
+        run(onCancel = { answer.complete(false) }, action = onAnswer)
+        try {
+            return answer.await()
+        } finally {
+            // The caller went away before the user answered: drop the question it left open.
+            if (!answer.isCompleted && pending === onAnswer) { pending = null; pendingCancel = {} }
+        }
     }
 
     @Composable
