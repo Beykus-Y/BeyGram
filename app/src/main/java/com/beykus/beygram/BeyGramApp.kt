@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
@@ -141,6 +142,9 @@ import com.beykus.beygram.ui.screens.chat.MessageThreadScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsLoadingScreen
 import com.beykus.beygram.ui.screens.chat.ForumTopicsFailureScreen
+import com.beykus.beygram.ui.screens.chat.ForumTopicRailPane
+import com.beykus.beygram.ui.screens.chat.ForumTopicTabStrip
+import com.beykus.beygram.ui.screens.chat.initialPanelTopicId
 import com.beykus.beygram.ui.screens.chats.ChatsScreen
 import com.beykus.beygram.ui.screens.chats.ChatsDetailPlaceholder
 import com.beykus.beygram.ui.screens.chats.ChatsTwoPaneScaffold
@@ -211,6 +215,8 @@ import com.beykus.beygram.data.motion.MotionSettingsStore
 import com.beykus.beygram.data.settings.ChatAnimationSettingsStore
 import com.beykus.beygram.data.settings.ChatOverridesStore
 import com.beykus.beygram.data.settings.DelayedSendSettingsStore
+import com.beykus.beygram.data.settings.ForumNavigationMode
+import com.beykus.beygram.data.settings.ForumNavigationStore
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.appearance.AppearanceConfig
 import com.beykus.beygram.data.presence.LastSeenSettingsStore
@@ -862,6 +868,10 @@ private fun BeyGramAppContent(
     }
     val chatOverrides = remember(context, selectedAccountId) {
         ChatOverridesStore(context.applicationContext, selectedAccountId)
+    }
+    // The forum view choices are local to this device and account; they never reach the server.
+    val forumNavigation = remember(context, selectedAccountId) {
+        ForumNavigationStore(context.applicationContext, selectedAccountId)
     }
     // Decorative chat animations are global and account-independent; the flow updates an open chat immediately.
     val chatAnimationStore = remember(context) { ChatAnimationSettingsStore(context.applicationContext) }
@@ -2082,6 +2092,63 @@ private fun BeyGramAppContent(
                     selectedForumTopicId = 0L
                 }
             }
+            // The view this forum opens in. Tabs and Rail keep the topics beside the open topic; Classic is the topic list.
+            val forumNavigationModes by forumNavigation.modes.collectAsStateWithLifecycle()
+            val forumMode = forumNavigationModes[forumChatId] ?: ForumNavigationMode.Classic
+            // "All topics" in a panel view shows the list while the open topic stays open, and Back returns to that topic.
+            var forumListRequested by rememberSaveable(selectedAccountId, selectedChatId) { mutableStateOf(false) }
+            val topicPanelsActive = topics != null && forumMode != ForumNavigationMode.Classic
+            val topicTabsActive = topicPanelsActive && forumMode == ForumNavigationMode.Tabs
+            val topicRailActive = topicPanelsActive && forumMode == ForumNavigationMode.Rail
+            // A panel view with no open topic opens one at once, so the topic list does not flash in between.
+            val topicPanelOpenPending = topicPanelsActive && activeTopicId == 0L && !forumListRequested && !topics.isNullOrEmpty()
+            val topicTabsState = rememberLazyListState()
+            val topicRailState = rememberLazyListState()
+            // Opens a topic in this chat and remembers it as the topic to open first next time.
+            fun openTopic(topic: com.beykus.beygram.domain.model.ForumTopic) {
+                if (!isCurrentForum()) return
+                selectedTopicChatId = forumChatId
+                selectedForumTopicId = topic.id
+                // Server search can return a topic outside the loaded pages; trust the user's explicit choice.
+                trustedForumTopicId = topic.id
+                selectedTopicSnapshot = topic
+                forumListRequested = false
+                forumNavigation.setLastTopic(forumChatId, topic.id)
+            }
+            val setForumMode: (ForumNavigationMode) -> Unit = { mode ->
+                if (isCurrentForum() && mode != forumMode) {
+                    forumNavigation.setMode(forumChatId, mode)
+                    forumListRequested = false
+                    // Classic opens on the topic list, as it always has.
+                    if (mode == ForumNavigationMode.Classic) selectedForumTopicId = 0L
+                }
+            }
+            val openPanelList: () -> Unit = { if (isCurrentForum()) { forumListRequested = true } }
+            val selectPanelTopic: (com.beykus.beygram.domain.model.ForumTopic) -> Unit = { topic -> openTopic(topic) }
+            val panelTopics = topics.orEmpty()
+            LaunchedEffect(topicPanelOpenPending, topics, topicsLoading) {
+                if (topicPanelOpenPending) {
+                    val lastTopicId = forumNavigation.lastTopic(forumChatId)
+                    // The remembered topic may sit on a page that has not arrived yet: wait for it rather than
+                    // opening the first topic and overwriting the remembered one.
+                    if (lastTopicId > 0L && topicsLoading && panelTopics.none { it.id == lastTopicId }) return@LaunchedEffect
+                    val target = initialPanelTopicId(panelTopics, lastTopicId)
+                    panelTopics.firstOrNull { it.id == target }?.let { openTopic(it) }
+                }
+            }
+            val tabStrip: @Composable () -> Unit = {
+                ForumTopicTabStrip(
+                    topics = panelTopics,
+                    selectedTopicId = activeTopicId,
+                    parentMuted = chat.isMuted,
+                    onSelect = selectPanelTopic,
+                    onOpenList = openPanelList,
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile,
+                    observeCustomEmoji = repository::observeCustomEmoji,
+                    listState = topicTabsState
+                )
+            }
             when {
                 topicsResult == null -> ForumTopicsLoadingScreen(
                     chat = chat,
@@ -2096,7 +2163,14 @@ private fun BeyGramAppContent(
                     observeFile = repository::observeFile,
                     downloadFile = repository::downloadFile
                 )
-                topics != null && activeTopicId == 0L -> ForumTopicsScreen(
+                // A panel view opens its topic at once; this frame stays until the topic is open.
+                topicPanelOpenPending -> ForumTopicsLoadingScreen(
+                    chat = chat,
+                    onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName },
+                    observeFile = repository::observeFile,
+                    downloadFile = repository::downloadFile
+                )
+                topics != null && (activeTopicId == 0L || topicPanelsActive && forumListRequested) -> ForumTopicsScreen(
                     accountId = selectedAccountId,
                     chatId = selectedChatId,
                     chat = chat,
@@ -2120,16 +2194,15 @@ private fun BeyGramAppContent(
                     downloadFile = repository::downloadFile,
                     observeCustomEmoji = repository::observeCustomEmoji,
                     onOpenGroupInfo = { routeName = AppRoute.ChatInfo.name },
-                    onBack = { if (!restoreLinkReturnChat()) routeName = chatBackRouteName },
-                    onTopic = { topic ->
-                        if (isCurrentForum()) {
-                            selectedTopicChatId = forumChatId
-                            selectedForumTopicId = topic.id
-                            // Server search can return a topic outside the loaded pages; trust the user's explicit choice.
-                            trustedForumTopicId = topic.id
-                            selectedTopicSnapshot = topic
+                    onBack = {
+                        if (topicPanelsActive && activeTopicId > 0L) {
+                            // "All topics" was opened from a panel view: Back returns to the topic that is still open.
+                            forumListRequested = false
+                        } else if (!restoreLinkReturnChat()) {
+                            routeName = chatBackRouteName
                         }
                     },
+                    onTopic = selectPanelTopic,
                     onCreate = { name, topicIcon, done ->
                         if (!forumBusy && isCurrentForum()) {
                             // The user may switch chats while the request is in flight; never apply the new id elsewhere.
@@ -2144,6 +2217,7 @@ private fun BeyGramAppContent(
                                             if (selectedAccountId == targetAccountId && selectedChatId == targetChatId) {
                                                 selectedTopicChatId = targetChatId
                                                 selectedForumTopicId = newId
+                                                forumListRequested = false
                                                 // Open the newly created topic at once; the list reload catches up later.
                                                 trustedForumTopicId = newId
                                                 selectedTopicSnapshot = com.beykus.beygram.domain.model.ForumTopic(
@@ -2179,7 +2253,9 @@ private fun BeyGramAppContent(
                     onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(forumChatId, topic.id, pinned) } },
                     onMuted = { topic, muted -> forumAction { repository.setForumTopicMuted(forumChatId, topic.id, muted) } },
                     onDelete = { topic -> forumAction { repository.deleteForumTopic(forumChatId, topic.id) } },
-                    onDismissActionError = { forumActionError = null }
+                    onDismissActionError = { forumActionError = null },
+                    navigationMode = forumMode,
+                    onNavigationMode = setForumMode
                 )
                 else -> key(selectedAccountId, selectedChatId, activeTopicId) {
                     val commentsOpen = route == AppRoute.MessageThread &&
@@ -2192,90 +2268,117 @@ private fun BeyGramAppContent(
                     val waveChatFlag = isWaveChat(chat)
                     val preparedFlow = remember(historyFlow, waveChatFlag) { historyFlow.preparedTimeline(waveChatFlag) }
                     val prepared by preparedFlow.collectAsStateWithLifecycle(initialValue = null)
-                    ChatScreen(
-                        chat = chat,
-                        accountId = selectedAccountId,
-                        accountLabel = accountLabel,
-                        info = chatInfo.info,
-                        lastSeenStyle = lastSeenStyle,
-                        // Rows and history come from the same snapshot; the raw history is used only until the first one is ready.
-                        history = prepared?.history ?: history,
-                        preparedTimeline = prepared,
-                        conversation = repository,
-                        chats = remember(chatsState, forwardArchivedChatsState) { { chatsState.value + forwardArchivedChatsState.value } },
-                        observeFile = repository::observeFile,
-                        onDownloadFile = repository::downloadFile,
-                        onAutoDownloadFile = repository::autoDownloadFile,
-                        onBack = {
-                            if (!restoreLinkReturnChat()) {
-                                if (chatBackRouteName == AppRoute.GlobalSearch.name) {
-                                    chatFocusMessageId = 0L
-                                    selectedForumTopicId = 0L
-                                    routeName = AppRoute.GlobalSearch.name
-                                } else if (activeTopicId > 0L) {
-                                    selectedForumTopicId = 0L
-                                    topicsReload++
-                                } else routeName = chatBackRouteName
-                            }
-                        },
-                        onChatInfo = { routeName = AppRoute.ChatInfo.name },
-                        onStatistics = if (chat.isChannel && (chat.isChannelAdmin || chat.canPost)) {
-                            {
-                                if (chatBackRouteName != AppRoute.ChannelStatistics.name) {
-                                    statisticsChatBackRouteName = chatBackRouteName
+                    val chatContent: @Composable () -> Unit = {
+                        ChatScreen(
+                            chat = chat,
+                            accountId = selectedAccountId,
+                            accountLabel = accountLabel,
+                            info = chatInfo.info,
+                            lastSeenStyle = lastSeenStyle,
+                            // Rows and history come from the same snapshot; the raw history is used only until the first one is ready.
+                            history = prepared?.history ?: history,
+                            preparedTimeline = prepared,
+                            conversation = repository,
+                            chats = remember(chatsState, forwardArchivedChatsState) { { chatsState.value + forwardArchivedChatsState.value } },
+                            observeFile = repository::observeFile,
+                            onDownloadFile = repository::downloadFile,
+                            onAutoDownloadFile = repository::autoDownloadFile,
+                            onBack = {
+                                if (!restoreLinkReturnChat()) {
+                                    if (chatBackRouteName == AppRoute.GlobalSearch.name) {
+                                        chatFocusMessageId = 0L
+                                        selectedForumTopicId = 0L
+                                        routeName = AppRoute.GlobalSearch.name
+                                    } else if (topicPanelsActive) {
+                                        // The panel views keep the topic list one tap away, so Back leaves the forum.
+                                        selectedForumTopicId = 0L
+                                        forumListRequested = false
+                                        routeName = chatBackRouteName
+                                    } else if (activeTopicId > 0L) {
+                                        selectedForumTopicId = 0L
+                                        topicsReload++
+                                    } else routeName = chatBackRouteName
                                 }
-                                statisticsReturnRouteName = AppRoute.Chat.name
-                                statisticsHeaderTitleRes = R.string.channel_statistics_title
-                                routeName = AppRoute.ChannelStatistics.name
-                            }
-                        } else null,
-                        connectionState = connectionState,
-                        recordingSettings = recordingSettings,
-                        forumTopicId = activeTopicId,
-                        forumTopicTitle = selectedTopic?.title,
-                        forumTopic = selectedTopic,
-                        topicCanPost = selectedTopic?.canWrite ?: true,
-                        topicUnreadCount = selectedTopic?.unreadCount ?: 0,
-                        onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
-                        isPremiumAccount = myAccount.info?.isPremium == true,
-                        onPremium = { openPremium(AppRoute.Chat) },
-                        onOpenMessageEntity = openMessageEntity,
-                        onOpenUserChat = { userId ->
-                            val sourceAccountId = selectedAccountId
-                            val sourceRepository = repository
-                            memberScope.launch {
-                                sourceRepository.openPrivateChat(userId)
-                                    .onSuccess { chatId ->
-                                        if (selectedAccountId == sourceAccountId) {
-                                            selectedChatId = chatId
-                                            selectedTopicChatId = 0L
-                                            selectedForumTopicId = 0L
-                                            chatBackRouteName = AppRoute.Chats.name
-                                            routeName = AppRoute.Chat.name
-                                        }
+                            },
+                            onChatInfo = { routeName = AppRoute.ChatInfo.name },
+                            onStatistics = if (chat.isChannel && (chat.isChannelAdmin || chat.canPost)) {
+                                {
+                                    if (chatBackRouteName != AppRoute.ChannelStatistics.name) {
+                                        statisticsChatBackRouteName = chatBackRouteName
                                     }
-                                    .onFailure { error ->
-                                        if (selectedAccountId == sourceAccountId) {
-                                            noticeError = (error as? UserMessageException)?.text
-                                                ?: UiText.Res(R.string.profile_member_open_failed)
+                                    statisticsReturnRouteName = AppRoute.Chat.name
+                                    statisticsHeaderTitleRes = R.string.channel_statistics_title
+                                    routeName = AppRoute.ChannelStatistics.name
+                                }
+                            } else null,
+                            connectionState = connectionState,
+                            recordingSettings = recordingSettings,
+                            forumTopicId = activeTopicId,
+                            forumTopicTitle = selectedTopic?.title,
+                            forumTopic = selectedTopic,
+                            topicCanPost = selectedTopic?.canWrite ?: true,
+                            topicUnreadCount = selectedTopic?.unreadCount ?: 0,
+                            onServiceUser = { userId -> openUserProfile(userId, AppRoute.Chat) },
+                            isPremiumAccount = myAccount.info?.isPremium == true,
+                            onPremium = { openPremium(AppRoute.Chat) },
+                            onOpenMessageEntity = openMessageEntity,
+                            onOpenUserChat = { userId ->
+                                val sourceAccountId = selectedAccountId
+                                val sourceRepository = repository
+                                memberScope.launch {
+                                    sourceRepository.openPrivateChat(userId)
+                                        .onSuccess { chatId ->
+                                            if (selectedAccountId == sourceAccountId) {
+                                                selectedChatId = chatId
+                                                selectedTopicChatId = 0L
+                                                selectedForumTopicId = 0L
+                                                chatBackRouteName = AppRoute.Chats.name
+                                                routeName = AppRoute.Chat.name
+                                            }
                                         }
-                                    }
-                            }
-                        },
-                        onOpenComments = { post ->
-                            threadChannelChatId = selectedChatId
-                            threadPostId = post.id
-                            threadDraftText = ""
-                            threadDraftEntities = ArrayList()
-                            threadDraftReplyId = 0L
-                            routeName = AppRoute.MessageThread.name
-                        },
-                        threadOpen = commentsOpen,
-                        focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L },
-                        messageAnimations = appearance.messageAnimations,
-                        translationSettings = translationSettings,
-                        chatOverrides = chatOverrides
-                    )
+                                        .onFailure { error ->
+                                            if (selectedAccountId == sourceAccountId) {
+                                                noticeError = (error as? UserMessageException)?.text
+                                                    ?: UiText.Res(R.string.profile_member_open_failed)
+                                            }
+                                        }
+                                }
+                            },
+                            onOpenComments = { post ->
+                                threadChannelChatId = selectedChatId
+                                threadPostId = post.id
+                                threadDraftText = ""
+                                threadDraftEntities = ArrayList()
+                                threadDraftReplyId = 0L
+                                routeName = AppRoute.MessageThread.name
+                            },
+                            threadOpen = commentsOpen,
+                            focusMessageId = chatFocusMessageId, onFocusHandled = { chatFocusMessageId = 0L },
+                            messageAnimations = appearance.messageAnimations,
+                            translationSettings = translationSettings,
+                            chatOverrides = chatOverrides,
+                            topicStrip = if (topicTabsActive) tabStrip else null,
+                            forumNavigationMode = if (topics != null) forumMode else null,
+                            onForumNavigationMode = if (topics != null) setForumMode else null
+                        )
+                    }
+                    if (topicRailActive) {
+                        ForumTopicRailPane(
+                            topics = panelTopics,
+                            selectedTopicId = activeTopicId,
+                            parentMuted = chat.isMuted,
+                            onSelect = selectPanelTopic,
+                            onOpenList = openPanelList,
+                            observeFile = repository::observeFile,
+                            downloadFile = repository::downloadFile,
+                            observeCustomEmoji = repository::observeCustomEmoji,
+                            listState = topicRailState
+                        ) {
+                            chatContent()
+                        }
+                    } else {
+                        chatContent()
+                    }
                     // The channel ChatScreen stays composed under this overlay: closing the thread restores its
                     // exact list position without reopening or reloading the channel.
                     if (commentsOpen) {

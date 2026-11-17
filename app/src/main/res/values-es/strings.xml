@@ -888,4 +888,9 @@
     <string name="share_send_count">Enviar (%1$d)</string>
     <string name="share_add_recipient">Añadir destinatario</string>
     <string name="share_delivery_progress">Enviado a %1$d de %2$d destinatarios. Quedan partes por enviar.</string>
+    <string name="forum_navigation_title">Vista de temas</string>
+    <string name="forum_navigation_classic">Lista de temas</string>
+    <string name="forum_navigation_tabs">Pestañas arriba</string>
+    <string name="forum_navigation_rail">Panel lateral</string>
+    <string name="forum_panel_all_topics">Todos los temas</string>
 </resources>

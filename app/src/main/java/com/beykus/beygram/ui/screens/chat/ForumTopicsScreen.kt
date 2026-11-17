@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -88,6 +89,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.R
 import com.beykus.beygram.data.appearance.DesignStyle
+import com.beykus.beygram.data.settings.ForumNavigationMode
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.CustomEmoji
@@ -246,7 +248,11 @@ fun ForumTopicsScreen(
     /** Null hands the topic back to the group's notification setting. */
     onMuted: (ForumTopic, Boolean?) -> Unit = { _, _ -> },
     onDelete: (ForumTopic) -> Unit,
-    onDismissActionError: () -> Unit = {}
+    onDismissActionError: () -> Unit = {},
+    /** The forum's view of its topics. Classic is this list; the other views open a topic at once and keep the list one tap away. */
+    navigationMode: ForumNavigationMode = ForumNavigationMode.Classic,
+    /** Null hides the view button; the button and its sheet appear only when the host can store the choice. */
+    onNavigationMode: ((ForumNavigationMode) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val haptics = LocalHapticFeedback.current
@@ -263,6 +269,7 @@ fun ForumTopicsScreen(
     var editing by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
     var deleting by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
     var managing by remember(accountId, chatId) { mutableStateOf<ForumTopic?>(null) }
+    var modeSheetOpen by remember(accountId, chatId) { mutableStateOf(false) }
     var submitting by remember(accountId, chatId) { mutableStateOf(false) }
     var editorError by remember(accountId, chatId) { mutableStateOf<String?>(null) }
     var searchAttempt by remember(accountId, chatId) { mutableIntStateOf(0) }
@@ -351,6 +358,7 @@ fun ForumTopicsScreen(
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         managing = topic
     }
+    val openModeSheet: () -> Unit = { modeSheetOpen = true }
     BackHandler(onBack = back)
 
     Column(
@@ -372,7 +380,8 @@ fun ForumTopicsScreen(
                     canCreate = canCreate,
                     busy = busy,
                     onToggleSearch = { if (searchOpen) closeSearch() else searchOpen = true },
-                    onCreate = openCreate
+                    onCreate = openCreate,
+                    onViewMode = if (onNavigationMode != null) openModeSheet else null
                 )
             }
         ) {
@@ -645,6 +654,18 @@ fun ForumTopicsScreen(
                 )
             }
         }
+    }
+
+    val setNavigationMode = onNavigationMode
+    if (modeSheetOpen && setNavigationMode != null) {
+        ForumNavigationModeSheet(
+            current = navigationMode,
+            onSelect = { mode ->
+                modeSheetOpen = false
+                setNavigationMode(mode)
+            },
+            onDismiss = { modeSheetOpen = false }
+        )
     }
 }
 
@@ -942,9 +963,17 @@ private fun RowScope.ForumHeaderActions(
     canCreate: Boolean,
     busy: Boolean,
     onToggleSearch: () -> Unit,
-    onCreate: () -> Unit
+    onCreate: () -> Unit,
+    onViewMode: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
+    if (onViewMode != null) IconButton(onClick = onViewMode) {
+        Icon(
+            Icons.Rounded.Dashboard,
+            stringResource(R.string.forum_navigation_title),
+            tint = palette.textPrimary
+        )
+    }
     IconButton(onClick = onToggleSearch) {
         Icon(
             if (searchOpen) Icons.Rounded.Close else Icons.Rounded.Search,

@@ -115,6 +115,7 @@ import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
 import com.beykus.beygram.data.settings.AppLocale
 import com.beykus.beygram.data.settings.ChatOverridesStore
+import com.beykus.beygram.data.settings.ForumNavigationMode
 import com.beykus.beygram.data.settings.TranslationSettingsStore
 import com.beykus.beygram.data.settings.translationTargetLanguage
 import com.beykus.beygram.playback.PlaybackEngine
@@ -211,7 +212,12 @@ fun ChatScreen(
     /** Repository-backed automatic download; absent means the local policy gates the plain download callback. */
     onAutoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     /** Rows of [history] grouped off the main thread; a null or mismatched value makes the screen group them itself. */
-    preparedTimeline: PreparedChatTimeline? = null
+    preparedTimeline: PreparedChatTimeline? = null,
+    /** The forum's Tabs strip, drawn by the host under the header; null for ordinary chats and for the topic list. */
+    topicStrip: (@Composable () -> Unit)? = null,
+    /** The forum's view of its topics, offered in the header menu; null outside a topic, which hides that menu item. */
+    forumNavigationMode: ForumNavigationMode? = null,
+    onForumNavigationMode: ((ForumNavigationMode) -> Unit)? = null
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val composerDraftState = remember(conversation, chat.id, forumTopicId) {
@@ -1970,8 +1976,12 @@ fun ChatScreen(
             secretChat = secretChat,
             pinnedBelow = pinnedPreviewShown && !(compactChrome && keyboardOpen),
             showBack = !windowLayout.twoPane || forumTopicId > 0L,
-            compact = compactChrome
+            compact = compactChrome,
+            forumNavigationMode = forumNavigationMode,
+            onForumNavigationMode = onForumNavigationMode
         )
+        // The forum's Tabs strip sits under the header. Search and selection own that band while they are open.
+        if (!selectionMode && !searching && topicStrip != null) topicStrip()
         // Keep playback accessible below the chat header, not between messages and the composer.
         // The input/IME and reply controls should remain adjacent to the message list.
         // In the split layout the player already lives under the list on the left, so the chat has no strip of its own.
@@ -3245,11 +3255,15 @@ private fun ChatTopBar(
     /** False in the split layout: the list is already on screen, so an arrow that "goes back" would promise nothing new. */
     showBack: Boolean = true,
     /** A short window: one 48 dp line with the status beside the title instead of under it. */
-    compact: Boolean = false
+    compact: Boolean = false,
+    /** The forum's view of its topics for the menu item; ordinary chats pass null and get no such item. */
+    forumNavigationMode: ForumNavigationMode? = null,
+    onForumNavigationMode: ((ForumNavigationMode) -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     var menuOpen by remember { mutableStateOf(false) }
+    var modeSheetOpen by remember { mutableStateOf(false) }
     // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
     val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
     val chatInfoLabel = stringResource(R.string.a11y_chat_info)
@@ -3378,9 +3392,25 @@ private fun ChatTopBar(
                         text = stringResource(R.string.chat_settings_title),
                         onClick = { menuOpen = false; onChatSettings() }
                     )
+                    if (forumNavigationMode != null && onForumNavigationMode != null) BeyGramPopoverItem(
+                        text = stringResource(R.string.forum_navigation_title),
+                        onClick = { menuOpen = false; modeSheetOpen = true }
+                    )
                     if (onStatistics != null) BeyGramPopoverItem(
                         text = stringResource(R.string.channel_statistics_title),
                         onClick = { menuOpen = false; onStatistics() }
+                    )
+                }
+                val currentMode = forumNavigationMode
+                val setMode = onForumNavigationMode
+                if (modeSheetOpen && currentMode != null && setMode != null) {
+                    ForumNavigationModeSheet(
+                        current = currentMode,
+                        onSelect = { mode ->
+                            modeSheetOpen = false
+                            setMode(mode)
+                        },
+                        onDismiss = { modeSheetOpen = false }
                     )
                 }
             }

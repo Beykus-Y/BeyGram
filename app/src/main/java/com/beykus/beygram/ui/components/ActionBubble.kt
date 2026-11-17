@@ -121,7 +121,10 @@ fun ActionBubble(
     }
 }
 
-/** A full-width sheet row with an icon on the left. Danger rows use the danger colour for icon and title. */
+/**
+ * A full-width sheet row with an icon on the left. Danger rows use the danger colour for icon and title. [trailing] is drawn
+ * at the end edge, for example a check that marks the current choice of a list.
+ */
 @Composable
 fun SheetActionRow(
     icon: ImageVector,
@@ -129,7 +132,8 @@ fun SheetActionRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    danger: Boolean = false
+    danger: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val tint = if (danger) palette.danger else settingsIconTint()
@@ -146,5 +150,9 @@ fun SheetActionRow(
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(14.dp))
         Text(title, color = textColor, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        if (trailing != null) {
+            Spacer(Modifier.width(10.dp))
+            trailing()
+        }
     }
 }
