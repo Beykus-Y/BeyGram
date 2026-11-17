@@ -151,6 +151,8 @@ internal fun YandexCollectionScreen(
                             is ProviderResult.Failure -> return@withContext fresh
                             is ProviderResult.Success -> fresh.value
                         }
+                    // A changed list drops the preload made for the old one.
+                    if (ids != likedIds) allLiked = null
                     likedIds = ids
                     ProviderTracks.rememberLikedIds(ids)
                     provider.tracks(ids.take(LIKED_PAGE))
