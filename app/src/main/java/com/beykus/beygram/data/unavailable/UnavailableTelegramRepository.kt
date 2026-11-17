@@ -51,6 +51,7 @@ import com.beykus.beygram.domain.model.ForwardedMessages
 import com.beykus.beygram.domain.model.MessageLimits
 import com.beykus.beygram.domain.model.SpeechRecognitionTrial
 import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.model.MessageReaction
 import com.beykus.beygram.domain.model.ReactionOption
 import com.beykus.beygram.domain.model.MessageSearchPage
@@ -302,9 +303,13 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override suspend fun removeGroupPhoto(chatId: Long): Result<Unit> = unavailable()
 
-    override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = unavailable()
+    override suspend fun activeSessions(): Result<com.beykus.beygram.domain.model.ActiveSessions> = unavailable()
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = unavailable()
     override suspend fun terminateAllOtherSessions(): Result<Unit> = unavailable()
+    override suspend fun confirmSession(sessionId: Long): Result<Unit> = unavailable()
+    override suspend fun setInactiveSessionTtl(days: Int): Result<Unit> = unavailable()
+    override suspend fun setSessionCanAcceptCalls(sessionId: Long, enabled: Boolean): Result<Unit> = unavailable()
+    override suspend fun setSessionCanAcceptSecretChats(sessionId: Long, enabled: Boolean): Result<Unit> = unavailable()
     override suspend fun cloudPasswordState(): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
     override suspend fun setCloudPassword(
         currentPassword: String,
@@ -455,6 +460,8 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun createForumTopic(chatId: Long, name: String, icon: ForumTopicIcon): Result<Long> = unavailable()
     override suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit> = unavailable()
     override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = unavailable()
+    override suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = unavailable()
+    override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = unavailable()
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = unavailable()
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = unavailable()
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = unavailable()

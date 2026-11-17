@@ -2275,6 +2275,9 @@ private fun BeyGramAppContent(
                         forumActionWithResult({ repository.editForumTopic(forumChatId, topic.id, name, iconCustomEmojiId) }, done)
                     },
                     loadDefaultIcons = { repository.forumTopicDefaultIcons() },
+                    premium = myAccount.info?.isPremium == true,
+                    loadCustomEmojiSets = { repository.installedCustomEmojiSets() },
+                    loadCustomEmojiSetIds = { setId -> repository.customEmojiSetIds(setId) },
                     onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(forumChatId, topic.id, closed) } },
                     onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(forumChatId, topic.id, pinned) } },
                     onMuted = { topic, muted -> forumAction { repository.setForumTopicMuted(forumChatId, topic.id, muted) } },
@@ -3249,12 +3252,19 @@ GlobalSearchScreen(
                         // screens now resolves through the shared switcher.
                         routeName = AppRoute.Chats.name
                     }
-                AppRoute.Sessions -> ActiveSessionsScreen(
-                    onBack = { routeName = AppRoute.Settings.name },
-                    load = repository::activeSessions,
-                    terminate = repository::terminateOtherSession,
-                    terminateAll = repository::terminateAllOtherSessions
-                )
+                // Keyed on the account: another account's devices and sign-in places must never linger on screen.
+                AppRoute.Sessions -> key(selectedAccountId) {
+                    ActiveSessionsScreen(
+                        onBack = { routeName = AppRoute.Settings.name },
+                        load = repository::activeSessions,
+                        terminate = repository::terminateOtherSession,
+                        terminateAll = repository::terminateAllOtherSessions,
+                        confirmSession = repository::confirmSession,
+                        setInactiveTtl = repository::setInactiveSessionTtl,
+                        setCanAcceptCalls = repository::setSessionCanAcceptCalls,
+                        setCanAcceptSecretChats = repository::setSessionCanAcceptSecretChats
+                    )
+                }
                 AppRoute.AccountSecurity -> key(selectedAccountId) {
                     val securityAccountId = selectedAccountId
                     AccountSecurityScreen(

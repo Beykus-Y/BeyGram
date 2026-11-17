@@ -29,6 +29,7 @@ import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.GlobalSearchPage
 import com.beykus.beygram.domain.model.PublicChatOpenResult
@@ -1015,22 +1016,12 @@ class TdLibTelegramRepository private constructor(
         chat.id
     }
 
-    override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = requestResult {
-        tdRequests(TdApi.GetActiveSessions()).sessions.orEmpty().map { session ->
-            com.beykus.beygram.domain.model.DeviceSession(
-                id = session.id,
-                current = session.isCurrent,
-                device = session.deviceModel.orEmpty().ifBlank { session.platform.orEmpty() },
-                application = session.applicationName.orEmpty(),
-                location = session.location.orEmpty(),
-                ip = session.ipAddress.orEmpty(),
-                lastActive = session.lastActiveDate.toLong()
-            )
-        }
+    override suspend fun activeSessions(): Result<com.beykus.beygram.domain.model.ActiveSessions> = requestResult {
+        activeSessionsOf(tdRequests(TdApi.GetActiveSessions()))
     }
 
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = requestResult {
-        require(sessionId > 0 && activeSessions().getOrThrow().any { it.id == sessionId && !it.current }) {
+        require(sessionId > 0 && activeSessions().getOrThrow().sessions.any { it.id == sessionId && !it.current }) {
             "Cannot terminate the current session"
         }
         tdRequests(TdApi.TerminateSession(sessionId))
@@ -1039,6 +1030,30 @@ class TdLibTelegramRepository private constructor(
 
     override suspend fun terminateAllOtherSessions(): Result<Unit> = requestResult {
         tdRequests(TdApi.TerminateAllOtherSessions())
+        Unit
+    }
+
+    override suspend fun confirmSession(sessionId: Long): Result<Unit> = requestResult {
+        require(sessionId > 0) { "Invalid session id" }
+        tdRequests(TdApi.ConfirmSession(sessionId))
+        Unit
+    }
+
+    override suspend fun setInactiveSessionTtl(days: Int): Result<Unit> = requestResult {
+        require(days in 1..366) { "Inactive session TTL must be 1 to 366 days" }
+        tdRequests(TdApi.SetInactiveSessionTtl(days))
+        Unit
+    }
+
+    override suspend fun setSessionCanAcceptCalls(sessionId: Long, enabled: Boolean): Result<Unit> = requestResult {
+        require(sessionId > 0) { "Invalid session id" }
+        tdRequests(TdApi.ToggleSessionCanAcceptCalls(sessionId, enabled))
+        Unit
+    }
+
+    override suspend fun setSessionCanAcceptSecretChats(sessionId: Long, enabled: Boolean): Result<Unit> = requestResult {
+        require(sessionId > 0) { "Invalid session id" }
+        tdRequests(TdApi.ToggleSessionCanAcceptSecretChats(sessionId, enabled))
         Unit
     }
 
@@ -2624,6 +2639,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit> =
         conversationActions.editTopic(chatId, forumTopicId, name, iconCustomEmojiId)
     override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = conversationActions.forumTopicDefaultIcons()
+    override suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = conversationActions.installedCustomEmojiSets()
+    override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = conversationActions.customEmojiSetIds(setId)
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean) = conversationActions.closeTopic(chatId, forumTopicId, closed)
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
