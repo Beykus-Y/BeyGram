@@ -72,6 +72,20 @@ class AccessibilitySupportTest {
         assertEquals("Dev group, New topic, 18:00, Forum", description)
     }
 
+    @Test fun aForumRowSpeaksTheNameOfItsTopicAfterTheForumMark() {
+        val description = accessibleChatRowDescription(
+            title = "Dev group",
+            preview = "",
+            time = "",
+            unreadLabel = null,
+            mutedLabel = null,
+            statusLabel = null,
+            forumLabel = "Forum",
+            topicLabel = "Ideas"
+        )
+        assertEquals("Dev group, Forum, Ideas", description)
+    }
+
     @Test fun descriptionNeverEndsWithSeparatorsForEmptyRows() {
         assertEquals("", accessibleDescription(null, "", "   "))
         assertFalse(accessibleDescription("Title").contains(','))

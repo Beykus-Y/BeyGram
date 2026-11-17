@@ -10,6 +10,19 @@ data class ForumTopicIcon(
     val hasCustomEmoji: Boolean get() = customEmojiId != 0L
 }
 
+/**
+ * The name and icon of one topic, enough for a chat row to name the topic of its last message. An empty [title] means
+ * TDLib gave no name for the topic, so the row shows the generic topic label instead.
+ */
+data class ForumTopicBrief(
+    val id: Long,
+    val title: String,
+    val icon: ForumTopicIcon? = null,
+    val isGeneral: Boolean = false,
+    /** TDLib's implicit name of the General topic; the UI shows its own localized name for it. */
+    val isNameImplicit: Boolean = false
+)
+
 /** The colours Telegram offers for a new topic icon, as 0xRRGGBB. TDLib refuses any other colour when a topic is created. */
 val ForumTopicCreationColors: List<Int> = listOf(0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2, 0xFB6F5F)
 

@@ -1790,6 +1790,10 @@ private fun BeyGramAppContent(
             myProfile = myProfile.info,
             observeFile = repository::observeFile,
             downloadFile = repository::downloadFile,
+            observeForumTopic = repository::observeForumTopicInfo,
+            observeCustomEmoji = repository::observeCustomEmoji,
+            // Same route as a chat tap, but the chat opens on the topic that the row names.
+            onForumTopicClick = { chat -> openDeepLinkChat(chat.id, 0L, chat.lastMessageForumTopicId) },
             onMyProfile = { routeName = AppRoute.MyProfile.name },
             onAccountPicker = { accountSwitcherVisible = true },
             onArchiveClick = { routeName = AppRoute.Archive.name },

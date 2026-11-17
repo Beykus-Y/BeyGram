@@ -466,6 +466,7 @@
     <string name="a11y_view_once_chip">Foto o vídeo de «ver una vez»</string>
     <string name="chats_secret_chat">Chat secreto</string>
     <string name="chats_forum">Foro</string>
+    <string name="chats_open_topic">Abrir tema</string>
     <string name="app_lock_title">Bloqueo de la app</string>
     <string name="app_lock_intro">Pide un PIN o la biometría cuando BeyGram se inicie y al volver desde segundo plano. El bloqueo es compartido por todas las cuentas de este dispositivo.</string>
     <string name="app_lock_enable_title">Bloqueo de la app</string>

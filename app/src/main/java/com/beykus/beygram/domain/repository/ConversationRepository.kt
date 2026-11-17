@@ -301,6 +301,11 @@ interface ConversationRepository {
     suspend fun starBalance(): Result<StarBalance> = Result.failure(UnsupportedOperationException())
     /** The custom emoji sticker behind [customEmojiId]. TDLib is asked on first use; the value stays null until it answers. */
     fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?>
+    /**
+     * The name and icon of a forum topic, for a chat row that names the topic of its last message. The value stays null
+     * until the topic is known. A topic TDLib cannot describe gets a brief with an empty title, and it is not asked again while the cache holds it.
+     */
+    fun observeForumTopicInfo(chatId: Long, forumTopicId: Long): StateFlow<ForumTopicBrief?>
     /** The effect behind [effectId]. Only fresh-message overlays call this; the value stays null until TDLib answers. */
     fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?>
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>

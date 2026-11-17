@@ -42,6 +42,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.ForumTopicBrief
 import com.beykus.beygram.domain.model.MediaFileState
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.motion.MotionSpec
@@ -49,6 +51,7 @@ import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -114,6 +117,10 @@ internal fun SwipeChatRow(
     chat: ChatPreview,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
+    observeForumTopic: ((Long, Long) -> StateFlow<ForumTopicBrief?>)? = null,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?> = { MutableStateFlow<CustomEmoji?>(null) },
+    /** Opens the forum topic that the row names. While the row is swiped open, a tap on it only closes the swipe. */
+    onForumTopicClick: () -> Unit = {},
     openChatId: Long?,
     onOpenChange: (Long?) -> Unit,
     onClick: () -> Unit,
@@ -257,7 +264,10 @@ internal fun SwipeChatRow(
                 onClick = { if (swipeOffset < 0f) close() else onClick() },
                 onLongClick = { if (swipeOffset < 0f) close() else onLongClick() },
                 onAvatarLongClick = { if (swipeOffset < 0f) close() else onAvatarLongClick() },
-                highlighted = highlighted)
+                highlighted = highlighted,
+                observeForumTopic = observeForumTopic,
+                observeCustomEmoji = observeCustomEmoji,
+                onTopicClick = { if (swipeOffset < 0f) close() else onForumTopicClick() })
         }
     }
 }

@@ -139,6 +139,8 @@ import com.beykus.beygram.domain.UiText
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatStories
+import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.ForumTopicBrief
 import com.beykus.beygram.domain.model.TelegramChatFolders
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramFolderLoadState
@@ -162,12 +164,15 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -176,6 +181,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.beykus.beygram.ui.accessibility.accessibleChatRowDescription
 import com.beykus.beygram.ui.accessibility.accessibleDescription
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.screens.chat.forumTopicNameOrFallback
 import com.beykus.beygram.ui.components.LocalNavigationDock
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.createButtonPlacement
@@ -243,6 +249,11 @@ fun ChatsScreen(
     myProfile: ProfileInfo?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
+    /** Names the topic of a forum row's last message, above its preview. Null leaves forum rows without a topic line. */
+    observeForumTopic: ((Long, Long) -> StateFlow<ForumTopicBrief?>)? = null,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?> = { MutableStateFlow<CustomEmoji?>(null) },
+    /** Opens the forum topic that a row names, so the chat opens on that topic instead of its topic list. */
+    onForumTopicClick: (ChatPreview) -> Unit = {},
     onMyProfile: () -> Unit,
     onAccountPicker: () -> Unit = {},
     onArchiveClick: () -> Unit,
@@ -310,6 +321,10 @@ fun ChatsScreen(
     val openChat: (ChatPreview) -> Unit = { chat ->
         focusManager.clearFocus()
         onChatClick(chat)
+    }
+    val openForumTopic: (ChatPreview) -> Unit = { chat ->
+        focusManager.clearFocus()
+        onForumTopicClick(chat)
     }
     // The split list pane is narrower than a phone: the title and side paddings give room to the
     // header actions (saved messages, account switcher, avatar) without pushing them off-screen.
@@ -867,6 +882,9 @@ fun ChatsScreen(
                         chat = chat,
                         observeFile = observeFile,
                         downloadFile = downloadFile,
+                        observeForumTopic = observeForumTopic,
+                        observeCustomEmoji = observeCustomEmoji,
+                        onForumTopicClick = { openForumTopic(chat) },
                         openChatId = openSwipeChatId,
                         onOpenChange = { openSwipeChatId = it },
                         onClick = { openChat(chat) },
@@ -930,6 +948,9 @@ fun ChatsScreen(
                             chat = chat,
                             observeFile = observeFile,
                             downloadFile = downloadFile,
+                            observeForumTopic = observeForumTopic,
+                            observeCustomEmoji = observeCustomEmoji,
+                            onForumTopicClick = { openForumTopic(chat) },
                             openChatId = openSwipeChatId,
                             onOpenChange = { openSwipeChatId = it },
                             onClick = { openChat(chat) },
@@ -1774,7 +1795,11 @@ private val TrailingIndicatorGap = 6.dp
 
 @Composable
 internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    onClick: () -> Unit, onLongClick: (() -> Unit)? = null, onAvatarLongClick: (() -> Unit)? = null, highlighted: Boolean = false) {
+    onClick: () -> Unit, onLongClick: (() -> Unit)? = null, onAvatarLongClick: (() -> Unit)? = null, highlighted: Boolean = false,
+    observeForumTopic: ((Long, Long) -> StateFlow<ForumTopicBrief?>)? = null,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?> = { MutableStateFlow<CustomEmoji?>(null) },
+    /** Opens the topic that a forum row names; null leaves the topic line as plain text. */
+    onTopicClick: (() -> Unit)? = null) {
     val palette = beyGramPalette()
     val listDensity = LocalChatListDensity.current
     val design = LocalDesignSystem.current
@@ -1791,6 +1816,12 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         if (chat.unreadCount > 0) stringResource(R.string.a11y_chat_unread_count, chat.unreadCount)
         else stringResource(R.string.a11y_chat_unread_marked)
     } else null
+    // A forum row names the topic of its last message; only such a row asks for that topic.
+    val topicId = if (chat.isForum && observeForumTopic != null) chat.lastMessageForumTopicId else 0L
+    val topic = rememberRowTopicBrief(chat.id, topicId, observeForumTopic).value
+    val topicLabel = if (topic != null) forumTopicNameOrFallback(topic.title, topic.isGeneral, topic.isNameImplicit) else null
+    val topicTap: (() -> Unit)? = if (topicId != 0L) onTopicClick else null
+    val openTopicLabel: String? = if (topicTap != null) stringResource(R.string.chats_open_topic) else null
     val description = accessibleChatRowDescription(
         title = chat.title,
         preview = preview,
@@ -1799,7 +1830,8 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
         mutedLabel = if (chat.isMuted) stringResource(R.string.a11y_chat_muted) else null,
         statusLabel = sendStatusLabel(chat),
         secretLabel = if (chat.isSecret) stringResource(R.string.chats_secret_chat) else null,
-        forumLabel = if (chat.isForum) stringResource(R.string.chats_forum) else null
+        forumLabel = if (chat.isForum) stringResource(R.string.chats_forum) else null,
+        topicLabel = topicLabel
     )
     // Signature draws the row as a rounded tile inside the list: the press and the open-chat highlight stop short of the
     // screen edge. The content keeps the same 20dp start position as every other style.
@@ -1813,6 +1845,10 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                 contentDescription = description
                 // TalkBack announces which conversation is already open in the right pane.
                 if (highlighted) selected = true
+                // The merged row has no separate stop for the topic line, so TalkBack gets opening it as an action.
+                if (topicTap != null && openTopicLabel != null) {
+                    customActions = listOf(CustomAccessibilityAction(openTopicLabel) { topicTap(); true })
+                }
             }
             .padding(horizontal = (20.dp - main.rowInset).coerceAtLeast(0.dp), vertical = rowPadding),
         verticalAlignment = Alignment.CenterVertically
@@ -1836,6 +1872,16 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.widthIn(max = 72.dp)
+                )
+            }
+            if (topicId != 0L) {
+                Spacer(Modifier.height(2.dp))
+                ChatTopicLine(
+                    topic = topic,
+                    observeFile = observeFile,
+                    downloadFile = downloadFile,
+                    observeCustomEmoji = observeCustomEmoji,
+                    onClick = topicTap
                 )
             }
             Spacer(Modifier.height(3.dp))

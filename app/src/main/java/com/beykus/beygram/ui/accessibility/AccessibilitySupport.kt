@@ -53,8 +53,10 @@ internal fun accessibleChatRowDescription(
     mutedLabel: String?,
     statusLabel: String?,
     secretLabel: String? = null,
-    forumLabel: String? = null
-): String = accessibleDescription(title, preview, time, unreadLabel, mutedLabel, statusLabel, secretLabel, forumLabel)
+    forumLabel: String? = null,
+    /** The name of the forum topic that the last message belongs to, when the row shows one. */
+    topicLabel: String? = null
+): String = accessibleDescription(title, preview, time, unreadLabel, mutedLabel, statusLabel, secretLabel, forumLabel, topicLabel)
 
 /** Announces a newly shown error or upload state without moving focus away from the current control. */
 internal fun Modifier.errorAnnouncement(): Modifier = semantics { liveRegion = LiveRegionMode.Polite }

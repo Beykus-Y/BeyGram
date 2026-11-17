@@ -58,6 +58,7 @@ import com.beykus.beygram.domain.model.BotWebAppTheme
 import com.beykus.beygram.domain.model.InlineBotResults
 import com.beykus.beygram.domain.model.MusicBotTrack
 import com.beykus.beygram.domain.model.SavedMusicBotTrack
+import com.beykus.beygram.domain.model.ForumTopicBrief
 import com.beykus.beygram.domain.model.ForumTopicIcon
 import com.beykus.beygram.domain.model.ForumTopicLastMessage
 import com.beykus.beygram.domain.model.ForumTopicsPage
@@ -1565,6 +1566,7 @@ class TdLibTelegramRepository private constructor(
         stealthLock = { send -> stealthSettings.whileUnchanged { send() } })
     private val chatExporter = TdChatExporter(tdRequests) { it.toExportMessage() }
     private val customEmojis = TdCustomEmojis(client = { client })
+    private val forumTopicBriefs = TdForumTopicBriefs(fetch = { key, onAnswer -> fetchForumTopicBrief(key, onAnswer) })
     private val messageEffects = TdMessageEffects(client = { client })
     private val conversationEffects = TdConversationEffects({ client }, policy)
     /** A changed stealth switch applies at once: running chat activity stops and the read bookkeeping is reset. */
@@ -1696,6 +1698,8 @@ class TdLibTelegramRepository private constructor(
         paidReactions.send(chatId, messageId, starCount, isAnonymous)
     override suspend fun starBalance() = payments.starBalance()
     override fun observeCustomEmoji(customEmojiId: Long) = customEmojis.observe(customEmojiId)
+    override fun observeForumTopicInfo(chatId: Long, forumTopicId: Long): StateFlow<ForumTopicBrief?> =
+        forumTopicBriefs.observe(chatId, forumTopicId)
     override fun observeMessageEffect(effectId: Long) = messageEffects.observe(effectId)
     override suspend fun messageContext(chatId: Long, messageId: Long) = conversationActions.context(chatId, messageId)
     override suspend fun singleMessage(chatId: Long, messageId: Long) = conversationActions.single(chatId, messageId)
@@ -2331,6 +2335,16 @@ class TdLibTelegramRepository private constructor(
         })
     }
 
+    /**
+     * Asks TDLib for one forum topic that no listing or update has described yet, for a chat row that names its last message.
+     * The answer is a brief, or null when TDLib returns an error.
+     */
+    private fun fetchForumTopicBrief(key: ForumTopicKey, onAnswer: (ForumTopicBrief?) -> Unit) {
+        client.send(TdApi.GetForumTopic(key.chatId, key.topicId.toInt()), Client.ResultHandler { result ->
+            onAnswer((result as? TdApi.ForumTopic)?.info?.let { forumTopicBrief(it) })
+        })
+    }
+
     private fun sendDownload(fileId: Int) {
         client.send(TdApi.DownloadFile(fileId, 16, 0, 0, false), Client.ResultHandler { result ->
             when (result) {
@@ -2640,6 +2654,8 @@ class TdLibTelegramRepository private constructor(
                     readOutbox(chatId, topic.lastReadOutboxMessageId)
                 }
             }
+            // The listing already names every topic it carries, so the chat list needs no question for them.
+            forumTopicBriefs.remember(chatId, page.topics)
             onPage(page)
         }
 
@@ -2693,6 +2709,7 @@ class TdLibTelegramRepository private constructor(
                 readOutbox(update.chatId, update.lastReadOutboxMessageId)
                 }
             }
+            is TdApi.UpdateForumTopicInfo -> forumTopicBriefs.receive(update.info)
             is TdApi.UpdateChatFolders -> handleChatFolders(update)
             is TdApi.UpdateUnreadChatCount -> {
                 val list = update.chatList
@@ -3371,6 +3388,7 @@ class TdLibTelegramRepository private constructor(
         lastMessage = message?.toTextPreview() ?: UiText.Raw(""),
         lastMessageTime = message?.toTimeString().orEmpty(),
         lastMessageId = message?.id ?: 0L,
+        lastMessageForumTopicId = message?.let { forumId(it) } ?: 0L,
         lastMessageOutgoing = message?.isOutgoing == true,
         lastMessageSender = message?.let { profiles.senderName(it.senderId) }.orEmpty(),
         lastMessageSendState = message?.sendingState.toSendState()
@@ -3875,6 +3893,7 @@ class TdLibTelegramRepository private constructor(
             order = mainPosition?.order ?: 0L,
             archiveOrder = archivePosition?.order ?: 0L,
             lastMessageId = lastMessage?.id ?: 0L,
+            lastMessageForumTopicId = lastMessage?.let { forumId(it) } ?: 0L,
             lastMessageOutgoing = lastMessage?.isOutgoing == true,
             lastMessageSender = lastMessage?.let { profiles.senderName(it.senderId) }.orEmpty(),
             lastMessageSendState = lastMessage?.sendingState.toSendState(),
