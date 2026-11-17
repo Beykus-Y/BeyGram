@@ -262,7 +262,7 @@ private fun musicCardStatusText(status: MusicPlaybackStatus, downloadProgress: F
 }
 
 /** Longest-side decode limit for bubble and album images; larger decodes are the viewer's and skip the cache. */
-internal const val BUBBLE_MAX_DECODE_DIMENSION = 2048
+internal const val BUBBLE_MAX_DECODE_DIMENSION = 1536
 
 /**
  * Byte-budget LRU of decoded bubble images, so re-entering composition (scrolling, returning to the chat)
@@ -726,7 +726,9 @@ internal fun MediaPreview(
         val density = LocalDensity.current
         // Decode size for the full image: covers the crop box, so bubbles never decode 1024 px for a small box.
         val decodeDimension = remember(media.width, media.height, boxHeightDp, density.density) {
-            with(density) { bubbleDecodeDimension(media.width, media.height, 244.dp.toPx(), boxHeightDp.dp.toPx()) }
+            val cover = with(density) { bubbleDecodeDimension(media.width, media.height, 244.dp.toPx(), boxHeightDp.dp.toPx()) }
+            // Animated drawables are not cached and hold every frame at this size, so they keep the old 1024 limit.
+            if (media.mimeType == "image/gif" || media.kind == MediaKind.Animation) minOf(cover, 1024) else cover
         }
         Box(
             Modifier.width(244.dp).height(boxHeightDp.dp)
@@ -757,7 +759,8 @@ internal fun MediaPreview(
                 fallbackVideoPath = if (posterFile != file.localPath) file.localPath else null,
                 fallbackMinithumbnail = media.minithumbnail,
                 animate = autoplay.eligible.value,
-                placeholder = if (posterFile != thumb.localPath) {
+                // Without a preview or minithumbnail there is nothing to hold, so the spinner stays.
+                placeholder = if (posterFile != thumb.localPath && (thumb.localPath != null || media.minithumbnail != null)) {
                     val layer: @Composable () -> Unit = { MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize()) }
                     layer
                 } else softMinithumbnailSlot(media.minithumbnail)

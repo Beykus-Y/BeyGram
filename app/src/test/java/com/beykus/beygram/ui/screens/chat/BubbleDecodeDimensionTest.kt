@@ -25,8 +25,8 @@ class BubbleDecodeDimensionTest {
 
     @Test
     fun panoramaIsCappedAtBubbleMaximum() {
-        // 2560x400 into 732x360: scale 0.9, 2560 * 0.9 = 2304 -> 2304 is capped to 2048.
-        assertEquals(2048, bubbleDecodeDimension(2560, 400, 732f, 360f))
+        // 2560x400 into 732x360: scale 0.9, 2560 * 0.9 = 2304 -> capped to 1536.
+        assertEquals(1536, bubbleDecodeDimension(2560, 400, 732f, 360f))
     }
 
     @Test
@@ -51,7 +51,7 @@ class BubbleDecodeDimensionTest {
         for ((w, h) in sizes) for ((bw, bh) in boxes) {
             val result = bubbleDecodeDimension(w, h, bw, bh)
             assertEquals("for $w x $h in $bw x $bh", 0, result % 256)
-            assertTrue("for $w x $h in $bw x $bh was $result", result in 512..2048)
+            assertTrue("for $w x $h in $bw x $bh was $result", result in 512..1536)
         }
     }
 }
