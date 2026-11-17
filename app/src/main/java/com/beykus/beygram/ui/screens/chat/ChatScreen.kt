@@ -1285,14 +1285,24 @@ fun ChatScreen(
             snapshotFlow {
                 if (!window.isWindowFocused || searching || threadOpen || attachments.cameraOpen || attachments.editor != null || !scrollPosition.readBoundaryChecked) emptyList() else {
                     val layout = listState.layoutInfo
-                    layout.visibleItemsInfo.filter { item ->
+                    val (coveredTop, coveredBottom) = coveredByChrome
+                    val ids = ArrayList<Long>()
+                    for (item in layout.visibleItemsInfo) {
                         // Reverse list: the main axis starts at the composer, so the bottom strip is the start side.
-                        val visible = minOf(item.offset + item.size, layout.viewportEndOffset - coveredByChrome.first) -
-                            maxOf(item.offset, layout.viewportStartOffset + coveredByChrome.second)
-                        visible >= minOf(item.size / 2, minimumVisible).coerceAtLeast(1)
-                    }.flatMap { visibleItem ->
-                        currentMessageItemsByKey[visibleItem.key as? String]?.messages.orEmpty().filter { it.sendState == MessageSendState.Sent }.map { it.id }
-                    }.distinct().sorted()
+                        val visible = minOf(item.offset + item.size, layout.viewportEndOffset - coveredTop) -
+                            maxOf(item.offset, layout.viewportStartOffset + coveredBottom)
+                        if (visible < minOf(item.size / 2, minimumVisible).coerceAtLeast(1)) continue
+                        val messages = currentMessageItemsByKey[item.key as? String]?.messages ?: continue
+                        for (message in messages) if (message.sendState == MessageSendState.Sent) ids += message.id
+                    }
+                    ids.sort()
+                    // distinct() on a sorted list: drop neighbours that repeat.
+                    if (ids.size > 1) {
+                        var w = 1
+                        for (r in 1 until ids.size) if (ids[r] != ids[w - 1]) ids[w++] = ids[r]
+                        while (ids.size > w) ids.removeAt(ids.size - 1)
+                    }
+                    ids
                 }
             }.debounce(350).distinctUntilChanged().collect { ids -> if (ids.isNotEmpty()) conversation.messagesVisible(chat.id, ids) }
         }
@@ -2064,9 +2074,12 @@ fun ChatScreen(
         // Sync the pinned preview with what the reader is currently seeing, as in official Telegram.
         val visibleOldestPinnedBoundary by remember(listState, messageListItems) {
             derivedStateOf {
-                listState.layoutInfo.visibleItemsInfo.mapNotNull { item ->
-                    messageListItems.getOrNull(item.index)?.messages?.minOfOrNull { it.id }
-                }.minOrNull()
+                var oldest: Long? = null
+                for (item in listState.layoutInfo.visibleItemsInfo) {
+                    val messages = messageListItems.getOrNull(item.index)?.messages ?: continue
+                    for (message in messages) if (oldest == null || message.id < oldest) oldest = message.id
+                }
+                oldest
             }
         }
         if (!(compactChrome && keyboardOpen)) PinnedMessagesBar(chat.id, conversation, connectionState == TelegramConnectionState.Connected,
