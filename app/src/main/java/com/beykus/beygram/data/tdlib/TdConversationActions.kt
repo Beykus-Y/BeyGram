@@ -21,11 +21,12 @@ internal class TdConversationActions(
     private val map: (TdApi.Message) -> ChatMessage,
     private val mapLastMessage: (TdApi.Message) -> ForumTopicLastMessage? = { null },
     private val onTopicDraft: (Long, Int, TdApi.DraftMessage?) -> Unit = { _, _, _ -> },
-    stealthDelaySeconds: () -> Int? = { null }
+    stealthDelaySeconds: () -> Int? = { null },
+    stealthLock: (() -> Unit) -> Unit = { it() }
 ) {
     private val request = TdRequests(client)
     // Every send below passes through it, so stealth mode schedules them on the server or refuses them (#541).
-    private val stealth = TdStealthScheduler(request, stealthDelaySeconds)
+    private val stealth = TdStealthScheduler(request, stealthDelaySeconds, stealthLock)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val replyRequests = ConcurrentHashMap.newKeySet<Pair<Long, Long>>()
     // Нажатия на одно сообщение идут по очереди: каждое читает реакции, которые меняет. Другие сообщения не ждут.
@@ -196,9 +197,7 @@ internal class TdConversationActions(
             clearDraft = false
         }
         val resolved = stealth.resolve(discussionChatId, MessageSendOptions(sendNowConsent = sendNowConsent))
-        val sent = stealth.scheduledRequest(resolved) {
-            request(threadReplyRequest(discussionChatId, threadId, replyTarget?.id, content, sendOptions(resolved.options)))
-        }
+        val sent = stealth.scheduledRequest(resolved, threadReplyRequest(discussionChatId, threadId, replyTarget?.id, content, sendOptions(resolved.options)))
         // A comment scheduled by stealth mode waits in the server's queue and is not part of the thread yet.
         if (sent.schedulingState != null) return@conversationResult null
         history.put(map(sent))
@@ -540,7 +539,7 @@ internal class TdConversationActions(
             }
             val resolved = stealth.resolve(chatId, options, media, onMediaHandoff = handoff::markHandedOff)
             val protocolOptions = sendOptions(resolved.options)
-            val messages = stealth.scheduledRequest(resolved) { handoff.markHandedOff(); request(TdApi.SendMessageAlbum().apply {
+            val messages = stealth.scheduledRequest(resolved, TdApi.SendMessageAlbum().apply {
                 this.chatId = chatId
                 this.options = protocolOptions
                 inputMessageContents = resolved.media.mapIndexed { index, item -> item.toInputContent(if (index == 0) boundedCaption.text else "", if (index == 0) boundedCaption.entities else emptyList()) }.toTypedArray()
@@ -550,7 +549,7 @@ internal class TdConversationActions(
                 } else if (forumTopicId > 0L) {
                     topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
                 }
-            }) }
+            }, beforeSend = { handoff.markHandedOff() })
             // A scheduled album belongs to TDLib's schedule queue, not to the visible chat history.
             val returned = messages.messages.orEmpty()
             try {
@@ -613,7 +612,7 @@ internal class TdConversationActions(
         }
         val protocolOptions = sendOptions(resolved.options).apply { paidMessageStarCount = confirmedPaidStars }
         val inputContent = content(resolved.media)
-        val message = stealth.scheduledRequest(resolved) { onMediaHandoff(); request(TdApi.SendMessage().apply {
+        val message = stealth.scheduledRequest(resolved, TdApi.SendMessage().apply {
             this.chatId = chatId; inputMessageContent = inputContent; this.options = protocolOptions
             if (replyTarget != null) {
                 topicId = replyTarget.topicId
@@ -621,7 +620,7 @@ internal class TdConversationActions(
             } else if (forumTopicId > 0L) {
                 topicId = TdApi.MessageTopicForum(forumTopicId.toInt())
             }
-        }) }
+        }, beforeSend = onMediaHandoff)
         // TDLib keeps scheduled messages in a separate server-side queue.
         try {
             if (message.schedulingState == null) { history.put(map(message)); hydrateReply(message) }
@@ -775,9 +774,7 @@ internal class TdConversationActions(
         ))
         requireFutureSchedule(options)
         val resolved = stealth.resolve(toChatId, options)
-        val forwarded = stealth.scheduledRequest(resolved) {
-            request(forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved.options), options.removeForwardCaption))
-        }
+        val forwarded = stealth.scheduledRequest(resolved, forwardMessagesRequest(toChatId, fromChatId, ids, asCopy, messageThreadId, sendOptions(resolved.options), options.removeForwardCaption))
         val returned = forwarded.messages.orEmpty()
         val forwardedIds = ids.filterIndexed { index, _ -> returned.getOrNull(index) != null }
         val forwardedSet = forwardedIds.toSet()

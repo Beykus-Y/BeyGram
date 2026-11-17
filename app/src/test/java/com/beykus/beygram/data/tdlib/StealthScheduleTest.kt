@@ -12,28 +12,49 @@ import org.junit.Test
 class StealthScheduleTest {
     @Test fun legacyShortDelayNeverContactsTdlibUnlessExplicitlyConsented() = runBlocking {
         var calls = 0
-        val scheduler = TdStealthScheduler(TdRequests { calls++; error("TDLib must not be touched") }) { 3 }
+        val scheduler = TdStealthScheduler(TdRequests { calls++; error("TDLib must not be touched") }, { 3 })
         assertTrue(scheduler.active())
         for (options in listOf(MessageSendOptions(), MessageSendOptions(scheduledAtSeconds = 1_700_000_000L))) {
             val failure = runCatching { scheduler.resolve(42L, options) }.exceptionOrNull()
             assertTrue(failure is StealthScheduleUnavailableException)
         }
-        val consented = scheduler.resolve(42L, MessageSendOptions(sendNowConsent = true))
-        assertTrue(scheduler.scheduledRequest(consented) { true })
         assertEquals(0, calls)
+        val consented = scheduler.resolve(42L, MessageSendOptions(sendNowConsent = true))
+        // Only the consented send reaches TDLib: the stub client refuses it, so the call fails right after the hand-off.
+        runCatching { scheduler.scheduledRequest(consented, TdApi.GetMe()) }
+        assertEquals(1, calls)
     }
 
     @Test fun enablingStealthAfterOrdinarySendPreparationBlocksDispatch() = runBlocking {
         var lead: Int? = null
-        val scheduler = TdStealthScheduler(TdRequests { error("TDLib must not be touched") }) { lead }
+        var touched = false
+        val scheduler = TdStealthScheduler(TdRequests { touched = true; error("TDLib must not be touched") }, { lead })
         val prepared = scheduler.resolve(42L, MessageSendOptions())
         lead = 30
-        var dispatched = false
         val failure = runCatching {
-            scheduler.scheduledRequest(prepared) { dispatched = true }
+            scheduler.scheduledRequest(prepared, TdApi.GetMe())
         }.exceptionOrNull()
         assertTrue(failure is StealthScheduleUnavailableException)
-        assertFalse(dispatched)
+        assertFalse(touched)
+    }
+
+    @Test fun aRefusedAdmissionNeverReachesTdlib() = runBlocking {
+        var touched = false
+        val request = TdRequests { touched = true; error("TDLib must not be touched") }
+        val failure = runCatching {
+            request.invokeAdmitted(TdApi.GetMe(), lock = { it() }, admit = { error("refused") })
+        }.exceptionOrNull()
+        assertEquals("refused", failure?.message)
+        assertFalse(touched)
+    }
+
+    @Test fun theHandOffToTdlibHappensInsideTheSettingsLock() = runBlocking {
+        var locked = false
+        var handedOffLocked = false
+        val lock: (() -> Unit) -> Unit = { block -> locked = true; try { block() } finally { locked = false } }
+        val request = TdRequests { handedOffLocked = locked; error("handed to TDLib") }
+        runCatching { request.invokeAdmitted(TdApi.GetMe(), lock, admit = {}) }
+        assertTrue(handedOffLocked)
     }
 
     @Test fun textIsScheduledExactlyTheChosenLeadAfterServerTime() {
