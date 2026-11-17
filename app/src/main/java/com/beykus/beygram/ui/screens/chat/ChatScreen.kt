@@ -182,7 +182,9 @@ private const val MAX_UNREAD_FORWARD_PAGES = 20
 @OptIn(FlowPreview::class)
 @Composable
 fun ChatScreen(
-    chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, history: ChatHistory, conversation: ConversationRepository, chats: List<ChatPreview>,
+    chat: ChatPreview, info: ProfileInfo?, lastSeenStyle: LastSeenStyle, history: ChatHistory, conversation: ConversationRepository,
+    // Read only by the forward dialog, so chat list updates don't recompose the chat while it is closed.
+    chats: () -> List<ChatPreview>,
     observeFile: (Int) -> StateFlow<MediaFileState>, onDownloadFile: (Int) -> Unit,
     onBack: () -> Unit, onChatInfo: () -> Unit, onStatistics: (() -> Unit)? = null, connectionState: TelegramConnectionState,
     recordingSettings: VideoMessageSettingsStore, translationSettings: TranslationSettingsStore,
@@ -2860,7 +2862,7 @@ fun ChatScreen(
             ?.text?.takeIf { it.isNotBlank() }?.take(240)
             ?: stringResource(R.string.share_forward_message_count, pendingIds.size)
         ForwardChatDialog(
-            chats, forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
+            chats(), forwardBusy, forwardError, observeFile, onDownloadFile, asCopy = forwardAsCopy,
             commentLimit = limits.text,
             previewText = preview,
             previewMedia = messages.firstOrNull { it.id == pendingIds.singleOrNull() }

@@ -581,7 +581,7 @@ class TextSendUiTest {
                     lastSeenStyle = LastSeenStyle.Relative,
                     history = history,
                     conversation = repo,
-                    chats = listOf(chat),
+                    chats = { listOf(chat) },
                     observeFile = { MutableStateFlow(MediaFileState(it)) },
                     onDownloadFile = {},
                     onBack = {},
