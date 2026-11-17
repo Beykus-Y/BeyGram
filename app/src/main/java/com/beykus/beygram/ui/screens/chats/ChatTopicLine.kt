@@ -1,6 +1,6 @@
 package com.beykus.beygram.ui.screens.chats
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,7 +43,8 @@ internal fun rememberRowTopicBrief(
 
 /**
  * The line above a forum row's preview: the topic's icon and name, on one line and ellipsized. While TDLib has not answered,
- * the line keeps its height, so the list does not jump when the name arrives. [onClick] opens that topic.
+ * the line keeps its height, so the list does not jump when the name arrives. [onClick] opens that topic. [onLongClick] is
+ * the row's own long press, so pressing the line does not swallow it.
  */
 @Composable
 internal fun ChatTopicLine(
@@ -51,14 +52,18 @@ internal fun ChatTopicLine(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
-    onClick: (() -> Unit)?
+    onClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val name = if (topic != null) forumTopicNameOrFallback(topic.title, topic.isGeneral, topic.isNameImplicit) else ""
     Row(
         Modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier),
+            .then(
+                if (onClick != null) Modifier.combinedClickable(role = Role.Button, onClick = onClick, onLongClick = onLongClick)
+                else Modifier
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (topic != null) {

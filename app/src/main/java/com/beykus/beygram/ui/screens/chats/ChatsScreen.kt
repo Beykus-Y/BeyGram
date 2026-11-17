@@ -1881,7 +1881,8 @@ internal fun ChatListItem(chat: ChatPreview, observeFile: (Int) -> StateFlow<Med
                     observeFile = observeFile,
                     downloadFile = downloadFile,
                     observeCustomEmoji = observeCustomEmoji,
-                    onClick = topicTap
+                    onClick = topicTap,
+                    onLongClick = if (topicTap != null) onLongClick else null
                 )
             }
             Spacer(Modifier.height(3.dp))
