@@ -96,4 +96,8 @@
     <string name="forum_editor_name_placeholder">Nom du sujet</string>
     <string name="forum_editor_color_n">Couleur %1$d</string>
     <string name="forum_editor_icon_n">Icône %1$d</string>
+    <string name="forum_editor_premium_emoji_hint">Autres emoji disponibles avec Premium</string>
+    <string name="forum_editor_premium_loading">Chargement des emoji Premium…</string>
+    <string name="forum_editor_premium_failed">Impossible de charger les emoji Premium</string>
+    <string name="forum_editor_premium_icon_n">Emoji Premium %1$d</string>
 </resources>
