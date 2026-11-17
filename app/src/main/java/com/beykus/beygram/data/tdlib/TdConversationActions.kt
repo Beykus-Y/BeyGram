@@ -317,23 +317,40 @@ internal class TdConversationActions(
         }
     }
 
-    suspend fun createTopic(chatId: Long, title: String): Result<Long> = conversationResult {
+    suspend fun createTopic(chatId: Long, title: String, icon: ForumTopicIcon): Result<Long> = conversationResult {
         val name = title.trim()
         require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 128)
+        // TDLib refuses a colour outside its fixed set, so a value the UI could not have produced falls back to the default.
+        val topicIcon = TdApi.ForumTopicIcon(forumTopicCreationColor(icon.colorArgb), icon.customEmojiId)
         val info = request(TdApi.CreateForumTopic().apply {
             this.chatId = chatId
             this.name = name
             isNameImplicit = false
-            icon = TdApi.ForumTopicIcon(0x6FB9F0, 0L)
+            this.icon = topicIcon
         })
         info.forumTopicId.toLong()
     }
 
-    suspend fun renameTopic(chatId: Long, topicId: Long, title: String): Result<Unit> = conversationResult {
+    /** A null [iconCustomEmojiId] keeps the server icon, 0 removes its custom emoji and any other id sets it. */
+    suspend fun editTopic(chatId: Long, topicId: Long, title: String, iconCustomEmojiId: Long?): Result<Unit> = conversationResult {
         val name = title.trim()
         require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 128)
-        request(TdApi.EditForumTopic(chatId, topicId.toInt(), name, false, 0L))
+        request(TdApi.EditForumTopic(chatId, topicId.toInt(), name, iconCustomEmojiId != null, iconCustomEmojiId ?: 0L))
         Unit
+    }
+
+    /** Telegram's default topic icons are the same for every account, so one successful answer is kept for the session. */
+    @Volatile private var defaultTopicIconIds: List<Long>? = null
+
+    suspend fun forumTopicDefaultIcons(): Result<List<Long>> {
+        defaultTopicIconIds?.let { return Result.success(it) }
+        return requestResult {
+            val ids = request(TdApi.GetForumTopicDefaultIcons()).stickers.mapNotNull { sticker ->
+                (sticker.fullType as? TdApi.StickerFullTypeCustomEmoji)?.customEmojiId?.takeIf { it != 0L }
+            }
+            if (ids.isNotEmpty()) defaultTopicIconIds = ids
+            ids
+        }
     }
 
     suspend fun closeTopic(chatId: Long, topicId: Long, closed: Boolean): Result<Unit> = conversationResult {

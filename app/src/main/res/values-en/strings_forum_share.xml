@@ -23,7 +23,7 @@
     <string name="forum_delete_confirm">Delete topic %1$s and its messages? This cannot be undone.</string>
     <string name="forum_manage">Manage topic</string>
     <string name="forum_pin">Pin topic</string>
-    <string name="forum_rename">Rename topic</string>
+    <string name="forum_edit">Edit topic</string>
     <string name="forum_reopen">Reopen topic</string>
     <string name="forum_topic_closed">Topic closed</string>
     <string name="forum_topic_history_hint">Open a topic to view its history</string>
@@ -88,4 +88,12 @@
     <string name="forum_topic_general">General topic</string>
     <string name="forum_topic_in_group">in %1$s</string>
     <string name="forum_topic_preview_sender">%1$s: %2$s</string>
+    <string name="forum_editor_color">Color</string>
+    <string name="forum_editor_icon">Icon</string>
+    <string name="forum_editor_no_icon">No icon</string>
+    <string name="forum_editor_icons_loading">Loading icons…</string>
+    <string name="forum_editor_icons_failed">Could not load icons</string>
+    <string name="forum_editor_name_placeholder">Topic name</string>
+    <string name="forum_editor_color_n">Color %1$d</string>
+    <string name="forum_editor_icon_n">Icon %1$d</string>
 </resources>

@@ -2127,7 +2127,7 @@ private fun BeyGramAppContent(
                             selectedTopicSnapshot = topic
                         }
                     },
-                    onCreate = { name, done ->
+                    onCreate = { name, topicIcon, done ->
                         if (!forumBusy && isCurrentForum()) {
                             // The user may switch chats while the request is in flight; never apply the new id elsewhere.
                             val targetChatId = forumChatId
@@ -2136,7 +2136,7 @@ private fun BeyGramAppContent(
                             forumScope.launch {
                                 var error: String? = null
                                 try {
-                                    repository.createForumTopic(targetChatId, name)
+                                    repository.createForumTopic(targetChatId, name, topicIcon)
                                         .onSuccess { newId ->
                                             if (selectedAccountId == targetAccountId && selectedChatId == targetChatId) {
                                                 selectedTopicChatId = targetChatId
@@ -2149,7 +2149,8 @@ private fun BeyGramAppContent(
                                                     canWrite = true,
                                                     canManage = true,
                                                     canPin = true,
-                                                    isOutgoing = true
+                                                    isOutgoing = true,
+                                                    icon = topicIcon
                                                 )
                                                 topicsReload++
                                             }
@@ -2167,9 +2168,10 @@ private fun BeyGramAppContent(
                             done(context.getString(R.string.forum_action_failed))
                         }
                     },
-                    onRename = { topic, name, done ->
-                        forumActionWithResult({ repository.renameForumTopic(forumChatId, topic.id, name) }, done)
+                    onEdit = { topic, name, iconCustomEmojiId, done ->
+                        forumActionWithResult({ repository.editForumTopic(forumChatId, topic.id, name, iconCustomEmojiId) }, done)
                     },
+                    loadDefaultIcons = { repository.forumTopicDefaultIcons() },
                     onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(forumChatId, topic.id, closed) } },
                     onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(forumChatId, topic.id, pinned) } },
                     onMuted = { topic, muted -> forumAction { repository.setForumTopicMuted(forumChatId, topic.id, muted) } },
