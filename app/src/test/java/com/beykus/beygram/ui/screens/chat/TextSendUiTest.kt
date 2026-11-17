@@ -52,6 +52,7 @@ import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.CustomEmoji
+import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.model.DeleteMessageScope
 import com.beykus.beygram.domain.model.ForumTopicIcon
 import com.beykus.beygram.domain.model.ForumTopicsPage
@@ -710,6 +711,8 @@ class TextSendUiTest {
         override suspend fun createForumTopic(chatId: Long, name: String, icon: ForumTopicIcon): Result<Long> = Result.failure(UnsupportedOperationException())
         override suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit> = Result.success(Unit)
         override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = Result.success(emptyList())
+        override suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = Result.success(emptyList())
+        override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = Result.success(emptyList())
         override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = Result.success(Unit)
         override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = Result.success(Unit)
         override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = Result.success(Unit)

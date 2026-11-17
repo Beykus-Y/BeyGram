@@ -29,6 +29,7 @@ import com.beykus.beygram.domain.model.ChatMembersPage
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.ChatHistory
+import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.GlobalSearchPage
 import com.beykus.beygram.domain.model.PublicChatOpenResult
@@ -2624,6 +2625,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun editForumTopic(chatId: Long, forumTopicId: Long, name: String, iconCustomEmojiId: Long?): Result<Unit> =
         conversationActions.editTopic(chatId, forumTopicId, name, iconCustomEmojiId)
     override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = conversationActions.forumTopicDefaultIcons()
+    override suspend fun installedCustomEmojiSets(): Result<List<CustomEmojiSetBrief>> = conversationActions.installedCustomEmojiSets()
+    override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = conversationActions.customEmojiSetIds(setId)
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean) = conversationActions.closeTopic(chatId, forumTopicId, closed)
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
