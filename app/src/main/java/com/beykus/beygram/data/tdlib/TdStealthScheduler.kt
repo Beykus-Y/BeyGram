@@ -70,6 +70,26 @@ internal class TdStealthScheduler(
     }
 
     /**
+     * Resends failed messages as they were. With stealth sending on, only messages still waiting far enough ahead in the
+     * scheduled queue may go (see [checkResend]); the live switch is decided again under the settings lock at the hand-off,
+     * so protection turned on after the check still refuses an unchecked resend.
+     */
+    suspend fun resend(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean): TdApi.Messages {
+        val checked = active() && !sendNowConsent
+        if (checked) checkResend(chatId, messageIds, sendNowConsent)
+        return request.invokeAdmitted(TdApi.ResendMessages(chatId, messageIds.toLongArray(), null, 0L), lock, admit = {
+            if (!sendNowConsent && !checked && active()) throw unavailable(R.string.stealth_schedule_retry)
+        })
+    }
+
+    /**
+     * Sends [function] at once, only while stealth sending is off. The switch is decided under the settings lock at the
+     * hand-off to TDLib, so a send that cannot be scheduled never leaves after protection was turned on.
+     */
+    suspend fun <T : TdApi.Object> requestUnlessActive(function: TdApi.Function<T>, refusal: () -> Exception): T =
+        request.invokeAdmitted(function, lock, admit = { if (active()) throw refusal() })
+
+    /**
      * Uploads one local file ahead of the send and waits until TDLib holds it (it keeps the last part until the message is
      * sent). Returns the media sent by the file's id and the bytes still left to upload. A stalled upload fails, so the
      * user decides instead of the date running out.

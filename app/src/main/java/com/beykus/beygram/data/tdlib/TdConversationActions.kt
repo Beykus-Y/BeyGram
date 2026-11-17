@@ -571,8 +571,7 @@ internal class TdConversationActions(
         val orderedIds = messageIds.distinct().sorted()
         require(orderedIds.isNotEmpty()) { "Нет сообщений для повтора" }
         // A resend goes out as the message was; in stealth mode only one still waiting in the scheduled queue may go.
-        stealth.checkResend(chatId, orderedIds, sendNowConsent)
-        request(TdApi.ResendMessages(chatId, orderedIds.toLongArray(), null, 0L))
+        stealth.resend(chatId, orderedIds, sendNowConsent)
         Unit
     }
     /** [forumTopicId] is used only without a reply target: a reply already carries its topic. */

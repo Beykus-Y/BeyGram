@@ -111,14 +111,13 @@ internal class TdBotFeatures(
         // always captured; otherwise a cancelled screen could leave an orphaned message and a cleared draft behind.
         val sent = withContext(NonCancellable) {
             // This operation needs an immediate temporary/favorite message; scheduling it would not work.
-            // Check the live account policy at the actual send, not before fetching the chat or its draft.
-            if (stealth.active()) throw UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked))
-            request(TdApi.SendInlineQueryResultMessage().apply {
+            // The live account policy is decided at the hand-off to TDLib, under the settings lock.
+            stealth.requestUnlessActive(TdApi.SendInlineQueryResultMessage().apply {
                 chatId = savedMessagesChatId
                 this.queryId = queryId
                 this.resultId = resultId
                 hideViaBot = false
-            })
+            }) { UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked)) }
         }
         var copied: String? = null
         var delivered = false
@@ -156,14 +155,13 @@ internal class TdBotFeatures(
         val savedDraft = request(TdApi.GetChat(savedMessagesChatId)).draftMessage
         val sent = withContext(NonCancellable) {
             // This operation needs an immediate temporary/favorite message; scheduling it would not work.
-            // Check the live account policy at the actual send, not before fetching the chat or its draft.
-            if (stealth.active()) throw UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked))
-            request(TdApi.SendInlineQueryResultMessage().apply {
+            // The live account policy is decided at the hand-off to TDLib, under the settings lock.
+            stealth.requestUnlessActive(TdApi.SendInlineQueryResultMessage().apply {
                 chatId = savedMessagesChatId
                 this.queryId = queryId
                 this.resultId = resultId
                 hideViaBot = false
-            })
+            }) { UserMessageException(UiText.Res(R.string.stealth_schedule_music_bot_blocked)) }
         }
         try {
             val audio = (sent.content as? TdApi.MessageAudio)?.audio
