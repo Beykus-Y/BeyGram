@@ -28,6 +28,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
@@ -79,6 +80,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import com.beykus.beygram.ui.screens.bgmusic.BgMusicChatDocument
 import com.beykus.beygram.ui.screens.bgmusic.isBgMusicDocument
 import androidx.compose.ui.geometry.Offset
@@ -258,9 +261,15 @@ private fun musicCardStatusText(status: MusicPlaybackStatus, downloadProgress: F
     MusicPlaybackStatus.Ready -> null
 }
 
-/** Декодированные картинки до 1024 px держатся в памяти, пока их не вытеснят: повторный вход в композицию (прокрутка, возврат в чат) не декодирует файл заново. Полноразмерные картинки просмотрщика сюда не попадают. */
+/** Longest-side decode limit for bubble and album images; larger decodes are the viewer's and skip the cache. */
+internal const val BUBBLE_MAX_DECODE_DIMENSION = 1536
+
+/**
+ * Byte-budget LRU of decoded bubble images, so re-entering composition (scrolling, returning to the chat)
+ * does not decode the file again. Viewer decodes above [MAX_CACHED_DIMENSION] bypass it.
+ */
 private object DecodedImageCache {
-    const val MAX_CACHED_DIMENSION = 1024
+    const val MAX_CACHED_DIMENSION = BUBBLE_MAX_DECODE_DIMENSION
     private val cache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 8).toInt()) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
     }
@@ -298,7 +307,9 @@ internal fun LocalMediaImage(
     fallbackVideoPath: String? = null,
     fallbackMinithumbnail: ByteArray? = null,
     /** False decodes only the first frame, so an animated image never starts an AnimatedImageDrawable. */
-    animate: Boolean = true
+    animate: Boolean = true,
+    /** Shown until the first decode, and under the drawable while it fades in. Null keeps the spinner. */
+    placeholder: (@Composable () -> Unit)? = null
 ) {
     val context = LocalContext.current
     // A still frame has its own cache key, so it can never be taken for the animated drawable.
@@ -342,23 +353,35 @@ internal fun LocalMediaImage(
         if (animate) animated?.start()
         onDispose { animated?.stop() }
     }
+    // Fade in over the placeholder only when it is shown and the drawable was not cached.
+    val fadeSpec = rememberMotionSpec(MotionToken.MicroFeedback)
+    val reveal = remember(path) { Animatable(if (cached != null || placeholder == null) 1f else 0f) }
+    LaunchedEffect(drawable != null) {
+        if (drawable != null && reveal.value < 1f) {
+            if (fadeSpec.isInstant) reveal.snapTo(1f) else reveal.animateTo(1f, fadeSpec.animationSpec())
+        }
+    }
+    val fading by remember(reveal) { derivedStateOf { reveal.value < 1f } }
     Box(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
+        if (placeholder != null && (drawable == null && !failed || drawable != null && fading)) placeholder()
+        if (drawable != null) AndroidView(
+            factory = { ImageView(it).apply { contentDescription = contentDescriptionText } },
+            update = { view ->
+                view.contentDescription = contentDescriptionText
+                view.scaleType = if (fit) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+                if (view.drawable !== drawable) view.setImageDrawable(drawable)
+            }, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = reveal.value }
+        )
         when {
-            drawable != null -> AndroidView(
-                factory = { ImageView(it).apply { contentDescription = contentDescriptionText } },
-                update = { view ->
-                    view.contentDescription = contentDescriptionText
-                    view.scaleType = if (fit) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
-                    if (view.drawable !== drawable) view.setImageDrawable(drawable)
-                }, modifier = Modifier.fillMaxSize()
-            )
+            drawable != null -> Unit
             failed && allowVideoFrame && fallbackMinithumbnail != null ->
                 MinithumbnailImage(fallbackMinithumbnail, Modifier.fillMaxSize())
             failed && allowVideoFrame ->
                 Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(R.string.media_image_read_failed),
                     tint = Color.LightGray, modifier = Modifier.size(32.dp))
             failed -> Text(stringResource(R.string.media_image_read_failed), color = Color.LightGray, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
-            else -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            placeholder == null -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            else -> Unit
         }
     }
 }
@@ -394,17 +417,45 @@ internal fun MinithumbnailImage(data: ByteArray, modifier: Modifier = Modifier) 
     bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier) }
 }
 
-/** Заглушка до загрузки полного файла: миниатюра, уменьшенная до [BLUR_PREVIEW_DIMENSION] px, остаётся только цвет и форма. */
+/**
+ * The ~40 px TDLib minithumbnail is shown as a soft low-frequency placeholder, not as stretched pixels.
+ * Blur is a no-op below API 31.
+ */
 @Composable
-private fun BlurredMediaPreview(media: MessageMedia, thumbnailPath: String?, modifier: Modifier) {
+internal fun SoftMinithumbnail(data: ByteArray, modifier: Modifier = Modifier) {
+    MinithumbnailImage(data, modifier.blur(12.dp, BlurredEdgeTreatment.Rectangle))
+}
+
+/** Soft minithumbnail as a [LocalMediaImage] placeholder slot, or null when there is no minithumbnail. */
+internal fun softMinithumbnailSlot(data: ByteArray?): (@Composable () -> Unit)? {
+    if (data == null) return null
+    val slot: @Composable () -> Unit = { SoftMinithumbnail(data, Modifier.fillMaxSize()) }
+    return slot
+}
+
+/**
+ * Longest-side decode size that covers a center-cropped box of [boxWidthPx]x[boxHeightPx] for a [mediaWidth]x[mediaHeight] source, in 256 px steps.
+ */
+internal fun bubbleDecodeDimension(mediaWidth: Int, mediaHeight: Int, boxWidthPx: Float, boxHeightPx: Float): Int {
+    if (mediaWidth <= 0 || mediaHeight <= 0 || boxWidthPx <= 0f || boxHeightPx <= 0f) return 1024
+    val scale = maxOf(boxWidthPx / mediaWidth, boxHeightPx / mediaHeight)
+    val needed = kotlin.math.ceil(maxOf(mediaWidth, mediaHeight) * scale).toInt()
+    return (((needed + 255) / 256) * 256).coerceIn(512, BUBBLE_MAX_DECODE_DIMENSION)
+}
+
+/** What the bubble shows before the full file: the downloaded preview at its own resolution, else the soft minithumbnail. */
+@Composable
+private fun MediaThumbnailLayer(media: MessageMedia, thumbnailPath: String?, modifier: Modifier) {
     val minithumbnail = media.minithumbnail
     when {
         thumbnailPath != null -> LocalMediaImage(
-            thumbnailPath, modifier, maxDimension = BLUR_PREVIEW_DIMENSION,
+            thumbnailPath, modifier,
             allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
-            fallbackMinithumbnail = minithumbnail
+            fallbackMinithumbnail = minithumbnail,
+            animate = false,
+            placeholder = softMinithumbnailSlot(minithumbnail)
         )
-        minithumbnail != null -> MinithumbnailImage(minithumbnail, modifier)
+        minithumbnail != null -> SoftMinithumbnail(minithumbnail, modifier)
     }
 }
 
@@ -425,8 +476,6 @@ private fun DownloadBadge(downloading: Boolean, contentDescription: String, onCl
         else Icon(Icons.Rounded.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
     }
 }
-
-private const val BLUR_PREVIEW_DIMENSION = 24
 
 /** Строка, которая ждёт загрузки после нажатия на музыку или голосовое. Ждёт только последнее нажатое, и начинает играть только её строка, даже если такой же файл стоит в другом сообщении. */
 internal val pendingPlaybackRow = mutableStateOf<Any?>(null)
@@ -671,10 +720,18 @@ internal fun MediaPreview(
         val longPressLabel = stringResource(R.string.a11y_message_actions)
         val viewOnceLabel = stringResource(R.string.media_view_once_label)
         val viewOnceHint = stringResource(R.string.media_view_once_hint, mediaLabel)
-        // Полного файла ещё нет: вместо растянутой миниатюры показываем размытую заглушку и кнопку загрузки.
+        // Full file not here yet: the downloaded preview is shown at its own resolution until it arrives, with the download button on top.
         val awaitingFile = revealed && !concealed && file.localPath == null
+        val boxHeightDp = (244 / ratio).coerceIn(120f, 280f)
+        val density = LocalDensity.current
+        // Decode size for the full image: covers the crop box, so bubbles never decode 1024 px for a small box.
+        val decodeDimension = remember(media.width, media.height, boxHeightDp, density.density) {
+            val cover = with(density) { bubbleDecodeDimension(media.width, media.height, 244.dp.toPx(), boxHeightDp.dp.toPx()) }
+            // Animated drawables are not cached and hold every frame at this size, so they keep the old 1024 limit.
+            if (media.mimeType == "image/gif" || media.kind == MediaKind.Animation) minOf(cover, 1024) else cover
+        }
         Box(
-            Modifier.width(244.dp).height((244 / ratio).coerceIn(120f, 280f).dp)
+            Modifier.width(244.dp).height(boxHeightDp.dp)
                 .background(palette.disabled)
                 .combinedClickable(
                     onClickLabel = if (viewOnce) viewOnceLabel else if (revealed) openLabel else spoilerLabel,
@@ -694,13 +751,19 @@ internal fun MediaPreview(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
-            } else if (awaitingFile) BlurredMediaPreview(media, thumb.localPath, Modifier.fillMaxSize())
+            } else if (awaitingFile) MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize())
             else if (revealed && posterFile != null) LocalMediaImage(
                 posterFile, Modifier.fillMaxSize(),
+                maxDimension = decodeDimension,
                 allowVideoFrame = media.kind == MediaKind.Animation || media.kind == MediaKind.Video,
                 fallbackVideoPath = if (posterFile != file.localPath) file.localPath else null,
                 fallbackMinithumbnail = media.minithumbnail,
-                animate = autoplay.eligible.value
+                animate = autoplay.eligible.value,
+                // Without a preview or minithumbnail there is nothing to hold, so the spinner stays.
+                placeholder = if (posterFile != thumb.localPath && (thumb.localPath != null || media.minithumbnail != null)) {
+                    val layer: @Composable () -> Unit = { MediaThumbnailLayer(media, thumb.localPath, Modifier.fillMaxSize()) }
+                    layer
+                } else softMinithumbnailSlot(media.minithumbnail)
             )
             if (!viewOnce) {
                 if (!revealed) SafeSpoilerOverlay(seed = media.fileId, modifier = Modifier.fillMaxSize())

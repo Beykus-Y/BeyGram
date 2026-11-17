@@ -345,7 +345,19 @@ private fun AlbumMediaTile(
         .semantics { if (revealed) contentDescription = mediaLabel }
         .then(autoplay.modifier),
         contentAlignment = Alignment.Center) {
-        if (revealed && imagePath != null) LocalMediaImage(imagePath, Modifier.fillMaxSize(), animate = autoplay.eligible.value)
+        val minithumbnail = if (media.isSecret) null else media.minithumbnail
+        val soft = softMinithumbnailSlot(minithumbnail)
+        val thumbPath = thumb.localPath
+        // The tile keeps the preview under the original while the original decodes, so it never flashes a spinner.
+        val originalPlaceholder: (@Composable () -> Unit)? = if (imagePath != thumbPath && thumbPath != null) {
+            val layer: @Composable () -> Unit = { LocalMediaImage(thumbPath, Modifier.fillMaxSize(), maxDimension = ALBUM_TILE_DECODE_DIMENSION, animate = false, placeholder = soft) }
+            layer
+        } else soft
+        if (revealed && imagePath != null) LocalMediaImage(
+            imagePath, Modifier.fillMaxSize(), maxDimension = ALBUM_TILE_DECODE_DIMENSION, animate = autoplay.eligible.value,
+            placeholder = originalPlaceholder
+        )
+        else if (revealed && minithumbnail != null) SoftMinithumbnail(minithumbnail, Modifier.fillMaxSize())
         when {
             !revealed -> Text(stringResource(R.string.media_spoiler_hint), color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(6.dp))
             imagePath == null && (file.isDownloading || thumb.isDownloading) -> CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
@@ -369,3 +381,6 @@ private fun AlbumMediaTile(
 private fun SpacerTile(modifier: Modifier) {
     Box(modifier.aspectRatio(1f))
 }
+
+/** Album tiles are at most about half a bubble wide, so 768 px covers them at any density. */
+private const val ALBUM_TILE_DECODE_DIMENSION = 768
