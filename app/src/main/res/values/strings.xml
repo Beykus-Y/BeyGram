@@ -1883,6 +1883,12 @@
     <string name="forum_delete_confirm">Удалить тему «%1$s» вместе с сообщениями? Отменить удаление нельзя.</string>
     <string name="forum_action_failed">Не удалось выполнить действие с темой. Проверьте права доступа и соединение.</string>
     <string name="forum_topic_history_hint">Откройте тему, чтобы посмотреть историю</string>
+    <string name="forum_topics_reorder">Изменить порядок</string>
+    <string name="forum_topics_reorder_hint">Перетащите закреплённые темы, чтобы изменить их порядок</string>
+    <string name="forum_topics_reorder_done">Готово</string>
+    <string name="forum_topics_reorder_failed">Не удалось изменить порядок тем</string>
+    <string name="forum_topic_move_up">Выше</string>
+    <string name="forum_topic_move_down">Ниже</string>
     <string name="service_join_link_named">По ссылке в группу вступил(а) %1$s</string>
     <string name="service_join_request_named">По заявке в группу вступил(а) %1$s</string>
     <string name="service_members_added_named">В группу добавлен(а) %1$s</string>

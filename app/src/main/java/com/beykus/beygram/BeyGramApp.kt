@@ -2022,10 +2022,13 @@ private fun BeyGramAppContent(
                     } finally { forumBusy = false }
                 }
             }
-            /** Same action path, but reports the outcome so the name dialog can close on success or keep the input. */
-            fun forumActionWithResult(action: suspend () -> Result<Unit>, onResult: (String?) -> Unit) {
+            /**
+             * Same action path, but reports the outcome so the name dialog can close on success or keep the input.
+             * [failure] is the message for a failed action; the reorder passes its own, so the banner names what failed.
+             */
+            fun forumActionWithResult(action: suspend () -> Result<Unit>, onResult: (String?) -> Unit, failure: Int = R.string.forum_action_failed) {
                 if (forumBusy || !isCurrentForum()) {
-                    onResult(context.getString(R.string.forum_action_failed))
+                    onResult(context.getString(failure))
                     return
                 }
                 forumBusy = true; forumActionError = null
@@ -2033,7 +2036,7 @@ private fun BeyGramAppContent(
                     var error: String? = null
                     try {
                         if (action().isSuccess) topicsReload++
-                        else error = context.getString(R.string.forum_action_failed)
+                        else error = context.getString(failure)
                     } finally {
                         forumBusy = false
                         forumActionError = error
@@ -2251,6 +2254,9 @@ private fun BeyGramAppContent(
                     loadDefaultIcons = { repository.forumTopicDefaultIcons() },
                     onClosed = { topic, closed -> forumAction { repository.setForumTopicClosed(forumChatId, topic.id, closed) } },
                     onPinned = { topic, pinned -> forumAction { repository.setForumTopicPinned(forumChatId, topic.id, pinned) } },
+                    onPinnedOrder = { order, done ->
+                        forumActionWithResult({ repository.setPinnedForumTopicsOrder(forumChatId, order) }, done, R.string.forum_topics_reorder_failed)
+                    },
                     onMuted = { topic, muted -> forumAction { repository.setForumTopicMuted(forumChatId, topic.id, muted) } },
                     onDelete = { topic -> forumAction { repository.deleteForumTopic(forumChatId, topic.id) } },
                     onDismissActionError = { forumActionError = null },

@@ -2626,6 +2626,8 @@ class TdLibTelegramRepository private constructor(
     override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = conversationActions.forumTopicDefaultIcons()
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean) = conversationActions.closeTopic(chatId, forumTopicId, closed)
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean) = conversationActions.pinTopic(chatId, forumTopicId, pinned)
+    override suspend fun setPinnedForumTopicsOrder(chatId: Long, forumTopicIds: List<Long>): Result<Unit> =
+        conversationActions.setPinnedTopicsOrder(chatId, forumTopicIds)
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long) = conversationActions.deleteTopic(chatId, forumTopicId)
     override suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?) = conversationActions.setTopicMuted(chatId, forumTopicId, muted)
 

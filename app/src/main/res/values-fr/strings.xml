@@ -919,4 +919,10 @@
     <string name="forum_navigation_tabs">Onglets en haut</string>
     <string name="forum_navigation_rail">Panneau latéral</string>
     <string name="forum_panel_all_topics">Tous les sujets</string>
+    <string name="forum_topics_reorder">Modifier l\'ordre</string>
+    <string name="forum_topics_reorder_hint">Faites glisser les sujets épinglés pour changer leur ordre</string>
+    <string name="forum_topics_reorder_done">Terminé</string>
+    <string name="forum_topics_reorder_failed">Impossible de modifier l\'ordre des sujets</string>
+    <string name="forum_topic_move_up">Monter</string>
+    <string name="forum_topic_move_down">Descendre</string>
 </resources>

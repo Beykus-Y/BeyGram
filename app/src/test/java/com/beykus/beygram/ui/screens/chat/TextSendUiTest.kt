@@ -712,6 +712,7 @@ class TextSendUiTest {
         override suspend fun forumTopicDefaultIcons(): Result<List<Long>> = Result.success(emptyList())
         override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = Result.success(Unit)
         override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = Result.success(Unit)
+        override suspend fun setPinnedForumTopicsOrder(chatId: Long, forumTopicIds: List<Long>): Result<Unit> = Result.success(Unit)
         override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = Result.success(Unit)
         override suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?): Result<Unit> = Result.success(Unit)
         override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = Result.success(Unit)

@@ -363,6 +363,12 @@ internal class TdConversationActions(
         Unit
     }
 
+    /** TDLib replaces the pinned set with [topicIds], so the caller sends every pinned topic in its new display order. */
+    suspend fun setPinnedTopicsOrder(chatId: Long, topicIds: List<Long>): Result<Unit> = conversationResult {
+        request(TdApi.SetPinnedForumTopics(chatId, forumTopicIdArray(topicIds)))
+        Unit
+    }
+
     suspend fun deleteTopic(chatId: Long, topicId: Long): Result<Unit> = conversationResult {
         request(TdApi.DeleteForumTopic(chatId, topicId.toInt()))
         Unit
@@ -1276,6 +1282,9 @@ internal fun redactedTdlibMessage(message: String?): String? {
  */
 internal fun forumTopicsPageComplete(hasMorePages: Boolean, cursorRepeated: Boolean): Boolean =
     !hasMorePages && !cursorRepeated
+
+/** TDLib's pinned-order request takes the topic ids as an int array, in display order (first id on top). */
+internal fun forumTopicIdArray(topicIds: List<Long>): IntArray = IntArray(topicIds.size) { topicIds[it].toInt() }
 
 /** The Telegram server can overlap pages while topic positions change; Compose list keys must be unique. */
 internal fun uniqueForumTopics(topics: List<ForumTopic>): List<ForumTopic> =

@@ -86,6 +86,7 @@ class ForumTopicsAccessibilityTest {
                     loadDefaultIcons = { Result.success(emptyList()) },
                     onClosed = { _, _ -> },
                     onPinned = { _, _ -> },
+                    onPinnedOrder = { _, done -> done(null) },
                     onDelete = {}
                 )
             }
