@@ -5,6 +5,7 @@ import com.beykus.beygram.domain.model.MediaKind
 import com.beykus.beygram.domain.model.MessageMedia
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -104,7 +105,7 @@ class ChatTimelineGrouperTest {
                 assertEquals("step $step", previousRows.structureVersion, rows.structureVersion)
             } else {
                 structureSteps++
-                assertEquals("step $step", previousRows.structureVersion + 1, rows.structureVersion)
+                assertNotEquals("step $step", previousRows.structureVersion, rows.structureVersion)
             }
             // A row whose members are the same objects as before must still be the same row instance.
             val previousByKey = previousRows.items.associateBy { it.key }
@@ -153,12 +154,19 @@ class ChatTimelineGrouperTest {
         val grown = history + message(5L)
         val after = grouper.group(grown)
 
-        assertEquals(before.structureVersion + 1, after.structureVersion)
+        assertNotEquals(before.structureVersion, after.structureVersion)
         assertEquals(groupTelegramMediaAlbums(grown), after.items)
         val beforeByKey = before.items.associateBy { it.key }
         for (key in listOf("message:1", "album:7", "message:4")) {
             assertSame(beforeByKey.getValue(key), after.items.single { it.key == key })
         }
+    }
+
+    @Test fun structureVersionsDoNotRepeatAcrossGroupers() {
+        val history = listOf(message(1L), message(2L))
+        val first = ChatTimelineGrouper().group(history).structureVersion
+        val second = ChatTimelineGrouper().group(history).structureVersion
+        assertNotEquals(first, second)
     }
 
     @Test fun albumMemberContentChangeReplacesOnlyThatAlbumRow() {
