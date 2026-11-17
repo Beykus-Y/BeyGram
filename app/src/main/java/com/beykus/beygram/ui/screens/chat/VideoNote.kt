@@ -75,14 +75,14 @@ internal fun MediaKind.playsInline(): Boolean = this == MediaKind.Voice || this 
 
 /** Кольцо прогресса поверх кружка: серая дорожка и дуга, которая заполняется до [fraction]. */
 @Composable
-private fun ProgressRing(fraction: Float) {
+private fun ProgressRing(fraction: () -> Float) {
     val palette = beyGramPalette()
     Canvas(Modifier.fillMaxSize()) {
         val stroke = 4.dp.toPx()
         val arcSize = Size(this.size.width - stroke, this.size.height - stroke)
         val inset = Offset(stroke / 2, stroke / 2)
         drawArc(palette.textSecondary.copy(alpha = 0.3f), startAngle = -90f, sweepAngle = 360f, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
-        drawArc(palette.accent, startAngle = -90f, sweepAngle = 360f * fraction, useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
+        drawArc(palette.accent, startAngle = -90f, sweepAngle = 360f * fraction(), useCenter = false, topLeft = inset, size = arcSize, style = Stroke(stroke))
     }
 }
 
@@ -137,7 +137,9 @@ internal fun VideoNoteBubble(
     /** Repository-backed automatic thumbnail download; explicit playback still uses [downloadFile]. */
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null
 ) {
-    val file by remember(media.fileId) { observeFile(media.fileId) }.collectAsStateWithLifecycle()
+    // The bubble reads [file] without byte counters; the upload ring reads progress through the handle.
+    val fileHandle = rememberMediaFile(media.fileId, observeFile)
+    val file by fileHandle.content
     val palette = beyGramPalette()
     val hostContext = LocalContext.current
     val accountId = LocalPlaybackAccountId.current
@@ -253,8 +255,8 @@ internal fun VideoNoteBubble(
                     modifier = Modifier.fillMaxSize()
                 )
                 // Свой кружок во время загрузки на сервер: кольцо показывает прогресс, после приёма кружок принимает обычный вид.
-                if (showing) ProgressRing(fraction)
-                else if (file.isUploading) ProgressRing(file.uploadProgress)
+                if (showing) ProgressRing({ fraction })
+                else if (file.isUploading) ProgressRing({ fileHandle.raw.value.uploadProgress })
                 if (showing && showControls) Box(Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
                     Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
                 }
