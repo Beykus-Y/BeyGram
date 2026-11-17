@@ -365,7 +365,9 @@ private fun decodeVideoPosterFrame(path: String, maxDimension: Int): Bitmap? = r
 internal fun MinithumbnailImage(data: ByteArray, modifier: Modifier = Modifier) {
     val cached = remember(data) { MinithumbnailCache.get(data) }
     val bitmap by produceState(cached, data) {
-        if (cached != null) { value = cached; return@produceState }
+        // Переиспользованная строка не должна показывать минипревью предыдущего сообщения, пока идёт декодирование.
+        value = cached
+        if (cached != null) return@produceState
         val decoded = withContext(Dispatchers.Default) { runCatching { BitmapFactory.decodeByteArray(data, 0, data.size)?.asImageBitmap() }.getOrNull() }
         if (decoded != null) MinithumbnailCache.put(data, decoded)
         value = decoded
