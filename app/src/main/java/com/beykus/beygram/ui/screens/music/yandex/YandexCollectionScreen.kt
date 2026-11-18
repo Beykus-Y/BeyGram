@@ -1,31 +1,21 @@
 package com.beykus.beygram.ui.screens.music.yandex
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -37,7 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -57,18 +47,21 @@ import com.beykus.beygram.data.yandex.YandexWave
 import com.beykus.beygram.data.yandex.YandexWaveLauncher
 import com.beykus.beygram.playback.YandexTrackResolver
 import com.beykus.beygram.ui.components.beyGramPalette
-import com.beykus.beygram.ui.components.topAppBarSurface
-import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.screens.chat.openInBrowser
+import com.beykus.beygram.ui.screens.music.MusicCollectionActions
 import com.beykus.beygram.ui.screens.music.MusicCollectionHeader
+import com.beykus.beygram.ui.screens.music.MusicCollectionTopBar
 import com.beykus.beygram.ui.screens.music.MusicEmptyText
 import com.beykus.beygram.ui.screens.music.MusicLoadingRow
+import com.beykus.beygram.ui.screens.music.MusicPlaylistCoverFill
+import com.beykus.beygram.ui.screens.music.MusicRetryRow
 import com.beykus.beygram.ui.screens.music.MusicScreenGutter
 import com.beykus.beygram.ui.screens.music.ProviderTrackMenuItems
 import com.beykus.beygram.ui.screens.music.ProviderTrackRow
 import com.beykus.beygram.ui.screens.music.musicCollectionSummary
 import com.beykus.beygram.ui.screens.music.rememberProviderCover
-import com.beykus.beygram.ui.screens.playback.TrackArtwork
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -106,6 +99,7 @@ internal fun YandexCollectionScreen(
     linkedPlaylist: ProviderPlaylist? = null
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val likedTitle = stringResource(R.string.yandex_library_liked)
@@ -271,16 +265,12 @@ internal fun YandexCollectionScreen(
     }
 
     Scaffold(
-        containerColor = palette.screen,
+        modifier = Modifier.glassScreenBackground(design, palette.screen),
+        containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
-                modifier = Modifier.topAppBarSurface(),
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
-                    }
-                },
+            MusicCollectionTopBar(
+                title = head.title,
+                onBack = onBack,
                 actions = {
                     if (ref is YandexCollectionRef.Album) {
                         val menuTitle = head.title
@@ -334,8 +324,7 @@ internal fun YandexCollectionScreen(
                             ProviderTracks.sharePlaylistLink(context, menuTitle, uuid, label)
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.surface)
+                }
             )
         }
     ) { padding ->
@@ -350,44 +339,25 @@ internal fun YandexCollectionScreen(
                         if (tracks.size >= count) tracks.sumOf { it.durationMs } / 1_000L else 0L
                     )
                 ) { modifier ->
-                    if (ref == YandexCollectionRef.Liked) {
-                        Box(modifier.clip(styledShape(20.dp)).background(palette.accentSoft), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.Favorite, null, tint = palette.accentInk, modifier = Modifier.size(44.dp))
-                        }
-                    } else {
-                        TrackArtwork(
-                            artworkPath = rememberProviderCover(head.coverUrl),
-                            audioPath = null,
-                            modifier = modifier,
-                            background = palette.accentSoft,
-                            tint = palette.accentInk,
-                            symbolSize = 40.dp,
-                            cornerRadius = 20.dp
-                        )
-                    }
+                    MusicPlaylistCoverFill(
+                        coverPath = rememberProviderCover(head.coverUrl),
+                        modifier = modifier,
+                        liked = ref == YandexCollectionRef.Liked
+                    )
                 }
             }
             item(key = "actions") {
-                val playable = tracks.any { it.isAvailable }
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Button(onClick = { play(0, false) }, enabled = playable, modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.yandex_library_play))
-                    }
-                    OutlinedButton(onClick = { play(0, true) }, enabled = playable, modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.player_shuffle))
-                    }
-                }
+                MusicCollectionActions(
+                    enabled = tracks.any { it.isAvailable },
+                    onPlay = { play(0, false) },
+                    onShuffle = { play(0, true) }
+                )
             }
             val error = failure
             when {
                 loading -> item(key = "loading") { MusicLoadingRow() }
                 error != null -> item(key = "failure") {
-                    Box(Modifier.fillMaxWidth().padding(16.dp)) {
-                        Button(onClick = { attempt++ }) { Text(stringResource(R.string.yandex_library_retry)) }
-                    }
+                    MusicRetryRow(stringResource(R.string.music_collection_failed), onRetry = { attempt++ })
                 }
                 tracks.isEmpty() -> item(key = "empty") { MusicEmptyText(stringResource(R.string.yandex_library_empty)) }
                 // One lazy item per row: a liked list of thousands composes only what is on screen, and the list
@@ -407,9 +377,7 @@ internal fun YandexCollectionScreen(
             }
             if (pageLoading) item(key = "page-loading") { MusicLoadingRow() }
             if (pageFailed) item(key = "page-failure") {
-                Box(Modifier.fillMaxWidth().padding(16.dp)) {
-                    Button(onClick = { pageFailed = false }) { Text(stringResource(R.string.yandex_library_retry)) }
-                }
+                MusicRetryRow(stringResource(R.string.music_collection_failed), onRetry = { pageFailed = false })
             }
         }
     }

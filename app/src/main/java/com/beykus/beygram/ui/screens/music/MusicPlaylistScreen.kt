@@ -2,13 +2,11 @@ package com.beykus.beygram.ui.screens.music
 
 import com.beykus.beygram.ui.components.settingsIconTint
 import android.content.Context
-import com.beykus.beygram.ui.components.topAppBarSurface
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
@@ -40,16 +37,12 @@ import androidx.compose.material.icons.rounded.Tune
 import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
-import com.beykus.beygram.ui.components.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import com.beykus.beygram.ui.components.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,12 +52,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
@@ -82,6 +74,8 @@ import com.beykus.beygram.data.music.tempoSortOffered
 import com.beykus.beygram.domain.repository.TelegramRepository
 import com.beykus.beygram.playback.PlaybackItem
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.screens.bgmusic.BgMusicExportSheet
 import kotlinx.coroutines.launch
 
@@ -104,6 +98,7 @@ internal fun MusicPlaylistScreen(
     onSearch: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val repository = remember(context) { MusicLibraries.get(context) }
@@ -177,28 +172,12 @@ internal fun MusicPlaylistScreen(
     if (exportOpen && stored != null) BgMusicExportSheet(playlist = stored, onDismiss = { exportOpen = false })
 
     Scaffold(
-        containerColor = palette.screen,
+        modifier = Modifier.glassScreenBackground(design, palette.screen),
+        containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
-                modifier = Modifier.topAppBarSurface(),
-                title = {
-                    Text(
-                        title,
-                        color = palette.textPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.ArrowBack,
-                            stringResource(R.string.common_back),
-                            tint = palette.textPrimary
-                        )
-                    }
-                },
+            MusicCollectionTopBar(
+                title = title,
+                onBack = onBack,
                 actions = {
                     if (stored != null) Box {
                         IconButton(onClick = { menuOpen = true }) {
@@ -261,8 +240,7 @@ internal fun MusicPlaylistScreen(
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.surface)
+                }
             )
         }
     ) { padding ->
@@ -281,25 +259,16 @@ internal fun MusicPlaylistScreen(
                         title = title,
                         description = stored?.description.orEmpty(),
                         coverPath = stored?.coverPath,
+                        liked = stored?.isFavorites == true,
                         tracks = tracks
                     )
                 }
                 item(key = "actions") {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = { playAt(0, null) },
-                            enabled = tracks.isNotEmpty(),
-                            modifier = Modifier.weight(1f)
-                        ) { Text(stringResource(R.string.music_play)) }
-                        OutlinedButton(
-                            onClick = { playAt(0, true) },
-                            enabled = tracks.isNotEmpty(),
-                            modifier = Modifier.weight(1f)
-                        ) { Text(stringResource(R.string.player_shuffle)) }
-                    }
+                    MusicCollectionActions(
+                        enabled = tracks.isNotEmpty(),
+                        onPlay = { playAt(0, null) },
+                        onShuffle = { playAt(0, true) }
+                    )
                 }
                 if (loadingTracks) item(key = "loading") { MusicLoadingRow() }
                 if (tracks.isEmpty() && !loadingTracks) item(key = "empty") {
@@ -496,12 +465,12 @@ private suspend fun setPlaylistCover(
 
 /** The cover, the name, the description and the size of the list. */
 @Composable
-private fun PlaylistHeader(title: String, description: String, coverPath: String?, tracks: List<PlaylistTrack>) {
+private fun PlaylistHeader(title: String, description: String, coverPath: String?, liked: Boolean, tracks: List<PlaylistTrack>) {
     MusicCollectionHeader(
         title = title,
         subtitle = description,
         summary = musicCollectionSummary(tracks.size, totalDurationSeconds(tracks))
-    ) { modifier -> MusicPlaylistCoverFill(coverPath, modifier) }
+    ) { modifier -> MusicPlaylistCoverFill(coverPath, modifier, liked) }
 }
 
 /** "3 tracks · 1 h 12 min", the length left out for an empty list. */

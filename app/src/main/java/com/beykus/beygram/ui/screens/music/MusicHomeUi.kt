@@ -175,18 +175,9 @@ internal fun MusicTileGrid(count: Int, cell: @Composable (Int) -> Unit) {
 
 internal fun coverColumns(width: Dp): Int = (width / 124.dp).toInt().coerceIn(3, 8)
 
-/**
- * A quick-access tile: icon, name and how many tracks it holds. [count] null hides the count while it is looked up.
- * [trailing] is an action at the end of the tile, such as a play button; nothing is drawn there by default.
- */
+/** A quick-access tile: icon, name and how many tracks it holds. [count] null hides the count while it is looked up. */
 @Composable
-internal fun MusicQuickTile(
-    icon: ImageVector,
-    title: String,
-    count: String?,
-    onClick: () -> Unit,
-    trailing: @Composable () -> Unit = {}
-) {
+internal fun MusicQuickTile(icon: ImageVector, title: String, count: String?, onClick: () -> Unit) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth()
@@ -219,7 +210,6 @@ internal fun MusicQuickTile(
                 maxLines = 1
             )
         }
-        trailing()
     }
 }
 
