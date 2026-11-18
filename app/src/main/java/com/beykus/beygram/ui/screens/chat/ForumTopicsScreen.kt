@@ -176,6 +176,25 @@ internal fun pinnedDropIndex(baseRank: Int, otherCentres: List<Float>, draggedCe
     baseRank + otherCentres.count { it < draggedCentre }
 
 /**
+ * Whether the pinned order can be reordered at all: only from the full topic list once it has settled. A partial page, a
+ * page still loading or a failed load shows only some of the pinned topics.
+ */
+internal fun pinnedReorderAllowed(topicsComplete: Boolean, loadingTopics: Boolean, loadError: Boolean): Boolean =
+    topicsComplete && !loadingTopics && !loadError
+
+/**
+ * Whether a dropped pinned order may be written. TDLib replaces the whole pinned set, so [sent] must name exactly the
+ * topics pinned in the settled full list [pinnedNow], each once: only their order may differ.
+ */
+internal fun pinnedOrderWriteAllowed(
+    topicsComplete: Boolean,
+    loadingTopics: Boolean,
+    loadError: Boolean,
+    sent: List<Long>,
+    pinnedNow: List<Long>
+): Boolean = pinnedReorderAllowed(topicsComplete, loadingTopics, loadError) && sent.sorted() == pinnedNow.sorted()
+
+/**
  * The pre-first-page shell. It keeps the parent group in the header and paints row geometry instead of a full-screen
  * spinner, so Back and the back gesture remain available while TDLib is slow.
  */
@@ -325,6 +344,8 @@ fun ForumTopicsScreen(
     var reordering by rememberSaveable(accountId, chatId) { mutableStateOf(false) }
     // The pinned order the user dropped. It stays on screen until the server list arrives or the request fails.
     var pinnedDraft by remember(accountId, chatId) { mutableStateOf<List<Long>?>(null) }
+    // Pinned topics can be dragged only from the settled full list: a partial or failed load would write a partial set.
+    val reorderAllowed = pinnedReorderAllowed(topicsComplete, loadingTopics, loadError)
     val normalizedQuery = query.trim()
     val searchActive = searchOpen && normalizedQuery.isNotEmpty()
     val page = remember(topics, totalCount, topicsComplete) {
@@ -426,13 +447,18 @@ fun ForumTopicsScreen(
         reordering = true
     }
     // A drop or an accessibility move shows the new pinned order at once and sends the whole order. A move while the
-    // screen is busy is ignored, so the shown order never gets ahead of the server without a request behind it.
-    val movePinned: (Int, Int) -> Unit = { fromIndex, toIndex ->
+    // screen is busy is ignored, so the shown order never gets ahead of the server without a request behind it. The order
+    // is written only when it names exactly the pinned topics of the settled list; otherwise the list is reloaded instead.
+    val movePinned: (List<Long>) -> Unit = { next ->
         val current = orderedLocal.filter(ForumTopic::isPinned).map(ForumTopic::id)
-        val next = moveForumTopicId(current, fromIndex, toIndex)
         if (!busy && next != current) {
-            pinnedDraft = next
-            onPinnedOrder(next) { error -> if (error != null) pinnedDraft = null }
+            val pinnedNow = topics.filter(ForumTopic::isPinned).map(ForumTopic::id)
+            if (pinnedOrderWriteAllowed(topicsComplete, loadingTopics, loadError, sent = next, pinnedNow = pinnedNow)) {
+                pinnedDraft = next
+                onPinnedOrder(next) { error -> if (error != null) pinnedDraft = null }
+            } else if (!loadingTopics) {
+                onRetryLoad()
+            }
         }
     }
     val openModeSheet: () -> Unit = { modeSheetOpen = true }
@@ -586,6 +612,7 @@ fun ForumTopicsScreen(
                     onTopic = onTopic,
                     onManage = manageTopic,
                     reordering = reordering,
+                    reorderAllowed = reorderAllowed,
                     onMovePinned = movePinned
                 )
             }
@@ -706,7 +733,7 @@ fun ForumTopicsScreen(
                     }
                 )
                 // The order only means something between two or more pinned topics, and only from the full list.
-                if (topic.isPinned && !searchActive && orderedLocal.count(ForumTopic::isPinned) >= 2) {
+                if (topic.isPinned && !searchActive && reorderAllowed && orderedLocal.count(ForumTopic::isPinned) >= 2) {
                     SheetActionRow(
                         icon = Icons.Rounded.DragHandle,
                         title = stringResource(R.string.forum_topics_reorder),
@@ -857,18 +884,21 @@ private fun ForumTopicList(
     onManage: (ForumTopic) -> Unit,
     /** Reorder mode: pinned rows show a drag handle, and every row stops opening or opening its menu until it ends. */
     reordering: Boolean = false,
-    /** A pinned row moves from rank [fromIndex] to rank [toIndex]; the caller applies the order and sends it. */
-    onMovePinned: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> }
+    /** False while the full topic list is not settled: pinned rows then cannot be dragged or moved. */
+    reorderAllowed: Boolean = true,
+    /** The whole pinned order after a drag or an accessibility move; the caller checks it, applies it and sends it. */
+    onMovePinned: (List<Long>) -> Unit = {}
 ) {
     val haptics = LocalHapticFeedback.current
     val pinned = remember(topics) { topics.filter(ForumTopic::isPinned) }
+    val pinnedIds = remember(pinned) { pinned.map(ForumTopic::id) }
     val regular = remember(topics) { topics.filterNot(ForumTopic::isPinned) }
     // The dragged pinned row. Its position follows the finger; the order changes once, on drop.
     var drag by remember { mutableStateOf<PinnedTopicDrag?>(null) }
     LaunchedEffect(reordering) { if (!reordering) drag = null }
     fun startDrag(topicId: Long) {
         // A row that left composition mid-drag never cancels its drag, so a new drag simply replaces the old one.
-        if (busy) return
+        if (busy || !reorderAllowed) return
         val fromRank = pinned.indexOfFirst { it.id == topicId }
         if (fromRank < 0) return
         val onScreen = listState.layoutInfo.visibleItemsInfo
@@ -880,6 +910,7 @@ private fun ForumTopicList(
         val dragged = rows.firstOrNull { it.first == fromRank }?.second ?: return
         drag = PinnedTopicDrag(
             topicId = topicId,
+            pinnedIds = pinnedIds,
             fromRank = fromRank,
             baseRank = rows.first().first,
             startCentre = (dragged.offset + dragged.size / 2).toFloat(),
@@ -897,20 +928,26 @@ private fun ForumTopicList(
         drag = null
         // The move only applies to the row that was grabbed, if it is still at the rank it was grabbed from.
         val stillThere = pinned.getOrNull(session.fromRank)?.id == session.topicId
-        if (stillThere && session.dropRank != session.fromRank) onMovePinned(session.fromRank, session.dropRank)
+        // The order is moved from the pinned order the drag began with, the one its ranks were measured on.
+        if (stillThere && session.dropRank != session.fromRank) {
+            onMovePinned(moveForumTopicId(session.pinnedIds, session.fromRank, session.dropRank))
+        }
     }
     fun cancelDrag() {
         drag = null
     }
     fun pinnedReorder(rank: Int, topic: ForumTopic): ForumTopicRowReorder {
         val session = drag
+        val movable = !busy && reorderAllowed
+        val moveUp = { onMovePinned(moveForumTopicId(pinnedIds, rank, rank - 1)) }
+        val moveDown = { onMovePinned(moveForumTopicId(pinnedIds, rank, rank + 1)) }
         return ForumTopicRowReorder(
             onDragStart = { startDrag(topic.id) },
             onDrag = { amount -> dragBy(amount) },
             onDragEnd = { endDrag() },
             onDragCancel = { cancelDrag() },
-            onMoveUp = if (rank > 0 && !busy) ({ onMovePinned(rank, rank - 1) }) else null,
-            onMoveDown = if (rank < pinned.lastIndex && !busy) ({ onMovePinned(rank, rank + 1) }) else null,
+            onMoveUp = if (rank > 0 && movable) moveUp else null,
+            onMoveDown = if (rank < pinned.lastIndex && movable) moveDown else null,
             highlighted = session != null && session.dropRank != session.fromRank && session.dropRank == rank
         )
     }
@@ -1059,6 +1096,8 @@ private fun forumTopicItemKey(topicId: Long): String = "forum-topic:$topicId"
 /** One drag of a pinned row in reorder mode: how far the finger has moved and the pinned rank the row would drop to. */
 private class PinnedTopicDrag(
     val topicId: Long,
+    /** The pinned order when the drag began; the drop moves within it, so the order is the one the ranks were measured on. */
+    val pinnedIds: List<Long>,
     val fromRank: Int,
     /** The rank of the first pinned row on screen; rows above it are off screen and cannot be passed. */
     val baseRank: Int,

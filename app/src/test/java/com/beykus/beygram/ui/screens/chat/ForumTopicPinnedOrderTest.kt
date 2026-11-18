@@ -2,6 +2,8 @@ package com.beykus.beygram.ui.screens.chat
 
 import com.beykus.beygram.domain.model.ForumTopic
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ForumTopicPinnedOrderTest {
@@ -66,5 +68,49 @@ class ForumTopicPinnedOrderTest {
         // Ranks 0 and 1 are off screen; the rows on screen have centres 150 and 250, the dragged row is on screen too.
         assertEquals(3, pinnedDropIndex(baseRank = 2, otherCentres = listOf(150f, 250f), draggedCentre = 200f))
         assertEquals(4, pinnedDropIndex(baseRank = 2, otherCentres = listOf(150f, 250f), draggedCentre = 400f))
+    }
+
+    @Test fun aReorderIsOfferedOnlyFromASettledFullList() {
+        assertTrue(pinnedReorderAllowed(topicsComplete = true, loadingTopics = false, loadError = false))
+        // A partial page, a page still loading and a failed load each keep the pinned order out of reach.
+        assertFalse(pinnedReorderAllowed(topicsComplete = false, loadingTopics = false, loadError = false))
+        assertFalse(pinnedReorderAllowed(topicsComplete = true, loadingTopics = true, loadError = false))
+        assertFalse(pinnedReorderAllowed(topicsComplete = true, loadingTopics = false, loadError = true))
+    }
+
+    @Test fun aPartialPageWritesNoOrderEvenWhenTheShownPinnedSetIsReordered() {
+        // The screen shows 1 and 2 as pinned, but the server also pins 3: writing [2, 1] would unpin 3.
+        assertFalse(
+            pinnedOrderWriteAllowed(
+                topicsComplete = false, loadingTopics = false, loadError = false,
+                sent = listOf(2L, 1L), pinnedNow = listOf(1L, 2L)
+            )
+        )
+    }
+
+    @Test fun aPinnedSetThatChangedDuringTheReorderWritesNothing() {
+        // Topic 3 was pinned elsewhere after the drag began: the dragged order would leave it out.
+        assertFalse(
+            pinnedOrderWriteAllowed(
+                topicsComplete = true, loadingTopics = false, loadError = false,
+                sent = listOf(2L, 1L), pinnedNow = listOf(1L, 2L, 3L)
+            )
+        )
+        // Topic 3 was unpinned elsewhere: the dragged order would name a topic that is no longer pinned.
+        assertFalse(
+            pinnedOrderWriteAllowed(
+                topicsComplete = true, loadingTopics = false, loadError = false,
+                sent = listOf(2L, 1L, 3L), pinnedNow = listOf(1L, 2L)
+            )
+        )
+    }
+
+    @Test fun theSamePinnedSetReorderedIsWritten() {
+        assertTrue(
+            pinnedOrderWriteAllowed(
+                topicsComplete = true, loadingTopics = false, loadError = false,
+                sent = listOf(2L, 1L, 3L), pinnedNow = listOf(1L, 2L, 3L)
+            )
+        )
     }
 }
