@@ -142,6 +142,7 @@
     <string name="global_search_idle">Geben Sie einen Namen, @username oder t.me/… ein, um Chats, Personen, Bots und Nachrichten zu finden</string>
     <string name="global_search_loading">Suche…</string>
     <string name="global_search_more">Mehr anzeigen</string>
+    <string name="global_search_show_all">Alle anzeigen</string>
     <string name="global_search_more_failed">Weitere Ergebnisse konnten nicht geladen werden. Tippen Sie auf „Mehr anzeigen“, um es erneut zu versuchen.</string>
     <string name="global_search_offline">Keine Verbindung. Gespeicherte Ergebnisse werden angezeigt; die Suche wird fortgesetzt, sobald die Verbindung wieder da ist</string>
     <string name="global_search_source_offline">Keine Verbindung. Dieser Abschnitt wird aktualisiert, sobald Sie wieder online sind</string>
@@ -201,7 +202,7 @@
     <string name="global_search_section_empty_chats">Keine Chats gefunden</string>
     <string name="global_search_section_empty_contacts">Keine Personen oder Bots gefunden</string>
     <string name="global_search_section_empty_public">Keine öffentlichen Ergebnisse gefunden</string>
-    <string name="global_search_section_messages">Globale Suche</string>
+    <string name="global_search_section_messages">Nachrichten</string>
     <string name="global_search_section_public">Öffentliche Ergebnisse</string>
     <string name="global_search_source_failed">%1$s konnte nicht geladen werden. Versuchen Sie es erneut</string>
     <string name="global_search_scope_local">Lokal</string>
