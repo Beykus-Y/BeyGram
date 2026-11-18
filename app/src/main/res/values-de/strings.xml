@@ -670,6 +670,7 @@
     <!-- BeyGram Music 2.0 -->
     <string name="player_mini_open">Player öffnen</string>
     <string name="player_collapse">Player minimieren</string>
+    <string name="player_pane_title">Player</string>
     <string name="player_stop">Stoppen und schließen</string>
     <string name="player_next">Nächster Titel</string>
     <string name="player_previous">Vorheriger Titel</string>

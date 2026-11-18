@@ -123,6 +123,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -190,7 +195,7 @@ import com.beykus.beygram.ui.screens.music.PlayerProviderTrackMenuItems
 private const val SEEK_STEP_MS = 5_000L
 private val QUEUE_ROW_HEIGHT = 76.dp
 
-private enum class PlayerPanel { Player, Queue }
+internal enum class PlayerPanel { Player, Queue }
 
 /**
  * Stops the sheet from taking over a list's overscroll at its end. When a list reaches its bottom, the upward
@@ -206,124 +211,85 @@ internal val SheetOverscrollGuard: NestedScrollConnection = object : NestedScrol
         Velocity(0f, available.y.coerceAtMost(0f))
 }
 
-/** The full player sheet. Its tokens come from the cover, so every row inside follows the tint. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CoverPlayerSheet(
-    cover: CoverTokens,
-    onDismissRequest: () -> Unit,
-    sheetState: SheetState,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
-        // The player lays out its own lists at a fixed height, so the sheet adds neither a scroll nor a bottom gap.
-        BeyGramSheet(
-            onDismissRequest = onDismissRequest,
-            sheetState = sheetState,
-            scrollableContent = false,
-            bottomPadding = 0.dp,
-            containerColor = cover.surface,
-            contentColor = cover.tokens.text,
-            dragHandle = { BottomSheetDefaults.DragHandle(color = cover.tokens.muted) }
-        ) {
-            content()
-        }
-    }
-}
-
 /**
- * Large now-playing surface. The same composable owns the queue panel so the sheet is not recreated when the user
- * moves between the player and the queue, and the source title/artwork are resolved from the same account origin.
+ * The body of the full music player: the header with the player or the queue. The overlay in PlayerExpansionHost
+ * owns the container, the drag and the back gesture, so this only lays out what it is given.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun MusicPlayerSheet(
-    onDismiss: () -> Unit,
-    onOpenEqualizer: (() -> Unit)? = null,
-    onOpenMusicSearch: (() -> Unit)? = null,
-    onOpenMyMusic: (() -> Unit)? = null
+internal fun MusicPlayerContent(
+    player: MusicPlayerUi,
+    panel: PlayerPanel,
+    onPanel: (PlayerPanel) -> Unit,
+    onCollapse: () -> Unit,
+    onLeave: () -> Unit,
+    onOpenEqualizer: (() -> Unit)?,
+    onOpenMusicSearch: (() -> Unit)?,
+    onOpenMyMusic: (() -> Unit)?,
+    modifier: Modifier = Modifier
 ) {
-    val player = rememberMusicPlayerUi()
-    LaunchedEffect(player == null) { if (player == null) onDismiss() }
-    val current = player ?: return
-    var panel by rememberSaveable { mutableStateOf(PlayerPanel.Player) }
     val source = rememberPlaybackSourceLabel(
-        origin = current.item.origin,
-        isProviderTrack = current.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX),
+        origin = player.item.origin,
+        isProviderTrack = player.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX),
         // Not a state: read again on each recomposition, which every queue change causes.
         radio = PlaybackEngine.activeRadio
     )
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val cover = rememberCoverTokens(
-        artworkPath = current.item.artworkPath,
-        audioPath = current.item.path.takeIf { it.isNotBlank() },
-        enabled = true,
-        maxAmount = FULL_COVER_TINT,
-        base = sheetSurfaceColor()
-    )
-    BackHandler(enabled = panel == PlayerPanel.Queue) { panel = PlayerPanel.Player }
-    CoverPlayerSheet(cover = cover, onDismissRequest = onDismiss, sheetState = sheetState) {
-        // The endless radio (a wave) gets soft drifting ribbons behind the player while it is audible.
-        val endless = PlaybackEngine.activeRadio != null && PlaybackEngine.currentQueueIsEndless()
-        val waveRibbons = endless && current.playing
-        val palette = beyGramPalette()
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.94f)
-        ) {
-            if (waveRibbons) {
-                WaveBackdrop(
-                    color = palette.accent,
-                    secondary = palette.accentSoft,
-                    modifier = Modifier.matchParentSize().alpha(0.5f),
-                )
-            }
+    BackHandler(enabled = panel == PlayerPanel.Queue) { onPanel(PlayerPanel.Player) }
+    // The endless radio (a wave) gets soft drifting ribbons behind the player while it is audible.
+    val endless = PlaybackEngine.activeRadio != null && PlaybackEngine.currentQueueIsEndless()
+    val waveRibbons = endless && player.playing
+    val palette = beyGramPalette()
+    Box(modifier.fillMaxWidth()) {
+        if (waveRibbons) {
+            WaveBackdrop(
+                color = palette.accent,
+                secondary = palette.accentSoft,
+                modifier = Modifier.matchParentSize().alpha(0.5f),
+            )
+        }
         Column(
             Modifier
                 .fillMaxSize()
-                .nestedScroll(SheetOverscrollGuard)
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                 .navigationBarsPadding()
         ) {
             when (panel) {
                 PlayerPanel.Player -> {
                     PlayerHeader(
-                        player = current,
+                        player = player,
                         source = source,
-                        onCollapse = onDismiss,
-                        onOpenSource = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } },
-                        onOpenMyMusic = onOpenMyMusic?.let { open -> { onDismiss(); open() } }
+                        onCollapse = onCollapse,
+                        onLeave = onLeave,
+                        onOpenSource = player.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onLeave() } },
+                        onOpenMyMusic = onOpenMyMusic?.let { open -> { onLeave(); open() } }
                     )
                     PlayerBody(
                         modifier = Modifier.weight(1f),
-                        player = current,
-                        onOpenQueue = { panel = PlayerPanel.Queue },
+                        player = player,
+                        onOpenQueue = { onPanel(PlayerPanel.Queue) },
                         onOpenEqualizer = onOpenEqualizer?.let { open ->
                             {
-                                // Close the modal sheet before navigating to the equalizer route; otherwise it stays
+                                // Leave the player before navigating to the equalizer route; otherwise it stays
                                 // on top of the new screen and Back returns to an already-open player.
-                                onDismiss()
+                                onLeave()
                                 open()
                             }
                         },
-                        onShowInChat = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } }
+                        onShowInChat = player.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onLeave() } }
                     )
                 }
 
                 PlayerPanel.Queue -> QueuePanel(
                     source = source,
-                    onBack = { panel = PlayerPanel.Player },
-                    onDismiss = onDismiss,
+                    onBack = { onPanel(PlayerPanel.Player) },
+                    onDismiss = onLeave,
                     onSearch = onOpenMusicSearch?.let { open ->
                         {
-                            onDismiss()
+                            onLeave()
                             open()
                         }
                     }
                 )
             }
-        }
         }
     }
 }
@@ -351,6 +317,7 @@ private fun PlayerHeader(
     player: MusicPlayerUi,
     source: PlaybackSourceLabel,
     onCollapse: () -> Unit,
+    onLeave: () -> Unit,
     onOpenSource: (() -> Unit)?,
     onOpenMyMusic: (() -> Unit)?
 ) {
@@ -402,7 +369,7 @@ private fun PlayerHeader(
                 textAlign = TextAlign.Center
             )
         }
-        PlayerTrackMenu(item = player.item, onCollapse = onCollapse, onOpenMyMusic = onOpenMyMusic)
+        PlayerTrackMenu(item = player.item, onCollapse = onLeave, onOpenMyMusic = onOpenMyMusic)
     }
 }
 
@@ -629,6 +596,15 @@ private fun PlayerDetails(
 @Composable
 private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSpec) {
     val palette = beyGramPalette()
+    val density = LocalDensity.current
+    val targets = PlayerExpansion.targets
+    SideEffect {
+        targets.artworkBackground = palette.accentSoft
+        targets.artworkTint = palette.accentInk
+        targets.artworkBorder = palette.divider.copy(alpha = 0.55f)
+        targets.artworkRadiusPx = with(density) { 20.dp.toPx() }
+    }
+    DisposableEffect(Unit) { onDispose { targets.artwork = null } }
     val reduced = mediaMotion.isInstant
     val scale = remember(player.item.key) {
         Animatable(if (reduced) 1f else 1f - 0.06f * mediaMotion.intensity)
@@ -645,6 +621,8 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSp
                 scaleX = scale.value
                 scaleY = scale.value
             }
+            .onGloballyPositioned { targets.artwork = it }
+            .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f }
     ) {
         TrackArtwork(
             artworkPath = player.item.artworkPath,
@@ -694,12 +672,26 @@ private fun TrackMetadata(player: MusicPlayerUi, mediaMotion: MotionSpec) {
             album = player.item.album.trim()
         )
     }
+    val localStyle = LocalTextStyle.current
+    val titleStyle = localStyle.merge(
+        TextStyle(color = palette.textPrimary, fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+    )
+    val artistStyle = localStyle.merge(TextStyle(color = palette.textSecondary, fontSize = 15.sp, textAlign = TextAlign.Center))
     Crossfade(
         targetState = metadata,
         animationSpec = mediaMotion.animationSpec(),
         label = "trackMetadata"
     ) { shown ->
+        // Only the target text registers for the flight; the outgoing copy of a crossfade must never be used.
+        val isTarget = shown == metadata
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (isTarget) SideEffect {
+                val targets = PlayerExpansion.targets
+                targets.titleText = shown.title
+                targets.titleStyle = titleStyle
+                targets.artistText = shown.artist
+                targets.artistStyle = artistStyle
+            }
             Text(
                 shown.title,
                 color = palette.textPrimary,
@@ -709,7 +701,10 @@ private fun TrackMetadata(player: MusicPlayerUi, mediaMotion: MotionSpec) {
                 textAlign = TextAlign.Center,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.semantics { contentDescription = shown.title }
+                modifier = Modifier
+                    .semantics { contentDescription = shown.title }
+                    .onGloballyPositioned { if (isTarget) PlayerExpansion.targets.title = it }
+                    .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Title)) 0f else 1f }
             )
             if (shown.artist.isNotBlank()) {
                 Text(
@@ -719,7 +714,10 @@ private fun TrackMetadata(player: MusicPlayerUi, mediaMotion: MotionSpec) {
                     textAlign = TextAlign.Center,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp)
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .onGloballyPositioned { if (isTarget) PlayerExpansion.targets.artist = it }
+                        .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artist)) 0f else 1f }
                 )
             }
             if (shown.album.isNotBlank() && shown.album != shown.title && shown.album != shown.artist) {
@@ -941,7 +939,20 @@ private fun PlayerSeekBar(
             },
         contentAlignment = Alignment.Center
     ) {
-        Canvas(Modifier.fillMaxWidth().height(24.dp)) {
+        val targets = PlayerExpansion.targets
+        SideEffect {
+            targets.seekTrack = palette.divider
+            targets.seekAccent = palette.accent
+            targets.seekSurface = palette.surface
+        }
+        DisposableEffect(Unit) { onDispose { targets.seek = null } }
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(24.dp)
+                .onGloballyPositioned { targets.seek = it }
+                .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Progress)) 0f else 1f }
+        ) {
             val padding = 10.dp.toPx()
             val trackWidth = (size.width - padding * 2f).coerceAtLeast(1f)
             val centerY = size.height / 2f
@@ -1140,9 +1151,19 @@ private fun PlayPauseButton(player: MusicPlayerUi, mediaMotion: MotionSpec) {
             .semantics {
                 contentDescription = label
                 stateDescription = stateText
-            },
+            }
+            .onGloballyPositioned { PlayerExpansion.targets.play = it }
+            .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Play)) 0f else 1f },
         contentAlignment = Alignment.Center
     ) {
+        val targets = PlayerExpansion.targets
+        val density = LocalDensity.current
+        SideEffect {
+            targets.playBackground = palette.accent
+            targets.playTint = palette.onAccent
+            targets.playIconPx = with(density) { 38.dp.toPx() }
+        }
+        DisposableEffect(Unit) { onDispose { targets.play = null } }
         Crossfade(
             targetState = icon,
             animationSpec = mediaMotion.animationSpec(),

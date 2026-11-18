@@ -57,6 +57,20 @@ private object ArtworkCache {
     }
 }
 
+/**
+ * Covers that were on screen recently, bounded by bytes. A freshly composed artwork (flight, full player, queue) starts
+ * with its cover instead of fading in from the placeholder.
+ */
+private object ArtworkPeek {
+    private val cache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
+    }
+    @Synchronized fun get(key: String): Bitmap? = cache.get(key)
+    @Synchronized fun put(key: String, bitmap: Bitmap) {
+        cache.put(key, bitmap)
+    }
+}
+
 /** Both sources belong to the key: a miss for the cover alone must not hide an audio file that arrives later. */
 internal fun artworkCacheKey(artFile: File?, audioFile: File?): String? {
     if (artFile == null && audioFile == null) return null
@@ -181,8 +195,13 @@ internal fun TrackArtwork(
     border: Color? = null
 ) {
     val displayKey = "${artworkPath.orEmpty()}|${audioPath.orEmpty()}"
-    val image by produceState<ArtworkImage>(initialValue = ArtworkImage("", null), key1 = artworkPath, key2 = audioPath) {
+    val image by produceState<ArtworkImage>(
+        initialValue = ArtworkImage(displayKey, ArtworkPeek.get(displayKey)),
+        key1 = artworkPath,
+        key2 = audioPath
+    ) {
         value = withContext(Dispatchers.IO) { ArtworkImage(displayKey, loadTrackArtwork(artworkPath, audioPath)) }
+        value.bitmap?.let { ArtworkPeek.put(displayKey, it) }
     }
     val mediaMotion = rememberMotionSpec(MotionToken.MediaExpand)
     val shape = RoundedCornerShape(cornerRadius)
