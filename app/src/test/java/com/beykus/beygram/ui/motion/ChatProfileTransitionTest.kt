@@ -489,4 +489,53 @@ class ChatProfileTransitionTest {
             scope.cancel()
         }
     }
+
+    @Test fun staticToolbarTitleAndCompactIdentityNeverOverlapAtAnyCollapse() {
+        for (step in 0..100) {
+            val collapse = step / 100f
+            val staticAlpha = staticToolbarTitleAlpha(collapse)
+            val compactAlphaOverlay = compactToolbarIdentityAlpha(collapse, overlayReady = true)
+            val compactAlphaFallback = compactToolbarIdentityAlpha(collapse, overlayReady = false)
+            assertFalse(
+                "Static title and compact identity overlap at collapse=$collapse",
+                staticAlpha > 0f && (compactAlphaOverlay > 0f || compactAlphaFallback > 0f)
+            )
+            if (collapse > 0f && collapse < 1f) {
+                assertEquals(0f, expandedHeaderIdentityAlpha(collapse, overlayReady = true), 0.001f)
+                assertEquals(0f, compactAlphaOverlay, 0.001f)
+            }
+        }
+        assertEquals(1f, staticToolbarTitleAlpha(0f), 0.001f)
+        assertEquals(0f, staticToolbarTitleAlpha(0.30f), 0.001f)
+        assertEquals(1f, compactToolbarIdentityAlpha(1f, overlayReady = true), 0.001f)
+        assertEquals(1f, expandedHeaderIdentityAlpha(0f, overlayReady = true), 0.001f)
+    }
+
+    @Test fun collapsedProfilePopIncludesToolbarStatusBounds() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(dispatcher + Job())
+        val controller = ChatProfileTransitionController(scope)
+        try {
+            val chatId = 7L
+            controller.chatHeaderSource(chatId).apply {
+                reportAvatar(chatGeometry.avatar, fingerprint)
+                reportTitle(chatGeometry.title, fingerprint)
+                reportStatus(chatGeometry.status, fingerprint)
+            }
+            val toolbarStatus = Rect(180f, 92f, 380f, 118f)
+            controller.profileTarget(chatId).apply {
+                reportToolbarAvatar(Rect(100f, 52f, 180f, 132f), fingerprint)
+                reportToolbarTitle(Rect(180f, 60f, 420f, 90f), fingerprint)
+                reportToolbarStatus(toolbarStatus, fingerprint)
+                reportCollapsed(true)
+            }
+
+            assertTrue(controller.beginPop(chatId, visuals(chatId), fingerprint, animated))
+            val flight = controller.flight
+            assertTrue(flight != null && flight.collapsed)
+            assertEquals(toolbarStatus, flight?.profileGeometry?.status)
+        } finally {
+            scope.cancel()
+        }
+    }
 }

@@ -136,7 +136,42 @@ internal fun Rect.shrunkAroundCenter(collapse: Float, maxShrink: Float): Rect {
 }
 
 /** Above this collapse fraction the return flight starts from the compact toolbar identity. */
-internal const val ProfileCollapsedSwitch = 0.5f
+internal const val ProfileCollapsedSwitch = 0.99f
+
+/**
+ * Scroll-driven collapse windows (#999): the static toolbar label ("Chat Info") fades out
+ * completely before the collapsing name/status reach the toolbar, so they never overlap at any
+ * intermediate scroll offset.
+ */
+internal fun staticToolbarTitleAlpha(collapse: Float): Float =
+    1f - windowProgress(collapse, 0f, 0.30f)
+
+/** Compact toolbar identity is visible once fully collapsed (or fades in after the static label if overlay bounds are absent). */
+internal fun compactToolbarIdentityAlpha(collapse: Float, overlayReady: Boolean): Float =
+    if (overlayReady) {
+        if (collapse >= 1f) 1f else 0f
+    } else {
+        windowProgress(collapse, 0.45f, 1f)
+    }
+
+/** Expanded header identity is visible at rest (or fades out before the compact identity appears if overlay bounds are absent). */
+internal fun expandedHeaderIdentityAlpha(collapse: Float, overlayReady: Boolean): Float =
+    if (overlayReady) {
+        if (collapse <= 0f) 1f else 0f
+    } else {
+        1f - windowProgress(collapse, 0f, 0.40f)
+    }
+
+/** Badges (Verified / Premium) under the expanded status fade out early during scroll collapse. */
+internal fun expandedBadgesAlpha(collapse: Float): Float =
+    1f - windowProgress(collapse, 0f, 0.35f)
+
+/** Crossfade fraction between expanded typography (26sp) and compact typography (17sp) in the collapsing overlay. */
+internal fun collapsingTextCrossfade(collapse: Float): Float =
+    windowProgress(collapse, 0.30f, 0.70f)
+
+internal fun collapsingOverlayActive(collapse: Float): Boolean =
+    collapse > 0f && collapse < 1f
 
 /** How long a push waits for the profile header to place itself before falling back. */
 internal const val GeometryWaitMillis = 200L
@@ -557,6 +592,7 @@ class ChatProfileHeaderTarget internal constructor(
     private var statusBounds: Rect? = null
     private var toolbarAvatarBounds: Rect? = null
     private var toolbarTitleBounds: Rect? = null
+    private var toolbarStatusBounds: Rect? = null
 
     /** Real header visibility; call inside a graphicsLayer block so it stays in the draw phase. */
     fun headerVisibility(): Float = controller.profileVisibility(chatId)
@@ -584,12 +620,17 @@ class ChatProfileHeaderTarget internal constructor(
 
     fun reportToolbarAvatar(bounds: Rect?, fingerprint: ChatProfileWindowFingerprint) {
         toolbarAvatarBounds = bounds
-        controller.reportProfileToolbar(chatId, fingerprint, ChatProfileElementGeometry(toolbarAvatarBounds, toolbarTitleBounds))
+        controller.reportProfileToolbar(chatId, fingerprint, ChatProfileElementGeometry(toolbarAvatarBounds, toolbarTitleBounds, toolbarStatusBounds))
     }
 
     fun reportToolbarTitle(bounds: Rect?, fingerprint: ChatProfileWindowFingerprint) {
         toolbarTitleBounds = bounds
-        controller.reportProfileToolbar(chatId, fingerprint, ChatProfileElementGeometry(toolbarAvatarBounds, toolbarTitleBounds))
+        controller.reportProfileToolbar(chatId, fingerprint, ChatProfileElementGeometry(toolbarAvatarBounds, toolbarTitleBounds, toolbarStatusBounds))
+    }
+
+    fun reportToolbarStatus(bounds: Rect?, fingerprint: ChatProfileWindowFingerprint) {
+        toolbarStatusBounds = bounds
+        controller.reportProfileToolbar(chatId, fingerprint, ChatProfileElementGeometry(toolbarAvatarBounds, toolbarTitleBounds, toolbarStatusBounds))
     }
 
     /** The compact toolbar is the flight source once the identity has collapsed into it. */
@@ -693,6 +734,7 @@ fun ChatProfileTransitionOverlay(controller: ChatProfileTransitionController) {
         val chatTitle = chatGeometry.title
         val profileTitle = profileGeometry?.title
         if (chatTitle != null && flight.visuals.chatTitle.isNotBlank()) {
+            val targetScale = if (flight.collapsed) 1f else 26f / 17f
             Text(
                 flight.visuals.chatTitle,
                 color = palette.textPrimary,
@@ -703,12 +745,15 @@ fun ChatProfileTransitionOverlay(controller: ChatProfileTransitionController) {
                 modifier = Modifier
                     .graphicsLayer {
                         val eased = easedWindowProgress(flight.progress, ChatProfileFlightWindows.TextStart, ChatProfileFlightWindows.TextEnd)
-                        val current = if (profileTitle != null) lerpRect(chatTitle, profileTitle, eased) else chatTitle
-                        translationX = current.left - overlayOrigin.x
-                        translationY = current.top - overlayOrigin.y
-                        val scale = if (profileTitle != null && chatTitle.width > 0.5f) {
-                            1f + (current.width / chatTitle.width - 1f) * eased
-                        } else 1f
+                        val scale = 1f + (targetScale - 1f) * eased
+                        val targetLeft = when {
+                            profileTitle == null -> chatTitle.left
+                            flight.collapsed -> profileTitle.left
+                            else -> profileTitle.center.x - (chatTitle.width * targetScale) / 2f
+                        }
+                        val targetTop = profileTitle?.top ?: chatTitle.top
+                        translationX = chatTitle.left + (targetLeft - chatTitle.left) * eased - overlayOrigin.x
+                        translationY = chatTitle.top + (targetTop - chatTitle.top) * eased - overlayOrigin.y
                         scaleX = scale
                         scaleY = scale
                         alpha = overlayVisibility(flight.progress)
@@ -718,6 +763,7 @@ fun ChatProfileTransitionOverlay(controller: ChatProfileTransitionController) {
         }
         val chatStatus = chatGeometry.status
         if (chatStatus != null && flight.visuals.chatStatus.isNotBlank()) {
+            val targetScale = if (flight.collapsed) 1f else 14f / 13f
             Text(
                 flight.visuals.chatStatus,
                 color = palette.textSecondary,
@@ -728,12 +774,15 @@ fun ChatProfileTransitionOverlay(controller: ChatProfileTransitionController) {
                     .graphicsLayer {
                         val eased = easedWindowProgress(flight.progress, ChatProfileFlightWindows.TextStart, ChatProfileFlightWindows.TextEnd)
                         val target = profileGeometry?.status
-                        val current = if (target != null) lerpRect(chatStatus, target, eased) else chatStatus
-                        translationX = current.left - overlayOrigin.x
-                        translationY = current.top - overlayOrigin.y
-                        val scale = if (target != null && chatStatus.height > 0.5f) {
-                            1f + (current.height / chatStatus.height - 1f) * eased
-                        } else 1f
+                        val scale = 1f + (targetScale - 1f) * eased
+                        val targetLeft = when {
+                            target == null -> chatStatus.left
+                            flight.collapsed -> target.left
+                            else -> target.center.x - (chatStatus.width * targetScale) / 2f
+                        }
+                        val targetTop = target?.top ?: chatStatus.top
+                        translationX = chatStatus.left + (targetLeft - chatStatus.left) * eased - overlayOrigin.x
+                        translationY = chatStatus.top + (targetTop - chatStatus.top) * eased - overlayOrigin.y
                         scaleX = scale
                         scaleY = scale
                         alpha = overlayVisibility(flight.progress)

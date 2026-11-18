@@ -57,7 +57,12 @@ import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.chat.SharedMediaWindow
 import com.beykus.beygram.ui.screens.music.ChatLibraryLink
 import com.beykus.beygram.ui.screens.music.ChatLibraryMusicRow
-import com.beykus.beygram.ui.motion.shrunkAroundCenter
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.motion.collapsingOverlayActive
+import com.beykus.beygram.ui.motion.expandedBadgesAlpha
+import com.beykus.beygram.ui.motion.expandedHeaderIdentityAlpha
+import com.beykus.beygram.ui.motion.lerpRect
 import com.beykus.beygram.ui.text.resolve
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -110,12 +115,14 @@ internal fun GroupProfileScreen(
     profileTransition: com.beykus.beygram.ui.motion.ChatProfileHeaderTarget? = null
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     var headerHeightPx by remember { mutableIntStateOf(0) }
     // Прокрутку читаем только при рисовании: иначе каждый кадр прокрутки перекомпоновывал бы весь экран.
     val collapse = remember { derivedStateOf { collapseFraction(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, headerHeightPx) } }
+    val collapseGeometry = remember(info.id) { ProfileCollapseGeometry() }
     val windows = rememberSharedMediaWindows(info.id) { kind, from, newer -> sharedMessages?.invoke(kind, from, newer) ?: Result.failure(IllegalStateException()) }
     val openMessage: (Long) -> Unit = { id -> onOpenMessage(id, windows.topicOf(id)) }
     val tabs = if (sharedMessages == null) listOf(GroupTab.Members) else GroupTab.entries
@@ -125,6 +132,7 @@ internal fun GroupProfileScreen(
     var viewing by remember(info.id) { mutableStateOf<Long?>(null) }
     val window = activeTab.kind?.let { windows.getValue(it) }
     val title = info.title.ifBlank { stringResource(R.string.user_name_unknown) }
+    val compactStatus = info.profileSubtitleLine(lastSeenStyle)
     // Индекс полоски вкладок в списке: перед ней идут шапка, строки, статистика (если доступна) и администраторы.
     val tabsIndex = 2 + (if (onStatistics != null) 1 else 0) + (if (info.administrators.isEmpty()) 0 else 1)
     val nearEnd by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= listState.layoutInfo.totalItemsCount - PREFETCH_ROWS } ?: true } }
@@ -132,8 +140,9 @@ internal fun GroupProfileScreen(
     if (window != null) LaunchedEffect(window, nearEnd, window.messages.size, window.hasOlder) {
         if (nearEnd && window.hasOlder) window.loadOlder()
     }
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        GroupProfileToolbar(title, collapse, info, lastSeenStyle, observeFile, downloadFile, onBack = onBack, onDelete = onDelete, onDeleted = onDeleted, profileTransition = profileTransition)
+    Box(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize()) {
+        GroupProfileToolbar(title, collapse, info, compactStatus, observeFile, downloadFile, collapseGeometry = collapseGeometry, onBack = onBack, onDelete = onDelete, onDeleted = onDeleted, profileTransition = profileTransition)
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
         // Ошибку показываем над списком: в конце длинной вкладки она оказалась бы за сотнями строк.
         state.error?.let { error ->
@@ -160,49 +169,82 @@ internal fun GroupProfileScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
-                        Modifier.graphicsLayer { val scale = 1f - AVATAR_SHRINK * collapse.value; scaleX = scale; scaleY = scale; alpha = profileTransition?.headerVisibility() ?: 1f }
+                        Modifier
+                            .graphicsLayer {
+                                alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
+                                    (profileTransition?.headerVisibility() ?: 1f)
+                            }
                             .clickable(
-                                enabled = info.photo != null && (profileTransition == null || !profileTransition.flightActive()),
+                                enabled = info.photo != null && collapse.value <= 0f && (profileTransition == null || !profileTransition.flightActive()),
                                 role = Role.Button,
                                 onClick = onAvatarClick
                             )
                             .semantics { contentDescription = context.getString(R.string.a11y_profile_photo_open) }
-                            .then(if (profileTransition != null && transitionFingerprint != null) {
-                                Modifier.onGloballyPositioned { coordinates ->
-                                    // Layout bounds ignore the collapse scale: report the visual
-                                    // bounds the flight must start from on a mid-collapse Back.
-                                    profileTransition.reportAvatar(
-                                        coordinates.boundsInWindow().shrunkAroundCenter(collapse.value, AVATAR_SHRINK),
-                                        transitionFingerprint
-                                    )
+                            .onGloballyPositioned { coordinates ->
+                                val bounds = coordinates.boundsInWindow()
+                                val scrollOffset = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 0f
+                                val zeroBounds = bounds.translate(0f, scrollOffset)
+                                if (listState.firstVisibleItemIndex == 0) collapseGeometry.expandedAvatarAtZero = zeroBounds
+                                if (profileTransition != null && transitionFingerprint != null) {
+                                    val visualBounds = collapseGeometry.compactAvatar?.let { compact ->
+                                        if (collapse.value > 0f) lerpRect(zeroBounds, compact, collapse.value) else bounds
+                                    } ?: bounds
+                                    profileTransition.reportAvatar(visualBounds, transitionFingerprint)
                                 }
-                            } else Modifier),
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
                             Modifier.clearAndSetSemantics {})
                     }
                     Spacer(Modifier.height(16.dp))
-                    Column(Modifier.fillMaxWidth().graphicsLayer { alpha = (1f - collapse.value) * (profileTransition?.headerVisibility() ?: 1f) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(title, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                             modifier = Modifier
-                                .then(if (profileTransition != null && transitionFingerprint != null) {
-                                    Modifier.onGloballyPositioned { coordinates ->
-                                        profileTransition.reportTitle(coordinates.boundsInWindow(), transitionFingerprint)
+                                .graphicsLayer {
+                                    alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
+                                        (profileTransition?.headerVisibility() ?: 1f)
+                                }
+                                .onGloballyPositioned { coordinates ->
+                                    val bounds = coordinates.boundsInWindow()
+                                    val scrollOffset = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 0f
+                                    val zeroBounds = bounds.translate(0f, scrollOffset)
+                                    if (listState.firstVisibleItemIndex == 0) collapseGeometry.expandedTitleAtZero = zeroBounds
+                                    if (profileTransition != null && transitionFingerprint != null) {
+                                        val visualBounds = collapseGeometry.compactTitle?.let { compact ->
+                                            if (collapse.value > 0f) lerpRect(zeroBounds, compact, collapse.value) else bounds
+                                        } ?: bounds
+                                        profileTransition.reportTitle(visualBounds, transitionFingerprint)
                                     }
-                                } else Modifier)
+                                }
                                 .semantics { heading() })
                         Spacer(Modifier.height(4.dp))
                         Box(
-                            Modifier.then(if (profileTransition != null && transitionFingerprint != null) {
-                                Modifier.onGloballyPositioned { coordinates ->
-                                    profileTransition.reportStatus(coordinates.boundsInWindow(), transitionFingerprint)
+                            Modifier
+                                .graphicsLayer {
+                                    alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
+                                        (profileTransition?.headerVisibility() ?: 1f)
                                 }
-                            } else Modifier)
+                                .onGloballyPositioned { coordinates ->
+                                    val bounds = coordinates.boundsInWindow()
+                                    val scrollOffset = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 0f
+                                    val zeroBounds = bounds.translate(0f, scrollOffset)
+                                    if (listState.firstVisibleItemIndex == 0) collapseGeometry.expandedStatusAtZero = zeroBounds
+                                    if (profileTransition != null && transitionFingerprint != null) {
+                                        val visualBounds = collapseGeometry.compactStatus?.let { compact ->
+                                            if (collapse.value > 0f) lerpRect(zeroBounds, compact, collapse.value) else bounds
+                                        } ?: bounds
+                                        profileTransition.reportStatus(visualBounds, transitionFingerprint)
+                                    }
+                                }
                         ) {
                             ProfileSubtitle(info, lastSeenStyle)
                         }
-                        ProfileBadges(info)
+                        Box(Modifier.graphicsLayer {
+                            alpha = expandedBadgesAlpha(collapse.value) * (profileTransition?.headerVisibility() ?: 1f)
+                        }) {
+                            ProfileBadges(info)
+                        }
                     }
                 }
             }
@@ -233,6 +275,21 @@ internal fun GroupProfileScreen(
             else sharedItems(kind, info.id, window, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMedia = { viewing = it }, onOpenMessage = openMessage, onRetry = { scope.launch { window.loadOlder() } }, autoDownloadFile = autoDownloadFile, onOpenMessageEntity = onOpenMessageEntity)
         }
     }
+    if (collapsingOverlayActive(collapse.value) && collapseGeometry.overlayReady &&
+        (profileTransition == null || !profileTransition.flightActive())
+    ) {
+        ProfileCollapsingOverlay(
+            collapse = collapse.value,
+            geometry = collapseGeometry,
+            title = title,
+            status = compactStatus,
+            avatar = {
+                TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
+                    Modifier.clearAndSetSemantics {})
+            }
+        )
+    }
+    }
     SharedMediaViewer(media = windows.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
         chatId = info.id,
         observeFile = observeFile, downloadFile = downloadFile, onOpenMessage = openMessage,
@@ -258,60 +315,31 @@ private fun GroupStatisticsEntry(onClick: () -> Unit) {
     }
 }
 
-/** Панель профиля группы. Название появляется здесь, когда шапка уходит за экран; читается из [collapse] при рисовании. */
+/** Панель профиля группы. Делегирует общему [ProfileToolbar], чтобы компактная шапка совпадала с шапкой чата. */
 @Composable
 private fun GroupProfileToolbar(
     title: String, collapse: State<Float>,
-    info: ProfileInfo, lastSeenStyle: LastSeenStyle,
+    info: ProfileInfo, compactStatus: String,
     observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
+    collapseGeometry: ProfileCollapseGeometry,
     onBack: () -> Unit,
     onDelete: suspend () -> Result<Unit>, onDeleted: () -> Unit,
     profileTransition: com.beykus.beygram.ui.motion.ChatProfileHeaderTarget? = null
 ) {
     val palette = beyGramPalette()
-    val transitionFingerprint = profileTransition?.let {
-        val container = LocalWindowInfo.current.containerSize
-        val densityScale = LocalDensity.current.density
-        remember(container, densityScale) {
-            com.beykus.beygram.ui.motion.ChatProfileWindowFingerprint(container.width, container.height, densityScale)
-        }
-    }
-    // Компактный аватар появляется вместе с названием; порог пересекается дважды за прокрутку, не на каждый кадр.
-    val compactShown by remember(collapse) { derivedStateOf { collapse.value > 0.05f } }
-    val compactStatus = info.profileSubtitleLine(lastSeenStyle)
-    Row(Modifier.fillMaxWidth().topAppBarSurface().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
-        if (compactShown) {
-            // The group's own avatar in the toolbar: the identity the header collapses into (#999).
-            Box(
-                Modifier
-                    .graphicsLayer { alpha = collapse.value * (profileTransition?.toolbarVisibility() ?: 1f) }
-                    .then(if (profileTransition != null && transitionFingerprint != null) {
-                        Modifier.onGloballyPositioned { coordinates ->
-                            profileTransition.reportToolbarAvatar(coordinates.boundsInWindow(), transitionFingerprint)
-                        }
-                    } else Modifier)
-            ) {
-                TelegramAvatar(info.initials, palette.accent, 32.dp, info.photo, observeFile, downloadFile,
-                    Modifier.clearAndSetSemantics {})
-            }
-            Spacer(Modifier.width(10.dp))
-        }
-        Text(title, color = palette.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).graphicsLayer { alpha = collapse.value * (profileTransition?.toolbarVisibility() ?: 1f) }
-                .then(if (profileTransition != null && transitionFingerprint != null) {
-                    Modifier.onGloballyPositioned { coordinates ->
-                        profileTransition.reportToolbarTitle(coordinates.boundsInWindow(), transitionFingerprint)
-                    }
-                } else Modifier)
-                .semantics { heading() })
-        if (compactShown && LocalDensity.current.fontScale < 1.3f) {
-            // The status line the big header showed, inline beside the name once collapsed.
-            Text(compactStatus, color = palette.textSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .graphicsLayer { alpha = collapse.value * (profileTransition?.toolbarVisibility() ?: 1f) })
-        }
+    ProfileToolbar(
+        title = stringResource(R.string.profile_title_chat),
+        onBack = onBack,
+        collapse = collapse,
+        compactTitle = title,
+        compactStatus = compactStatus,
+        compactAvatar = {
+            TelegramAvatar(info.initials, palette.accent, 40.dp, info.photo, observeFile, downloadFile,
+                Modifier.clearAndSetSemantics {})
+        },
+        collapseGeometry = collapseGeometry,
+        transition = profileTransition
+    ) {
         ChatInfoMenu(
             canBlock = false, canReport = false, isBlocked = false, canDelete = true,
             onSetBlocked = { Result.success(Unit) }, onReportSpam = { Result.success(Unit) },
