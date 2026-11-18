@@ -1,6 +1,9 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.styledShape
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
@@ -153,6 +156,7 @@ private fun PremiumScreenSession(
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -392,7 +396,7 @@ private fun PremiumScreenSession(
         else -> null
     }
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.premium_title), onBack) {
             IconButton(onClick = { if (!loading && !checkoutBusy) reload++ }, enabled = !loading && !checkoutBusy) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
@@ -613,10 +617,9 @@ private fun PremiumLoadingSkeleton() {
     val palette = beyGramPalette()
     val loadingProgress = stringResource(R.string.premium_loading_progress)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+        // The same card as the loaded status, so the first content does not jump when the read completes.
         Column(
-            Modifier.fillMaxWidth().padding(16.dp)
-                .clip(styledShape(20.dp))
-                .background(palette.surface)
+            Modifier.fillMaxWidth().profileCardSurface()
                 .padding(horizontal = 18.dp, vertical = 16.dp)
                 .semantics(mergeDescendants = true) {}
                 .statusAnnouncement()
@@ -642,16 +645,33 @@ private fun PremiumLoadingSkeleton() {
             )
         }
         MonetizationSectionHeader(stringResource(R.string.premium_status_heading))
-        PremiumSkeletonCard(rows = 2)
+        MonetizationSkeletonCard(rows = 2)
         MonetizationSectionHeader(stringResource(R.string.premium_features_title))
-        PremiumSkeletonCard(rows = 4)
+        MonetizationSkeletonCard(rows = 4)
         MonetizationSectionHeader(stringResource(R.string.premium_plans_title))
-        PremiumSkeletonCard(rows = 3)
+        MonetizationSkeletonCard(rows = 3)
+    }
+}
+
+/**
+ * Content-shaped placeholder for a monetization screen whose first read is still running: a progress line that
+ * TalkBack announces, then one card per block of the final page. Each entry of [cardRows] is one card and its rows.
+ */
+@Composable
+internal fun MonetizationLoadingPlaceholder(cardRows: List<Int>) {
+    val palette = beyGramPalette()
+    val loadingProgress = stringResource(R.string.a11y_state_loading)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 6.dp, bottom = 24.dp)) {
+        LinearProgressIndicator(
+            Modifier.fillMaxWidth().semantics { contentDescription = loadingProgress }.statusAnnouncement(),
+            color = palette.accent
+        )
+        cardRows.forEach { rows -> MonetizationSkeletonCard(rows) }
     }
 }
 
 @Composable
-private fun PremiumSkeletonCard(rows: Int) {
+internal fun MonetizationSkeletonCard(rows: Int) {
     val palette = beyGramPalette()
     MonetizationCard {
         Column(
@@ -1093,6 +1113,7 @@ internal data class PaymentNotice(val text: String, val tone: PaymentTone)
 @Composable
 internal fun PaymentNoticeCard(notice: PaymentNotice) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val background = when (notice.tone) {
         PaymentTone.Success -> palette.successSurface
         PaymentTone.Error -> palette.warningSurface
@@ -1110,8 +1131,7 @@ internal fun PaymentNoticeCard(notice: PaymentNotice) {
         lineHeight = 20.sp,
         modifier = Modifier.fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(styledShape(16.dp))
-            .background(background)
+            .glassCard(design, background, palette.textSecondary, styledShape(16.dp))
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .errorAnnouncement()
     )
@@ -1171,17 +1191,19 @@ internal fun MonetizationStateCard(
         MonetizationTone.Neutral -> palette.textPrimary
     }
     val announcement = if (announce) Modifier.statusAnnouncement() else Modifier
+    val design = LocalDesignSystem.current
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(styledShape(20.dp))
-            .background(background)
+            .glassCard(design, background, palette.textSecondary, styledShape(20.dp))
             .padding(horizontal = 18.dp, vertical = 16.dp)
-            .semantics(mergeDescendants = true) {}
             .then(announcement)
     ) {
-        Text(title, color = titleColor, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(6.dp))
-        Text(body, color = palette.textPrimary, fontSize = 14.sp, lineHeight = 20.sp)
+        // The text is one reading unit; the retry button stays a separate control that TalkBack can focus.
+        Column(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
+            Text(title, color = titleColor, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            Text(body, color = palette.textPrimary, fontSize = 14.sp, lineHeight = 20.sp)
+        }
         if (onRetry != null) {
             TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(stringResource(retryLabel))
