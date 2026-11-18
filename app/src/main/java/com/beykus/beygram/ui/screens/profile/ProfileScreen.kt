@@ -959,7 +959,7 @@ internal fun ProfileToolbar(
     val staticShown by remember(collapseValue) {
         derivedStateOf { (collapseValue?.value ?: 0f) < 0.30f }
     }
-    val compactSemanticsShown by remember(collapseValue) {
+    val compactSemanticsShown by remember(collapseValue, collapseGeometry) {
         derivedStateOf {
             collapseValue != null &&
                 compactToolbarIdentityAlpha(collapseValue.value, collapseGeometry?.overlayReady == true) > 0f
