@@ -277,6 +277,7 @@ internal object PlayerExpansion {
     private var animJob: Job? = null
     private var dragEdge = MiniAnchorEdge.Bottom
     private var travelPx = 1f
+    private var backStart = 1f
 
     fun newAnchorId(): Long = idSource.incrementAndGet()
 
@@ -436,9 +437,27 @@ internal object PlayerExpansion {
         activeState.value = anchor?.id
         flightsState.value = anchor != null && !motion.isInstant && !queueBusy
         resetFlightState()
+        backStart = progress
         phaseState.value = PlayerExpansionPhase.Dragging
         if (flights) refreshRoles()
         return true
+    }
+
+    /**
+     * The host that ran the transitions has left (the activity was recreated mid-move). Its scope is gone, so a move
+     * in flight would never finish: settle it at the nearer end, and drop the old window's coordinates.
+     */
+    fun hostDetached(hostScope: CoroutineScope) {
+        if (scope === hostScope) {
+            scope = null
+            rootCoords = null
+        }
+        animJob = null
+        when (phase) {
+            PlayerExpansionPhase.Expanding, PlayerExpansionPhase.Collapsing, PlayerExpansionPhase.Dragging ->
+                finish(if (progress > 0.5f) 1f else 0f)
+            PlayerExpansionPhase.Expanded, PlayerExpansionPhase.Collapsed -> Unit
+        }
     }
 
     /** Moves a drag by [deltaYPx] (positive = down). Ignored outside a drag. */
@@ -452,7 +471,8 @@ internal object PlayerExpansion {
     /** Predictive back: the player shrinks towards its bar by up to [BACK_PEEK] while the system gesture runs. */
     fun backProgress(fraction: Float) {
         if (phase != PlayerExpansionPhase.Dragging || dragOrigin != PlayerDragOrigin.Back) return
-        progressState.floatValue = 1f - BACK_PEEK * fraction.coerceIn(0f, 1f)
+        // From where the player was when the gesture began: a back during a move must not jump the container.
+        progressState.floatValue = (backStart - BACK_PEEK * fraction.coerceIn(0f, 1f)).coerceIn(0f, 1f)
         refreshRoles()
     }
 

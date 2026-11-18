@@ -753,6 +753,12 @@ private fun TrackMetadata(player: MusicPlayerUi, mediaMotion: MotionSpec) {
             album = player.item.album.trim()
         )
     }
+    DisposableEffect(Unit) {
+        onDispose {
+            PlayerExpansion.targets.title = null
+            PlayerExpansion.targets.artist = null
+        }
+    }
     val localStyle = LocalTextStyle.current
     val titleStyle = localStyle.merge(
         TextStyle(color = palette.textPrimary, fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)

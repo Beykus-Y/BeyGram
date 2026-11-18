@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -88,7 +89,7 @@ internal fun PlayerExpansionHost() {
     val phase = PlayerExpansion.phase
     DisposableEffect(scope) {
         PlayerExpansion.scope = scope
-        onDispose { if (PlayerExpansion.scope === scope) PlayerExpansion.scope = null }
+        onDispose { PlayerExpansion.hostDetached(scope) }
     }
     SideEffect {
         PlayerExpansion.motion = spec
@@ -147,6 +148,7 @@ internal fun PlayerModalUnderlay(content: @Composable () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlayerOverlay(
     player: MusicPlayerUi,
@@ -172,8 +174,9 @@ private fun PlayerOverlay(
     val dragState = rememberDraggableState { PlayerExpansion.dragBy(it) }
     val fullDragEnabled = phase == PlayerExpansionPhase.Expanded ||
         (phase == PlayerExpansionPhase.Dragging && PlayerExpansion.dragOrigin == PlayerDragOrigin.Full)
-    val backEnabled = panel == PlayerPanel.Player &&
-        (phase == PlayerExpansionPhase.Expanded || phase == PlayerExpansionPhase.Expanding)
+    // Stays enabled through the whole back gesture (the phase is Dragging then) and during a move, so a back press
+    // never falls through to the screen behind an open player.
+    val backEnabled = panel == PlayerPanel.Player && phase != PlayerExpansionPhase.Collapsed
 
     // Composed before the content, so the queue's own back handler (added later) wins while the queue is open.
     PredictiveBackHandler(enabled = backEnabled) { events ->
