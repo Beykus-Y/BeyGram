@@ -612,9 +612,11 @@ fun ChatScreen(
     val mediaLaunchController = remember(accountId, chat.id, forumTopicId) { ComposerMediaLaunchController() }
     val mediaLaunchMotion = rememberMotionSpec(MotionToken.MediaExpand)
     LaunchedEffect(mediaLaunchController.active) {
-        val launch = mediaLaunchController.active ?: return@LaunchedEffect
-        delay(2_500L)
-        mediaLaunchController.finish(launch)
+        val launches = mediaLaunchController.active
+        if (launches.isEmpty()) return@LaunchedEffect
+        val oldest = launches.minOf { it.capture.capturedAt }
+        delay((2_500L - (android.os.SystemClock.elapsedRealtime() - oldest)).coerceAtLeast(0L))
+        launches.forEach(mediaLaunchController::finish)
     }
     val attachments = rememberAttachmentState(
         chatId = chat.id,
@@ -629,9 +631,9 @@ fun ChatScreen(
             } else null
             val result = conversation.sendComposerMedia(chat.id, media, caption, replyId, draftEntities, sendForumTopicId, options)
             if (result.isSuccess) {
-                val id = result.getOrNull()?.singleOrNull()
-                if (capture != null && id != null && mediaCoordinates[id] == null) {
-                    mediaLaunchController.accept(capture, id)
+                val ids = result.getOrNull().orEmpty()
+                if (capture != null && ids.isNotEmpty() && ids.none { mediaCoordinates[it] != null }) {
+                    mediaLaunchController.accept(capture, ids)
                 }
                 clearReply()
                 if (stealthScheduledBefore) showStealthScheduledNotice(context)
@@ -2237,8 +2239,15 @@ fun ChatScreen(
                     val latest = listItem.messages.maxByOrNull { it.id }
                     val animateArrival = remember(listItem.key) { animationTracker.claim(listItem.messages.map { it.id }) }
                     val effectMessage = listItem.messages.firstOrNull { it.effectId != 0L }
+                    val albumLaunches = mediaLaunchController.active.mapNotNull { flight ->
+                        val id = resolveMessageIdThroughReplacements(flight.messageId, history.recentReplacements)
+                        listItem.messages.firstOrNull { it.id == id && it.isOutgoing &&
+                            it.sendState != MessageSendState.Failed && it.media?.let { media ->
+                                !media.hasSpoiler && !media.isSecret && !media.isSecretChat
+                            } == true }?.let { id to flight }
+                    }.toMap()
                     MessageAnimationFrame(
-                        animate = animateArrival,
+                        animate = animateArrival && albumLaunches.isEmpty(),
                         outgoing = latest?.isOutgoing == true,
                         config = messageAnimations,
                         sideInset = metrics.sideInset
@@ -2281,6 +2290,8 @@ fun ChatScreen(
                                     onAutoDownloadFile = onAutoDownloadFile,
                                     showSenderHeader = senderHeaderByKey[listItem.key] == true,
                                     onOpenMessageEntity = onOpenMessageEntity,
+                                    composerMediaLaunches = albumLaunches,
+                                    onComposerMediaLaunchFinished = mediaLaunchController::finish,
                                     onLoadVersions = { chatId, messageId -> conversation.messageVersions(chatId, messageId) })
                             }
                         }
@@ -2291,8 +2302,9 @@ fun ChatScreen(
                     // A confirmed send replaces the temporary id; the dice throw keeps its original identity.
                     val diceAnimationId = rememberDiceAnimationId(message.id, history.recentReplacements)
                     val launch = launchTargets[message.id]
-                    val mediaLaunch = mediaLaunchController.active?.takeIf {
-                        message.media?.kind == MediaKind.Photo && message.isOutgoing &&
+                    val mediaLaunch = mediaLaunchController.active.firstOrNull {
+                        message.media?.kind in setOf(MediaKind.Photo, MediaKind.Video) && message.isOutgoing &&
+                            message.media?.let { !it.hasSpoiler && !it.isSecret && !it.isSecretChat } == true &&
                             message.sendState != MessageSendState.Failed &&
                             resolveMessageIdThroughReplacements(it.messageId, history.recentReplacements) == message.id
                     }

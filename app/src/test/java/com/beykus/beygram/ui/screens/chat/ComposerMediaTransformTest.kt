@@ -16,4 +16,13 @@ class ComposerMediaTransformTest {
         assertNull(composerMediaTransform(Rect(0f, 0f, 0f, 80f), Rect(0f, 0f, 200f, 200f)))
         assertNull(composerMediaTransform(Rect(0f, 0f, 80f, 80f), Rect(0f, 0f, 200f, 0f)))
     }
+
+    @Test fun albumReceiptsPreserveOffscreenPositions() {
+        val capture = ComposerMediaCapture(Rect(0f, 0f, 80f, 80f), 100L)
+        val result = matchComposerMediaReceipts(listOf(capture, null, capture), listOf(11L, 12L, 13L), 200L)
+        assertEquals(listOf(11L, 13L), result.map { it.messageId })
+        assertTrue(matchComposerMediaReceipts(listOf(capture), listOf(11L, 12L), 200L).isEmpty())
+        assertTrue(matchComposerMediaReceipts(listOf(capture, capture), listOf(11L, 11L), 200L).isEmpty())
+        assertTrue(matchComposerMediaReceipts(listOf(capture), listOf(11L), 900L).isEmpty())
+    }
 }

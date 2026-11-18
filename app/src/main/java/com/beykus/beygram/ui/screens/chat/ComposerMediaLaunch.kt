@@ -26,7 +26,7 @@ internal data class ComposerMediaLaunch(val messageId: Long, val capture: Compos
 @Stable
 internal class ComposerMediaLaunchController {
     private val previews = mutableMapOf<String, LayoutCoordinates>()
-    var active by mutableStateOf<ComposerMediaLaunch?>(null)
+    var active by mutableStateOf<List<ComposerMediaLaunch>>(emptyList())
         private set
 
     fun record(stagingKey: String, coordinates: LayoutCoordinates) {
@@ -37,19 +37,31 @@ internal class ComposerMediaLaunchController {
         previews.remove(stagingKey)
     }
 
-    fun capture(media: List<OutgoingMedia>): ComposerMediaCapture? {
-        val item = media.singleOrNull()?.takeIf { it.kind == MediaKind.Photo && it.stagingKey.isNotBlank() } ?: return null
-        val bounds = previews[item.stagingKey]?.fullyVisibleBounds() ?: return null
-        return ComposerMediaCapture(bounds, SystemClock.elapsedRealtime())
+    fun capture(media: List<OutgoingMedia>): List<ComposerMediaCapture?> {
+        val now = SystemClock.elapsedRealtime()
+        return media.map { item ->
+            if (item.kind !in setOf(MediaKind.Photo, MediaKind.Video) || item.stagingKey.isBlank()) null
+            else previews[item.stagingKey]?.fullyVisibleBounds()?.let { ComposerMediaCapture(it, now) }
+        }
     }
 
-    fun accept(capture: ComposerMediaCapture, messageId: Long) {
-        if (messageId == 0L || SystemClock.elapsedRealtime() - capture.capturedAt > 750L) return
-        active = ComposerMediaLaunch(messageId, capture)
+    fun accept(captures: List<ComposerMediaCapture?>, messageIds: List<Long>) {
+        active = matchComposerMediaReceipts(captures, messageIds, SystemClock.elapsedRealtime())
     }
 
     fun finish(launch: ComposerMediaLaunch) {
-        if (active === launch) active = null
+        active = active.filterNot { it === launch }
+    }
+}
+
+/** Receipts and captures must have the same cardinality; preserve empty positions for offscreen tiles. */
+internal fun matchComposerMediaReceipts(
+    captures: List<ComposerMediaCapture?>, messageIds: List<Long>, now: Long
+): List<ComposerMediaLaunch> {
+    if (captures.size != messageIds.size || messageIds.any { it == 0L } ||
+        messageIds.distinct().size != messageIds.size) return emptyList()
+    return captures.zip(messageIds).mapNotNull { (capture, id) ->
+        capture?.takeIf { now - it.capturedAt in 0L..750L }?.let { ComposerMediaLaunch(id, it) }
     }
 }
 

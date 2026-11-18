@@ -105,7 +105,7 @@ internal fun outgoingMediaFor(item: OutgoingMedia, preparation: MediaPreparation
         return item.copy(kind = MediaKind.Document)
     }
     if (preparation.mode == MediaQualityMode.Original) return item
-    return preparation.prepared ?: item
+    return preparation.prepared?.copy(stagingKey = item.stagingKey) ?: item
 }
 
 internal fun MediaQualityMode.toVideoOption(): VideoQualityOption = when (this) {

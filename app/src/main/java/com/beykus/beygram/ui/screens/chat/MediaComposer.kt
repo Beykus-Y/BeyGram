@@ -1566,7 +1566,7 @@ private fun CompactVisualAttachmentTray(
                 val actionsLabel = stringResource(R.string.composer_attachment_actions)
                 val documentTile = isDocumentAttachmentTile(item, preparation)
                 val flightController = state.mediaLaunchController
-                val trackPhoto = item.kind == MediaKind.Photo && !documentTile && item.stagingKey.isNotBlank()
+                val trackPhoto = item.kind in setOf(MediaKind.Photo, MediaKind.Video) && !documentTile && item.stagingKey.isNotBlank()
                 if (flightController != null && trackPhoto) {
                     DisposableEffect(flightController, item.stagingKey) {
                         onDispose { flightController.forget(item.stagingKey) }
