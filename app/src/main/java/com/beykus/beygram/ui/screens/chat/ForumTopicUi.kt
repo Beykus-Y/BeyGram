@@ -51,12 +51,17 @@ internal fun canDeleteForumTopic(topic: ForumTopic): Boolean = topic.canManage &
  * matches the current language, and every list/header/sheet uses the same fallback.
  */
 @Composable
-internal fun forumTopicDisplayTitle(topic: ForumTopic): String {
-    if (topic.isGeneral && (topic.isNameImplicit || topic.title.isBlank())) {
+internal fun forumTopicDisplayTitle(topic: ForumTopic): String =
+    forumTopicNameOrFallback(topic.title, topic.isGeneral, topic.isNameImplicit)
+
+/** [forumTopicDisplayTitle] for a name and General flag alone, such as a chat row's topic label. */
+@Composable
+internal fun forumTopicNameOrFallback(title: String, isGeneral: Boolean, isNameImplicit: Boolean): String {
+    if (isGeneral && (isNameImplicit || title.isBlank())) {
         return stringResource(R.string.forum_topic_general)
     }
-    return topic.title.ifBlank {
-        stringResource(if (topic.isGeneral) R.string.forum_topic_general else R.string.forum_topic_regular)
+    return title.ifBlank {
+        stringResource(if (isGeneral) R.string.forum_topic_general else R.string.forum_topic_regular)
     }
 }
 

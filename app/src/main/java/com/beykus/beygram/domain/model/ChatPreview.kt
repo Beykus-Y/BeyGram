@@ -40,6 +40,8 @@ data class ChatPreview(
     val archiveOrder: Long = 0L,
     /** Id of the last message, used to mark the chat as read; zero when unknown. */
     val lastMessageId: Long = 0L,
+    /** Forum topic of the last message; zero outside a forum. A forum row names that topic above its preview. */
+    val lastMessageForumTopicId: Long = 0L,
     val lastMessageOutgoing: Boolean = false,
     /** Имя отправителя последнего сообщения; пусто, если TDLib его не знает. */
     val lastMessageSender: String = "",

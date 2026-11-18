@@ -504,6 +504,7 @@
     <string name="a11y_view_once_chip">Photo ou vidéo en vue unique</string>
     <string name="chats_secret_chat">Discussion secrète</string>
     <string name="chats_forum">Forum</string>
+    <string name="chats_open_topic">Ouvrir le sujet</string>
     <string name="app_lock_title">Verrouillage de l’application</string>
     <string name="app_lock_intro">Demandez un code PIN ou la biométrie au démarrage de BeyGram et au retour depuis l’arrière-plan. Le verrouillage est partagé par tous les comptes sur cet appareil.</string>
     <string name="app_lock_enable_title">Verrouillage de l’application</string>
