@@ -96,9 +96,10 @@ class StealthScheduleTest {
         assertFalse(touched.get())
     }
 
-    @Test fun aResendOfUncheckedMessagesIsRefusedEvenIfTheSwitchGoesOffAndBackOn() = runBlocking {
-        // The switch reads on when the resend starts, off in between and on at the hand-off. The messages are plain
-        // failed messages, not waiting in the scheduled queue, so no resend may reach TDLib.
+    @Test fun aResendStartedUnderProtectionRunsItsCheckToTheEndAndRefusesUncheckedMessages() = runBlocking {
+        // The switch reads on when the resend starts. The check then runs to its end without reading the switch again,
+        // so a later off/on toggle cannot skip it (the off and on reads stay unused). The messages are plain failed
+        // messages, not waiting in the scheduled queue, so no resend may reach TDLib.
         val reads = listOf<Int?>(15, null, 15).iterator()
         val request = ScriptedTdRequests { function ->
             when (function) {
