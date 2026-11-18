@@ -1,11 +1,8 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.annotation.StringRes
-import com.beykus.beygram.ui.design.styledShape
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,17 +10,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -32,18 +31,23 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
+import com.beykus.beygram.data.appearance.DesignStyle
 import com.beykus.beygram.domain.model.ChannelChartId
 import com.beykus.beygram.domain.model.ChannelChartKind
 import com.beykus.beygram.domain.model.ChannelChartPoint
 import com.beykus.beygram.domain.model.ChannelChartSeries
 import com.beykus.beygram.domain.model.ChannelStatisticsChart
 import com.beykus.beygram.ui.components.BeyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
 import kotlin.math.max
 import kotlin.math.min
+
+/** Height of the plotting area; the value and date labels sit around it. */
+private val PlotHeight: Dp = 150.dp
 
 @Composable
 internal fun StatisticsChartsSection(
@@ -51,13 +55,10 @@ internal fun StatisticsChartsSection(
     palette: BeyGramPalette,
     modifier: Modifier = Modifier
 ) {
+    // Signature draws no card per chart, so the charts are separated by a hairline instead.
+    val ink = LocalDesignSystem.current.style == DesignStyle.Signature
     Column(modifier.fillMaxWidth().padding(top = 18.dp)) {
-        Text(
-            stringResource(R.string.channel_statistics_charts_title),
-            color = palette.textPrimary,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold
-        )
+        StatisticsSectionHeader(stringResource(R.string.channel_statistics_charts_title))
         if (charts.isEmpty()) {
             Text(
                 stringResource(R.string.channel_statistics_charts_empty),
@@ -66,7 +67,8 @@ internal fun StatisticsChartsSection(
                 modifier = Modifier.padding(vertical = 10.dp)
             )
         } else {
-            charts.forEach { chart ->
+            charts.forEachIndexed { index, chart ->
+                if (ink && index > 0) HorizontalDivider(color = palette.divider)
                 StatisticsChartCard(chart, palette, Modifier.padding(top = 10.dp))
             }
         }
@@ -79,14 +81,44 @@ private fun StatisticsChartCard(
     palette: BeyGramPalette,
     modifier: Modifier = Modifier
 ) {
-    val series = remember(chart) { chart.series.filter { it.points.isNotEmpty() } }
-    if (series.isEmpty()) return
+    val inset = statisticsInset()
     val title = stringResource(chartTitle(chart.id))
+    val series = remember(chart) { chart.series.filter { it.points.isNotEmpty() } }
+    Column(modifier.fillMaxWidth().statisticsGroupSurface().padding(horizontal = inset, vertical = 14.dp)) {
+        Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        if (hasTrend(chart.kind, series)) {
+            ChartPlot(title, chart, series, palette)
+        } else {
+            // One point cannot show a direction, so the chart says so instead of drawing a dot.
+            Text(
+                stringResource(R.string.channel_statistics_chart_no_data),
+                color = palette.textSecondary,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+    }
+}
+
+/** A line or area needs two points to show a direction; a bar chart can show a single bar. */
+private fun hasTrend(kind: ChannelChartKind, series: List<ChannelChartSeries>): Boolean =
+    series.isNotEmpty() && (kind == ChannelChartKind.Bar || series.any { it.points.size >= 2 })
+
+@Composable
+private fun ChartPlot(
+    title: String,
+    chart: ChannelStatisticsChart,
+    series: List<ChannelChartSeries>,
+    palette: BeyGramPalette
+) {
     val range = remember(chart) { chartRange(chart, series) }
     val percentSuffix = if (chart.percentage) "%" else ""
     val maxLabel = formatCompactCount(range.second) + percentSuffix
     val minLabel = formatCompactCount(range.first) + percentSuffix
-    val rangeLabel = if (chart.yScaled && series.size > 1) {
+    val middleLabel = formatCompactCount(range.first + (range.second - range.first) / 2) + percentSuffix
+    // Lines with their own scales have no single value axis; the caption says so.
+    val valueAxis = !(chart.yScaled && series.size > 1)
+    val rangeLabel = if (!valueAxis) {
         stringResource(R.string.channel_statistics_chart_scaled)
     } else if (range.first == range.second) {
         stringResource(R.string.channel_statistics_chart_max, maxLabel)
@@ -100,65 +132,108 @@ private fun StatisticsChartCard(
         maxLabel
     )
     val axis = remember(chart) { chartAxis(chart) }
+    val axisStart = axis.first
+    val axisEnd = axis.second
 
-    Column(
-        modifier.fillMaxWidth().background(palette.surface, styledShape(16.dp)).padding(14.dp)
-    ) {
-        Text(title, color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        Text(
-            rangeLabel,
-            color = palette.textSecondary,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(top = 2.dp)
-        )
-        Canvas(
-            Modifier.fillMaxWidth().height(150.dp).padding(top = 6.dp)
-                .semantics { contentDescription = description }
-        ) {
-            drawStatisticsChart(chart, series, palette, range.first, range.second)
-        }
-        val axisStart = axis.first
-        val axisEnd = axis.second
-        if (axisStart != null && axisEnd != null) {
-            Row(Modifier.fillMaxWidth().padding(top = 3.dp)) {
-                Text(axisStart, color = palette.textSecondary, fontSize = 11.sp)
-                Spacer(Modifier.weight(1f))
-                Text(axisEnd, color = palette.textSecondary, fontSize = 11.sp)
+    Text(
+        rangeLabel,
+        color = palette.textSecondary,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(top = 2.dp)
+    )
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        if (valueAxis) {
+            // Three labels at the top, middle and bottom grid lines of the plot.
+            Column(
+                Modifier.height(PlotHeight).padding(end = 6.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.End
+            ) {
+                Text(maxLabel, color = palette.textSecondary, fontSize = 11.sp, maxLines = 1)
+                Text(middleLabel, color = palette.textSecondary, fontSize = 11.sp, maxLines = 1)
+                Text(minLabel, color = palette.textSecondary, fontSize = 11.sp, maxLines = 1)
             }
         }
-        if (series.size > 1) ChartLegend(series, palette, Modifier.padding(top = 8.dp))
+        Column(Modifier.weight(1f)) {
+            Canvas(
+                Modifier.fillMaxWidth().height(PlotHeight)
+                    .semantics { contentDescription = description }
+            ) {
+                drawStatisticsChart(chart, series, palette, range.first, range.second)
+            }
+            if (axisStart != null && axisEnd != null) {
+                Row(Modifier.fillMaxWidth().padding(top = 3.dp)) {
+                    Text(axisStart, color = palette.textSecondary, fontSize = 11.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text(axisEnd, color = palette.textSecondary, fontSize = 11.sp)
+                }
+            }
+        }
+    }
+    if (series.size > 1) {
+        ChartLegend(series, chart.kind, palette, Modifier.padding(top = 10.dp))
     }
 }
 
+/**
+ * Names every series. Each entry carries the same mark as its line or bar, so the legend identifies a series by its
+ * dash pattern as well as its colour. Names wrap instead of being cut off.
+ */
 @Composable
 private fun ChartLegend(
     series: List<ChannelChartSeries>,
+    kind: ChannelChartKind,
     palette: BeyGramPalette,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    val asLine = kind == ChannelChartKind.Line || kind == ChannelChartKind.Step || kind == ChannelChartKind.Area
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         series.chunked(2).forEachIndexed { rowIndex, row ->
             Row(Modifier.fillMaxWidth()) {
                 row.forEachIndexed { columnIndex, item ->
                     Row(
-                        Modifier.weight(1f).padding(end = if (columnIndex == 0) 6.dp else 0.dp),
+                        Modifier.weight(1f).padding(end = if (columnIndex == 0) 8.dp else 0.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            Modifier.size(8.dp)
-                                .background(seriesColor(palette, rowIndex * 2 + columnIndex), CircleShape)
-                        )
+                        SeriesSwatch(rowIndex * 2 + columnIndex, asLine, palette)
                         Text(
                             seriesName(item),
                             color = palette.textSecondary,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(start = 5.dp)
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(start = 6.dp)
                         )
                     }
                 }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesSwatch(index: Int, asLine: Boolean, palette: BeyGramPalette) {
+    val color = seriesColor(palette, index)
+    if (asLine) {
+        Canvas(Modifier.width(18.dp).height(10.dp)) {
+            val middle = size.height / 2f
+            drawLine(
+                color = color,
+                start = Offset(0f, middle),
+                end = Offset(size.width, middle),
+                strokeWidth = 3.dp.toPx(),
+                cap = StrokeCap.Round,
+                pathEffect = seriesDashEffect(index)
+            )
+        }
+    } else {
+        // The first series is solid; later series use the dashed edge of their bars and areas.
+        Canvas(Modifier.size(10.dp)) {
+            val corner = CornerRadius(3.dp.toPx())
+            if (index == 0) {
+                drawRoundRect(color = color, cornerRadius = corner)
+            } else {
+                drawRoundRect(color = color.copy(alpha = 0.35f), cornerRadius = corner)
+                drawRoundRect(color = color, cornerRadius = corner, style = seriesStroke(index))
             }
         }
     }
@@ -293,7 +368,6 @@ private fun DrawScope.drawScaledLines(
     top: Float,
     bottom: Float
 ) {
-    val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
     val height = (bottom - top).coerceAtLeast(1f)
     series.forEachIndexed { index, item ->
         val points = item.points
@@ -318,7 +392,7 @@ private fun DrawScope.drawScaledLines(
             }
             path.lineTo(px, scaledY(current.value))
         }
-        drawPath(path, color, style = stroke)
+        drawPath(path, color, style = seriesStroke(index))
     }
 }
 
@@ -329,7 +403,6 @@ private fun DrawScope.drawLines(
     x: (Long) -> Float,
     y: (Long) -> Float
 ) {
-    val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
     series.forEachIndexed { index, item ->
         val points = item.points
         val color = seriesColor(palette, index)
@@ -348,7 +421,7 @@ private fun DrawScope.drawLines(
             }
             path.lineTo(px, y(current.value))
         }
-        drawPath(path, color, style = stroke)
+        drawPath(path, color, style = seriesStroke(index))
     }
 }
 
@@ -363,7 +436,6 @@ private fun DrawScope.drawAreas(
     val base = series.first().points
     if (base.isEmpty()) return
     val count = base.size
-    val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
     if (chart.stacked) {
         val cumulative = LongArray(count)
         series.forEachIndexed { index, item ->
@@ -382,7 +454,7 @@ private fun DrawScope.drawAreas(
             }
             area.close()
             drawPath(area, color.copy(alpha = 0.35f))
-            drawPath(upperLine(base, upper, x, y), color, style = stroke)
+            drawPath(upperLine(base, upper, x, y), color, style = seriesStroke(index))
             upper.copyInto(cumulative)
         }
     } else {
@@ -400,7 +472,7 @@ private fun DrawScope.drawAreas(
                 if (pointIndex == 0) line.moveTo(x(point.x), y(point.value))
                 else line.lineTo(x(point.x), y(point.value))
             }
-            drawPath(line, color, style = stroke)
+            drawPath(line, color, style = seriesStroke(index))
         }
     }
 }
@@ -452,14 +524,39 @@ private fun DrawScope.drawBars(
             val topY = y(max(top, bottom))
             val bottomY = y(min(top, bottom))
             val barHeight = (bottomY - topY).coerceAtLeast(1f)
-            drawRect(
-                color = color,
-                topLeft = Offset(left + groupWidth * index + (groupWidth - barWidth) / 2f, topY),
-                size = Size(barWidth, barHeight)
-            )
+            val barLeft = left + groupWidth * index + (groupWidth - barWidth) / 2f
+            val barSize = Size(barWidth, barHeight)
+            val fill = if (seriesIndex == 0) color else color.copy(alpha = 0.35f)
+            drawRect(color = fill, topLeft = Offset(barLeft, topY), size = barSize)
+            if (seriesIndex > 0) {
+                // Later series also get a dashed edge, so they stay apart without colour.
+                drawRect(color = color, topLeft = Offset(barLeft, topY), size = barSize, style = seriesStroke(seriesIndex))
+            }
         }
     }
 }
+
+/** Solid line for the first series; the other series add a dash pattern so they stay apart without colour. */
+private val seriesDashPatterns: List<FloatArray?> = listOf(
+    null,
+    floatArrayOf(8f, 5f),
+    floatArrayOf(1f, 4f),
+    floatArrayOf(10f, 4f, 2f, 4f),
+    floatArrayOf(16f, 6f),
+    floatArrayOf(4f, 3f)
+)
+
+private fun DrawScope.seriesDashEffect(index: Int): PathEffect? {
+    val pattern = seriesDashPatterns[index % seriesDashPatterns.size] ?: return null
+    return PathEffect.dashPathEffect(FloatArray(pattern.size) { pattern[it].dp.toPx() })
+}
+
+private fun DrawScope.seriesStroke(index: Int): Stroke = Stroke(
+    width = 2.dp.toPx(),
+    cap = StrokeCap.Round,
+    join = StrokeJoin.Round,
+    pathEffect = seriesDashEffect(index)
+)
 
 private fun seriesColor(palette: BeyGramPalette, index: Int): Color = when (index % 6) {
     0 -> palette.accent

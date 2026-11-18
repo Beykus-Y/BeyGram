@@ -42,4 +42,44 @@ class StatisticsMetricsTest {
             )
         ).toList())
     }
+
+    @Test
+    fun `channel cards show the audience and the per-post means`() {
+        assertEquals(
+            listOf(
+                StatisticsMetric.Members,
+                StatisticsMetric.MeanViews,
+                StatisticsMetric.MeanReactions,
+                StatisticsMetric.MeanShares
+            ),
+            statisticsHeadlineMetrics(isChannel = true)
+        )
+        assertEquals(listOf(StatisticsMetric.Notifications), statisticsDetailMetrics(isChannel = true))
+    }
+
+    @Test
+    fun `supergroup cards show the totals and nothing is left for the compact list`() {
+        assertEquals(
+            listOf(
+                StatisticsMetric.Members,
+                StatisticsMetric.Messages,
+                StatisticsMetric.Viewers,
+                StatisticsMetric.Senders
+            ),
+            statisticsHeadlineMetrics(isChannel = false)
+        )
+        assertEquals(emptyList<StatisticsMetric>(), statisticsDetailMetrics(isChannel = false))
+    }
+
+    @Test
+    fun `every figure appears exactly once across cards and the compact list`() {
+        for (isChannel in listOf(true, false)) {
+            val shown = statisticsHeadlineMetrics(isChannel) + statisticsDetailMetrics(isChannel)
+            assertEquals(shown.distinct(), shown)
+            assertEquals(
+                statisticsMetrics(isChannel).filter { it != StatisticsMetric.Growth }.toSet(),
+                shown.toSet()
+            )
+        }
+    }
 }
