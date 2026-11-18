@@ -729,7 +729,9 @@ fun ChatScreen(
         }
         launch {
             VideoNoteExportCenter.failures.collect {
-                if (VideoNoteExportCenter.consumeFailure(chat.id, sendForumTopicId, accountId)) error = context.getString(R.string.recorder_save_failed)
+                val failed = if (forumAllMessages) VideoNoteExportCenter.consumeFailureForChat(chat.id, accountId)
+                else VideoNoteExportCenter.consumeFailure(chat.id, sendForumTopicId, accountId)
+                if (failed) error = context.getString(R.string.recorder_save_failed)
             }
         }
     }

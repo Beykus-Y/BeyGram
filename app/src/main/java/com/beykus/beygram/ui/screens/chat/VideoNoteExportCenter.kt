@@ -249,4 +249,11 @@ internal object VideoNoteExportCenter {
         if (had) _failures.update { current -> current - key }
         return had
     }
+
+    /** Feed variant: consumes failures of every topic of the chat for this account. */
+    fun consumeFailureForChat(chatId: Long, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): Boolean {
+        val had = _failures.value.any { it.first == accountId && it.second == chatId }
+        if (had) _failures.update { current -> current.filterNot { it.first == accountId && it.second == chatId } }
+        return had
+    }
 }
