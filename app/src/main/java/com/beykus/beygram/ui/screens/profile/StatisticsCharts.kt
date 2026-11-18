@@ -2,9 +2,7 @@ package com.beykus.beygram.ui.screens.profile
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,13 +11,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -188,7 +186,7 @@ private fun ChartLegend(
     palette: BeyGramPalette,
     modifier: Modifier = Modifier
 ) {
-    val asLine = kind == ChannelChartKind.Line || kind == ChannelChartKind.Step
+    val asLine = kind == ChannelChartKind.Line || kind == ChannelChartKind.Step || kind == ChannelChartKind.Area
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         series.chunked(2).forEachIndexed { rowIndex, row ->
             Row(Modifier.fillMaxWidth()) {
@@ -228,7 +226,16 @@ private fun SeriesSwatch(index: Int, asLine: Boolean, palette: BeyGramPalette) {
             )
         }
     } else {
-        Box(Modifier.size(10.dp).background(color, RoundedCornerShape(3.dp)))
+        // The first series is solid; later series use the dashed edge of their bars and areas.
+        Canvas(Modifier.size(10.dp)) {
+            val corner = CornerRadius(3.dp.toPx())
+            if (index == 0) {
+                drawRoundRect(color = color, cornerRadius = corner)
+            } else {
+                drawRoundRect(color = color.copy(alpha = 0.35f), cornerRadius = corner)
+                drawRoundRect(color = color, cornerRadius = corner, style = seriesStroke(index))
+            }
+        }
     }
 }
 
@@ -429,7 +436,6 @@ private fun DrawScope.drawAreas(
     val base = series.first().points
     if (base.isEmpty()) return
     val count = base.size
-    val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
     if (chart.stacked) {
         val cumulative = LongArray(count)
         series.forEachIndexed { index, item ->
@@ -448,7 +454,7 @@ private fun DrawScope.drawAreas(
             }
             area.close()
             drawPath(area, color.copy(alpha = 0.35f))
-            drawPath(upperLine(base, upper, x, y), color, style = stroke)
+            drawPath(upperLine(base, upper, x, y), color, style = seriesStroke(index))
             upper.copyInto(cumulative)
         }
     } else {
@@ -466,7 +472,7 @@ private fun DrawScope.drawAreas(
                 if (pointIndex == 0) line.moveTo(x(point.x), y(point.value))
                 else line.lineTo(x(point.x), y(point.value))
             }
-            drawPath(line, color, style = stroke)
+            drawPath(line, color, style = seriesStroke(index))
         }
     }
 }
@@ -518,11 +524,14 @@ private fun DrawScope.drawBars(
             val topY = y(max(top, bottom))
             val bottomY = y(min(top, bottom))
             val barHeight = (bottomY - topY).coerceAtLeast(1f)
-            drawRect(
-                color = color,
-                topLeft = Offset(left + groupWidth * index + (groupWidth - barWidth) / 2f, topY),
-                size = Size(barWidth, barHeight)
-            )
+            val barLeft = left + groupWidth * index + (groupWidth - barWidth) / 2f
+            val barSize = Size(barWidth, barHeight)
+            val fill = if (seriesIndex == 0) color else color.copy(alpha = 0.35f)
+            drawRect(color = fill, topLeft = Offset(barLeft, topY), size = barSize)
+            if (seriesIndex > 0) {
+                // Later series also get a dashed edge, so they stay apart without colour.
+                drawRect(color = color, topLeft = Offset(barLeft, topY), size = barSize, style = seriesStroke(seriesIndex))
+            }
         }
     }
 }
