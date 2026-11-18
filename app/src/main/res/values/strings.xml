@@ -1376,10 +1376,16 @@
     <string name="chat_pin_channel_message">Сообщение будет закреплено для всех читателей канала.</string>
     <string name="chat_pinned_position">Закреплённое · %1$d из %2$d</string>
     <string name="chat_pinned_list">Показать все закреплённые сообщения</string>
+    <string name="chat_pinned_hide_panel">Скрыть панель закреплений</string>
+    <string name="chat_pinned_show_bar">Показать панель закреплений</string>
+    <string name="chat_pinned_unpin">Открепить сообщение</string>
+    <string name="chat_pinned_jump">Перейти к сообщению</string>
+    <string name="chat_pinned_search_hint">Поиск в закреплённых</string>
+    <string name="chat_pinned_search_empty">Ничего не найдено</string>
+    <string name="chat_pinned_empty">Нет закреплённых сообщений</string>
     <string name="chat_pinned_failed">Не удалось загрузить закреплённые сообщения</string>
     <string name="chat_pinned_more">Загрузить ещё</string>
     <string name="chat_pinned_retry">Повторить</string>
-    <string name="chat_pinned_message">Сообщение</string>
     <string name="chat_link_failed">Не удалось открыть ссылку</string>
     <string name="message_link_username_failed">Не удалось открыть %1$s</string>
     <string name="chat_bot_start">Запустить бота</string>

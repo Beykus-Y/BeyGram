@@ -9,8 +9,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Local per-chat appearance overrides. TDLib has no per-chat wallpaper API. */
-data class ChatOverride(val wallpaper: ChatWallpaper? = null)
+/**
+ * Local per-chat appearance overrides. TDLib has no per-chat wallpaper API, and the locally hidden pinned bar is the
+ * same kind of state: it belongs to this chat on this account and survives restarts, but it is not an unpin.
+ */
+data class ChatOverride(
+    val wallpaper: ChatWallpaper? = null,
+    /** The pinned bar is hidden locally. The messages stay pinned on the server; the bar can be brought back. */
+    val pinnedBarHidden: Boolean = false
+)
 
 internal interface ChatOverrideStorage {
     fun value(key: String): String?
@@ -41,6 +48,11 @@ internal fun chatWallpaperKey(chatId: Long): String {
     return "wallpaper:$chatId"
 }
 
+internal fun pinnedBarHiddenKey(chatId: Long): String {
+    require(chatId != 0L) { "A chat override needs a chat id" }
+    return "pinned-hidden:$chatId"
+}
+
 class ChatOverridesStore internal constructor(private val storage: ChatOverrideStorage) {
     constructor(context: Context, accountId: String = "legacy") : this(
         SharedPreferencesChatOverrideStorage(context, accountId)
@@ -56,25 +68,49 @@ class ChatOverridesStore internal constructor(private val storage: ChatOverrideS
         // ChatWallpaper.None is a meaningful override (no wallpaper), so only null means "use global".
         if (wallpaper == null) {
             storage.remove(key)
-            _state.value = _state.value - chatId
-            return
+        } else {
+            storage.put(key, wallpaper.encode())
         }
-        storage.put(key, wallpaper.encode())
-        _state.value = _state.value + (chatId to (readOne(chatId) ?: ChatOverride()))
+        publish(chatId)
     }
 
-    /** Full reset for the settings sheet: wallpaper and any future per-chat local state. */
+    /**
+     * Hides or restores the chat's pinned bar locally. Hiding is not unpinning: the pins stay on the server, and a new
+     * look at the pinned list can bring the bar back.
+     */
+    @Synchronized
+    fun setPinnedBarHidden(chatId: Long, hidden: Boolean) {
+        val key = pinnedBarHiddenKey(chatId)
+        if (hidden) storage.put(key, "1") else storage.remove(key)
+        publish(chatId)
+    }
+
+    /** Full reset for the settings sheet: wallpaper and any other per-chat local state. */
     @Synchronized
     fun reset(chatId: Long) {
         storage.remove(chatWallpaperKey(chatId))
+        storage.remove(pinnedBarHiddenKey(chatId))
         _state.value = _state.value - chatId
     }
 
+    /** Re-reads every key of one chat and updates the state map; a chat with no keys left drops out of it. */
+    private fun publish(chatId: Long) {
+        _state.value = readOne(chatId)?.let { _state.value + (chatId to it) } ?: (_state.value - chatId)
+    }
+
     private fun read(): Map<Long, ChatOverride> = storage.keys().mapNotNull { key ->
-        val chatId = key.removePrefix("wallpaper:").toLongOrNull()?.takeIf { key.startsWith("wallpaper:") } ?: return@mapNotNull null
+        val chatId = key.substringAfter(':').toLongOrNull()?.takeIf { key.substringBefore(':') in storedKeyPrefixes } ?: return@mapNotNull null
         readOne(chatId)?.let { chatId to it }
     }.toMap()
 
-    private fun readOne(chatId: Long): ChatOverride? =
-        storage.value(chatWallpaperKey(chatId))?.let { ChatOverride(chatWallpaperFromStored(it)) }
+    private fun readOne(chatId: Long): ChatOverride? {
+        val wallpaper = storage.value(chatWallpaperKey(chatId))?.let { chatWallpaperFromStored(it) }
+        val pinnedHidden = storage.value(pinnedBarHiddenKey(chatId)) != null
+        if (wallpaper == null && !pinnedHidden) return null
+        return ChatOverride(wallpaper = wallpaper, pinnedBarHidden = pinnedHidden)
+    }
+
+    private companion object {
+        val storedKeyPrefixes = setOf("wallpaper", "pinned-hidden")
+    }
 }

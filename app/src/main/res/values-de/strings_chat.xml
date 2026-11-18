@@ -72,7 +72,13 @@
     <string name="chat_message_open_failed">Die Nachricht konnte nicht geöffnet werden</string>
     <string name="chat_message_unavailable">Nachricht nicht verfügbar</string>
     <string name="chat_network_waiting">Kein Netzwerk. Nachrichten werden später gesendet</string>
-    <string name="chat_pinned_message">Nachricht</string>
+    <string name="chat_pinned_hide_panel">Angeheftete Leiste ausblenden</string>
+    <string name="chat_pinned_show_bar">Angeheftete Leiste anzeigen</string>
+    <string name="chat_pinned_unpin">Nachricht nicht mehr anheften</string>
+    <string name="chat_pinned_jump">Zur Nachricht springen</string>
+    <string name="chat_pinned_search_hint">Angeheftete Nachrichten durchsuchen</string>
+    <string name="chat_pinned_search_empty">Nichts gefunden</string>
+    <string name="chat_pinned_empty">Keine angehefteten Nachrichten</string>
     <string name="chat_preview_audio">🎵 Audio</string>
     <string name="chat_preview_document">📄 Dokument</string>
     <string name="chat_preview_photo">📷 Foto</string>

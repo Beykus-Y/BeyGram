@@ -45,6 +45,10 @@ internal fun Modifier.chatChromeBackground(color: Color): Modifier =
  * The chat's header stack (top) or composer stack (bottom). In the Liquid Glass style it is one pane of glass that the
  * message list scrolls under, sampling [backdrop] (wallpaper and bubbles, recorded for this screen only). In every other
  * style it is a plain column, so nothing changes for them. The top stack covers the status bar and pads its content below it.
+ *
+ * [floatingContent] is drawn under the pane as detached surfaces with their own backgrounds (the pinned bar in the
+ * Floating panels placement). The pane ends above it, so the card is a surface of its own and the list keeps showing
+ * through the gaps around it; the reported height still includes the whole stack, so the list content stays below it.
  */
 @Composable
 internal fun ChatChromeHost(
@@ -52,7 +56,8 @@ internal fun ChatChromeHost(
     edge: GlassEdge,
     backdrop: GlassBackdrop?,
     onHeight: (Int) -> Unit,
-    content: @Composable ColumnScope.() -> Unit
+    paneContent: @Composable ColumnScope.() -> Unit,
+    floatingContent: @Composable ColumnScope.() -> Unit = {}
 ) {
     val palette = beyGramPalette()
     // The top stack's background covers the status bar; its content starts below the top safe inset.
@@ -63,7 +68,8 @@ internal fun ChatChromeHost(
         // The top stack is drawn above the message list, so a header shadow (Material 2) is not painted over by it.
         Column(Modifier.fillMaxWidth().zIndex(if (edge == GlassEdge.BottomHairline) 1f else 0f)) {
             statusBarSpacer()
-            content()
+            paneContent()
+            floatingContent()
         }
         return
     }
@@ -76,29 +82,37 @@ internal fun ChatChromeHost(
                 Modifier.fillMaxWidth().zIndex(1f).onSizeChanged { onHeight(it.height) }
                     .background(Brush.verticalGradient(listOf(Color.Transparent, palette.screen.copy(alpha = 0.72f))))
                     .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
-                content = content
+                content = paneContent
             )
         }
         return
     }
     val design = LocalDesignSystem.current
     CompositionLocalProvider(LocalChatChromeOnGlass provides true, LocalGlassBackdrop provides backdrop) {
-        GlassPanel(
-            design = design,
-            tint = palette.surface,
-            rim = palette.textSecondary,
-            // The recorded list and wallpaper may leave gaps; the pane starts from the screen colour, not from sharp content.
-            backdropBase = palette.screen,
-            shape = RectangleShape,
-            edge = edge,
-            // A tap on the pane must not reach a message scrolled underneath; its own buttons still get input first.
-            modifier = Modifier.fillMaxWidth().zIndex(1f).onSizeChanged { onHeight(it.height) }
-                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
-        ) {
-            Column(Modifier.fillMaxWidth()) {
-                statusBarSpacer()
-                content()
+        // One measured block: the pane plus the floating cards below it, so the list reserves space for both and
+        // scrolls under the gaps around the cards.
+        Column(Modifier.fillMaxWidth().zIndex(1f).onSizeChanged { onHeight(it.height) }) {
+            GlassPanel(
+                design = design,
+                tint = palette.surface,
+                rim = palette.textSecondary,
+                // The recorded list and wallpaper may leave gaps; the pane starts from the screen colour, not from sharp content.
+                backdropBase = palette.screen,
+                shape = RectangleShape,
+                edge = edge,
+                // A tap on the pane must not reach a message scrolled underneath; its own buttons still get input first.
+                modifier = Modifier.fillMaxWidth()
+                    .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    statusBarSpacer()
+                    paneContent()
+                }
             }
+            // The floating cards sample the same backdrop as the pane and stay out of its rectangle, so they read as
+            // their own material rather than a strip of the header. The margins around them are not swallowed: the
+            // messages behind them stay reachable.
+            Column(Modifier.fillMaxWidth()) { floatingContent() }
         }
     }
 }

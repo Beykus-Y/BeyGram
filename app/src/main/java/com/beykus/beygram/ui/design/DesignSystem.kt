@@ -32,8 +32,9 @@ data class DesignSystem(
     /** Bubble geometry of the style, or null when the style keeps today's bubble metrics untouched (Default). */
     val bubbles: DesignBubbleGeometry?,
     /**
-     * Where the main navigation is actually drawn. It defaults to the style's own stance, so a style keeps its look;
-     * an explicit choice in Appearance overrides it without changing [components] or anything else of the style.
+     * Where the floating panels are actually drawn: the main bottom dock and the chat's pinned bar both read it. It
+     * defaults to the style's own stance, so a style keeps its look; an explicit choice in Appearance overrides it
+     * without changing [components] or anything else of the style.
      */
     val navigationFloating: Boolean = components.floatingNavigation
 )
@@ -322,8 +323,9 @@ val LocalDesignSystem = staticCompositionLocalOf { DefaultDesignSystem }
 val DesignSystem.usesGlass: Boolean get() = surfaces.glass?.samplesBackdrop == true
 
 /**
- * Where the bar is drawn for the user's [placement] choice and the stance of the style. [NavigationPlacement.Auto]
+ * Where the panels are drawn for the user's [placement] choice and the stance of the style. [NavigationPlacement.Auto]
  * keeps whatever the style has always done, which is what makes an old installation look unchanged after an update.
+ * Both the bottom dock and the pinned bar resolve through this one value, so no screen repeats the logic.
  */
 fun resolveNavigationFloating(placement: NavigationPlacement, naturalFloating: Boolean): Boolean = when (placement) {
     NavigationPlacement.Auto -> naturalFloating
