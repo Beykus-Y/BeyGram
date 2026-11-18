@@ -61,6 +61,11 @@
     <string name="channel_statistics_post_forwards">Shares: %1$s</string>
     <string name="channel_statistics_post_reactions">Reactions: %1$s</string>
     <string name="channel_statistics_open_post">Open post</string>
+    <string name="channel_statistics_kpi_title">Key figures</string>
+    <string name="channel_statistics_kpi_per_post">per post</string>
+    <string name="channel_statistics_kpi_change">%1$s over the period</string>
+    <string name="channel_statistics_other_metrics">Other figures</string>
+    <string name="channel_statistics_chart_no_data">Not enough data for this chart</string>
     <string name="channel_admin_log_title">Admin log</string>
     <string name="channel_admin_log_all">All</string>
     <string name="channel_admin_log_messages">Messages</string>
@@ -69,6 +74,7 @@
     <string name="channel_admin_log_empty">No entries</string>
     <string name="channel_admin_log_more">Load more</string>
     <string name="channel_admin_log_failed">Could not load the admin log</string>
+    <string name="channel_admin_log_actor_missing">Author not specified</string>
     <string name="channel_event_title_changed">New title: %1$s</string>
     <string name="channel_event_photo_changed">Channel photo changed</string>
     <string name="channel_event_description_changed">Description changed</string>

@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class StatisticsFormattingTest {
@@ -29,5 +30,28 @@ class StatisticsFormattingTest {
     fun `negative large values keep the sign`() {
         assertEquals("-1.5K", formatCompactCount(-1_500L))
         assertEquals("-2M", formatCompactCount(-2_000_000L))
+    }
+
+    @Test
+    fun `growth shows an explicit sign and the locale decimal`() {
+        // The expected text is built with the same locale formatter, so the test holds on any device locale.
+        assertEquals("+${formatDecimal(2.0)}%", formatSignedPercent(2.0))
+        assertEquals("-${formatDecimal(0.4)}%", formatSignedPercent(-0.4))
+        assertEquals("${formatDecimal(0.0)}%", formatSignedPercent(0.0))
+        assertEquals("${formatDecimal(0.01)}%", formatSignedPercent(0.01))
+    }
+
+    @Test
+    fun `growth without a finite value is not shown`() {
+        assertNull(formatSignedPercent(Double.NaN))
+        assertNull(formatSignedPercent(Double.POSITIVE_INFINITY))
+    }
+
+    @Test
+    fun `growth direction follows the sign and ignores rounding noise`() {
+        assertEquals(1, growthTrend(3.5))
+        assertEquals(-1, growthTrend(-0.2))
+        assertEquals(0, growthTrend(0.01))
+        assertEquals(0, growthTrend(Double.NaN))
     }
 }

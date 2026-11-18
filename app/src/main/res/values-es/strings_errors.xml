@@ -32,6 +32,7 @@
     <string name="channel_admin_log_empty">No hay entradas</string>
     <string name="channel_admin_log_more">Cargar más</string>
     <string name="channel_admin_log_failed">No se pudo cargar el registro de administración</string>
+    <string name="channel_admin_log_actor_missing">Autor no indicado</string>
     <string name="channel_event_title_changed">Nuevo título: %1$s</string>
     <string name="channel_event_photo_changed">Foto del canal cambiada</string>
     <string name="channel_event_description_changed">Descripción cambiada</string>
@@ -181,6 +182,11 @@
     <string name="channel_statistics_post_forwards">Veces compartido: %1$s</string>
     <string name="channel_statistics_post_reactions">Reacciones: %1$s</string>
     <string name="channel_statistics_open_post">Abrir publicación</string>
+    <string name="channel_statistics_kpi_title">Indicadores clave</string>
+    <string name="channel_statistics_kpi_per_post">por publicación</string>
+    <string name="channel_statistics_kpi_change">%1$s en el periodo</string>
+    <string name="channel_statistics_other_metrics">Otros valores</string>
+    <string name="channel_statistics_chart_no_data">No hay datos suficientes para este gráfico</string>
     <string name="err_messages_cannot_forward">Algunos mensajes seleccionados no se pueden reenviar</string>
     <string name="err_messages_cannot_delete">Algunos mensajes seleccionados no se pueden eliminar</string>
     <string name="err_messages_cannot_copy">Algunos mensajes seleccionados no se pueden copiar</string>
