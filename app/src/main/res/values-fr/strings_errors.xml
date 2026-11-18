@@ -57,6 +57,11 @@
     <string name="channel_statistics_post_forwards">Partages : %1$s</string>
     <string name="channel_statistics_post_reactions">Réactions : %1$s</string>
     <string name="channel_statistics_open_post">Ouvrir la publication</string>
+    <string name="channel_statistics_kpi_title">Indicateurs clés</string>
+    <string name="channel_statistics_kpi_per_post">par publication</string>
+    <string name="channel_statistics_kpi_change">%1$s sur la période</string>
+    <string name="channel_statistics_other_metrics">Autres valeurs</string>
+    <string name="channel_statistics_chart_no_data">Données insuffisantes pour ce graphique</string>
     <string name="channel_admin_log_title">Journal d’administration</string>
     <string name="channel_admin_log_all">Tout</string>
     <string name="channel_admin_log_messages">Messages</string>
@@ -65,6 +70,7 @@
     <string name="channel_admin_log_empty">Aucune entrée</string>
     <string name="channel_admin_log_more">Charger plus</string>
     <string name="channel_admin_log_failed">Impossible de charger le journal d’administration</string>
+    <string name="channel_admin_log_actor_missing">Auteur non indiqué</string>
     <string name="channel_event_title_changed">Nouveau titre : %1$s</string>
     <string name="channel_event_photo_changed">Photo du canal modifiée</string>
     <string name="channel_event_description_changed">Description modifiée</string>
@@ -79,7 +85,6 @@
     <string name="channel_event_member_promoted">Droits modifiés : %1$s</string>
     <string name="channel_event_member_restricted">Restrictions modifiées : %1$s</string>
     <string name="channel_event_settings_changed">Paramètres du canal modifiés</string>
-    <string name="channel_statistics_actor">%1$s · %2$s</string>
     <string name="err_tdlib_schedule_date">Telegram a refusé l’heure programmée</string>
     <string name="err_tdlib_schedule_failed">Telegram n’a pas autorisé l’envoi programmé</string>
     <string name="err_tdlib_schedule_too_much">Trop de messages programmés dans cette discussion</string>

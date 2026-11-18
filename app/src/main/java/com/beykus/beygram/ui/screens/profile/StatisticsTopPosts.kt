@@ -5,12 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -19,6 +19,10 @@ import com.beykus.beygram.domain.model.ChannelTopPost
 import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.text.resolve
 
+/**
+ * Recent posts with the metrics TDLib returns for them. A row opens the post; the list is TDLib's short list of recent
+ * interactions, so the heading says that it is not the whole period.
+ */
 @Composable
 internal fun TopPostsSection(
     posts: List<ChannelTopPost>,
@@ -26,13 +30,9 @@ internal fun TopPostsSection(
     onOpenPost: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val inset = statisticsInset()
     Column(modifier.fillMaxWidth().padding(top = 18.dp)) {
-        Text(
-            stringResource(R.string.channel_statistics_top_posts),
-            color = palette.textPrimary,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold
-        )
+        StatisticsSectionHeader(stringResource(R.string.channel_statistics_top_posts))
         Text(
             stringResource(R.string.channel_statistics_top_posts_hint),
             color = palette.textSecondary,
@@ -44,10 +44,18 @@ internal fun TopPostsSection(
                 stringResource(R.string.channel_statistics_top_posts_empty),
                 color = palette.textSecondary,
                 fontSize = 13.sp,
-                modifier = Modifier.padding(vertical = 10.dp)
+                modifier = Modifier.padding(top = 10.dp, bottom = 10.dp)
             )
         } else {
-            posts.forEach { post -> TopPostRow(post, palette, onOpenPost) }
+            Column(
+                Modifier.fillMaxWidth().padding(top = 10.dp).statisticsGroupSurface()
+                    .padding(horizontal = inset, vertical = 4.dp)
+            ) {
+                posts.forEachIndexed { index, post ->
+                    if (index > 0) HorizontalDivider(color = palette.divider)
+                    TopPostRow(post, palette, onOpenPost)
+                }
+            }
         }
     }
 }
@@ -90,8 +98,6 @@ private fun TopPostRow(
             "$views · $forwards · $reactions",
             color = palette.textSecondary,
             fontSize = 12.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 3.dp)
         )
     }
