@@ -315,6 +315,7 @@ internal fun PinnedMessagesBar(
     onOpenList: () -> Unit,
     onOpenListFromPreview: ((PinnedPreviewSource) -> Unit)? = null,
     hiddenPreviewId: Long? = null,
+    onPreviewMeasured: (PinnedPreviewSource?) -> Unit = {},
     onHideBar: () -> Unit,
     onUnpin: (ChatMessage) -> Unit,
     /** Reports whether a row is drawn, so the header can give its bottom hairline to this row. */
@@ -398,6 +399,10 @@ internal fun PinnedMessagesBar(
         val previewText = target.summary()
         val view = LocalView.current
         var previewBounds by remember(target.id) { mutableStateOf<Rect?>(null) }
+        val latestPreviewMeasured by androidx.compose.runtime.rememberUpdatedState(onPreviewMeasured)
+        DisposableEffect(target.id, previewText) {
+            onDispose { latestPreviewMeasured(null) }
+        }
         val positionDescription = stringResource(R.string.chat_pinned_position, index + 1, pinTotal)
         val pagingFailed = needsOlder && state.failed
 
@@ -441,7 +446,12 @@ internal fun PinnedMessagesBar(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
-                            .onGloballyPositioned { previewBounds = it.pinnedBoundsOnScreen(view) }
+                            .onGloballyPositioned { coordinates ->
+                                val bounds = coordinates.pinnedBoundsOnScreen(view)
+                                previewBounds = bounds
+                                val metrics = view.resources.displayMetrics
+                                latestPreviewMeasured(bounds?.let { PinnedPreviewSource(target.id, previewText, it, metrics.widthPixels, metrics.heightPixels) })
+                            }
                             .graphicsLayer { alpha = if (hiddenPreviewId == target.id) 0f else 1f }
                     )
                     if (pinTotal > 1) {
@@ -724,6 +734,7 @@ internal fun PinnedMessagesScreen(
     downloadFile: (Int) -> Unit,
     barHidden: Boolean,
     previewSource: PinnedPreviewSource? = null,
+    livePreviewSource: () -> PinnedPreviewSource? = { null },
     onRestoreBar: () -> Unit,
     onOpenMessage: (ChatMessage) -> Unit,
     onClose: () -> Unit
@@ -818,8 +829,9 @@ internal fun PinnedMessagesScreen(
     // Resolve only senders actually visible in the pinned list, not the whole chat or every loaded history page.
     val visibleSenderIds by remember(listState, shown) {
         derivedStateOf {
+            val byId = shown.associateBy { it.id }
             listState.layoutInfo.visibleItemsInfo.mapNotNull { row ->
-                shown.getOrNull(row.index)?.senderId?.takeIf { it > 0L }
+                byId[row.key as? Long]?.senderId?.takeIf { it > 0L }
             }.distinct()
         }
     }
@@ -863,7 +875,7 @@ internal fun PinnedMessagesScreen(
         val source = flightSource ?: return false
         val root = rootBounds ?: return false
         val target = targetBounds ?: return false
-        return validDisplay && !searchOpen && !exitMotion.isInstant &&
+        return livePreviewSource() == source && validDisplay && !searchOpen && !exitMotion.isInstant &&
             root.containsBounds(source.bounds) && root.containsBounds(target) &&
             listState.layoutInfo.visibleItemsInfo.any { it.key == source.id } &&
             shown.any { it.id == source.id && it.summary() == source.text }
@@ -895,7 +907,7 @@ internal fun PinnedMessagesScreen(
                 else null
             }.filterNotNull().first()
         }
-        if (validBounds == true) progress.animateTo(1f, entryMotion.animationSpec())
+        if (validBounds == true && livePreviewSource() == flightSource) progress.animateTo(1f, entryMotion.animationSpec())
         else progress.snapTo(1f)
         flightActive = false
     }
