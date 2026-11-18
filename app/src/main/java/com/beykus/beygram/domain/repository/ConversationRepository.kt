@@ -169,6 +169,17 @@ interface ConversationRepository {
     suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?): Result<Unit>
     suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long? = null, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
+    /**
+     * One composer batch, with IDs of the actual messages returned by the transport and inserted into history.
+     * Scheduled sends and repositories without receipt support return an empty list. Never resend to obtain IDs.
+     */
+    suspend fun sendComposerMedia(
+        chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?,
+        entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions
+    ): Result<List<Long>> = (
+        if (media.size > 1) sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
+        else sendMedia(chatId, media.single(), caption, replyToMessageId, entities, forumTopicId, options)
+    ).map { emptyList() }
     /** Poll, location, contact and dice are sent as TDLib content, never as formatted text. */
     suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>
     suspend fun sendLocation(chatId: Long, point: GeoPoint, live: Boolean = false, replyToMessageId: Long? = null, forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit>

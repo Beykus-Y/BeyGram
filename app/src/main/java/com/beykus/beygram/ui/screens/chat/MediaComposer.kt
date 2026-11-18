@@ -63,6 +63,8 @@ import androidx.compose.foundation.horizontalScroll
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
@@ -169,7 +171,8 @@ internal class AttachmentState(
     private val qualityState: MutableState<HashMap<String, MediaPreparation>>,
     private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>,
     private val sendSticker: suspend (OutgoingMedia, MessageSendOptions) -> Result<Unit>,
-    private val sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>
+    private val sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>,
+    internal val mediaLaunchController: ComposerMediaLaunchController? = null
 ) {
     var menuOpen by mutableStateOf(false)
     var cameraOpen by mutableStateOf(false)
@@ -1068,6 +1071,12 @@ internal class AttachmentState(
 /** Telegram captions are limited in Unicode code points, not UTF-16 code units. */
 internal fun attachmentCaptionLength(caption: String): Int = caption.codePointCount(0, caption.length)
 
+internal fun showCaptionCounter(count: Int, limit: Int): Boolean =
+    limit > 0 && count.toLong() * 10 >= limit.toLong() * 9
+
+internal fun showAttachmentLimit(count: Int, limit: Int): Boolean =
+    limit > 0 && count >= (limit - 1).coerceAtLeast(1)
+
 /**
  * Telegram albums contain only 2–10 photo/video media. If a staged item is a document,
  * audio or a video converted to File delivery, preserve the existing sequential semantics.
@@ -1100,7 +1109,8 @@ internal fun rememberAttachmentState(
     chatId: Long,
     sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>,
     sendSticker: suspend (OutgoingMedia, MessageSendOptions) -> Result<Unit>,
-    sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>
+    sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>,
+    mediaLaunchController: ComposerMediaLaunchController? = null
 ): AttachmentState {
     val context = LocalContext.current
     val accountId = com.beykus.beygram.playback.LocalPlaybackAccountId.current
@@ -1126,7 +1136,8 @@ internal fun rememberAttachmentState(
         AttachmentState(context, importer, scope, pending, error, viewOnce, editor, captureRetry, quality,
             sendMedia = { media, caption, options -> currentSend(media, caption, options) },
             sendSticker = { media, options -> currentSticker(media, options) },
-            sendExtra = { draft, options -> currentSendExtra(draft, options) })
+            sendExtra = { draft, options -> currentSendExtra(draft, options) },
+            mediaLaunchController = mediaLaunchController)
     }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MediaLimits.MAX_ATTACHMENTS)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
@@ -1138,7 +1149,7 @@ internal fun rememberAttachmentState(
 }
 
 @Composable
-internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
+internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true, embedded: Boolean = false) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -1155,16 +1166,18 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
             state.toggleMenu()
         },
         enabled = available,
-        modifier = Modifier.size(48.dp).clip(CircleShape)
-            .background(if (tonal) palette.accentSoft else palette.surface2)
+        modifier = Modifier.size(ComposerButtonSize)
             .semantics { contentDescription = context.getString(R.string.composer_attach_description) }
     ) {
-        Icon(
-            Icons.Rounded.AttachFile,
-            contentDescription = null,
-            tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary,
-            modifier = Modifier.size(24.dp)
-        )
+        Box(Modifier.size(ComposerButtonSize), contentAlignment = Alignment.Center) {
+            ComposerMaterial(if (tonal) palette.accentSoft else palette.surface2, CircleShape, embedded)
+            Icon(
+                Icons.Rounded.AttachFile,
+                contentDescription = null,
+                tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary,
+                modifier = Modifier.size(ComposerIconSize)
+            )
+        }
     }
 }
 
@@ -1193,7 +1206,8 @@ internal fun AttachmentPanel(
     state: AttachmentState,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
-    allowViewOnce: Boolean = false
+    allowViewOnce: Boolean = false,
+    embedded: Boolean = false
 ) {
     val palette = beyGramPalette()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -1240,7 +1254,8 @@ internal fun AttachmentPanel(
             shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = exitSpec.animationSpec()) +
                 fadeOut(animationSpec = exitSpec.animationSpec())
     ) {
-    Column(Modifier.fillMaxWidth().glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)) {
+    val sheetModifier = if (embedded || (!visible && exitPreview.isNotEmpty() && !exitMenuOpen)) Modifier else Modifier.glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)
+    Column(Modifier.fillMaxWidth().then(sheetModifier)) {
         when {
             state.menuOpen || (!visible && exitMenuOpen) -> AttachmentMenu(
                 allowsPolls = state.allowsPolls,
@@ -1344,14 +1359,11 @@ private fun PreparedAttachmentsPanel(
     val palette = beyGramPalette()
     val enabled = !closing && !state.sending && !state.importing
     val itemCount = displayPending.size + if (state.extra != null && !closing) 1 else 0
-    // Визуальный каркас: шапка предпросмотра — отдельная поверхность с токеном палитры, без изменения логики очереди и качества.
-    Row(
-        Modifier.fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clip(styledShape(16.dp))
-            .background(palette.surface2)
-            .heightIn(min = 48.dp)
-            .padding(start = 14.dp, end = 6.dp),
+    val compactSet = isCompactAttachmentSet(displayPending, if (closing) null else state.extra)
+    // A full gallery is self-explanatory. Reserve the count row for the limit and non-gallery drafts.
+    if (!compactSet || showAttachmentLimit(itemCount, MAX_PENDING_ATTACHMENTS)) Row(
+        Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp)
+            .heightIn(min = if (compactSet) 24.dp else 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -1361,17 +1373,17 @@ private fun PreparedAttachmentsPanel(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f)
         )
-        IconButton(onClick = onDiscardRequested, enabled = !closing && !state.sending, modifier = Modifier.size(48.dp)) {
+        if (!compactSet) IconButton(onClick = onDiscardRequested, enabled = !closing && !state.sending, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Rounded.Close, stringResource(R.string.composer_attachments_clear_action), tint = palette.textSecondary)
         }
     }
     // Один общий выбор качества для всех видео и аудио в наборе. Каждый файл всё равно хранит своё состояние.
     val qualityItems = displayPending.filter { it.qualityKind() != null }
     if (enabled && qualityItems.size >= 2) QualityForAllRow(state, qualityItems)
-    if (isCompactAttachmentSet(displayPending, if (closing) null else state.extra)) {
+    if (compactSet) {
         // Mixed batches now share the fixed-height rail. Polls, contacts and other
         // MessageExtraDraft actions keep their dedicated semantic cards.
-        CompactVisualAttachmentTray(state, observeFile, onDownloadFile, enabled, maxListHeight, displayPending)
+        CompactVisualAttachmentTray(state, observeFile, onDownloadFile, enabled, maxListHeight, displayPending, onDiscardRequested)
     } else Column(
         Modifier.fillMaxWidth().heightIn(max = maxListHeight).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)
     ) {
@@ -1528,19 +1540,22 @@ private fun CompactVisualAttachmentTray(
     onDownloadFile: (Int) -> Unit,
     enabled: Boolean,
     maxListHeight: androidx.compose.ui.unit.Dp,
-    displayPending: List<OutgoingMedia> = state.pending
+    displayPending: List<OutgoingMedia> = state.pending,
+    onDiscardRequested: () -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
+    val reorderMotion = rememberMotionSpec(MotionToken.ListReorder)
     var selectedItemKey by remember(state) { mutableStateOf<String?>(null) }
     var menuItemKey by remember(state) { mutableStateOf<String?>(null) }
     val activeItem = if (enabled) displayPending.withIndex().firstOrNull { (index, item) ->
         stagedMediaKey(item, index) == selectedItemKey
     }?.value else null
     Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+            modifier = Modifier.weight(1f),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             itemsIndexed(displayPending, key = { index, item -> stagedMediaKey(item, index) }) { index, item ->
@@ -1550,8 +1565,15 @@ private fun CompactVisualAttachmentTray(
                 val moveRight = stringResource(R.string.composer_move_attachment_right)
                 val actionsLabel = stringResource(R.string.composer_attachment_actions)
                 val documentTile = isDocumentAttachmentTile(item, preparation)
+                val flightController = state.mediaLaunchController
+                val trackPhoto = item.kind in setOf(MediaKind.Photo, MediaKind.Video) && !documentTile && item.stagingKey.isNotBlank()
+                if (flightController != null && trackPhoto) {
+                    DisposableEffect(flightController, item.stagingKey) {
+                        onDispose { flightController.forget(item.stagingKey) }
+                    }
+                }
                 Box(
-                    modifier = Modifier.size(100.dp).clip(styledShape(14.dp))
+                    modifier = Modifier.animateItem(fadeInSpec = if (reorderMotion.isInstant) null else reorderMotion.animationSpec(), placementSpec = if (reorderMotion.isInstant) null else reorderMotion.animationSpec(), fadeOutSpec = null).size(80.dp).then(if (flightController != null && trackPhoto) Modifier.onGloballyPositioned { flightController.record(item.stagingKey, it) } else Modifier).clip(styledShape(12.dp))
                         .background(palette.surface2)
                 ) {
                     if (documentTile) {
@@ -1609,11 +1631,6 @@ private fun CompactVisualAttachmentTray(
                             }
                         }
                     )
-                    // Видимое удаление одним нажатием поверх тайла; long-press меню остаётся как прежде.
-                    Box(Modifier.align(Alignment.TopEnd)) {
-                        AttachmentRemoveButton(fileName = item.fileName.ifBlank { item.kind.label(context) }, enabled = enabled,
-                            onClick = { state.remove(item) })
-                    }
                     if (item.kind == MediaKind.Video && !documentTile) {
                         Row(
                             modifier = Modifier.align(Alignment.BottomStart)
@@ -1663,21 +1680,23 @@ private fun CompactVisualAttachmentTray(
                             contentDescription = context.getString(R.string.composer_remove_attachment_named, item.fileName)
                         }
                     ) {
-                        Icon(
-                            Icons.Rounded.Close,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
-                                .background(Color.Black.copy(alpha = 0.70f), CircleShape)
-                                .padding(4.dp)
-                        )
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.padding(3.dp).size(24.dp)
+                                    .background(Color.Black.copy(alpha = 0.70f), CircleShape)
+                                    .padding(4.dp)
+                            )
+                        }
                     }
                 }
             }
             if (enabled && displayPending.size < MAX_PENDING_ATTACHMENTS) {
                 item(key = "add-more-media") {
                     Box(
-                        Modifier.size(100.dp).clip(styledShape(14.dp))
+                        Modifier.animateItem(fadeInSpec = null, placementSpec = if (reorderMotion.isInstant) null else reorderMotion.animationSpec(), fadeOutSpec = null).size(width = 52.dp, height = 80.dp).clip(styledShape(12.dp))
                             .background(palette.surface2)
                             .clickable(enabled = enabled, role = Role.Button, onClick = state.pickPhotos)
                             .semantics { contentDescription = context.getString(R.string.composer_attach_description) },
@@ -1688,6 +1707,10 @@ private fun CompactVisualAttachmentTray(
                     }
                 }
             }
+        }
+        IconButton(onClick = onDiscardRequested, enabled = enabled, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Rounded.Close, stringResource(R.string.composer_attachments_clear_action), tint = palette.textSecondary)
+        }
         }
         if (activeItem != null) {
             val preparation = state.preparationFor(activeItem)

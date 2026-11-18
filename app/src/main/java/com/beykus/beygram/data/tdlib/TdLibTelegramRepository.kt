@@ -2478,6 +2478,20 @@ class TdLibTelegramRepository private constructor(
         return conversationActions.sendMedia(chatId, media, caption, replyToMessageId, entities, forumTopicId, options)
     }
 
+    override suspend fun sendComposerMedia(
+        chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?,
+        entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions
+    ): Result<List<Long>> {
+        leaveJumpWindow(chatId)
+        var ids = emptyList<Long>()
+        val result = if (media.size > 1) {
+            conversationActions.sendMediaAlbum(chatId, media, caption, replyToMessageId, entities, forumTopicId, options) { ids = it }
+        } else {
+            conversationActions.sendMedia(chatId, media.single(), caption, replyToMessageId, entities, forumTopicId, options) { ids = it }
+        }
+        return result.map { ids }
+    }
+
     override suspend fun sendPoll(chatId: Long, poll: OutgoingPoll, replyToMessageId: Long?, forumTopicId: Long, options: MessageSendOptions): Result<Unit> {
         leaveJumpWindow(chatId)
         return conversationActions.sendPoll(chatId, poll, replyToMessageId, forumTopicId, options)

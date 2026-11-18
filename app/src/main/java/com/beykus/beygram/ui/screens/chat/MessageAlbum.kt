@@ -179,7 +179,9 @@ internal fun MessageAlbumBubble(
     /** Reports the layout of the album bubble; every member's viewer opens from the same rectangle. */
     onMediaBounds: ((LayoutCoordinates) -> Unit)? = null,
     /** Loads the earlier texts that Chat Memory kept for a member; without it the album shows no versions link. */
-    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null
+    onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null,
+    composerMediaLaunches: Map<Long, ComposerMediaLaunch> = emptyMap(),
+    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
 ) {
     if (messages.isEmpty()) return
     val palette = beyGramPalette()
@@ -213,10 +215,10 @@ internal fun MessageAlbumBubble(
             onReply = { onReply?.invoke(captionMessage.id) }) { swipe ->
             Box(swipe) {
                 BubbleLayout(
-                    Modifier.widthIn(max = 292.dp).clip(shape)
+                    Modifier.widthIn(max = 292.dp).then(if (composerMediaLaunches.isEmpty()) Modifier.clip(shape) else Modifier)
                         .then(if (onMediaBounds != null) Modifier.onGloballyPositioned { onMediaBounds(it) } else Modifier)
                         .then(if (selected || highlighted) Modifier.border(2.dp, palette.accent, shape) else Modifier)
-                        .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
+                        .background(if (latest.isOutgoing) palette.outgoingBubble else palette.incomingBubble, shape)
                         .then(if (selectionMode) Modifier.combinedClickable(
                             onClickLabel = selectionLabel,
                             onLongClickLabel = selectionLabel,
@@ -244,7 +246,9 @@ internal fun MessageAlbumBubble(
                                         val media = message.media ?: return@forEach
                                         AlbumMediaTile(media, observeFile, onDownloadFile, onAutoDownloadFile, onOpen = { onOpen(message.id) }, onLongPress = { onActions(message.id) },
                                             modifier = Modifier.weight(1f), selectionMode = selectionMode, selectionLabel = selectionLabel,
-                                            onToggleSelection = onToggleSelection)
+                                            onToggleSelection = onToggleSelection,
+                                            composerMediaLaunch = composerMediaLaunches[message.id],
+                                            onComposerMediaLaunchFinished = onComposerMediaLaunchFinished)
                                     }
                                     repeat(columns - rowMessages.size) { SpacerTile(Modifier.weight(1f)) }
                                 }
@@ -306,7 +310,9 @@ private fun AlbumMediaTile(
     modifier: Modifier = Modifier,
     selectionMode: Boolean = false,
     selectionLabel: String? = null,
-    onToggleSelection: () -> Unit = {}
+    onToggleSelection: () -> Unit = {},
+    composerMediaLaunch: ComposerMediaLaunch? = null,
+    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -348,7 +354,8 @@ private fun AlbumMediaTile(
         }
     }
 
-    Box(modifier.aspectRatio(1f).padding(1.dp).clip(styledShape(5.dp)).background(palette.disabled)
+    val flight = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
+    Box(modifier.aspectRatio(1f).padding(1.dp).then(flight).clip(styledShape(5.dp)).background(palette.disabled)
         .combinedClickable(
             onClickLabel = if (selectionMode) selectionLabel else if (revealed) openLabel else spoilerLabel,
             onLongClickLabel = if (selectionMode) selectionLabel else longPressLabel,

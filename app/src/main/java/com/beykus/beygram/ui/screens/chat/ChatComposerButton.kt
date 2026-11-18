@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
+import com.beykus.beygram.ui.design.usesGlassPanels
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
@@ -42,5 +45,39 @@ internal fun RecordingDiscardButton(onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Icon(Icons.Rounded.Delete, contentDescription = null, tint = palette.danger, modifier = Modifier.size(ComposerIconSize))
+    }
+}
+
+
+/** A single material plane; child controls inside a shared attachment card do not sample the same backdrop again. */
+@Composable
+internal fun androidx.compose.foundation.layout.BoxScope.ComposerMaterial(
+    fill: androidx.compose.ui.graphics.Color,
+    shape: androidx.compose.ui.graphics.Shape,
+    embedded: Boolean = false
+) {
+    val design = com.beykus.beygram.ui.design.LocalDesignSystem.current
+    val palette = beyGramPalette()
+    if (design.usesGlassPanels && !embedded) {
+        com.beykus.beygram.ui.design.GlassPanel(
+            design = design, tint = fill, rim = palette.textSecondary,
+            backdropBase = palette.screen, shape = shape, modifier = Modifier.matchParentSize()
+        ) {}
+    } else {
+        Box(Modifier.matchParentSize().clip(shape).background(fill))
+    }
+}
+
+/** Keeps the field/input composition stable when the staged tray expands and contracts. */
+@Composable
+internal fun AttachmentComposerContainer(
+    embedded: Boolean,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
+) {
+    val palette = beyGramPalette()
+    val shape = com.beykus.beygram.ui.design.styledShape(22.dp)
+    Box(Modifier.fillMaxWidth().then(if (embedded) Modifier.padding(horizontal = 8.dp, vertical = 4.dp) else Modifier)) {
+        if (embedded) ComposerMaterial(palette.surface, shape)
+        androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth(), content = content)
     }
 }

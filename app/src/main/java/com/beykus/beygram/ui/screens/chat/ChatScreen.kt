@@ -609,14 +609,36 @@ fun ChatScreen(
         if (previewFirst) recordingRecovery.showPreview(listOf(media))
         else sendRecordedMedia(listOf(media))
     }
+    val mediaLaunchController = remember(accountId, chat.id, forumTopicId) { ComposerMediaLaunchController() }
+    val mediaLaunchMotion = rememberMotionSpec(MotionToken.MediaExpand)
+    LaunchedEffect(mediaLaunchController.active) {
+        val launches = mediaLaunchController.active
+        if (launches.isEmpty()) return@LaunchedEffect
+        val oldest = launches.minOf { it.capture.capturedAt }
+        delay((2_500L - (android.os.SystemClock.elapsedRealtime() - oldest)).coerceAtLeast(0L))
+        launches.forEach(mediaLaunchController::finish)
+    }
     val attachments = rememberAttachmentState(
         chatId = chat.id,
+        mediaLaunchController = mediaLaunchController,
         sendMedia = { media, caption, options ->
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
-            val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = sendForumTopicId, options = options)
-            else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = sendForumTopicId, options = options)
-            if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
-            result
+            // Only the real, visible outgoing photo can receive the spatial effect. Never match by caption/file name.
+            val capture = if (design.navigationFloating && messageAnimations.enabled && !mediaLaunchMotion.isInstant &&
+                !chat.isSecret && !chat.hasProtectedContent && !options.viewOnce &&
+                options.scheduledAtSeconds == null && !stealthScheduledBefore) {
+                mediaLaunchController.capture(media)
+            } else null
+            val result = conversation.sendComposerMedia(chat.id, media, caption, replyId, draftEntities, sendForumTopicId, options)
+            if (result.isSuccess) {
+                val ids = result.getOrNull().orEmpty()
+                if (capture != null && ids.isNotEmpty() && ids.none { mediaCoordinates[it] != null }) {
+                    mediaLaunchController.accept(capture, ids)
+                }
+                clearReply()
+                if (stealthScheduledBefore) showStealthScheduledNotice(context)
+            }
+            result.map { Unit }
         },
         sendSticker = { sticker, options ->
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
@@ -1321,11 +1343,12 @@ fun ChatScreen(
     }
 
     val chatGlass = design.usesGlassPanels
+    val floatingComposer = design.navigationFloating
     val chatBackdrop = if (chatGlass && design.recordsGlassBackdrop) rememberGlassBackdrop() else null
     var topChromePx by remember { mutableIntStateOf(0) }
     var bottomChromePx by remember { mutableIntStateOf(0) }
     // With glass chrome the list also runs under the header and composer; those strips do not count as seen.
-    val coveredByChrome by rememberUpdatedState(if (chatBackdrop != null) topChromePx to bottomChromePx else 0 to 0)
+    val coveredByChrome by rememberUpdatedState((if (chatBackdrop != null) topChromePx else 0) to (if (chatBackdrop != null || floatingComposer) bottomChromePx else 0))
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
     LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -2187,12 +2210,12 @@ fun ChatScreen(
             floatingContent = { if (design.navigationFloating) pinnedBarSlot() }
         )
         ChatScreenBox(Modifier.fillMaxWidth().weight(1f)) {
-        ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { if (chatBackdrop != null) bottomChromePx else 0 }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
+        ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { if (chatBackdrop != null || floatingComposer) bottomChromePx else 0 }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
         ChatWallpaperLayer(chatWallpaper)
         val metrics = LocalBubbleMetrics.current
         val chromeDensity = LocalDensity.current
         val chromeTopPad = if (chatBackdrop != null) with(chromeDensity) { topChromePx.toDp() } else 0.dp
-        val chromeBottomPad = if (chatBackdrop != null) with(chromeDensity) { bottomChromePx.toDp() } else 0.dp
+        val chromeBottomPad = if (chatBackdrop != null || floatingComposer) with(chromeDensity) { bottomChromePx.toDp() } else 0.dp
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = metrics.listPadding + chromeTopPad, bottom = metrics.listPadding + chromeBottomPad), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }, contentType = { chatListContentType(it) }) { listItem ->
@@ -2216,8 +2239,15 @@ fun ChatScreen(
                     val latest = listItem.messages.maxByOrNull { it.id }
                     val animateArrival = remember(listItem.key) { animationTracker.claim(listItem.messages.map { it.id }) }
                     val effectMessage = listItem.messages.firstOrNull { it.effectId != 0L }
+                    val albumLaunches = mediaLaunchController.active.mapNotNull { flight ->
+                        val id = resolveMessageIdThroughReplacements(flight.messageId, history.recentReplacements)
+                        listItem.messages.firstOrNull { it.id == id && it.isOutgoing &&
+                            it.sendState != MessageSendState.Failed && it.media?.let { media ->
+                                !media.hasSpoiler && !media.isSecret && !media.isSecretChat
+                            } == true }?.let { id to flight }
+                    }.toMap()
                     MessageAnimationFrame(
-                        animate = animateArrival,
+                        animate = animateArrival && albumLaunches.isEmpty(),
                         outgoing = latest?.isOutgoing == true,
                         config = messageAnimations,
                         sideInset = metrics.sideInset
@@ -2260,6 +2290,8 @@ fun ChatScreen(
                                     onAutoDownloadFile = onAutoDownloadFile,
                                     showSenderHeader = senderHeaderByKey[listItem.key] == true,
                                     onOpenMessageEntity = onOpenMessageEntity,
+                                    composerMediaLaunches = albumLaunches,
+                                    onComposerMediaLaunchFinished = mediaLaunchController::finish,
                                     onLoadVersions = { chatId, messageId -> conversation.messageVersions(chatId, messageId) })
                             }
                         }
@@ -2270,6 +2302,12 @@ fun ChatScreen(
                     // A confirmed send replaces the temporary id; the dice throw keeps its original identity.
                     val diceAnimationId = rememberDiceAnimationId(message.id, history.recentReplacements)
                     val launch = launchTargets[message.id]
+                    val mediaLaunch = mediaLaunchController.active.firstOrNull {
+                        message.media?.kind in setOf(MediaKind.Photo, MediaKind.Video) && message.isOutgoing &&
+                            message.media?.let { !it.hasSpoiler && !it.isSecret && !it.isSecretChat } == true &&
+                            message.sendState != MessageSendState.Failed &&
+                            resolveMessageIdThroughReplacements(it.messageId, history.recentReplacements) == message.id
+                    }
                     val launchModifier = if (launch != null) Modifier.graphicsLayer { alpha = 0f } else Modifier
                     // Only an open action menu and an in-flight launch follow the bubble while the list moves. Other rows only
                     // store their layout; the rectangle is computed when something reads it.
@@ -2293,7 +2331,7 @@ fun ChatScreen(
                     val isCircleMedia = !isCenteredRow && message.media?.kind == MediaKind.VideoNote
                     val bubbleSideInset = if (isCenteredRow || isCircleMedia) 0.dp else metrics.sideInset
                     MessageAnimationFrame(
-                        animate = animateArrival && launch == null,
+                        animate = animateArrival && launch == null && mediaLaunch == null,
                         outgoing = message.isOutgoing,
                         config = messageAnimations,
                         modifier = launchModifier,
@@ -2352,6 +2390,8 @@ fun ChatScreen(
                                     onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, riskGuard, ::requestBotWebApp, onOpenEntity = onOpenMessageEntity) },
                                 onBubblePositioned = bubblePosition,
                                 onMediaBounds = { coordinates -> mediaCoordinates[message.id] = coordinates },
+                                composerMediaLaunch = mediaLaunch,
+                                onComposerMediaLaunchFinished = mediaLaunchController::finish,
                                 translation = translationState,
                                 onTranslationRetry = { retryTranslation(message) },
                                 onTranslationCancel = { cancelTranslation(message.id) },
@@ -2524,7 +2564,7 @@ fun ChatScreen(
         )
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
-        ChatChromeHost(chatGlass, GlassEdge.TopHairline, chatBackdrop, { bottomChromePx = it }, paneContent = {
+        ChatChromeHost(chatGlass, GlassEdge.TopHairline, chatBackdrop, { bottomChromePx = it }, floatingComposer = floatingComposer, paneContent = {
         if (queueStorageCorrupt) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -2615,34 +2655,6 @@ fun ChatScreen(
                 } })
         } else if (editMessage != null) {
             EditBanner(editMessage.text.ifBlank { editMessage.summary() }, editMessage.media != null, editText.codePointCount(0, editText.length), editLimit, editError, onClose = ::closeEdit)
-        } else if (!searching && !selectionMode) {
-            ChatComposerPanel(
-                stickerPanelOpen = stickerPanelOpen,
-                attachments = attachments,
-                conversation = conversation,
-                observeFile = observeFile,
-                onDownloadFile = onDownloadFile,
-                allowViewOnce = allowViewOnce,
-                chatId = chat.id,
-                replyId = replyId,
-                forumTopicId = sendForumTopicId,
-                scope = scope,
-                onReplyConsumed = { sentReplyId ->
-                    if (sentReplyId != null) {
-                        updateDraft { current ->
-                            if (current.replyToMessageId == sentReplyId) current.copy(replyToMessageId = null) else current
-                        }
-                    }
-                },
-                onStickerOptions = { sticker ->
-                    pendingSticker = sticker
-                    sendOptionsOpen = true
-                },
-                onSendError = { message -> error = message },
-                onInsertEmoji = { emoji -> editComposerText { text, selection -> insertAtSelection(text, selection, emoji) } },
-                onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
-                onCloseStickerPanel = { stickerPanelOpen = false }
-            )
         }
         // The reply strip lives inside the field container, above the text, as one composer unit.
         val replyHeader: (@Composable () -> Unit)? = if (replyId == null) null else ({
@@ -2686,7 +2698,7 @@ fun ChatScreen(
         )
         if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().then(
             // Signature keeps the composer on the canvas behind one hairline; the field itself is the only filled plane.
-            if (chatGlass) Modifier
+            if (chatGlass || floatingComposer) Modifier
             else if (design.components.composer == ComposerVariant.Signature) Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
             else Modifier.background(palette.surface)
         ).navigationBarsPadding().imePadding()) {
@@ -2720,13 +2732,46 @@ fun ChatScreen(
             }
         )
         delayed.Strip(composerEmpty = draft.isEmpty() && replyId == null, onRestoreDraft = { restored -> updateDraft { restored } })
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = if (compactChrome) 4.dp else 8.dp), verticalAlignment = Alignment.Bottom) {
+        val embeddedAttachments = !editing && attachments.active && !attachments.menuOpen && !stickerPanelOpen
+        AttachmentComposerContainer(embeddedAttachments) {
+        if (!editing) {
+            ChatComposerPanel(
+                stickerPanelOpen = stickerPanelOpen,
+                embedded = embeddedAttachments,
+                attachments = attachments,
+                conversation = conversation,
+                observeFile = observeFile,
+                onDownloadFile = onDownloadFile,
+                allowViewOnce = allowViewOnce,
+                chatId = chat.id,
+                replyId = replyId,
+                forumTopicId = sendForumTopicId,
+                scope = scope,
+                onReplyConsumed = { sentReplyId ->
+                    if (sentReplyId != null) {
+                        updateDraft { current ->
+                            if (current.replyToMessageId == sentReplyId) current.copy(replyToMessageId = null) else current
+                        }
+                    }
+                },
+                onStickerOptions = { sticker ->
+                    pendingSticker = sticker
+                    sendOptionsOpen = true
+                },
+                onSendError = { message -> error = message },
+                onInsertEmoji = { emoji -> editComposerText { text, selection -> insertAtSelection(text, selection, emoji) } },
+                onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
+                onCloseStickerPanel = { stickerPanelOpen = false }
+            )
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = if (embeddedAttachments) 2.dp else 10.dp, vertical = if (compactChrome || embeddedAttachments) 4.dp else 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) {
                     botCommandMenu?.takeIf { it.commands.isNotEmpty() }?.let {
                         BotCommandButton(enabled = !sending && !inlineSending && !attachments.active) { botCommandMenuOpen = true }
                     }
-                    AttachmentButton(attachments, enabled = !sending && !inlineSending)
+                    AttachmentButton(attachments, enabled = !sending && !inlineSending, embedded = embeddedAttachments)
+                    Spacer(Modifier.width(8.dp))
                 } else Spacer(Modifier.width(8.dp))
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
@@ -2741,7 +2786,8 @@ fun ChatScreen(
                 focusRequest = replyFocusRequest, cursor = composerCursor,
                 // One entry to Emoji / Stickers / GIF, inside the input and before Record/Send.
                 header = if (editing) null else replyHeader,
-                trailingAction = if (!editing) {
+                embedded = embeddedAttachments,
+                trailingAction = if (!editing && !attachments.active) {
                     {
                         StickerPanelEntryButton(
                             open = stickerPanelOpen,
@@ -2757,16 +2803,6 @@ fun ChatScreen(
                         )
                     }
                 } else null)
-                // Caption belongs to this text field, not to the thumbnail tray above it.
-                if (!editing && attachments.active && attachments.extra == null) {
-                    val count = attachmentCaptionLength(draft)
-                    Text(
-                        "$count / ${limits.caption}",
-                        color = if (count > limits.caption) palette.danger else palette.textSecondary,
-                        fontSize = 11.sp,
-                        modifier = Modifier.align(Alignment.End).padding(end = 12.dp, top = 2.dp)
-                    )
-                }
             }
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
@@ -2825,11 +2861,24 @@ fun ChatScreen(
                 SendControlFace(busy = busy, canSend = canSend, editing = editing)
             }
         }
+        // The counter is outside the control row: showing it must not shift the buttons below the field.
+        if (!recordingActive && !editing && attachments.active && attachments.extra == null) {
+            val count = attachmentCaptionLength(draft)
+            if (showCaptionCounter(count, limits.caption)) {
+                Text(
+                    "$count / ${limits.caption}",
+                    color = if (count > limits.caption) palette.danger else palette.textSecondary,
+                    fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.End).padding(end = 18.dp, bottom = 2.dp)
+                )
+            }
+        }
         if (!recordingActive && overLimit) Text(
             stringResource(R.string.chat_truncated_notice, fieldLimit),
             color = palette.warningText, fontSize = 12.sp,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
         )
+        }
         if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation, sendGuard, ::requestBotWebApp)
         }
         })
@@ -3282,6 +3331,7 @@ private fun ChatScreenColumn(modifier: Modifier, content: @Composable ColumnScop
 @Composable
 private fun ChatComposerPanel(
     stickerPanelOpen: Boolean,
+    embedded: Boolean,
     attachments: AttachmentState,
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
@@ -3327,7 +3377,8 @@ private fun ChatComposerPanel(
             state = attachments,
             observeFile = observeFile,
             onDownloadFile = onDownloadFile,
-            allowViewOnce = allowViewOnce
+            allowViewOnce = allowViewOnce,
+            embedded = embedded
         )
     }
 }
@@ -3657,7 +3708,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     /** Loads the earlier texts that Chat Memory kept for this message; without it a bubble shows no versions link. */
     onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null,
     connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
-    onShowFailureDetails: (() -> Unit)? = null
+    onShowFailureDetails: (() -> Unit)? = null,
+    composerMediaLaunch: ComposerMediaLaunch? = null,
+    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -3707,6 +3760,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     var captionPlay by remember(message.id) { mutableStateOf<AudioPlayRequest?>(null) }
     // On a tablet the pane is wide: a bubble grows with it (70 % of the pane, 292 to 480 dp) instead of hugging the edge.
     val bubbleMax = chatBubbleMaxWidthDp(com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current ?: chatPaneWidthDp(LocalWindowLayout.current)).dp
+    val mediaFlightModifier = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
             onReply = { onReply?.invoke(message.id) }) { swipe ->
@@ -3716,7 +3770,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     Modifier.testTag("message-bubble:${message.id}")
                         .widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else bubbleMax)
                         .then(if (message.media != null && !circle && !sticker)
-                             Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
+                             Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
+                        .then(mediaFlightModifier).clip(shape)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)

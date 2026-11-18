@@ -57,12 +57,18 @@ internal fun ChatChromeHost(
     backdrop: GlassBackdrop?,
     onHeight: (Int) -> Unit,
     paneContent: @Composable ColumnScope.() -> Unit,
-    floatingContent: @Composable ColumnScope.() -> Unit = {}
+    floatingContent: @Composable ColumnScope.() -> Unit = {},
+    floatingComposer: Boolean = false
 ) {
     val palette = beyGramPalette()
     // The top stack's background covers the status bar; its content starts below the top safe inset.
     val statusBarSpacer: @Composable ColumnScope.() -> Unit = {
         if (edge == GlassEdge.BottomHairline) Spacer(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
+    }
+    if (!glass && edge == GlassEdge.TopHairline && floatingComposer) {
+        Column(Modifier.fillMaxWidth().zIndex(1f).onSizeChanged { onHeight(it.height) }
+            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }, content = paneContent)
+        return
     }
     if (!glass) {
         // The top stack is drawn above the message list, so a header shadow (Material 2) is not painted over by it.
@@ -74,13 +80,13 @@ internal fun ChatChromeHost(
         return
     }
     if (edge == GlassEdge.TopHairline) {
-        // The Liquid Glass composer has no full-width glass slab: a soft scrim fades the list out under the row, and the
+        // The attached Liquid Glass composer uses a soft scrim; the floating composer has none. The
         // field and round buttons carry their own surfaces. Bars drawn in this stack (read-only notice, search, selection,
         // delayed send) have no pane behind them any more, so they paint their own opaque fill again.
         CompositionLocalProvider(LocalChatChromeOnGlass provides false, LocalGlassBackdrop provides backdrop) {
             Column(
                 Modifier.fillMaxWidth().zIndex(1f).onSizeChanged { onHeight(it.height) }
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, palette.screen.copy(alpha = 0.72f))))
+                    .then(if (floatingComposer) Modifier else Modifier.background(Brush.verticalGradient(listOf(Color.Transparent, palette.screen.copy(alpha = 0.72f)))))
                     .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
                 content = paneContent
             )
