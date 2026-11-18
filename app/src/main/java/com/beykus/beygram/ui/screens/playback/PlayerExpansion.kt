@@ -213,6 +213,19 @@ internal class PlayerFlightTargets {
     var seekSurface: Color = Color.Transparent
 }
 
+/** Layout and style of the queue's current-track card, where the player's artwork and texts land in a queue move. */
+internal class QueueFlightTargets {
+    var artwork: LayoutCoordinates? = null
+    var artworkRadiusPx: Float = 0f
+    var artworkBorder: Color? = null
+    var title: LayoutCoordinates? = null
+    var titleText: String = ""
+    var titleStyle: TextStyle = TextStyle.Default
+    var artist: LayoutCoordinates? = null
+    var artistText: String = ""
+    var artistStyle: TextStyle = TextStyle.Default
+}
+
 /**
  * The one controller of the full player's move. Snapshot state is read in composition only for the few changes a
  * transition makes; [progress] is read only in draw, layout and pointer lambdas. Everything runs on the main thread.
@@ -224,6 +237,7 @@ internal object PlayerExpansion {
     private val flightsState = mutableStateOf(false)
     private val rolesState = mutableStateOf<Set<FlightRole>>(emptySet())
     private val artworkPxState = mutableFloatStateOf(0f)
+    private val queueRolesState = mutableStateOf<Set<FlightRole>>(emptySet())
 
     /** 0 = mini player, 1 = full player. */
     val progress: Float get() = progressState.floatValue
@@ -255,6 +269,9 @@ internal object PlayerExpansion {
         private set
     val anchors = mutableMapOf<Long, MiniPlayerAnchor>()
     val targets = PlayerFlightTargets()
+    val queueTargets = QueueFlightTargets()
+    /** The elements that fly between the player and the queue card while the queue panel moves. */
+    val queueRoles: Set<FlightRole> get() = queueRolesState.value
     private val idSource = AtomicLong(0L)
     private var placeCounter = 0L
     private var animJob: Job? = null
@@ -319,7 +336,15 @@ internal object PlayerExpansion {
     fun miniSharedHidden(id: Long, role: FlightRole): Boolean =
         miniSharedHiddenOf(id, role, activeAnchorId, flights, phase, progress, flyingRoles)
 
-    fun fullSharedHidden(role: FlightRole): Boolean = fullSharedHiddenOf(role, flights, phase, flyingRoles)
+    fun fullSharedHidden(role: FlightRole): Boolean =
+        fullSharedHiddenOf(role, flights, phase, flyingRoles) || role in queueRoles
+
+    /** A queue-card element is hidden while its flight from or to the player is in the air. */
+    fun queueSharedHidden(role: FlightRole): Boolean = role in queueRoles
+
+    fun setQueueRoles(roles: Set<FlightRole>) {
+        if (queueRolesState.value != roles) queueRolesState.value = roles
+    }
 
     /** True while [role] is in the air: the same condition as [fullSharedHidden], named for the flights. */
     fun flies(role: FlightRole): Boolean = fullSharedHiddenOf(role, flights, phase, flyingRoles)
@@ -379,6 +404,7 @@ internal object PlayerExpansion {
         phaseState.value = PlayerExpansionPhase.Collapsed
         activeState.value = null
         flightsState.value = false
+        queueRolesState.value = emptySet()
         resetFlightState()
     }
 

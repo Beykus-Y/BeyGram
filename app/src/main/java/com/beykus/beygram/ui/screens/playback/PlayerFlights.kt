@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -96,6 +97,7 @@ private fun DrawScope.drawFlightArtworkBorder(p: Float) {
  */
 private fun DrawScope.drawFlightText(
     measurer: TextMeasurer,
+    fromMaxLines: Int = 1,
     p: Float,
     from: Rect?,
     fromText: String,
@@ -113,7 +115,7 @@ private fun DrawScope.drawFlightText(
         text = fromText,
         style = fromStyle,
         overflow = TextOverflow.Ellipsis,
-        maxLines = 1,
+        maxLines = fromMaxLines,
         constraints = Constraints(maxWidth = from.width.roundToInt().coerceAtLeast(1))
     )
     val b = measurer.measure(
@@ -281,4 +283,123 @@ internal fun PlayerFlights(player: MusicPlayerUi, cover: CoverTokens) {
             if (src != null && PlayerExpansion.flies(FlightRole.Progress)) drawFlightProgress(p, position.value)
         }
     }
+}
+
+/** Where the player's artwork is between the player ([q] = 0) and the queue card ([q] = 1), in [root] pixels. */
+private class QueueArtworkFrame(val rect: Rect, val radiusPx: Float, val border: Color)
+
+private fun queueArtworkFrame(root: LayoutCoordinates?, q: Float): QueueArtworkFrame? {
+    if (root == null || FlightRole.Artwork !in PlayerExpansion.queueRoles) return null
+    val player = PlayerExpansion.targets
+    val queue = PlayerExpansion.queueTargets
+    val from = player.artwork?.rectIn(root) ?: return null
+    val to = queue.artwork?.rectIn(root) ?: return null
+    return QueueArtworkFrame(
+        rect = lerpRect(from, to, q),
+        radiusPx = lerpFloat(player.artworkRadiusPx, queue.artworkRadiusPx, q),
+        border = lerp(player.artworkBorder ?: Color.Transparent, queue.artworkBorder ?: Color.Transparent, q)
+    )
+}
+
+/**
+ * The artwork, title and artist that move between the full player and the queue's current-track card while the queue
+ * panel moves. Drawn inside the player content, in the coordinates of [rootCoords]; composed only while a queue move
+ * has flying roles. Every per-frame value is read in a draw or layer lambda.
+ */
+@Composable
+internal fun QueueFlights(player: MusicPlayerUi, queueProgress: () -> Float, rootCoords: () -> LayoutCoordinates?, artworkPx: Float) {
+    val roles = PlayerExpansion.queueRoles
+    if (roles.isEmpty()) return
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val palette = beyGramPalette()
+    if (FlightRole.Artwork in roles && artworkPx > 0f) {
+        val bigDp = with(density) { artworkPx.toDp() }
+        TrackArtwork(
+            artworkPath = player.item.artworkPath,
+            audioPath = player.item.path.takeIf { it.isNotBlank() },
+            modifier = Modifier
+                .size(bigDp)
+                .graphicsLayer {
+                    val frame = queueArtworkFrame(rootCoords(), queueProgress())
+                    if (frame == null) {
+                        alpha = 0f
+                        return@graphicsLayer
+                    }
+                    val sx = (frame.rect.width / artworkPx).coerceAtLeast(0.001f)
+                    val sy = (frame.rect.height / artworkPx).coerceAtLeast(0.001f)
+                    transformOrigin = TransformOrigin(0f, 0f)
+                    translationX = frame.rect.left
+                    translationY = frame.rect.top
+                    scaleX = sx
+                    scaleY = sy
+                    shape = RoundedCornerShape((frame.radiusPx / sx).toDp())
+                    clip = true
+                    alpha = 1f
+                },
+            background = palette.accentSoft,
+            tint = palette.accentInk,
+            symbolSize = bigDp * 0.22f,
+            cornerRadius = 0.dp,
+            border = null
+        )
+    }
+    Canvas(Modifier.fillMaxSize()) {
+        val root = rootCoords() ?: return@Canvas
+        val q = queueProgress()
+        queueArtworkFrame(root, q)?.let { frame ->
+            drawRoundRect(
+                color = frame.border,
+                topLeft = frame.rect.topLeft,
+                size = frame.rect.size,
+                cornerRadius = CornerRadius(frame.radiusPx),
+                style = Stroke(width = 1.dp.toPx())
+            )
+        }
+        val from = PlayerExpansion.targets
+        val to = PlayerExpansion.queueTargets
+        if (FlightRole.Title in roles) {
+            drawFlightText(
+                measurer = measurer,
+                fromMaxLines = from.titleMaxLines,
+                p = q,
+                from = from.title?.rectIn(root),
+                fromText = from.titleText,
+                fromStyle = from.titleStyle,
+                to = to.title?.rectIn(root),
+                toText = to.titleText,
+                toStyle = to.titleStyle,
+                toMaxLines = 2
+            )
+        }
+        if (FlightRole.Artist in roles) {
+            drawFlightText(
+                measurer = measurer,
+                fromMaxLines = from.artistMaxLines,
+                p = q,
+                from = from.artist?.rectIn(root),
+                fromText = from.artistText,
+                fromStyle = from.artistStyle,
+                to = to.artist?.rectIn(root),
+                toText = to.artistText,
+                toStyle = to.artistStyle,
+                toMaxLines = 1
+            )
+        }
+    }
+}
+
+/** The roles that can fly in a queue move: both ends are laid out now. Measured relative to [root]. */
+internal fun queueRolesNow(root: LayoutCoordinates): Set<FlightRole> {
+    val player = PlayerExpansion.targets
+    val queue = PlayerExpansion.queueTargets
+    val roles = mutableSetOf<FlightRole>()
+    if (player.artwork?.rectIn(root) != null && queue.artwork?.rectIn(root) != null) roles += FlightRole.Artwork
+    if (player.titleText.isNotEmpty() && queue.titleText.isNotEmpty() &&
+        player.title?.rectIn(root) != null && queue.title?.rectIn(root) != null
+    ) roles += FlightRole.Title
+    if (player.artistText.isNotBlank() && queue.artistText.isNotBlank() &&
+        player.artist?.rectIn(root) != null && queue.artist?.rectIn(root) != null
+    ) roles += FlightRole.Artist
+    return roles
 }

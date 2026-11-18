@@ -124,6 +124,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -245,16 +246,36 @@ internal fun MusicPlayerContent(
     val queueMotion = remember { Animatable(if (panel == PlayerPanel.Queue) 1f else 0f) }
     // The panel at rest. It lags the requested panel while a transition runs, and both panels are composed then.
     var settled by remember { mutableStateOf(panel) }
+    // The content's own coordinates: the queue flights are laid out and drawn in them.
+    var contentCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var queueArtworkPx by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(panel) {
         val target = if (panel == PlayerPanel.Queue) 1f else 0f
         if (queueMotion.value != target) {
-            // Two frames after the incoming panel is composed, so its layout exists before it starts to move.
-            withFrameNanos { }
-            withFrameNanos { }
+            // Both panels are composed already when a move is reversed half way; otherwise wait two frames, so the
+            // incoming panel is laid out before it starts to move.
+            if (queueMotion.value == 0f || queueMotion.value == 1f) {
+                withFrameNanos { }
+                withFrameNanos { }
+            }
             if (queueSpec.isInstant) {
                 queueMotion.snapTo(target)
             } else {
-                queueMotion.animateTo(target, animationSpec = queueSpec.animationSpec<Float>())
+                val root = contentCoords?.takeIf { it.isAttached }
+                val roles = if (root != null) queueRolesNow(root) else emptySet()
+                if (FlightRole.Artwork in roles && root != null) {
+                    val from = PlayerExpansion.targets.artwork?.rectIn(root)?.width ?: 0f
+                    val to = PlayerExpansion.queueTargets.artwork?.rectIn(root)?.width ?: 0f
+                    queueArtworkPx = maxOf(from, to)
+                }
+                PlayerExpansion.setQueueRoles(roles)
+                try {
+                    queueMotion.animateTo(target, animationSpec = queueSpec.animationSpec<Float>())
+                } finally {
+                    // The real elements come back in the frame the flights stop; a reversed move recomputes them.
+                    if (queueMotion.value == target) settled = panel
+                    PlayerExpansion.setQueueRoles(emptySet())
+                }
             }
         }
         settled = panel
@@ -262,13 +283,18 @@ internal fun MusicPlayerContent(
     val moving = settled != panel
     // The mini bar's shared elements do not fly while the queue moves; the container still does.
     SideEffect { PlayerExpansion.queueBusy = moving }
-    DisposableEffect(Unit) { onDispose { PlayerExpansion.queueBusy = false } }
+    DisposableEffect(Unit) {
+        onDispose {
+            PlayerExpansion.queueBusy = false
+            PlayerExpansion.setQueueRoles(emptySet())
+        }
+    }
     val showPlayer = settled == PlayerPanel.Player || panel == PlayerPanel.Player
     val showQueue = settled == PlayerPanel.Queue || panel == PlayerPanel.Queue
     // Kept across Player and Queue, so the list keeps its place while the overlay stays open.
     val queueList = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var queuePlaced by rememberSaveable { mutableStateOf(false) }
-    Box(modifier.fillMaxWidth()) {
+    Box(modifier.fillMaxWidth().onGloballyPositioned { contentCoords = it }) {
         if (waveRibbons) {
             WaveBackdrop(
                 color = palette.accent,
@@ -333,6 +359,16 @@ internal fun MusicPlayerContent(
                     listState = queueList,
                     placed = queuePlaced,
                     onPlaced = { queuePlaced = true }
+                )
+            }
+        }
+        if (moving) {
+            Box(Modifier.matchParentSize()) {
+                QueueFlights(
+                    player = player,
+                    queueProgress = { queueMotion.value },
+                    rootCoords = { contentCoords },
+                    artworkPx = queueArtworkPx
                 )
             }
         }
@@ -1756,6 +1792,29 @@ private fun QueueCurrentCard(
     val sourcePosition = if (showSourcePosition) {
         " · " + stringResource(R.string.queue_source_position, row.index + 1)
     } else ""
+    // The landing place of the player's artwork and texts when the queue opens, and their start when it closes.
+    val queueTargets = PlayerExpansion.queueTargets
+    val title = row.item.musicTitle()
+    val artist = row.item.musicArtist()
+    val density = LocalDensity.current
+    val localStyle = LocalTextStyle.current
+    SideEffect {
+        queueTargets.artworkRadiusPx = with(density) { 10.dp.toPx() }
+        queueTargets.artworkBorder = palette.divider.copy(alpha = 0.5f)
+        queueTargets.titleText = title
+        queueTargets.titleStyle = localStyle.merge(
+            TextStyle(color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        )
+        queueTargets.artistText = artist
+        queueTargets.artistStyle = localStyle.merge(TextStyle(color = palette.textSecondary, fontSize = 12.sp))
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            queueTargets.artwork = null
+            queueTargets.title = null
+            queueTargets.artist = null
+        }
+    }
     Surface(
         color = palette.accentSoft,
         shape = styledShape(16.dp),
@@ -1765,24 +1824,37 @@ private fun QueueCurrentCard(
             Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            QueueArtwork(row.item, 52.dp, palette)
+            QueueArtwork(
+                row.item,
+                52.dp,
+                palette,
+                modifier = Modifier
+                    .onGloballyPositioned { queueTargets.artwork = it }
+                    .graphicsLayer { alpha = if (PlayerExpansion.queueSharedHidden(FlightRole.Artwork)) 0f else 1f }
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    row.item.musicTitle(),
+                    title,
                     color = palette.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .onGloballyPositioned { queueTargets.title = it }
+                        .graphicsLayer { alpha = if (PlayerExpansion.queueSharedHidden(FlightRole.Title)) 0f else 1f }
                 )
-                if (row.item.musicArtist().isNotBlank()) {
+                if (artist.isNotBlank()) {
                     Text(
-                        row.item.musicArtist(),
+                        artist,
                         color = palette.textSecondary,
                         fontSize = 12.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .onGloballyPositioned { queueTargets.artist = it }
+                            .graphicsLayer { alpha = if (PlayerExpansion.queueSharedHidden(FlightRole.Artist)) 0f else 1f }
                     )
                 }
                 Text(
@@ -1986,13 +2058,13 @@ private fun QueueUpcomingRow(
 }
 
 @Composable
-private fun QueueArtwork(item: PlaybackItem, size: Dp, palette: com.beykus.beygram.ui.components.BeyGramPalette) {
+private fun QueueArtwork(item: PlaybackItem, size: Dp, palette: com.beykus.beygram.ui.components.BeyGramPalette, modifier: Modifier = Modifier) {
     // A provider row has no artwork of its own: its cover comes from the provider's list and is cached on its own.
     val providerCover = rememberProviderCover(ProviderTracks.byKey(item.key)?.coverUrl)
     TrackArtwork(
         artworkPath = item.artworkPath?.takeIf { it.isNotBlank() } ?: providerCover,
         audioPath = item.path.takeIf { it.isNotBlank() },
-        modifier = Modifier.size(size),
+        modifier = modifier.size(size),
         background = palette.surface2,
         tint = palette.accentInk,
         symbolSize = size * 0.42f,
