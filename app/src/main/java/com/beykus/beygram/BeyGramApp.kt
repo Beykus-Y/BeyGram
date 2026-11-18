@@ -968,6 +968,12 @@ private fun BeyGramAppContent(
         triggerWordsReturnRouteName = returnTo.name
         routeName = AppRoute.TriggerWords.name
     }
+    // Проверка подключения открывается из уведомлений и из «Диагностики»: запоминаем, куда вернуться.
+    var connectionDiagnosticsReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Notifications.name) }
+    val openConnectionDiagnostics: (AppRoute) -> Unit = { returnTo ->
+        connectionDiagnosticsReturnRouteName = returnTo.name
+        routeName = AppRoute.ConnectionDiagnostics.name
+    }
     // Экраны прокси открываются из нескольких мест: запоминаем, куда вернуться, и какую вкладку показать.
     var proxyReturnRouteName by rememberSaveable { mutableStateOf(AppRoute.Start.name) }
     var proxyConnectTabName by rememberSaveable { mutableStateOf(ProxyConnectTab.MTPROTO.name) }
@@ -3188,7 +3194,7 @@ GlobalSearchScreen(
                     accountId = selectedAccountId,
                     connectionState = connectionState,
                     onBack = { routeName = notificationsReturnRouteName },
-                    onDiagnostics = { routeName = AppRoute.ConnectionDiagnostics.name },
+                    onDiagnostics = { openConnectionDiagnostics(AppRoute.Notifications) },
                     onTriggers = { openTriggerWords(AppRoute.Notifications) }
                 )
                 AppRoute.TriggerWords -> TriggerWordsScreen(
@@ -3204,7 +3210,7 @@ GlobalSearchScreen(
                     repository = repository,
                     vpnBackend = vpnBackend,
                     connectionState = connectionState,
-                    onBack = { routeName = AppRoute.Notifications.name }
+                    onBack = { routeName = connectionDiagnosticsReturnRouteName }
                 )
                 AppRoute.Calls -> MainTabsScaffold("${selectedAccountId}:${MainTab.Calls.route.name}", MainTab.Calls, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { callsTabContent() }
                 AppRoute.Contacts -> MainTabsScaffold("${selectedAccountId}:${MainTab.Contacts.route.name}", MainTab.Contacts, tabVisibility, selectTab, tabStateHolder, contentUnderDock = true) { contactsTabContent() }
@@ -3348,7 +3354,9 @@ GlobalSearchScreen(
                 AppRoute.Updates -> StableUpdatesScreen(onBack = { routeName = AppRoute.Settings.name })
                 AppRoute.Diagnostics -> DiagnosticsScreen(
                     connectionState = connectionState,
+                    repository = repository,
                     onBack = { routeName = AppRoute.Settings.name },
+                    onConnection = { openConnectionDiagnostics(AppRoute.Diagnostics) },
                     onReportProblem = { routeName = AppRoute.ReportProblem.name },
                     onResources = { routeName = AppRoute.Resources.name }
                 )
