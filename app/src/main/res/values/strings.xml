@@ -2475,6 +2475,7 @@
     <string name="music_chat_collection_title">Из этого чата</string>
     <string name="music_collection_added">Недавно добавленные</string>
     <string name="music_collection_empty">Здесь пока пусто</string>
+    <string name="music_collection_failed">Не удалось загрузить. Попробуйте снова.</string>
     <string name="music_collection_frequent">Часто слушаемые</string>
     <string name="music_collection_lately">Давно не слушали</string>
     <string name="music_copy_suffix">(копия)</string>

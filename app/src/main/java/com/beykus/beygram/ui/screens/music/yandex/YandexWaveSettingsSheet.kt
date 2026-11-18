@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,6 +29,7 @@ import com.beykus.beygram.data.yandex.YandexWave
 import com.beykus.beygram.data.yandex.YandexWaveSettings
 import com.beykus.beygram.ui.components.BeyGramSheet
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.screens.music.MusicChoiceChip
 
 /** The label of each option of the «Моя волна» settings. The default of a group reads as «any». */
 internal fun YandexWaveSettings.Activity.labelRes(): Int = when (this) {
@@ -148,5 +148,5 @@ private fun SettingGroup(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun SettingChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
+    MusicChoiceChip(label = label, selected = selected, onClick = onClick)
 }
