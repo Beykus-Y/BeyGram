@@ -127,9 +127,14 @@ private val chronologicalMessages = compareBy<ChatMessage> { it.dateSeconds }.th
 /**
  * Sender headers for the newest-first feed. The list is walked chronologically so consecutive messages from one author
  * share one header, even when an album groups several of them. Service rows and separators do not belong to an author,
- * so they start a fresh block. Pending video notes are outgoing content for the same reason.
+ * so they start a fresh block. Pending video notes are outgoing content for the same reason. [topicOf] is set only by the
+ * all-messages feed of a forum: a change of topic starts a fresh block there too, because its topic label opens above the row.
  */
-internal fun senderHeaderVisibility(chat: ChatPreview, items: List<ChatMessageListItem>): Map<String, Boolean> {
+internal fun senderHeaderVisibility(
+    chat: ChatPreview,
+    items: List<ChatMessageListItem>,
+    topicOf: ((ChatMessage) -> Long)? = null
+): Map<String, Boolean> {
     val headers = HashMap<String, Boolean>(items.size)
     var previous: ChatMessage? = null
     for (item in items.asReversed()) {
@@ -140,7 +145,8 @@ internal fun senderHeaderVisibility(chat: ChatPreview, items: List<ChatMessageLi
             continue
         }
         val first = chronological.first()
-        headers[item.key] = showSenderHeader(chat, first, previous)
+        val topicBreak = topicOf != null && previous != null && topicOf(previous) != topicOf(first)
+        headers[item.key] = showSenderHeader(chat, first, if (topicBreak) null else previous)
         previous = chronological.last()
     }
     return headers

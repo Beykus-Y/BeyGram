@@ -937,6 +937,11 @@
     <string name="forum_navigation_tabs">Pestañas arriba</string>
     <string name="forum_navigation_rail">Panel lateral</string>
     <string name="forum_panel_all_topics">Todos los temas</string>
+    <string name="forum_all_messages">Todos los mensajes</string>
+    <string name="forum_all_messages_tab">Todos</string>
+    <string name="forum_all_messages_hint">Elige un tema o responde a un mensaje</string>
+    <string name="forum_all_messages_open_topic">Abrir tema</string>
+    <string name="forum_all_messages_unknown_topic">Tema</string>
     <string name="forum_topics_reorder">Cambiar el orden</string>
     <string name="forum_topics_reorder_hint">Arrastra los temas fijados para cambiar su orden</string>
     <string name="forum_topics_reorder_done">Listo</string>

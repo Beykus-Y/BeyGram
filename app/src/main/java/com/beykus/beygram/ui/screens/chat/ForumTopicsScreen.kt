@@ -295,7 +295,9 @@ fun ForumTopicsScreen(
     /** The forum's view of its topics. Classic is this list; the other views open a topic at once and keep the list one tap away. */
     navigationMode: ForumNavigationMode = ForumNavigationMode.Classic,
     /** Null hides the view button; the button and its sheet appear only when the host can store the choice. */
-    onNavigationMode: ((ForumNavigationMode) -> Unit)? = null
+    onNavigationMode: ((ForumNavigationMode) -> Unit)? = null,
+    /** Opens the feed of every topic's messages from the view sheet; null leaves that action out. */
+    onAllMessages: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val haptics = LocalHapticFeedback.current
@@ -756,6 +758,13 @@ fun ForumTopicsScreen(
     }
 
     val setNavigationMode = onNavigationMode
+    val openAllMessagesFromSheet: (() -> Unit)? = onAllMessages?.let { open ->
+        val action: () -> Unit = {
+            modeSheetOpen = false
+            open()
+        }
+        action
+    }
     if (modeSheetOpen && setNavigationMode != null) {
         ForumNavigationModeSheet(
             current = navigationMode,
@@ -763,7 +772,8 @@ fun ForumTopicsScreen(
                 modeSheetOpen = false
                 setNavigationMode(mode)
             },
-            onDismiss = { modeSheetOpen = false }
+            onDismiss = { modeSheetOpen = false },
+            onAllMessages = openAllMessagesFromSheet
         )
     }
 }
