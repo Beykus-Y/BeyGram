@@ -2,6 +2,7 @@ package com.beykus.beygram.ui.screens.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AlternateEmail
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.Forum
@@ -34,16 +36,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -70,8 +76,24 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
+ * The reorder controls of a pinned row while its list is in reorder mode: the drag gesture of its handle, and the move
+ * actions that accessibility services offer. A null move is a direction the row cannot take (first or last pinned row).
+ */
+internal class ForumTopicRowReorder(
+    val onDragStart: () -> Unit,
+    val onDrag: (Float) -> Unit,
+    val onDragEnd: () -> Unit,
+    val onDragCancel: () -> Unit,
+    val onMoveUp: (() -> Unit)?,
+    val onMoveDown: (() -> Unit)?,
+    /** The row where a drop would land, so the user can see the target while dragging. */
+    val highlighted: Boolean
+)
+
+/**
  * One dense forum row, built like a chat-list row: no card, a real topic tile, a title and one preview line, then the
  * chat-list time and unread marks. Long press is the only management affordance; the row never carries a menu button.
+ * In reorder mode a pinned row shows a drag handle at its trailing edge instead.
  */
 @Composable
 internal fun ForumTopicRow(
@@ -83,7 +105,8 @@ internal fun ForumTopicRow(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    reorder: ForumTopicRowReorder? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -113,6 +136,8 @@ internal fun ForumTopicRow(
     }
     val time = forumTopicTimeLabel(topic.lastMessage?.dateSeconds ?: 0L)
     val manageLabel = if (onLongPress != null) stringResource(R.string.forum_manage) else null
+    val moveUpLabel = stringResource(R.string.forum_topic_move_up)
+    val moveDownLabel = stringResource(R.string.forum_topic_move_down)
     val description = forumTopicStateDescription(topic, muted)
     val tileShape = RoundedCornerShape(main.rowRadius)
     Column(modifier.fillMaxWidth()) {
@@ -120,6 +145,7 @@ internal fun ForumTopicRow(
             Modifier
                 .fillMaxWidth()
                 .then(if (main.rowInset > 0.dp) Modifier.padding(horizontal = main.rowInset).clip(tileShape) else Modifier)
+                .then(if (reorder?.highlighted == true) Modifier.background(palette.accentSoft.copy(alpha = 0.5f)) else Modifier)
                 .combinedClickable(
                     enabled = enabled,
                     onClickLabel = null,
@@ -130,6 +156,7 @@ internal fun ForumTopicRow(
                 )
                 .semantics(mergeDescendants = true) {
                     if (description.isNotEmpty()) stateDescription = description
+                    if (reorder != null) customActions = reorderActions(reorder, moveUpLabel, moveDownLabel)
                 }
                 .padding(horizontal = (20.dp - main.rowInset).coerceAtLeast(0.dp), vertical = rowPadding),
             verticalAlignment = Alignment.CenterVertically
@@ -274,9 +301,50 @@ internal fun ForumTopicRow(
                     }
                 }
             }
+            if (reorder != null) ForumTopicDragHandle(reorder)
         }
         StyledListDivider(startIndent = dividerIndent)
     }
+}
+
+/** The grip of a pinned row in reorder mode. Its drag reports the finger's travel to the list, which decides the drop. */
+@Composable
+private fun ForumTopicDragHandle(reorder: ForumTopicRowReorder) {
+    val palette = beyGramPalette()
+    // The gesture outlives recompositions, so it reads the latest callbacks instead of the ones it started with.
+    val onDragStart by rememberUpdatedState(reorder.onDragStart)
+    val onDrag by rememberUpdatedState(reorder.onDrag)
+    val onDragEnd by rememberUpdatedState(reorder.onDragEnd)
+    val onDragCancel by rememberUpdatedState(reorder.onDragCancel)
+    Box(
+        Modifier
+            .size(48.dp)
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { onDragStart() },
+                    onDragEnd = { onDragEnd() },
+                    onDragCancel = { onDragCancel() },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        onDrag(amount.y)
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        // Decorative: the row offers the same moves as the "Выше" and "Ниже" accessibility actions, so there is no second target.
+        Icon(Icons.Rounded.DragHandle, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(22.dp))
+    }
+}
+
+/** The accessibility moves of a pinned row: only the directions it can actually move in are offered. */
+private fun reorderActions(
+    reorder: ForumTopicRowReorder,
+    moveUpLabel: String,
+    moveDownLabel: String
+): List<CustomAccessibilityAction> = buildList {
+    reorder.onMoveUp?.let { moveUp -> add(CustomAccessibilityAction(moveUpLabel) { moveUp(); true }) }
+    reorder.onMoveDown?.let { moveDown -> add(CustomAccessibilityAction(moveDownLabel) { moveDown(); true }) }
 }
 
 /** The icon tile: the server colour when present, a custom emoji when it has one, and a real topic glyph otherwise. */

@@ -941,4 +941,10 @@
     <string name="forum_all_messages_hint">Elige un tema o responde a un mensaje</string>
     <string name="forum_all_messages_open_topic">Abrir tema</string>
     <string name="forum_all_messages_unknown_topic">Tema</string>
+    <string name="forum_topics_reorder">Cambiar el orden</string>
+    <string name="forum_topics_reorder_hint">Arrastra los temas fijados para cambiar su orden</string>
+    <string name="forum_topics_reorder_done">Listo</string>
+    <string name="forum_topics_reorder_failed">No se pudo cambiar el orden de los temas</string>
+    <string name="forum_topic_move_up">Subir</string>
+    <string name="forum_topic_move_down">Bajar</string>
 </resources>
