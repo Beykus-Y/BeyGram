@@ -5,6 +5,8 @@ import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -165,6 +167,45 @@ fun routeContentTransform(
 
 private fun instantTransform(): ContentTransform =
     EnterTransition.None togetherWith ExitTransition.None
+
+/**
+ * The background half of the chat ↔ profile transition (#999): the conversation and its panels
+ * yield to the profile while the shared elements fly in the overlay above both route contents.
+ *
+ * Timings follow the issue's overlapping windows, scaled by the resolved [MotionSpec] so speed,
+ * intensity presets, disabled categories and reduced motion all keep working. The outgoing screen
+ * fades from ~19% of the duration (60–280 ms of the reference 320 ms); the incoming one starts at
+ * ~37% (120–320 ms), so the profile content appears slightly after the movement begins and never
+ * cascades per element. An instant spec cuts immediately with no alpha or offset.
+ */
+fun chatProfilePairContentTransform(push: MotionSpec, pop: MotionSpec, pushwards: Boolean): ContentTransform {
+    if (push.isInstant || pop.isInstant) return instantTransform()
+    return if (pushwards) {
+        val total = push.durationMillis
+        ContentTransform(
+            fadeIn(tween((total * PairEnterEndFraction).toInt().coerceAtLeast(1),
+                delayMillis = (total * PairEnterStartFraction).toInt(), easing = push.easing)),
+            fadeOut(tween((total * PairExitEndFraction).toInt().coerceAtLeast(1),
+                delayMillis = (total * PairExitStartFraction).toInt(), easing = push.easing)),
+            targetContentZIndex = 1f
+        )
+    } else {
+        val total = pop.durationMillis
+        ContentTransform(
+            fadeIn(tween((total * PairExitEndFraction).toInt().coerceAtLeast(1),
+                delayMillis = (total * PairExitStartFraction).toInt(), easing = pop.easing)),
+            fadeOut(tween((total * PairExitEndFraction).toInt().coerceAtLeast(1),
+                delayMillis = (total * PairExitStartFraction).toInt(), easing = pop.easing)),
+            targetContentZIndex = -1f
+        )
+    }
+}
+
+/** Pair window fractions of the total duration; see [chatProfilePairContentTransform]. */
+internal const val PairExitStartFraction = 0.19f
+internal const val PairExitEndFraction = 0.685f
+internal const val PairEnterStartFraction = 0.375f
+internal const val PairEnterEndFraction = 0.625f
 
 private fun slidePairTransform(
     move: NavigationMove,

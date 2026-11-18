@@ -3,6 +3,8 @@ package com.beykus.beygram
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
@@ -47,6 +49,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import android.widget.Toast
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -131,6 +135,15 @@ import com.beykus.beygram.ui.motion.NavigationHistory
 import com.beykus.beygram.ui.motion.NavigationMove
 import com.beykus.beygram.ui.motion.rememberMotionSpec
 import com.beykus.beygram.ui.motion.rememberRouteTransitionSpec
+import com.beykus.beygram.ui.motion.rememberChatProfileTransitionController
+import com.beykus.beygram.ui.motion.ChatProfileBackOrchestration
+import com.beykus.beygram.ui.motion.ChatProfileFlightVisuals
+import com.beykus.beygram.ui.motion.ChatProfilePushOrchestration
+import com.beykus.beygram.ui.motion.ChatProfileTransitionOverlay
+import com.beykus.beygram.ui.motion.ChatProfileWindowFingerprint
+import com.beykus.beygram.ui.motion.chatProfilePairContentTransform
+import com.beykus.beygram.ui.components.ChatAvatar
+import com.beykus.beygram.ui.screens.chat.chatPresenceLine
 import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.screens.chat.ChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.ChatScreen
@@ -1942,6 +1955,14 @@ private fun BeyGramAppContent(
             }
         )
     }
+    // ---- Переход чат ↔ профиль (#999) ----------------------------------------
+    // The flight controller lives at the app root: both route contents unmount while a flight is
+    // still running, so neither screen may own it. Per account, so one account's geometry is
+    // never used for another's avatar.
+    val chatProfileTransition = rememberChatProfileTransitionController(selectedAccountId)
+    val chatProfilePushSpec = rememberMotionSpec(MotionToken.NavigationPush)
+    val chatProfilePopSpec = rememberMotionSpec(MotionToken.NavigationPop)
+
     // [twoPane] true when this chat is the right-hand pane of the wide layout. A chat that cannot be
     // resolved must not replace the whole tab there: the list is already beside it.
     val chatRoute: @Composable (Boolean) -> Unit = { twoPane ->
@@ -2314,6 +2335,46 @@ private fun BeyGramAppContent(
                     val waveChatFlag = isWaveChat(chat)
                     val preparedFlow = remember(historyFlow, waveChatFlag) { historyFlow.preparedTimeline(waveChatFlag) }
                     val prepared by preparedFlow.collectAsStateWithLifecycle(initialValue = null)
+                    // Shared-element transition to the profile (#999). The flight flies this chat's
+                    // header identity; a topic view or the all-messages feed keeps the plain
+                    // transition, because its header shows the topic, not the chat's identity.
+                    val chatProfileChat = rememberUpdatedState(chat)
+                    val chatProfileInfo = rememberUpdatedState(chatInfo.info)
+                    val chatProfileTopicView = rememberUpdatedState(activeTopicId > 0L || allMessagesOpen)
+                    val chatProfileLastSeen = rememberUpdatedState(lastSeenStyle)
+                    val chatProfilePushSpecState = rememberUpdatedState(chatProfilePushSpec)
+                    val chatProfilePopSpecState = rememberUpdatedState(chatProfilePopSpec)
+                    val chatProfileWindow = LocalWindowInfo.current
+                    val chatProfileDensity = LocalDensity.current.density
+                    val chatProfileFingerprint = remember(chatProfileWindow.containerSize, chatProfileDensity) {
+                        ChatProfileWindowFingerprint(
+                            chatProfileWindow.containerSize.width,
+                            chatProfileWindow.containerSize.height,
+                            chatProfileDensity
+                        )
+                    }
+                    val chatProfileFingerprintState = rememberUpdatedState(chatProfileFingerprint)
+                    val chatProfileSource = if (twoPane) null else remember(chatProfileTransition, selectedChatId) {
+                        chatProfileTransition.chatHeaderSource(selectedChatId, ChatProfilePushOrchestration(
+                            visuals = {
+                                val sourceChat = chatProfileChat.value
+                                // A profile whose info is not loaded composes no header to land on, so it starts no flight.
+                                if (chatProfileTopicView.value || sourceChat == null || chatProfileInfo.value == null) null
+                                else ChatProfileFlightVisuals(
+                                    avatar = { size -> ChatAvatar(sourceChat, size, repository::observeFile, repository::downloadFile) },
+                                    chatTitle = sourceChat.title,
+                                    chatStatus = chatPresenceLine(
+                                        sourceChat, chatProfileInfo.value, chatProfileLastSeen.value, System.currentTimeMillis()
+                                    ).resolve(context),
+                                    avatarSize = 112.dp
+                                )
+                            },
+                            fingerprint = { chatProfileFingerprintState.value },
+                            pushSpec = { chatProfilePushSpecState.value },
+                            popSpec = { chatProfilePopSpecState.value },
+                            navigate = { routeName = AppRoute.ChatInfo.name }
+                        ))
+                    }
                     val chatContent: @Composable () -> Unit = {
                         ChatScreen(
                             chat = chat,
@@ -2349,7 +2410,7 @@ private fun BeyGramAppContent(
                                     } else routeName = chatBackRouteName
                                 }
                             },
-                            onChatInfo = { routeName = AppRoute.ChatInfo.name },
+                            onChatInfo = { if (chatProfileSource != null) chatProfileSource.open() else routeName = AppRoute.ChatInfo.name },
                             onStatistics = if (chat.isChannel && (chat.isChannelAdmin || chat.canPost)) {
                                 {
                                     if (chatBackRouteName != AppRoute.ChannelStatistics.name) {
@@ -2411,7 +2472,8 @@ private fun BeyGramAppContent(
                             onForumNavigationMode = if (topics != null) setForumMode else null,
                             forumAllMessages = allMessagesOpen,
                             forumTopicsById = forumTopicsById,
-                            onOpenForumTopic = { topic -> openTopic(topic) }
+                            onOpenForumTopic = { topic -> openTopic(topic) },
+                            profileTransition = chatProfileSource
                         )
                     }
                     if (topicRailActive) {
@@ -2497,8 +2559,44 @@ private fun BeyGramAppContent(
             musicPlaylistReturnRouteName = AppRoute.ChatInfo.name
             routeName = AppRoute.MusicPlaylist.name
         }
+        // The return flight to the chat (#999). The handle owns everything Back needs, so the
+        // profile screen drives the flight without knowing the navigation host.
+        val chatProfileWindow = LocalWindowInfo.current
+        val chatProfileDensity = LocalDensity.current.density
+        val chatProfileFingerprint = remember(chatProfileWindow.containerSize, chatProfileDensity) {
+            ChatProfileWindowFingerprint(
+                chatProfileWindow.containerSize.width,
+                chatProfileWindow.containerSize.height,
+                chatProfileDensity
+            )
+        }
+        val chatProfileFingerprintState = rememberUpdatedState(chatProfileFingerprint)
+        val chatProfilePopSpecState = rememberUpdatedState(chatProfilePopSpec)
+        val chatProfileLastSeenState = rememberUpdatedState(lastSeenStyle)
+        val chatProfileInfoState = rememberUpdatedState(info.info)
+        val windowLayoutNow = LocalWindowLayout.current
+        val chatProfileTarget = if (windowLayoutNow.twoPane) null else remember(chatProfileTransition, selectedChatId) {
+            chatProfileTransition.profileTarget(selectedChatId, ChatProfileBackOrchestration(
+                visuals = {
+                    val sourceChat = selectedChat
+                    if (sourceChat == null) null
+                    else ChatProfileFlightVisuals(
+                        avatar = { size -> ChatAvatar(sourceChat, size, repository::observeFile, repository::downloadFile) },
+                        chatTitle = sourceChat.title,
+                        chatStatus = chatPresenceLine(
+                            sourceChat, chatProfileInfoState.value, chatProfileLastSeenState.value, System.currentTimeMillis()
+                        ).resolve(context),
+                        avatarSize = 112.dp
+                    )
+                },
+                fingerprint = { chatProfileFingerprintState.value },
+                popSpec = { chatProfilePopSpecState.value },
+                navigate = { routeName = AppRoute.Chat.name }
+            ))
+        }
         ProfileScreen(info, false, repository::observeFile, repository::downloadFile, onOpenMessageEntity = openMessageEntity,
             onBack = { routeName = AppRoute.Chat.name }, onRefresh = { repository.refreshChatInfo(selectedChatId) },
+            profileTransition = chatProfileTarget,
             onMembers = { routeName = AppRoute.ChatMembers.name }, onOpenUser = { userId -> openUserProfile(userId, AppRoute.ChatInfo) },
             onManage = { routeName = AppRoute.ChatManagement.name },
             chatLibrary = if (selectedChat == null || chatInfoSecure) null else ChatLibraryLink(selectedAccountId, openChatMusic),
@@ -2848,7 +2946,7 @@ GlobalSearchScreen(
                 }
                 // An account switch resets the host: outgoing content must not render against the new account's state.
                 else -> key(selectedAccountId, routeTwoPane) {
-                val routeTransitionSpec = rememberRouteTransitionSpec<RouteTransitionFrame>(
+                val baseRouteTransitionSpec = rememberRouteTransitionSpec<RouteTransitionFrame>(
                     move = routeMove,
                     push = pushSpec,
                     pop = popSpec,
@@ -2857,6 +2955,34 @@ GlobalSearchScreen(
                     layoutDirection = layoutDirection,
                     resolveMove = ::routeHostTransitionMove
                 )
+                // Chat ↔ chat info replaces the slide with the pair cross-fade the shared-element flight draws
+                // above (#999), but only while that flight is engaged: a topic view or a feed starts none, and then the
+                // route keeps its slide. A flight starts before the navigation it answers, so its state is what the
+                // transition sees when it starts. The latest values are read inside the lambda, so a mid-flight
+                // interruption resolves against the current motion settings and layout.
+                val pairMotionEnabled = rememberUpdatedState(!routeTwoPane && !pushSpec.isInstant && !popSpec.isInstant)
+                val pairChatId = rememberUpdatedState(selectedChatId)
+                val pairPushSpec = rememberUpdatedState(pushSpec)
+                val pairPopSpec = rememberUpdatedState(popSpec)
+                val routeTransitionSpec: AnimatedContentTransitionScope<RouteTransitionFrame>.() -> ContentTransform =
+                    remember {
+                        {
+                            if (chatProfilePairFades(
+                                    initial = initialState.route,
+                                    target = targetState.route,
+                                    motionEnabled = pairMotionEnabled.value,
+                                    flightEngaged = chatProfileTransition.flightEngagedFor(pairChatId.value)
+                                )
+                            ) {
+                                chatProfilePairContentTransform(
+                                    push = pairPushSpec.value,
+                                    pop = pairPopSpec.value,
+                                    pushwards = targetState.route == AppRoute.ChatInfo
+                                )
+                            } else baseRouteTransitionSpec()
+                        }
+                    }
+                Box(Modifier.fillMaxSize()) {
                 AnimatedContent(
                     targetState = RouteTransitionFrame(route, routeTwoPane),
                     modifier = Modifier.fillMaxSize().clipToBounds(),
@@ -3501,6 +3627,10 @@ GlobalSearchScreen(
             }
             }
             }
+            // The shared elements fly above both route contents during a chat ↔ profile flight;
+            // pure draw-phase layers that intercept no touches (#999).
+            ChatProfileTransitionOverlay(chatProfileTransition)
+            }
             }
             }
         }
@@ -3769,3 +3899,19 @@ internal fun routeHostTransitionMove(
     move: NavigationMove
 ): NavigationMove = if (routeHostContentKey(initial) == routeHostContentKey(target)) NavigationMove.None
     else routeTransitionMove(initial, target, move)
+
+/** The routes that share the chat slot with the open chat; ChatInfo pairs with exactly these. */
+private val chatProfilePairChatSlotRoutes = setOf(AppRoute.Chat, AppRoute.MessageThread)
+
+/** The route pair that replaces the slide with the chat ↔ profile shared-element transition (#999). */
+internal fun chatProfilePairRoutes(initial: AppRoute, target: AppRoute): Boolean {
+    return (target == AppRoute.ChatInfo && initial in chatProfilePairChatSlotRoutes) ||
+        (initial == AppRoute.ChatInfo && target in chatProfilePairChatSlotRoutes)
+}
+
+/**
+ * Whether a route change runs the chat ↔ profile cross-fade instead of the slide. The fade stands in for a shared-element
+ * flight, so it needs one engaged for this navigation; without it the route keeps its slide.
+ */
+internal fun chatProfilePairFades(initial: AppRoute, target: AppRoute, motionEnabled: Boolean, flightEngaged: Boolean): Boolean =
+    motionEnabled && flightEngaged && chatProfilePairRoutes(initial, target)

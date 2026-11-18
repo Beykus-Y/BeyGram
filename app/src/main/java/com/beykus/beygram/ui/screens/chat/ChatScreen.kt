@@ -224,7 +224,9 @@ fun ChatScreen(
     /** The forum's topics by id, for the topic labels of the feed; empty outside a forum. */
     forumTopicsById: Map<Long, ForumTopic> = emptyMap(),
     /** Opens a topic from its label in the feed; null leaves the labels unclickable. */
-    onOpenForumTopic: ((ForumTopic) -> Unit)? = null
+    onOpenForumTopic: ((ForumTopic) -> Unit)? = null,
+    /** The shared-element transition to the profile (#999); null keeps the plain navigation. */
+    profileTransition: com.beykus.beygram.ui.motion.ChatProfileHeaderSource? = null
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val composerDraftState = remember(conversation, chat.id, forumTopicId) {
@@ -2042,6 +2044,7 @@ fun ChatScreen(
             observeFile, onDownloadFile, forumTopicTitle,
             observeCustomEmoji = conversation::observeCustomEmoji,
             forumTopic = forumTopic,
+            profileTransition = profileTransition,
             hasUnread = (if (forumTopicId > 0L) topicUnreadCount else chat.unreadCount) > 0,
             onSelectMessages = { enterSelection() },
             onMarkUnread = {
@@ -3363,7 +3366,9 @@ private fun ChatTopBar(
     forumNavigationMode: ForumNavigationMode? = null,
     onForumNavigationMode: ((ForumNavigationMode) -> Unit)? = null,
     /** The all-messages feed: the subtitle names the feed instead of the chat's presence. */
-    forumAllMessages: Boolean = false
+    forumAllMessages: Boolean = false,
+    /** The shared-element transition to the profile (#999); null keeps the header reporting off. */
+    profileTransition: com.beykus.beygram.ui.motion.ChatProfileHeaderSource? = null
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -3373,6 +3378,14 @@ private fun ChatTopBar(
     val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
     val chatInfoLabel = stringResource(R.string.a11y_chat_info)
     val onGlass = LocalChatChromeOnGlass.current
+    // The window identity the header bounds are captured with; a resize invalidates them.
+    val transitionFingerprint = profileTransition?.let {
+        val container = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
+        val densityScale = LocalDensity.current.density
+        remember(container, densityScale) {
+            com.beykus.beygram.ui.motion.ChatProfileWindowFingerprint(container.width, container.height, densityScale)
+        }
+    }
     Column(Modifier.fillMaxWidth().then(
         if (onGlass) Modifier else when (design.components.topBar) {
             TopBarVariant.Elevated -> Modifier.shadow(design.surfaces.barElevation).background(palette.surface)
@@ -3390,8 +3403,17 @@ private fun ChatTopBar(
         ) {
             if (showBack) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
             // Avatar and title share one focus stop: TalkBack should not visit the same "chat info" target twice.
+            // While a flight carries the header elements they are invisible, so they must not be tappable either.
             Row(
-                Modifier.weight(1f).heightIn(min = 48.dp).clickable(role = Role.Button, onClickLabel = chatInfoLabel, onClick = onInfo)
+                Modifier
+                    .weight(1f).heightIn(min = 48.dp)
+                    .graphicsLayer { alpha = profileTransition?.headerVisibility() ?: 1f }
+                    .clickable(
+                        role = Role.Button,
+                        onClickLabel = chatInfoLabel,
+                        enabled = profileTransition == null || !profileTransition.flightActive(),
+                        onClick = onInfo
+                    )
                     .semantics(mergeDescendants = true) { role = Role.Button },
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -3404,6 +3426,11 @@ private fun ChatTopBar(
                     else -> chatPresenceLine(chat, info, lastSeenStyle, now).resolve()
                 }
                 val avatarSize = if (compact) 32.dp else 40.dp
+                val avatarReport = if (profileTransition != null && transitionFingerprint != null) {
+                    Modifier.onGloballyPositioned { coordinates ->
+                        profileTransition.reportAvatar(coordinates.boundsInWindow(), transitionFingerprint)
+                    }
+                } else Modifier
                 if (forumTopic != null) {
                     ForumTopicIcon(
                         topic = forumTopic,
@@ -3411,10 +3438,10 @@ private fun ChatTopBar(
                         observeFile = observeFile,
                         downloadFile = downloadFile,
                         observeCustomEmoji = observeCustomEmoji,
-                        modifier = Modifier.clearAndSetSemantics {}
+                        modifier = Modifier.clearAndSetSemantics {}.then(avatarReport)
                     )
                 } else {
-                    ChatAvatar(chat, avatarSize, observeFile, downloadFile, Modifier.clearAndSetSemantics {})
+                    ChatAvatar(chat, avatarSize, observeFile, downloadFile, Modifier.clearAndSetSemantics {}.then(avatarReport))
                 }
                 Spacer(Modifier.width(if (compact) 10.dp else 12.dp))
                 // At a large font the compact line gives up the status before it cuts the title.
@@ -3424,7 +3451,13 @@ private fun ChatTopBar(
                 val titleText = topicTitle ?: forumTopicTitle?.takeIf { it.isNotBlank() } ?: chat.title
                 val titleRow: @Composable () -> Unit = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(titleText, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        Text(titleText, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier
+                            .weight(1f, fill = false)
+                            .then(if (profileTransition != null && transitionFingerprint != null) {
+                                Modifier.onGloballyPositioned { coordinates ->
+                                    profileTransition.reportTitle(coordinates.boundsInWindow(), transitionFingerprint)
+                                }
+                            } else Modifier))
                         if (forumTopic?.isClosed == true) {
                             Spacer(Modifier.width(6.dp))
                             Icon(
@@ -3450,7 +3483,13 @@ private fun ChatTopBar(
                                 fontSize = 13.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .then(if (profileTransition != null && transitionFingerprint != null) {
+                                        Modifier.onGloballyPositioned { coordinates ->
+                                            profileTransition.reportStatus(coordinates.boundsInWindow(), transitionFingerprint)
+                                        }
+                                    } else Modifier)
                             )
                         }
                     }
@@ -3463,7 +3502,13 @@ private fun ChatTopBar(
                             color = palette.textSecondary,
                             fontSize = 13.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .then(if (profileTransition != null && transitionFingerprint != null) {
+                                    Modifier.onGloballyPositioned { coordinates ->
+                                        profileTransition.reportStatus(coordinates.boundsInWindow(), transitionFingerprint)
+                                    }
+                                } else Modifier)
                         )
                     }
                 }
