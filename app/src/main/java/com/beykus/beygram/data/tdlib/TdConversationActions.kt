@@ -536,14 +536,14 @@ internal class TdConversationActions(
         requireFutureSchedule(options)
         send(chatId, replyId, forumTopicId, options) { contactMessageContent(contact) }
     }.onFailure { recordSendFailure("contact", it) }
-    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> {
+    suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(), onVisibleIds: (List<Long>) -> Unit = {}): Result<Unit> {
         val handoff = ShareMediaHandoff()
         val result = conversationResult<Unit> {
             requireFutureSchedule(options)
             requireViewOnceSupported(media, options)
             android.util.Log.i(TAG, "send_media_requested kind=${media.kind} bytes=${media.size} path=${media.path}")
             val bounded = boundTelegramText(caption, entities, limits.value.caption)
-            send(chatId, replyId, forumTopicId, options, media = listOf(media), onMediaHandoff = handoff::markHandedOff) { uploaded ->
+            send(chatId, replyId, forumTopicId, options, media = listOf(media), onMediaHandoff = handoff::markHandedOff, onVisibleId = { onVisibleIds(listOf(it)) }) { uploaded ->
                 uploaded.single().toInputContent(bounded.text, bounded.entities, selfDestructType(options))
             }
             android.util.Log.i(TAG, "send_media_request_accepted kind=${media.kind}")
@@ -558,7 +558,7 @@ internal class TdConversationActions(
         send(chatId, replyId, forumTopicId, options) { sticker.toInputContent("") }
     }.onSuccess { recordMediaAccepted("sticker") }.onFailure { recordSendFailure("sticker", it) }
 
-    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions()): Result<Unit> {
+    suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyId: Long?, entities: List<MessageTextEntity> = emptyList(), forumTopicId: Long = 0L, options: MessageSendOptions = MessageSendOptions(), onVisibleIds: (List<Long>) -> Unit = {}): Result<Unit> {
         val handoff = ShareMediaHandoff()
         val result = conversationResult<Unit> {
             require(media.size in 2..10 && media.all { it.kind == MediaKind.Photo || it.kind == MediaKind.Video })
@@ -590,6 +590,10 @@ internal class TdConversationActions(
             catch (failure: Exception) { throw ShareOutcomeUncertainException(failure) }
             if (options.shareDelivery && (returned.size != media.size || returned.any { it == null }))
                 throw com.beykus.beygram.share.ShareOutcomeUncertainException()
+            // A partial/mixed receipt cannot establish a one-to-one mapping for a visual flight.
+            if (returned.size == media.size && returned.all { it != null && it.schedulingState == null }) {
+                onVisibleIds(returned.filterNotNull().map { it.id })
+            }
         }.onSuccess { recordMediaAccepted("album") }.onFailure { recordSendFailure("album", it) }
         return if (options.shareDelivery) handoff.classify(result) else result
     }
@@ -613,6 +617,7 @@ internal class TdConversationActions(
         media: List<OutgoingMedia> = emptyList(), liveLocation: Boolean = false,
         confirmedPaidStars: Long = 0L,
         onMediaHandoff: () -> Unit = {},
+        onVisibleId: (Long) -> Unit = {},
         content: (List<OutgoingMedia>) -> TdApi.InputMessageContent
     ) {
         val replyTarget = replyId?.let {
@@ -657,6 +662,7 @@ internal class TdConversationActions(
             if (message.schedulingState == null) { history.put(map(message)); hydrateReply(message) }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { throw ShareOutcomeUncertainException(failure) }
+        if (message.schedulingState == null) onVisibleId(message.id)
     }
 
     /** All scheduled messages in the chat, newest first, straight from TDLib (the only scheduled-message store). */
