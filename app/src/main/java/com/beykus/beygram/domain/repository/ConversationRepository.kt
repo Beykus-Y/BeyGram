@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.StateFlow
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
+    /** Resolve avatars from user IDs without creating private chats or opening profiles. */
+    suspend fun loadPinnedSenderAvatars(userIds: Collection<Long>): Map<Long, AvatarPhoto?> = emptyMap()
     /**
      * One page of the chat's pinned messages, newest first. A non-empty [query] asks the server to search within the
      * pinned messages, so results cover every page, not only the ones the caller has already loaded.

@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.res.pluralStringResource
 import com.beykus.beygram.domain.model.ChatPreview
+import com.beykus.beygram.domain.model.AvatarPhoto
 import com.beykus.beygram.domain.model.ProfileMember
 import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.ui.components.ChatAvatar
@@ -74,6 +75,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -760,6 +762,22 @@ internal fun PinnedMessagesScreen(
     }
 
     val listState = rememberLazyListState()
+    val resolvedAvatars = remember(chatKey) { mutableStateMapOf<Long, AvatarPhoto?>() }
+    // Resolve only senders actually visible in the pinned list, not the whole chat or every loaded history page.
+    val visibleSenderIds by remember(listState, shown) {
+        derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo.mapNotNull { row ->
+                shown.getOrNull(row.index)?.senderId?.takeIf { it > 0L }
+            }.distinct()
+        }
+    }
+    LaunchedEffect(visibleSenderIds, conversation, chatKey) {
+        val missing = visibleSenderIds.filterNot { resolvedAvatars.containsKey(it) }
+        if (missing.isNotEmpty()) {
+            val photos = conversation.loadPinnedSenderAvatars(missing)
+            missing.forEach { id -> resolvedAvatars[id] = photos[id] }
+        }
+    }
     // Automatic pagination: reaching the end of the loaded pages asks for the next one, whichever list is shown.
     val nearListEnd by remember(listState, shown.size) {
         derivedStateOf {
@@ -911,6 +929,7 @@ internal fun PinnedMessagesScreen(
                                 chat = chat,
                                 member = membersById[message.senderId],
                                 directChat = directChatsById[message.senderId],
+                                resolvedPhoto = resolvedAvatars[message.senderId],
                                 observeFile = observeFile,
                                 downloadFile = downloadFile,
                                 menuExpanded = rowMenuFor?.id == message.id,
@@ -968,6 +987,7 @@ private fun PinnedMessageRow(
     chat: ChatPreview,
     member: ProfileMember?,
     directChat: ChatPreview?,
+    resolvedPhoto: AvatarPhoto?,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     menuExpanded: Boolean,
@@ -995,8 +1015,9 @@ private fun PinnedMessageRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             when {
-                member != null -> TelegramAvatar(member.initials, Color(member.avatarColorArgb), 36.dp, member.photo, observeFile, downloadFile)
-                directChat != null -> ChatAvatar(directChat, 36.dp, observeFile, downloadFile)
+                member != null -> TelegramAvatar(member.initials, Color(member.avatarColorArgb), 36.dp, resolvedPhoto ?: member.photo, observeFile, downloadFile)
+                directChat != null && resolvedPhoto == null -> ChatAvatar(directChat, 36.dp, observeFile, downloadFile)
+                resolvedPhoto != null -> TelegramAvatar(senderName.substring(0, senderName.offsetByCodePoints(0, 1)).uppercase(), palette.surface2, 36.dp, resolvedPhoto, observeFile, downloadFile)
                 message.isChannelPost || (!chat.isGroup && !message.isOutgoing && !chat.isSavedMessages) ->
                     ChatAvatar(chat, 36.dp, observeFile, downloadFile)
                 else -> Box(Modifier.size(36.dp).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
