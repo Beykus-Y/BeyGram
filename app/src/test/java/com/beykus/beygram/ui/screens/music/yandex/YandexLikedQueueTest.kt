@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.music.yandex
 
 import com.beykus.beygram.data.music.provider.ProviderTrack
+import com.beykus.beygram.playback.yandexRestMayJoinQueue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -58,6 +59,21 @@ class YandexLikedQueueTest {
         assertEquals(listOf("5"), likedRestAfter(full, "2", setOf("2", "4")).map { it.trackId })
         assertEquals(listOf("4", "5"), likedRestAfter(full, "2", setOf("2")).map { it.trackId })
         assertEquals(emptyList<String>(), likedRestAfter(full, "9", emptySet()).map { it.trackId })
+    }
+
+    @Test
+    fun restJoinsOnlyTheLegacyQueueItWasReadFor() {
+        assertTrue(yandexRestMayJoinQueue(3L, 3L, bgMixActive = false, currentIsLegacyMusic = true))
+        // A queue started, replaced or stopped since the tap.
+        assertFalse(yandexRestMayJoinQueue(3L, 4L, bgMixActive = false, currentIsLegacyMusic = true))
+        // The playing track is not legacy-account music.
+        assertFalse(yandexRestMayJoinQueue(3L, 3L, bgMixActive = false, currentIsLegacyMusic = false))
+    }
+
+    @Test
+    fun restStaysOutWhileBgMixPlays() {
+        // BG Mix runs its own session: an edit of the Exo queue would rebuild the timeline and stop it.
+        assertFalse(yandexRestMayJoinQueue(3L, 3L, bgMixActive = true, currentIsLegacyMusic = true))
     }
 
     @Test

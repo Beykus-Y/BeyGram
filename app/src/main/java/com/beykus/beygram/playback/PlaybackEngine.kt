@@ -193,6 +193,18 @@ internal fun isWaveCaptureEligible(item: PlaybackItem?): Boolean {
 }
 
 /**
+ * Whether the rest of a liked list may join the playing queue. Nothing joins a queue that was started, replaced or
+ * stopped after [generation] was read, or a queue whose playing track is not legacy-account music. Nothing joins while
+ * BG Mix plays its own session: an edit of the Exo queue would rebuild the timeline and stop BG Mix.
+ */
+internal fun yandexRestMayJoinQueue(
+    generation: Long,
+    queueGeneration: Long,
+    bgMixActive: Boolean,
+    currentIsLegacyMusic: Boolean,
+): Boolean = generation == queueGeneration && currentIsLegacyMusic && !bgMixActive
+
+/**
  * Общий плеер приложения. Музыка, голосовые и кружки играют через один ExoPlayer, поэтому звук не обрывается
  * при переходе между экранами. Плеер живёт в процессе, а [PlaybackService] держит его на переднем плане,
  * пока он играет: уведомление, экран блокировки и гарнитура работают через систему.
@@ -2896,13 +2908,16 @@ object PlaybackEngine {
     /**
      * Adds [tracks] after the last track of the playing queue without restarting the current track. It acts only while the
      * queue is still the one [generation] was read for; a queue started, replaced or stopped since then is left alone, and
-     * nothing starts when no music plays. Returns whether the queue took any track.
+     * nothing starts when no music plays. While BG Mix plays its own session, nothing is added: an edit of the Exo
+     * queue would rebuild the timeline and stop BG Mix. The rest of the liked list is then not queued; its tracks stay in
+     * ProviderTracks. Returns whether the queue took any track.
      */
     @OptIn(UnstableApi::class)
     fun appendYandexTracks(tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>, generation: Long): Boolean {
         val state = _state.value
         val current = state.item ?: return false
-        if (generation != queuePageGeneration || !current.isMusic || current.systemPrivate || current.accountId != LEGACY_PLAYBACK_ACCOUNT_ID) return false
+        val currentIsLegacyMusic = current.isMusic && !current.systemPrivate && current.accountId == LEGACY_PLAYBACK_ACCOUNT_ID
+        if (!yandexRestMayJoinQueue(generation, queuePageGeneration, bgMixActive(), currentIsLegacyMusic)) return false
         val base = state.queue.ifEmpty { listOf(current) }
         val queued = base.mapTo(HashSet()) { it.key }
         val items = tracks.filter { it.isAvailable }.distinctBy { it.key }.filter { it.key !in queued }.map(::providerPlaybackItem)
