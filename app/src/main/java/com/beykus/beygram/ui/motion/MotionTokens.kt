@@ -1,5 +1,6 @@
 package com.beykus.beygram.ui.motion
 
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -22,7 +23,8 @@ enum class MotionToken(val category: MotionCategory, val baseDurationMillis: Int
     BannerChange(MotionCategory.Chats, 190, FastOutSlowInEasing),
     ListReorder(MotionCategory.Lists, 220, FastOutSlowInEasing),
     MediaExpand(MotionCategory.Media, 280, FastOutSlowInEasing),
-    MicroFeedback(MotionCategory.Micro, 150, FastOutSlowInEasing)
+    MicroFeedback(MotionCategory.Micro, 150, FastOutSlowInEasing),
+    PlayerExpand(MotionCategory.Media, 370, CubicBezierEasing(0.2f, 0f, 0f, 1f))
 }
 
 /**

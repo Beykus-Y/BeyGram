@@ -696,6 +696,7 @@
     <!-- BeyGram Music 2.0 -->
     <string name="player_mini_open">Ouvrir le lecteur</string>
     <string name="player_collapse">Réduire le lecteur</string>
+    <string name="player_pane_title">Lecteur</string>
     <string name="player_stop">Arrêter et fermer</string>
     <string name="player_next">Piste suivante</string>
     <string name="player_previous">Piste précédente</string>

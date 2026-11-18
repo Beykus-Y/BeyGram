@@ -38,7 +38,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -123,6 +123,12 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -189,8 +195,9 @@ import com.beykus.beygram.ui.screens.music.PlayerProviderTrackMenuItems
 
 private const val SEEK_STEP_MS = 5_000L
 private val QUEUE_ROW_HEIGHT = 76.dp
+private val QUEUE_RISE_DP = 48.dp
 
-private enum class PlayerPanel { Player, Queue }
+internal enum class PlayerPanel { Player, Queue }
 
 /**
  * Stops the sheet from taking over a list's overscroll at its end. When a list reaches its bottom, the upward
@@ -206,124 +213,164 @@ internal val SheetOverscrollGuard: NestedScrollConnection = object : NestedScrol
         Velocity(0f, available.y.coerceAtMost(0f))
 }
 
-/** The full player sheet. Its tokens come from the cover, so every row inside follows the tint. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CoverPlayerSheet(
-    cover: CoverTokens,
-    onDismissRequest: () -> Unit,
-    sheetState: SheetState,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    CompositionLocalProvider(LocalBeyGramTokens provides cover.tokens) {
-        // The player lays out its own lists at a fixed height, so the sheet adds neither a scroll nor a bottom gap.
-        BeyGramSheet(
-            onDismissRequest = onDismissRequest,
-            sheetState = sheetState,
-            scrollableContent = false,
-            bottomPadding = 0.dp,
-            containerColor = cover.surface,
-            contentColor = cover.tokens.text,
-            dragHandle = { BottomSheetDefaults.DragHandle(color = cover.tokens.muted) }
-        ) {
-            content()
-        }
-    }
-}
-
 /**
- * Large now-playing surface. The same composable owns the queue panel so the sheet is not recreated when the user
- * moves between the player and the queue, and the source title/artwork are resolved from the same account origin.
+ * The body of the full music player: the header with the player or the queue. The overlay in PlayerExpansionHost
+ * owns the container, the drag and the back gesture, so this only lays out what it is given.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun MusicPlayerSheet(
-    onDismiss: () -> Unit,
-    onOpenEqualizer: (() -> Unit)? = null,
-    onOpenMusicSearch: (() -> Unit)? = null,
-    onOpenMyMusic: (() -> Unit)? = null
+internal fun MusicPlayerContent(
+    player: MusicPlayerUi,
+    panel: PlayerPanel,
+    onPanel: (PlayerPanel) -> Unit,
+    onCollapse: () -> Unit,
+    onLeave: () -> Unit,
+    onOpenEqualizer: (() -> Unit)?,
+    onOpenMusicSearch: (() -> Unit)?,
+    onOpenMyMusic: (() -> Unit)?,
+    modifier: Modifier = Modifier
 ) {
-    val player = rememberMusicPlayerUi()
-    LaunchedEffect(player == null) { if (player == null) onDismiss() }
-    val current = player ?: return
-    var panel by rememberSaveable { mutableStateOf(PlayerPanel.Player) }
     val source = rememberPlaybackSourceLabel(
-        origin = current.item.origin,
-        isProviderTrack = current.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX),
+        origin = player.item.origin,
+        isProviderTrack = player.item.key.startsWith(YANDEX_TRACK_KEY_PREFIX),
         // Not a state: read again on each recomposition, which every queue change causes.
         radio = PlaybackEngine.activeRadio
     )
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val cover = rememberCoverTokens(
-        artworkPath = current.item.artworkPath,
-        audioPath = current.item.path.takeIf { it.isNotBlank() },
-        enabled = true,
-        maxAmount = FULL_COVER_TINT,
-        base = sheetSurfaceColor()
-    )
-    BackHandler(enabled = panel == PlayerPanel.Queue) { panel = PlayerPanel.Player }
-    CoverPlayerSheet(cover = cover, onDismissRequest = onDismiss, sheetState = sheetState) {
-        // The endless radio (a wave) gets soft drifting ribbons behind the player while it is audible.
-        val endless = PlaybackEngine.activeRadio != null && PlaybackEngine.currentQueueIsEndless()
-        val waveRibbons = endless && current.playing
-        val palette = beyGramPalette()
+    BackHandler(enabled = panel == PlayerPanel.Queue) { onPanel(PlayerPanel.Player) }
+    // The endless radio (a wave) gets soft drifting ribbons behind the player while it is audible.
+    val endless = PlaybackEngine.activeRadio != null && PlaybackEngine.currentQueueIsEndless()
+    val waveRibbons = endless && player.playing
+    val palette = beyGramPalette()
+    val queueSpec = rememberMotionSpec(MotionToken.PlayerExpand)
+    val risePx = with(LocalDensity.current) { QUEUE_RISE_DP.toPx() }
+    // 0 = player, 1 = queue. Only layer lambdas read it, so a frame of the transition never recomposes the content.
+    val queueMotion = remember { Animatable(if (panel == PlayerPanel.Queue) 1f else 0f) }
+    // The panel at rest. It lags the requested panel while a transition runs, and both panels are composed then.
+    var settled by remember { mutableStateOf(panel) }
+    // The content's own coordinates: the queue flights are laid out and drawn in them.
+    var contentCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var queueArtworkPx by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(panel) {
+        val target = if (panel == PlayerPanel.Queue) 1f else 0f
+        if (queueMotion.value != target) {
+            // Both panels are composed already when a move is reversed half way; otherwise wait two frames, so the
+            // incoming panel is laid out before it starts to move.
+            if (queueMotion.value == 0f || queueMotion.value == 1f) {
+                withFrameNanos { }
+                withFrameNanos { }
+            }
+            if (queueSpec.isInstant) {
+                queueMotion.snapTo(target)
+            } else {
+                val root = contentCoords?.takeIf { it.isAttached }
+                val roles = if (root != null) queueRolesNow(root) else emptySet()
+                if (FlightRole.Artwork in roles && root != null) {
+                    val from = PlayerExpansion.targets.artwork?.rectIn(root)?.width ?: 0f
+                    val to = PlayerExpansion.queueTargets.artwork?.rectIn(root)?.width ?: 0f
+                    queueArtworkPx = maxOf(from, to)
+                }
+                PlayerExpansion.setQueueRoles(roles)
+                try {
+                    queueMotion.animateTo(target, animationSpec = queueSpec.animationSpec<Float>())
+                } finally {
+                    // The real elements come back in the frame the flights stop; a reversed move recomputes them.
+                    if (queueMotion.value == target) settled = panel
+                    PlayerExpansion.setQueueRoles(emptySet())
+                }
+            }
+        }
+        settled = panel
+    }
+    val moving = settled != panel
+    // The mini bar's shared elements do not fly while the queue moves; the container still does.
+    SideEffect { PlayerExpansion.queueBusy = moving }
+    DisposableEffect(Unit) {
+        onDispose {
+            PlayerExpansion.queueBusy = false
+            PlayerExpansion.setQueueRoles(emptySet())
+        }
+    }
+    val showPlayer = settled == PlayerPanel.Player || panel == PlayerPanel.Player
+    val showQueue = settled == PlayerPanel.Queue || panel == PlayerPanel.Queue
+    // Kept across Player and Queue, so the list keeps its place while the overlay stays open.
+    val queueList = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    var queuePlaced by rememberSaveable { mutableStateOf(false) }
+    Box(modifier.fillMaxWidth().onGloballyPositioned { contentCoords = it }) {
+        if (waveRibbons) {
+            WaveBackdrop(
+                color = palette.accent,
+                secondary = palette.accentSoft,
+                modifier = Modifier.matchParentSize().alpha(0.5f),
+            )
+        }
         Box(
             Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.94f)
-        ) {
-            if (waveRibbons) {
-                WaveBackdrop(
-                    color = palette.accent,
-                    secondary = palette.accentSoft,
-                    modifier = Modifier.matchParentSize().alpha(0.5f),
-                )
-            }
-        Column(
-            Modifier
                 .fillMaxSize()
-                .nestedScroll(SheetOverscrollGuard)
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                 .navigationBarsPadding()
         ) {
-            when (panel) {
-                PlayerPanel.Player -> {
+            if (showPlayer) {
+                // The player fades out over the first part of the transition, before the queue comes up.
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 1f - ramp(queueMotion.value, 0f, 0.45f) }
+                ) {
                     PlayerHeader(
-                        player = current,
+                        player = player,
                         source = source,
-                        onCollapse = onDismiss,
-                        onOpenSource = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } },
-                        onOpenMyMusic = onOpenMyMusic?.let { open -> { onDismiss(); open() } }
+                        onCollapse = onCollapse,
+                        onLeave = onLeave,
+                        onOpenSource = player.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onLeave() } },
+                        onOpenMyMusic = onOpenMyMusic?.let { open -> { onLeave(); open() } }
                     )
                     PlayerBody(
                         modifier = Modifier.weight(1f),
-                        player = current,
-                        onOpenQueue = { panel = PlayerPanel.Queue },
+                        player = player,
+                        onOpenQueue = { onPanel(PlayerPanel.Queue) },
                         onOpenEqualizer = onOpenEqualizer?.let { open ->
                             {
-                                // Close the modal sheet before navigating to the equalizer route; otherwise it stays
+                                // Leave the player before navigating to the equalizer route; otherwise it stays
                                 // on top of the new screen and Back returns to an already-open player.
-                                onDismiss()
+                                onLeave()
                                 open()
                             }
                         },
-                        onShowInChat = current.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onDismiss() } }
+                        onShowInChat = player.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onLeave() } }
                     )
                 }
-
-                PlayerPanel.Queue -> QueuePanel(
+            }
+            if (showQueue) {
+                // The queue fades in while it rises; it starts only after the player has faded, so the two never overlap.
+                QueuePanel(
                     source = source,
-                    onBack = { panel = PlayerPanel.Player },
-                    onDismiss = onDismiss,
+                    onBack = { onPanel(PlayerPanel.Player) },
+                    onDismiss = onLeave,
                     onSearch = onOpenMusicSearch?.let { open ->
                         {
-                            onDismiss()
+                            onLeave()
                             open()
                         }
-                    }
+                    },
+                    modifier = Modifier.graphicsLayer {
+                        val q = queueMotion.value
+                        alpha = ramp(q, 0.55f, 1f)
+                        translationY = (1f - q) * risePx
+                    },
+                    listState = queueList,
+                    placed = queuePlaced,
+                    onPlaced = { queuePlaced = true }
                 )
             }
         }
+        if (moving) {
+            Box(Modifier.matchParentSize()) {
+                QueueFlights(
+                    player = player,
+                    queueProgress = { queueMotion.value },
+                    rootCoords = { contentCoords },
+                    artworkPx = queueArtworkPx
+                )
+            }
         }
     }
 }
@@ -351,6 +398,7 @@ private fun PlayerHeader(
     player: MusicPlayerUi,
     source: PlaybackSourceLabel,
     onCollapse: () -> Unit,
+    onLeave: () -> Unit,
     onOpenSource: (() -> Unit)?,
     onOpenMyMusic: (() -> Unit)?
 ) {
@@ -402,7 +450,7 @@ private fun PlayerHeader(
                 textAlign = TextAlign.Center
             )
         }
-        PlayerTrackMenu(item = player.item, onCollapse = onCollapse, onOpenMyMusic = onOpenMyMusic)
+        PlayerTrackMenu(item = player.item, onCollapse = onLeave, onOpenMyMusic = onOpenMyMusic)
     }
 }
 
@@ -629,6 +677,15 @@ private fun PlayerDetails(
 @Composable
 private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSpec) {
     val palette = beyGramPalette()
+    val density = LocalDensity.current
+    val targets = PlayerExpansion.targets
+    SideEffect {
+        targets.artworkBackground = palette.accentSoft
+        targets.artworkTint = palette.accentInk
+        targets.artworkBorder = palette.divider.copy(alpha = 0.55f)
+        targets.artworkRadiusPx = with(density) { 20.dp.toPx() }
+    }
+    DisposableEffect(Unit) { onDispose { targets.artwork = null } }
     val reduced = mediaMotion.isInstant
     val scale = remember(player.item.key) {
         Animatable(if (reduced) 1f else 1f - 0.06f * mediaMotion.intensity)
@@ -645,6 +702,8 @@ private fun PlayerArtwork(player: MusicPlayerUi, size: Dp, mediaMotion: MotionSp
                 scaleX = scale.value
                 scaleY = scale.value
             }
+            .onGloballyPositioned { targets.artwork = it }
+            .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artwork)) 0f else 1f }
     ) {
         TrackArtwork(
             artworkPath = player.item.artworkPath,
@@ -694,12 +753,32 @@ private fun TrackMetadata(player: MusicPlayerUi, mediaMotion: MotionSpec) {
             album = player.item.album.trim()
         )
     }
+    DisposableEffect(Unit) {
+        onDispose {
+            PlayerExpansion.targets.title = null
+            PlayerExpansion.targets.artist = null
+        }
+    }
+    val localStyle = LocalTextStyle.current
+    val titleStyle = localStyle.merge(
+        TextStyle(color = palette.textPrimary, fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+    )
+    val artistStyle = localStyle.merge(TextStyle(color = palette.textSecondary, fontSize = 15.sp, textAlign = TextAlign.Center))
     Crossfade(
         targetState = metadata,
         animationSpec = mediaMotion.animationSpec(),
         label = "trackMetadata"
     ) { shown ->
+        // Only the target text registers for the flight; the outgoing copy of a crossfade must never be used.
+        val isTarget = shown == metadata
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (isTarget) SideEffect {
+                val targets = PlayerExpansion.targets
+                targets.titleText = shown.title
+                targets.titleStyle = titleStyle
+                targets.artistText = shown.artist
+                targets.artistStyle = artistStyle
+            }
             Text(
                 shown.title,
                 color = palette.textPrimary,
@@ -709,7 +788,10 @@ private fun TrackMetadata(player: MusicPlayerUi, mediaMotion: MotionSpec) {
                 textAlign = TextAlign.Center,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.semantics { contentDescription = shown.title }
+                modifier = Modifier
+                    .semantics { contentDescription = shown.title }
+                    .onGloballyPositioned { if (isTarget) PlayerExpansion.targets.title = it }
+                    .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Title)) 0f else 1f }
             )
             if (shown.artist.isNotBlank()) {
                 Text(
@@ -719,7 +801,10 @@ private fun TrackMetadata(player: MusicPlayerUi, mediaMotion: MotionSpec) {
                     textAlign = TextAlign.Center,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp)
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .onGloballyPositioned { if (isTarget) PlayerExpansion.targets.artist = it }
+                        .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Artist)) 0f else 1f }
                 )
             }
             if (shown.album.isNotBlank() && shown.album != shown.title && shown.album != shown.artist) {
@@ -941,7 +1026,20 @@ private fun PlayerSeekBar(
             },
         contentAlignment = Alignment.Center
     ) {
-        Canvas(Modifier.fillMaxWidth().height(24.dp)) {
+        val targets = PlayerExpansion.targets
+        SideEffect {
+            targets.seekTrack = palette.divider
+            targets.seekAccent = palette.accent
+            targets.seekSurface = palette.surface
+        }
+        DisposableEffect(Unit) { onDispose { targets.seek = null } }
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(24.dp)
+                .onGloballyPositioned { targets.seek = it }
+                .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Progress)) 0f else 1f }
+        ) {
             val padding = 10.dp.toPx()
             val trackWidth = (size.width - padding * 2f).coerceAtLeast(1f)
             val centerY = size.height / 2f
@@ -1140,9 +1238,19 @@ private fun PlayPauseButton(player: MusicPlayerUi, mediaMotion: MotionSpec) {
             .semantics {
                 contentDescription = label
                 stateDescription = stateText
-            },
+            }
+            .onGloballyPositioned { PlayerExpansion.targets.play = it }
+            .graphicsLayer { alpha = if (PlayerExpansion.fullSharedHidden(FlightRole.Play)) 0f else 1f },
         contentAlignment = Alignment.Center
     ) {
+        val targets = PlayerExpansion.targets
+        val density = LocalDensity.current
+        SideEffect {
+            targets.playBackground = palette.accent
+            targets.playTint = palette.onAccent
+            targets.playIconPx = with(density) { 38.dp.toPx() }
+        }
+        DisposableEffect(Unit) { onDispose { targets.play = null } }
         Crossfade(
             targetState = icon,
             animationSpec = mediaMotion.animationSpec(),
@@ -1312,7 +1420,11 @@ private fun QueuePanel(
     source: PlaybackSourceLabel,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
-    onSearch: (() -> Unit)? = null
+    onSearch: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    listState: LazyListState,
+    placed: Boolean,
+    onPlaced: () -> Unit
 ) {
     val queue = rememberMusicQueueUi()
     LaunchedEffect(queue == null) { if (queue == null) onDismiss() }
@@ -1326,7 +1438,13 @@ private fun QueuePanel(
     var saveQueueOpen by remember { mutableStateOf(false) }
     // Tracks that already played stay reachable above the current one; with shuffle there is no meaningful "before".
     val playedRows = if (current.shuffleEnabled || current.currentIndex <= 0) emptyList() else current.rows.take(current.currentIndex)
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (playedRows.isEmpty()) 0 else playedRows.size + 1)
+    // The first open starts at the current track; later opens keep the place the list was left at.
+    LaunchedEffect(Unit) {
+        if (!placed) {
+            listState.scrollToItem(if (playedRows.isEmpty()) 0 else playedRows.size + 1)
+            onPlaced()
+        }
+    }
     val backFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { backFocus.requestFocus() } }
     val density = LocalDensity.current
@@ -1339,7 +1457,7 @@ private fun QueuePanel(
         dropTarget = -1
     }
     // An opaque panel: the screen under the sheet must not show through the list.
-    Column(Modifier.fillMaxSize().background(palette.surface.copy(alpha = 1f))) {
+    Column(modifier.fillMaxSize().background(palette.surface.copy(alpha = 1f))) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1680,6 +1798,29 @@ private fun QueueCurrentCard(
     val sourcePosition = if (showSourcePosition) {
         " · " + stringResource(R.string.queue_source_position, row.index + 1)
     } else ""
+    // The landing place of the player's artwork and texts when the queue opens, and their start when it closes.
+    val queueTargets = PlayerExpansion.queueTargets
+    val title = row.item.musicTitle()
+    val artist = row.item.musicArtist()
+    val density = LocalDensity.current
+    val localStyle = LocalTextStyle.current
+    SideEffect {
+        queueTargets.artworkRadiusPx = with(density) { 10.dp.toPx() }
+        queueTargets.artworkBorder = palette.divider.copy(alpha = 0.5f)
+        queueTargets.titleText = title
+        queueTargets.titleStyle = localStyle.merge(
+            TextStyle(color = palette.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        )
+        queueTargets.artistText = artist
+        queueTargets.artistStyle = localStyle.merge(TextStyle(color = palette.textSecondary, fontSize = 12.sp))
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            queueTargets.artwork = null
+            queueTargets.title = null
+            queueTargets.artist = null
+        }
+    }
     Surface(
         color = palette.accentSoft,
         shape = styledShape(16.dp),
@@ -1689,24 +1830,37 @@ private fun QueueCurrentCard(
             Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            QueueArtwork(row.item, 52.dp, palette)
+            QueueArtwork(
+                row.item,
+                52.dp,
+                palette,
+                modifier = Modifier
+                    .onGloballyPositioned { queueTargets.artwork = it }
+                    .graphicsLayer { alpha = if (PlayerExpansion.queueSharedHidden(FlightRole.Artwork)) 0f else 1f }
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    row.item.musicTitle(),
+                    title,
                     color = palette.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .onGloballyPositioned { queueTargets.title = it }
+                        .graphicsLayer { alpha = if (PlayerExpansion.queueSharedHidden(FlightRole.Title)) 0f else 1f }
                 )
-                if (row.item.musicArtist().isNotBlank()) {
+                if (artist.isNotBlank()) {
                     Text(
-                        row.item.musicArtist(),
+                        artist,
                         color = palette.textSecondary,
                         fontSize = 12.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .onGloballyPositioned { queueTargets.artist = it }
+                            .graphicsLayer { alpha = if (PlayerExpansion.queueSharedHidden(FlightRole.Artist)) 0f else 1f }
                     )
                 }
                 Text(
@@ -1910,13 +2064,13 @@ private fun QueueUpcomingRow(
 }
 
 @Composable
-private fun QueueArtwork(item: PlaybackItem, size: Dp, palette: com.beykus.beygram.ui.components.BeyGramPalette) {
+private fun QueueArtwork(item: PlaybackItem, size: Dp, palette: com.beykus.beygram.ui.components.BeyGramPalette, modifier: Modifier = Modifier) {
     // A provider row has no artwork of its own: its cover comes from the provider's list and is cached on its own.
     val providerCover = rememberProviderCover(ProviderTracks.byKey(item.key)?.coverUrl)
     TrackArtwork(
         artworkPath = item.artworkPath?.takeIf { it.isNotBlank() } ?: providerCover,
         audioPath = item.path.takeIf { it.isNotBlank() },
-        modifier = Modifier.size(size),
+        modifier = modifier.size(size),
         background = palette.surface2,
         tint = palette.accentInk,
         symbolSize = size * 0.42f,
