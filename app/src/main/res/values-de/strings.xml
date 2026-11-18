@@ -428,8 +428,12 @@
     <string name="a11y_video_note_message">Videonachricht, %1$s</string>
     <string name="a11y_video_note_preview">Vorschau der Videonachricht</string>
     <string name="a11y_voice_message">Sprachnachricht, %1$s</string>
-    <string name="new_chat_public_title">ÖFFENTLICHE CHATS UND LINKS</string>
     <string name="new_chat_public_hint">@Benutzername, t.me/… oder tg://…</string>
+    <string name="new_chat_create_section">ERSTELLEN</string>
+    <string name="new_chat_public_explain">Finden Sie Nutzer, Gruppen oder Kanäle über @Benutzername oder Link, auch wenn sie nicht in Ihren Kontakten sind.</string>
+    <string name="new_chat_public_searching">Suche läuft…</string>
+    <string name="new_chat_contacts_empty_hint">Fügen Sie jemanden per Telefonnummer hinzu, dann erscheint die Person hier. Oder finden Sie sie oben über den @Benutzernamen.</string>
+    <string name="new_chat_public_find_for">„%1$s“ in Telegram suchen</string>
     <string name="new_chat_public_search">Öffentlichen Chat finden</string>
     <string name="new_chat_public_invalid">Gib einen @Benutzernamen oder einen t.me- / tg://-Link ein</string>
     <string name="new_chat_public_lookup_failed">Der öffentliche Chat wurde nicht gefunden</string>

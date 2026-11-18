@@ -186,8 +186,12 @@
     <string name="new_chat_group">Nouveau groupe</string>
     <string name="new_chat_group_hint">Sélectionnez des membres et un nom de groupe</string>
     <string name="new_chat_channel_hint">Actualités, annonces et publications</string>
-    <string name="new_chat_public_title">DISCUSSIONS PUBLIQUES ET LIENS</string>
     <string name="new_chat_public_hint">@nom d’utilisateur, t.me/… ou tg://…</string>
+    <string name="new_chat_create_section">CRÉER</string>
+    <string name="new_chat_public_explain">Trouvez une personne, un groupe ou une chaîne par @nom d’utilisateur ou lien, même absents de vos contacts.</string>
+    <string name="new_chat_public_searching">Recherche…</string>
+    <string name="new_chat_contacts_empty_hint">Ajoutez quelqu’un avec son numéro de téléphone : il apparaîtra ici. Ou trouvez-le ci-dessus avec son @nom d’utilisateur.</string>
+    <string name="new_chat_public_find_for">Rechercher « %1$s » sur Telegram</string>
     <string name="new_chat_public_search">Trouver une discussion publique</string>
     <string name="new_chat_public_invalid">Saisissez un @nom d’utilisateur ou un lien t.me / tg://</string>
     <string name="new_chat_public_lookup_failed">Impossible de trouver la discussion publique</string>

@@ -184,8 +184,12 @@
     <string name="new_chat_group">Grupo nuevo</string>
     <string name="new_chat_group_hint">Selecciona miembros y un nombre para el grupo</string>
     <string name="new_chat_channel_hint">Actualizaciones, anuncios y publicaciones</string>
-    <string name="new_chat_public_title">CHATS PÚBLICOS Y ENLACES</string>
     <string name="new_chat_public_hint">@nombre de usuario, t.me/… o tg://…</string>
+    <string name="new_chat_create_section">CREAR</string>
+    <string name="new_chat_public_explain">Busca un usuario, grupo o canal por @nombre de usuario o enlace, aunque no estén en tus contactos.</string>
+    <string name="new_chat_public_searching">Buscando…</string>
+    <string name="new_chat_contacts_empty_hint">Añade a alguien con su número de teléfono y aparecerá aquí. O búscalo arriba por @nombre de usuario.</string>
+    <string name="new_chat_public_find_for">Buscar «%1$s» en Telegram</string>
     <string name="new_chat_public_search">Buscar un chat público</string>
     <string name="new_chat_public_invalid">Introduce un @nombre de usuario o un enlace t.me / tg://</string>
     <string name="new_chat_public_lookup_failed">No se pudo encontrar el chat público</string>
