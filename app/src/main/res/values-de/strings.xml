@@ -89,7 +89,8 @@
     <string name="message_action_unpin">Anheftung aufheben</string>
     <string name="err_chat_pin_failed">Die Anheftung der Nachricht konnte nicht aktualisiert werden</string>
     <string name="err_message_pin_unavailable">Diese Nachricht kann nicht angeheftet werden</string>
-    <string name="feature_language">App-Sprache</string>
+    <string name="feature_language">Sprache und Übersetzung</string>
+    <string name="feature_language_group_interface">Oberflächensprache</string>
     <string name="feature_language_system">System folgen</string>
     <string name="settings_language_ru">Русский</string>
     <string name="settings_language_en">English</string>
