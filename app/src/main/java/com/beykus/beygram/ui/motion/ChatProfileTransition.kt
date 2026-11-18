@@ -111,6 +111,13 @@ internal fun lerpRect(from: Rect, to: Rect, fraction: Float): Rect = Rect(
 )
 
 /**
+ * Flight progress under a predictive back gesture: the gesture scales [startProgress] toward the chat. A gesture that
+ * engages during an unfinished push starts where that push stands, and a fully open profile starts at 1.
+ */
+internal fun gestureFlightProgress(startProgress: Float, gestureProgress: Float): Float =
+    (startProgress * (1f - gestureProgress.coerceIn(0f, 1f))).coerceIn(0f, 1f)
+
+/**
  * Collapsed fraction of the profile header from the live scroll offset: 0 at the very top,
  * 1 once the header block has scrolled under the toolbar. Proportional to the real offset;
  * no timed animation is started per scroll change.
@@ -204,6 +211,8 @@ class ChatProfileFlight(
     /** 0 = chat state, 1 = profile state. */
     var progress by mutableStateOf(if (initialProfileGeometry == null) 0f else 1f)
         internal set
+    /** The progress when a predictive back gesture engaged; the gesture scales it toward the chat. */
+    internal var gestureStartProgress: Float = 1f
     var chatGeometry by mutableStateOf(initialChatGeometry)
         internal set
     var profileGeometry by mutableStateOf(initialProfileGeometry)
@@ -431,25 +440,31 @@ class ChatProfileTransitionController internal constructor(private val scope: Co
                 abortFlight()
                 return false
             }
-            // The gesture owns the progress now; stop any running drive animation.
+            // The gesture owns the progress now; stop any running drive animation. A push or pop still in flight keeps
+            // its place: the gesture scales from where it stands, so the first gesture frame does not jump.
             driveJob?.cancel()
             driveJob = null
+            active.gestureStartProgress = active.progress
             return true
         }
         // Reuse the pop path to build the flight, then stop its drive: the gesture writes progress.
         if (!beginPop(chatId, visuals, current, pop)) return false
         driveJob?.cancel()
         driveJob = null
+        flight?.let { it.gestureStartProgress = it.progress }
         return true
     }
 
-    /** Gesture progress 0..1 drives the same flight, from the profile state toward the chat. */
+    /** Gesture progress 0..1 drives the same flight toward the chat, scaled from the progress the gesture engaged at. */
     internal fun updateGesturePop(progress: Float) {
         val active = flight ?: return
-        active.progress = (1f - progress.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+        active.progress = gestureFlightProgress(active.gestureStartProgress, progress)
     }
 
-    /** The gesture was cancelled: fly back to the profile state without navigating. */
+    /**
+     * The gesture was cancelled: fly back to the open profile state, from wherever the gesture left the flight, without
+     * navigating. A push that the gesture interrupted lands there too, since it was heading to the profile state.
+     */
     internal fun cancelGesturePop() {
         val active = flight ?: return
         drive(active, target = 1f, millis = active.popMillis)

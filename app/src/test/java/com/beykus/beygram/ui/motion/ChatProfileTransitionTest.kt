@@ -372,6 +372,72 @@ class ChatProfileTransitionTest {
         }
     }
 
+    @Test fun gestureProgressScalesFromWhereTheGestureEngaged() {
+        // A fully open profile starts at 1; a push that is unfinished at 0.4 starts at 0.4, so its first frame cannot jump.
+        assertEquals(0.7f, gestureFlightProgress(1f, 0.3f), 0.0001f)
+        assertEquals(0.396f, gestureFlightProgress(0.4f, 0.01f), 0.0001f)
+        assertEquals(0.4f, gestureFlightProgress(0.4f, 0f), 0.0001f)
+        assertEquals(0f, gestureFlightProgress(0.4f, 1f), 0.0001f)
+        // Gesture progress outside 0..1 is clamped, like the flight progress itself.
+        assertEquals(0.4f, gestureFlightProgress(0.4f, -1f), 0.0001f)
+        assertEquals(0f, gestureFlightProgress(0.4f, 2f), 0.0001f)
+    }
+
+    @Test fun aGestureThatEngagesDuringAnUnfinishedPushStartsWhereThePushStands() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(dispatcher + Job())
+        val controller = ChatProfileTransitionController(scope)
+        try {
+            val chatId = 7L
+            val source = controller.chatHeaderSource(chatId)
+            source.reportAvatar(chatGeometry.avatar, fingerprint)
+            assertTrue(controller.beginPush(chatId, visuals(chatId), fingerprint, animated, animated))
+            val flight = controller.flight!!
+            controller.reportProfileHeader(chatId, fingerprint, profileGeometry)
+            assertTrue(flight.ready)
+
+            // The push is unfinished at 0.4 when the predictive back gesture engages.
+            flight.progress = 0.4f
+            assertTrue(controller.beginGesturePop(chatId, visuals(chatId), fingerprint, animated))
+            assertEquals(0.4f, flight.progress, 0.0001f)
+            // The first gesture frame moves the flight from where the push stood, not from the fully open profile.
+            controller.updateGesturePop(0.01f)
+            assertEquals(0.396f, flight.progress, 0.001f)
+            controller.updateGesturePop(0.5f)
+            assertEquals(0.2f, flight.progress, 0.001f)
+            controller.updateGesturePop(1f)
+            assertEquals(0f, flight.progress, 0.001f)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test fun aCancelledGestureFliesBackFromWhereItStoppedWithoutAJump() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(dispatcher + Job())
+        val controller = ChatProfileTransitionController(scope)
+        try {
+            val chatId = 7L
+            val source = controller.chatHeaderSource(chatId)
+            source.reportAvatar(chatGeometry.avatar, fingerprint)
+            assertTrue(controller.beginPush(chatId, visuals(chatId), fingerprint, animated, animated))
+            val flight = controller.flight!!
+            controller.reportProfileHeader(chatId, fingerprint, profileGeometry)
+
+            flight.progress = 0.4f
+            assertTrue(controller.beginGesturePop(chatId, visuals(chatId), fingerprint, animated))
+            controller.updateGesturePop(0.5f)
+            assertEquals(0.2f, flight.progress, 0.001f)
+
+            // The cancel neither jumps the flight nor ends it: it flies back to the open profile from where it stands.
+            controller.cancelGesturePop()
+            assertEquals(0.2f, flight.progress, 0.001f)
+            assertNotNull(controller.flight)
+        } finally {
+            scope.cancel()
+        }
+    }
+
     @Test fun gesturePopRefusesWithoutGeometrySoPlainBackRuns() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val scope = CoroutineScope(dispatcher + Job())
