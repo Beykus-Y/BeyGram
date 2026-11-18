@@ -872,6 +872,7 @@ internal fun PinnedMessagesScreen(
         val metrics = context.resources.displayMetrics
         it.screenWidth == metrics.widthPixels && it.screenHeight == metrics.heightPixels
     } == true
+    val flightMessageText = shown.firstOrNull { it.id == flightSource?.id }?.let { it.summary() }
     fun canReturnToPreview(): Boolean {
         val source = flightSource ?: return false
         val root = rootBounds ?: return false
@@ -879,7 +880,7 @@ internal fun PinnedMessagesScreen(
         return livePreviewSource() == source && validDisplay && !searchOpen && !exitMotion.isInstant &&
             root.containsBounds(source.bounds) && root.containsBounds(target) &&
             listState.layoutInfo.visibleItemsInfo.any { it.key == source.id } &&
-            shown.any { it.id == source.id && it.summary() == source.text }
+            flightMessageText == source.text
     }
     fun closeWithFlight(action: () -> Unit, messageId: Long? = null) {
         if (closing) return
@@ -908,7 +909,7 @@ internal fun PinnedMessagesScreen(
                 else null
             }.filterNotNull().first()
         }
-        if (validBounds == true && livePreviewSource() == flightSource) progress.animateTo(1f, entryMotion.animationSpec())
+        if (validBounds == true && livePreviewSource() == flightSource && flightMessageText == flightSource.text) progress.animateTo(1f, entryMotion.animationSpec())
         else progress.snapTo(1f)
         flightActive = false
     }
