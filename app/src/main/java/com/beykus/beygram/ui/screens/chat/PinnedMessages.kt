@@ -276,9 +276,11 @@ internal fun PinnedMessagesBar(
     DisposableEffect(Unit) { onDispose { onRowShownChange(false) } }
 
     // The shown pin follows the viewport, so an older viewport loads the page that holds its pin. A failed page is
-    // retried by hand only; the row keeps its last valid preview in the meantime.
-    LaunchedEffect(needsOlder, state.nextId, state.failed) {
-        if (needsOlder && !state.failed) state.loadOlder()
+    // retried by hand only; the row keeps its last valid preview in the meantime. loadOlder flips `loading` itself, so
+    // the page runs on the scope: a relaunch of this effect would cancel it. A refresh or a page that ends reruns the
+    // effect, so a viewport that still needs an older page loads it then.
+    LaunchedEffect(needsOlder, state.nextId, state.failed, state.loading) {
+        if (needsOlder && !state.failed && !state.loading) scope.launch { state.loadOlder() }
     }
 
     val enterSpec = rememberMotionSpec(MotionToken.BannerChange)
@@ -696,9 +698,13 @@ internal fun PinnedMessagesScreen(
     // answer that still comes back from the superseded query.
     LaunchedEffect(query, searchAttempt, state.chatId, state.forumTopicId) {
         val requestedGeneration = ++searchGeneration
+        // A request of the superseded generation may still be in flight. Its answer is dropped and its finally leaves the
+        // flags alone, so this generation starts with them cleared: a busy flag left over would turn the new search away.
+        searchBusy = false
+        searchNextId = 0L
         if (query.isBlank()) {
             if (requestedGeneration == searchGeneration) {
-                searchResults = emptyList(); searchNextId = 0L; searchBusy = false; searchFailed = false
+                searchResults = emptyList(); searchFailed = false
             }
             return@LaunchedEffect
         }
@@ -722,11 +728,14 @@ internal fun PinnedMessagesScreen(
             shown.isNotEmpty() && last >= shown.lastIndex - 6
         }
     }
-    LaunchedEffect(nearListEnd, searchNextId, state.nextId, searching) {
-        if (!nearListEnd) return@LaunchedEffect
+    // The holder's pages run on the scope, as the bar's do (see PinnedMessagesBar): a page asked for during a refresh
+    // loads once the refresh ends, because the effect reruns on `loading`. A failed page waits for the retry instead.
+    LaunchedEffect(nearListEnd, state.nextId, state.loading, state.failed, searching) {
+        if (nearListEnd && !searching && !state.loading && !state.failed) scope.launch { state.loadOlder() }
+    }
+    LaunchedEffect(nearListEnd, searchNextId, searching) {
         // A spent cursor must not ask for the same page again: with no page left the list simply ends.
-        if (searching) { if (searchNextId != 0L) loadSearchPage(searchNextId, replace = false) }
-        else state.loadOlder()
+        if (nearListEnd && searching && searchNextId != 0L) loadSearchPage(searchNextId, replace = false)
     }
 
     fun unpin(target: ChatMessage) {

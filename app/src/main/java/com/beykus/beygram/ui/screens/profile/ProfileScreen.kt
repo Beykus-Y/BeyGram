@@ -217,8 +217,7 @@ fun ProfileScreen(
                 .distinctUntilChanged()
                 .collect { transitionTarget.reportCollapsed(it) }
         }
-        val compactTitle = state.info?.title
-            ?.ifBlank { stringResource(R.string.user_name_unknown) }
+        val compactTitle = state.info?.profileTitleText()
         val compactStatus = state.info?.let { info -> info.profileSubtitleLine(lastSeenStyle) }
         Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(
@@ -284,7 +283,7 @@ fun ProfileScreen(
                         )
                     }
                     Spacer(Modifier.height(16.dp))
-                    Text(info.title.ifBlank { stringResource(if (info.status is ProfilePresence.DeletedAccount) R.string.deleted_account_name else R.string.user_name_unknown) }, color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                    Text(info.profileTitleText(), color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                         modifier = Modifier
                             .graphicsLayer { alpha = (1f - collapse.value) * (profileTransition?.headerVisibility() ?: 1f) }
                             .then(if (profileTransition != null && transitionFingerprint != null) {
@@ -544,6 +543,11 @@ internal fun ProfileLoadError(message: String, loading: Boolean, onRetry: () -> 
 @Composable
 internal fun ProfileInfo.profileSubtitleLine(lastSeenStyle: LastSeenStyle): String =
     subtitle(lastSeenStyle, System.currentTimeMillis())
+
+/** The name a profile shows: the server's title, or the placeholder that tells a deleted account from a nameless one. */
+@Composable
+private fun ProfileInfo.profileTitleText(): String =
+    title.ifBlank { stringResource(if (status is ProfilePresence.DeletedAccount) R.string.deleted_account_name else R.string.user_name_unknown) }
 
 @Composable internal fun ProfileInfo.subtitle(lastSeenStyle: LastSeenStyle, nowMillis: Long): String = when (kind) {
     ProfileKind.Group -> memberCount?.let { count ->

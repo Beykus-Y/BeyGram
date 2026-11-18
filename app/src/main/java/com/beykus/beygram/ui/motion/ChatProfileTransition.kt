@@ -278,6 +278,9 @@ class ChatProfileTransitionController internal constructor(private val scope: Co
         return if (active.chatId == chatId) profileSideVisibility(active.progress) else 1f
     }
 
+    /** True while a flight of [chatId] runs, from its start until it lands or is aborted; the route pair fades only then. */
+    internal fun flightEngagedFor(chatId: Long): Boolean = flight?.chatId == chatId
+
     /**
      * Starts (or reverses into) a push. Returns true when a flight runs; navigation happens in
      * either case, and a false return means the caller got the standard transition as fallback.

@@ -3,6 +3,7 @@ package com.beykus.beygram.ui.motion
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.Dp
+import com.beykus.beygram.chatProfilePairFades
 import com.beykus.beygram.chatProfilePairRoutes
 import com.beykus.beygram.navigation.AppRoute
 import kotlinx.coroutines.CoroutineScope
@@ -135,6 +136,16 @@ class ChatProfileTransitionTest {
         assertFalse(chatProfilePairRoutes(AppRoute.Chats, AppRoute.ChatInfo))
         assertFalse(chatProfilePairRoutes(AppRoute.ChatInfo, AppRoute.ChatMembers))
         assertFalse(chatProfilePairRoutes(AppRoute.Chat, AppRoute.Settings))
+    }
+
+    @Test fun thePairFadesOnlyWhileItsFlightIsEngaged() {
+        assertTrue(chatProfilePairFades(AppRoute.Chat, AppRoute.ChatInfo, motionEnabled = true, flightEngaged = true))
+        // No flight (a topic view, a feed, a push that never began one): the route keeps its slide.
+        assertFalse(chatProfilePairFades(AppRoute.Chat, AppRoute.ChatInfo, motionEnabled = true, flightEngaged = false))
+        // Motion off or a two-pane layout: the route keeps its slide.
+        assertFalse(chatProfilePairFades(AppRoute.Chat, AppRoute.ChatInfo, motionEnabled = false, flightEngaged = true))
+        // Routes outside the pair keep the slide even while a flight runs.
+        assertFalse(chatProfilePairFades(AppRoute.Chats, AppRoute.ChatInfo, motionEnabled = true, flightEngaged = true))
     }
 
     // ---- Pair background transform --------------------------------------------
@@ -451,6 +462,29 @@ class ChatProfileTransitionTest {
             controller.chatHeaderSource(chatId, topicView).open()
             assertEquals(3, navigations)
             assertNull(controller.flight)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test fun aFlightEngagesThePairOnlyWhileItRuns() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(dispatcher + Job())
+        val controller = ChatProfileTransitionController(scope)
+        try {
+            val chatId = 7L
+            // A push that never began a flight leaves the route on its slide.
+            assertFalse(controller.beginPush(chatId, visuals(chatId), fingerprint, animated, animated))
+            assertFalse(controller.flightEngagedFor(chatId))
+
+            controller.chatHeaderSource(chatId).reportAvatar(chatGeometry.avatar, fingerprint)
+            assertTrue(controller.beginPush(chatId, visuals(chatId), fingerprint, animated, animated))
+            // Engaged from the start, before the profile has placed itself, and for this chat only.
+            assertTrue(controller.flightEngagedFor(chatId))
+            assertFalse(controller.flightEngagedFor(8L))
+            // The profile never placed its header: the flight ends, and its engagement with it.
+            advanceTimeBy(GeometryWaitMillis + 50)
+            assertFalse(controller.flightEngagedFor(chatId))
         } finally {
             scope.cancel()
         }

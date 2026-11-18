@@ -144,7 +144,6 @@ import com.beykus.beygram.ui.motion.ChatProfileWindowFingerprint
 import com.beykus.beygram.ui.motion.chatProfilePairContentTransform
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.screens.chat.chatPresenceLine
-import com.beykus.beygram.ui.screens.profile.ProfileSubtitle
 import com.beykus.beygram.ui.accessibility.rememberSystemReducedMotion
 import com.beykus.beygram.ui.screens.chat.ChatAnimationPreferences
 import com.beykus.beygram.ui.screens.chat.ChatScreen
@@ -2359,7 +2358,8 @@ private fun BeyGramAppContent(
                         chatProfileTransition.chatHeaderSource(selectedChatId, ChatProfilePushOrchestration(
                             visuals = {
                                 val sourceChat = chatProfileChat.value
-                                if (chatProfileTopicView.value || sourceChat == null) null
+                                // A profile whose info is not loaded composes no header to land on, so it starts no flight.
+                                if (chatProfileTopicView.value || sourceChat == null || chatProfileInfo.value == null) null
                                 else ChatProfileFlightVisuals(
                                     avatar = { size -> ChatAvatar(sourceChat, size, repository::observeFile, repository::downloadFile) },
                                     chatTitle = sourceChat.title,
@@ -2955,16 +2955,25 @@ GlobalSearchScreen(
                     layoutDirection = layoutDirection,
                     resolveMove = ::routeHostTransitionMove
                 )
-                // Chat ↔ chat info replaces the slide with the pair cross-fade the shared-element
-                // flight draws above (#999); the latest values are read inside the lambda, so a
-                // mid-flight interruption resolves against the current motion settings and layout.
+                // Chat ↔ chat info replaces the slide with the pair cross-fade the shared-element flight draws
+                // above (#999), but only while that flight is engaged: a topic view or a feed starts none, and then the
+                // route keeps its slide. A flight starts before the navigation it answers, so its state is what the
+                // transition sees when it starts. The latest values are read inside the lambda, so a mid-flight
+                // interruption resolves against the current motion settings and layout.
                 val pairMotionEnabled = rememberUpdatedState(!routeTwoPane && !pushSpec.isInstant && !popSpec.isInstant)
+                val pairChatId = rememberUpdatedState(selectedChatId)
                 val pairPushSpec = rememberUpdatedState(pushSpec)
                 val pairPopSpec = rememberUpdatedState(popSpec)
                 val routeTransitionSpec: AnimatedContentTransitionScope<RouteTransitionFrame>.() -> ContentTransform =
                     remember {
                         {
-                            if (pairMotionEnabled.value && chatProfilePairRoutes(initialState.route, targetState.route)) {
+                            if (chatProfilePairFades(
+                                    initial = initialState.route,
+                                    target = targetState.route,
+                                    motionEnabled = pairMotionEnabled.value,
+                                    flightEngaged = chatProfileTransition.flightEngagedFor(pairChatId.value)
+                                )
+                            ) {
                                 chatProfilePairContentTransform(
                                     push = pairPushSpec.value,
                                     pop = pairPopSpec.value,
@@ -3899,3 +3908,10 @@ internal fun chatProfilePairRoutes(initial: AppRoute, target: AppRoute): Boolean
     return (target == AppRoute.ChatInfo && initial in chatProfilePairChatSlotRoutes) ||
         (initial == AppRoute.ChatInfo && target in chatProfilePairChatSlotRoutes)
 }
+
+/**
+ * Whether a route change runs the chat ↔ profile cross-fade instead of the slide. The fade stands in for a shared-element
+ * flight, so it needs one engaged for this navigation; without it the route keeps its slide.
+ */
+internal fun chatProfilePairFades(initial: AppRoute, target: AppRoute, motionEnabled: Boolean, flightEngaged: Boolean): Boolean =
+    motionEnabled && flightEngaged && chatProfilePairRoutes(initial, target)
