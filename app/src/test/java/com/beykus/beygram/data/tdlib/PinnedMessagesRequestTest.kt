@@ -31,4 +31,10 @@ class PinnedMessagesRequestTest {
         assertTrue(request.filter is TdApi.SearchMessagesFilterPinned)
     }
 
+    @Test fun `pinned search accepts a server-side query inside the pinned filter`() {
+        val request = pinnedMessagesRequest(456L, 0L, query = "invoice")
+        assertEquals(456L, request.chatId)
+        assertEquals("invoice", request.query)
+        assertTrue(request.filter is TdApi.SearchMessagesFilterPinned)
+    }
 }

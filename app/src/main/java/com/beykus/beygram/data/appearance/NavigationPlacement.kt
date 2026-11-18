@@ -1,18 +1,19 @@
 package com.beykus.beygram.data.appearance
 
 /**
- * Where the main bottom navigation of a phone sits. It is an independent axis: it never changes the design style,
- * the palette, the wallpaper, the messages or the motion, and the style keeps deciding how the bar itself looks.
+ * Where the floating panels of a phone sit: the main bottom dock and the chat's pinned bar follow it together. It is
+ * an independent axis: it never changes the design style, the palette, the wallpaper, the messages or the motion, and
+ * the style keeps deciding how the panels themselves look.
  *
  * [Auto] is the compatibility choice: an installation that never touched this setting keeps exactly the placement its
- * style has always used, so an update never moves the bar by itself.
+ * style has always used, so an update never moves a panel by itself.
  */
 enum class NavigationPlacement {
-    /** Use the placement the selected design style asks for. */
+    /** Use the placement the selected design style asks for: floating for Liquid Glass, attached for the rest. */
     Auto,
-    /** A full-width bar in the normal bottom slot, the way BeyGram has always drawn it. */
+    /** Full-width panels in their natural slots: the dock on the bottom edge, the pinned bar one with the header. */
     Pinned,
-    /** A capsule that floats above the content with side margins and safe bottom insets. */
+    /** Panels that float above the content with side margins, safe insets and the style's rounded corners. */
     Floating;
 
     /** The placement the user can force, or null for [Auto], which is not a placement of its own. */

@@ -6,7 +6,16 @@ import kotlinx.coroutines.flow.StateFlow
 /** Conversation operations; UI never sends native TDLib requests or chooses protocol flags. */
 interface ConversationRepository {
     fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long>
-    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long = 0L, forumTopicId: Long = 0L): Result<PinnedMessagePage>
+    /**
+     * One page of the chat's pinned messages, newest first. A non-empty [query] asks the server to search within the
+     * pinned messages, so results cover every page, not only the ones the caller has already loaded.
+     */
+    suspend fun pinnedMessages(
+        chatId: Long,
+        fromMessageId: Long = 0L,
+        forumTopicId: Long = 0L,
+        query: String = ""
+    ): Result<PinnedMessagePage>
     /** Pins or unpins a message in its parent chat; forum messages keep their topic. */
     suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit>
     fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?>

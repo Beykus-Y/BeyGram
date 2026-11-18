@@ -424,7 +424,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun sendBotWebAppData(botUserId: Long, buttonText: String, data: String): Result<Unit> = unavailable()
     override fun closeBotWebApp(launchId: Long) = Unit
     override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
-    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long): Result<PinnedMessagePage> = unavailable()
+    override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String): Result<PinnedMessagePage> = unavailable()
     override suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit> = unavailable()
     override suspend fun sendMediaAlbum(chatId: Long, media: List<OutgoingMedia>, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = unavailable()
     override fun observeForumTopicDraft(chatId: Long, forumTopicId: Long): StateFlow<com.beykus.beygram.domain.model.MessageDraft> =
