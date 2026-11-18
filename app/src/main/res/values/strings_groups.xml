@@ -106,7 +106,7 @@
     <string name="group_invites_default_name">Дополнительная ссылка</string>
     <string name="group_invites_approval">С одобрением заявок</string>
     <string name="group_invites_subscription">Платная подписка · %1$d звёзд</string>
-    <string name="group_invites_subscription_hint">Параметры платной подписки меняются в официальном клиенте; здесь ссылку можно отозвать.</string>
+    <string name="group_invites_subscription_hint">Параметры платной подписки меняются в официальном клиенте; здесь ссылку можно переименовать или отозвать.</string>
     <string name="group_invites_expires">Действует до %1$s</string>
     <string name="group_invites_never_expires">Без срока действия</string>
     <string name="group_invites_limit">Лимит: %1$d</string>
@@ -134,6 +134,18 @@
     <string name="group_invites_primary_hint">Основную ссылку можно только отозвать: её нельзя редактировать.</string>
     <string name="group_invites_share_chooser">Поделиться ссылкой</string>
     <string name="group_invites_share_text">Присоединяйтесь к «%1$s» в Telegram: %2$s</string>
+    <string name="group_invites_section_active">Действующие</string>
+    <string name="group_invites_section_paid">Платные</string>
+    <string name="group_invites_section_inactive">Неактивные</string>
+    <string name="group_invites_status_primary">Основная</string>
+    <string name="group_invites_status_paid">Платная</string>
+    <string name="group_invites_status_approval">По заявкам</string>
+    <string name="group_invites_status_revoked">Отозвана</string>
+    <string name="group_invites_expired_on">Истекла %1$s</string>
+    <string name="group_invites_joined">Присоединилось: %1$d</string>
+    <string name="group_invites_open_details">Открыть подробности ссылки</string>
+    <string name="group_invites_creator_you">Создана вами</string>
+    <string name="group_invites_created_on">Создана %1$s</string>
 
     <string name="group_requests_title">Заявки на вступление</string>
     <string name="group_requests_empty">Заявок нет</string>

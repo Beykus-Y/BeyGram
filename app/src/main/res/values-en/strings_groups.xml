@@ -106,7 +106,7 @@
     <string name="group_invites_default_name">Additional link</string>
     <string name="group_invites_approval">Join requests required</string>
     <string name="group_invites_subscription">Paid subscription · %1$d stars</string>
-    <string name="group_invites_subscription_hint">Paid subscription settings are changed in the official client; the link can only be revoked here.</string>
+    <string name="group_invites_subscription_hint">Paid subscription settings are changed in the official client; here the link can be renamed or revoked.</string>
     <string name="group_invites_expires">Expires on %1$s</string>
     <string name="group_invites_never_expires">No expiration</string>
     <string name="group_invites_limit">Limit: %1$d</string>
@@ -134,6 +134,18 @@
     <string name="group_invites_primary_hint">The primary link can only be revoked: it cannot be edited.</string>
     <string name="group_invites_share_chooser">Share link</string>
     <string name="group_invites_share_text">Join “%1$s” on Telegram: %2$s</string>
+    <string name="group_invites_section_active">Active</string>
+    <string name="group_invites_section_paid">Paid</string>
+    <string name="group_invites_section_inactive">Inactive</string>
+    <string name="group_invites_status_primary">Primary</string>
+    <string name="group_invites_status_paid">Paid</string>
+    <string name="group_invites_status_approval">By request</string>
+    <string name="group_invites_status_revoked">Revoked</string>
+    <string name="group_invites_expired_on">Expired %1$s</string>
+    <string name="group_invites_joined">Joined: %1$d</string>
+    <string name="group_invites_open_details">Open link details</string>
+    <string name="group_invites_creator_you">Created by you</string>
+    <string name="group_invites_created_on">Created %1$s</string>
 
     <string name="group_requests_title">Join requests</string>
     <string name="group_requests_empty">No requests</string>
