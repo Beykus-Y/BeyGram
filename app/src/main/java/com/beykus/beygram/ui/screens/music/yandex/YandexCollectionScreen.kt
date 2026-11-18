@@ -5,18 +5,17 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -31,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.beykus.beygram.BeyGramApplication
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
 import com.beykus.beygram.R
@@ -45,6 +45,7 @@ import com.beykus.beygram.data.music.provider.YANDEX_TRACK_KEY_PREFIX
 import com.beykus.beygram.data.yandex.YandexMusicProvider
 import com.beykus.beygram.data.yandex.YandexWave
 import com.beykus.beygram.data.yandex.YandexWaveLauncher
+import com.beykus.beygram.playback.PlaybackEngine
 import com.beykus.beygram.playback.YandexTrackResolver
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.design.LocalDesignSystem
@@ -67,7 +68,6 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -102,6 +102,8 @@ internal fun YandexCollectionScreen(
     val design = LocalDesignSystem.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The queue extension of a liked tap outlives the screen, so it runs in the application scope.
+    val appScope = remember(context) { (context.applicationContext as BeyGramApplication).applicationScope }
     val likedTitle = stringResource(R.string.yandex_library_liked)
     val playlistTitle = stringResource(R.string.yandex_library_playlists)
 
@@ -129,12 +131,42 @@ internal fun YandexCollectionScreen(
     var failure by remember(ref) { mutableStateOf<MusicProviderFailure?>(null) }
     // The liked list: every id at once, the tracks a page at a time.
     var likedIds by remember(ref) { mutableStateOf<List<String>?>(null) }
-    // All liked tracks, loaded in the background after the first page; a tap waits for it only when it is not ready.
-    var allLiked by remember(ref) { mutableStateOf<Deferred<List<ProviderTrack>?>?>(null) }
+    // All liked tracks, loaded in the background after the first page; a tap queues the rest as soon as it has loaded.
+    var allLiked by remember(ref) { mutableStateOf<LikedPreload<MusicProvider>?>(null) }
+    // The queue extension of the latest liked tap. It may outlive the screen, because playback still waits for its rest.
+    var extendJob by remember(ref) { mutableStateOf<Job?>(null) }
     var attempt by remember(ref) { mutableStateOf(0) }
+
+    /** Starts the whole-list load for [owner] and the liked [ids] it is given. */
+    fun startLikedPreload(owner: MusicProvider, ids: List<String>): LikedPreload<MusicProvider> = LikedPreload(
+        scope = appScope,
+        dispatcher = Dispatchers.IO,
+        owner = owner,
+        ids = ids.toList(),
+        fetch = { likedIdsCopy -> loadAllLiked(owner, likedIdsCopy) },
+        publish = { list -> ProviderTracks.remember(list) },
+    )
+
+    /** Retires a load made for another provider or other liked ids: its tracks never reach the cache or a queue. */
+    fun retireStaleLikedPreload(owner: MusicProvider, ids: List<String>?) {
+        val preload = allLiked ?: return
+        if (preload.isStaleFor(owner, ids)) {
+            preload.retire()
+            allLiked = null
+        }
+    }
+
+    // Leaving the screen stops the warm-up, unless a tap still waits for the rest of its list.
+    DisposableEffect(ref) {
+        onDispose {
+            if (extendJob?.isActive != true) allLiked?.retire()
+        }
+    }
 
     LaunchedEffect(ref, provider, attempt) {
         if (provider == null) return@LaunchedEffect
+        // A load made for another provider stops before anything is asked of the service.
+        retireStaleLikedPreload(provider, null)
         loading = true
         failure = null
         val result: ProviderResult<List<ProviderTrack>> = withContext(Dispatchers.IO) {
@@ -145,8 +177,8 @@ internal fun YandexCollectionScreen(
                             is ProviderResult.Failure -> return@withContext fresh
                             is ProviderResult.Success -> fresh.value
                         }
-                    // A changed list drops the preload made for the old one.
-                    if (ids != likedIds) allLiked = null
+                    // A load made for other liked ids stops before its tracks can reach the cache.
+                    retireStaleLikedPreload(provider, ids)
                     likedIds = ids
                     ProviderTracks.rememberLikedIds(ids)
                     provider.tracks(ids.take(LIKED_PAGE))
@@ -179,13 +211,13 @@ internal fun YandexCollectionScreen(
         loading = false
     }
 
-    // The rest of the liked list loads once the first page shows; it is not cancelled with a play job.
+    // The rest of the liked list loads once the first page shows, so a tap can queue it without waiting.
     LaunchedEffect(ref, provider, likedIds, loading) {
         val ids = likedIds
-        if (ref != YandexCollectionRef.Liked || provider == null || loading || ids == null || ids.size <= tracks.size || allLiked != null) {
-            return@LaunchedEffect
-        }
-        allLiked = scope.async(Dispatchers.IO) { loadAllLiked(provider, ids) }
+        if (ref != YandexCollectionRef.Liked || provider == null || loading || ids == null) return@LaunchedEffect
+        retireStaleLikedPreload(provider, ids)
+        if (ids.size <= tracks.size || allLiked != null) return@LaunchedEffect
+        allLiked = startLikedPreload(provider, ids)
     }
 
     // Next liked page once the list nears its end.
@@ -223,44 +255,59 @@ internal fun YandexCollectionScreen(
         }
     }
 
-    // The latest tap wins: a queue still loading for an earlier tap is dropped.
+    // The latest tap wins: a shuffle still waiting for an earlier tap is dropped, and so is an earlier queue extension.
     var playJob by remember(ref) { mutableStateOf<Job?>(null) }
-    // The row tapped last, shown with a spinner until its queue starts.
-    var pendingTrackId by remember(ref) { mutableStateOf<String?>(null) }
 
-    /** Plays from [index]; the liked list loads all of its tracks first, so the queue holds the whole collection. */
+    /**
+     * Plays from [index]. A tapped liked row starts at once with the tracks loaded so far, and the rest of the liked list
+     * joins its queue when the whole list has loaded. A shuffle waits for the whole list, so its queue holds all of it.
+     */
     fun play(index: Int, shuffle: Boolean) {
         playJob?.cancel()
         playJob = null
-        pendingTrackId = null
+        extendJob?.cancel()
+        extendJob = null
         val ids = likedIds
-        if (ref == YandexCollectionRef.Liked && provider != null && ids != null && ids.size > tracks.size) {
-            val tapped = tracks.getOrNull(index)
-            val startId = tapped?.trackId
-            // The tapped file downloads now; the player asks for the same key and reuses this download.
-            if (!shuffle && tapped != null && tapped.isAvailable) {
-                YandexTrackResolver.ensureConfigured(context)
-                YandexTrackResolver.request(tapped.key)
-            }
-            // The preload is reused; one that failed is started again.
-            val all = allLiked?.takeUnless { it.failedOrEmpty() }
-                ?: scope.async(Dispatchers.IO) { loadAllLiked(provider, ids) }.also { allLiked = it }
-            pendingTrackId = if (shuffle) null else startId
-            playJob = scope.launch {
-                try {
-                    // Every liked id, not a prefix: the queue, the shuffle and the BG Mix session cover the whole list.
-                    val list = all.await() ?: tracks
-                    val start = list.indexOfFirst { it.trackId == startId }
-                    // A row past the first tracks plays from the pages loaded so far.
-                    if (start < 0 && !shuffle) startList(context, tracks, index, false)
-                    else startList(context, list, start.coerceAtLeast(0), shuffle)
-                } finally {
-                    // A newer tap owns the spinner; only the job still current clears it.
-                    if (playJob === coroutineContext[Job]) pendingTrackId = null
-                }
-            }
-        } else {
+        if (ref != YandexCollectionRef.Liked || provider == null || ids == null || ids.size <= tracks.size) {
             startList(context, tracks, index, shuffle)
+            return
+        }
+        retireStaleLikedPreload(provider, ids)
+        // The preload is reused; one that failed is started again.
+        val preload = allLiked?.takeUnless { it.tracks.failedOrEmpty() } ?: startLikedPreload(provider, ids).also { allLiked = it }
+        val loaded = tracks
+        if (shuffle) {
+            playJob = scope.launch {
+                startList(context, preload.tracks.await() ?: loaded, 0, true)
+            }
+            return
+        }
+        val tapped = loaded.getOrNull(index) ?: return
+        // The tapped file downloads now; the player asks for the same key and reuses this download.
+        if (tapped.isAvailable) {
+            YandexTrackResolver.ensureConfigured(context)
+            YandexTrackResolver.request(tapped.key)
+        }
+        val queued = loaded.drop(index).mapTo(HashSet()) { it.trackId }
+        val headKeys = loaded.drop(index).filter { it.isAvailable }.map { it.key }
+        // Not the screen scope: the rest still joins the queue after the screen is left. A later tap or list retires it.
+        extendJob = appScope.launch(Dispatchers.Main.immediate) {
+            playLikedTap(
+                tappedId = tapped.trackId,
+                headKeys = headKeys,
+                queued = queued,
+                startNow = {
+                    if (startList(context, loaded, index, false)) {
+                        PlaybackEngine.state.value.queue.map { it.key } to PlaybackEngine.queueGeneration
+                    } else {
+                        emptyList<String>() to 0L
+                    }
+                },
+                loadAll = { preload.tracks.await() },
+                appendRest = { generation, rest ->
+                    if (PlaybackEngine.appendYandexTracks(rest, generation)) ProviderTracks.remember(rest)
+                },
+            )
         }
     }
 
@@ -366,7 +413,6 @@ internal fun YandexCollectionScreen(
                     Box(Modifier.padding(horizontal = MusicScreenGutter)) {
                         TrackRowWithMenu(
                             track = track,
-                            loading = track.trackId == pendingTrackId,
                             number = if (ref is YandexCollectionRef.Album) index + 1 else null,
                             inAlbum = (ref as? YandexCollectionRef.Album)?.id,
                             onClick = if (track.isAvailable) ({ play(index, false) }) else null,
@@ -386,7 +432,6 @@ internal fun YandexCollectionScreen(
 @Composable
 private fun TrackRowWithMenu(
     track: ProviderTrack,
-    loading: Boolean,
     number: Int?,
     inAlbum: String?,
     onClick: (() -> Unit)?,
@@ -400,9 +445,6 @@ private fun TrackRowWithMenu(
         onClick = onClick,
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = palette.accentInk)
-                }
                 Box {
                     IconButton(onClick = { menu = true }) {
                         Icon(Icons.Rounded.MoreVert, stringResource(R.string.music_track_menu), tint = palette.textSecondary)
@@ -486,7 +528,7 @@ private suspend fun loadAllLiked(provider: MusicProvider, ids: List<String>): Li
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
-        // A failure must not cancel the screen's scope; the tap falls back to the pages loaded so far.
+        // A failed request is not a crash: the tap then queues only the tracks loaded so far.
         null
     }
 
@@ -508,19 +550,19 @@ private suspend fun collectAllLiked(provider: MusicProvider, ids: List<String>):
         }
     }
     val byId = (known + fetched).associateBy { it.trackId }
-    val list = ids.mapNotNull { byId[it]?.copy(liked = true) }
-    ProviderTracks.remember(list)
-    return list
+    // Published by the preload that asked for them, and only while that load is still current.
+    return ids.mapNotNull { byId[it]?.copy(liked = true) }
 }
 
-/** Starts [list] at [index], or shuffled when [shuffle] is set. */
-private fun startList(context: android.content.Context, list: List<ProviderTrack>, index: Int, shuffle: Boolean) {
+/** Starts [list] at [index], or shuffled when [shuffle] is set. Returns false when no track of it can play. */
+private fun startList(context: android.content.Context, list: List<ProviderTrack>, index: Int, shuffle: Boolean): Boolean {
     val playable = list.filter { it.isAvailable }
-    if (playable.isEmpty()) return
+    if (playable.isEmpty()) return false
     if (shuffle) {
         ProviderArtwork.playTracks(context, playable.shuffled(), 0)
     } else {
         ProviderArtwork.playTracks(context, list, index)
     }
+    return true
 }
 
