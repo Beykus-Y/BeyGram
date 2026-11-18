@@ -16,7 +16,6 @@ import com.beykus.beygram.domain.model.MessageCapabilities
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.TelegramAvatar
 import java.text.SimpleDateFormat
-import java.util.Locale
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -683,8 +682,6 @@ internal fun PinnedMessagesScreen(
     var query by rememberSaveable(chatKey) { mutableStateOf("") }
     var searchOpen by rememberSaveable(chatKey) { mutableStateOf(false) }
     val searchFocus = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
-    val focus = LocalFocusManager.current
     val membersById = remember(members) { members.associateBy { it.userId } }
     val directChatsById = remember(senderChats) {
         senderChats.filter { !it.isGroup && !it.isSecret && !it.isSavedMessages && !it.isChannel }.associateBy { it.id }
@@ -692,8 +689,6 @@ internal fun PinnedMessagesScreen(
     fun closeSearch() {
         searchOpen = false
         query = ""
-        focus.clearFocus()
-        keyboard?.hide()
     }
     val searchEnter = rememberMotionSpec(MotionToken.BannerChange)
     val searchExit = rememberMotionSpec(MotionToken.BannerChange)
@@ -711,7 +706,11 @@ internal fun PinnedMessagesScreen(
 
     val searching = query.isNotBlank()
     val shown = if (searching) searchResults else state.pins
-    val monthLabels = remember(shown) { shown.map(::pinnedMonthLabel) }
+    val locale = context.resources.configuration.locales[0]
+    val monthLabels = remember(shown, locale) {
+        val formatter = SimpleDateFormat("LLLL yyyy", locale)
+        shown.map { if (it.dateSeconds > 0L) formatter.format(Date(it.dateSeconds * 1000L)) else "" }
+    }
 
     // The search is server-side inside the pinned filter, so it covers every page of pins, not only the loaded ones.
     suspend fun loadSearchPage(fromMessageId: Long, replace: Boolean) {
@@ -795,6 +794,14 @@ internal fun PinnedMessagesScreen(
             dismissOnBackPress = true
         )
     ) {
+        val keyboard = LocalSoftwareKeyboardController.current
+        val focus = LocalFocusManager.current
+        LaunchedEffect(searchOpen) {
+            if (!searchOpen) {
+                focus.clearFocus()
+                keyboard?.hide()
+            }
+        }
         Column(
             Modifier.fillMaxSize().background(palette.screen)
                 .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
@@ -996,7 +1003,7 @@ private fun PinnedMessageRow(
                     if (message.senderName.isBlank() && !message.isOutgoing) {
                         Icon(Icons.Rounded.Person, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
                     } else {
-                        Text(senderName.take(1).uppercase(), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(senderName.substring(0, senderName.offsetByCodePoints(0, 1)).uppercase(), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     }
                 }
             }
@@ -1037,7 +1044,7 @@ private fun PinnedMessageRow(
             )
             if (!chat.hasProtectedContent && capabilities?.canCopy == true && message.text.isNotBlank()) {
                 BeyGramPopoverItem(
-                    text = stringResource(R.string.message_action_copy),
+                    text = stringResource(R.string.message_action_copy_text),
                     onClick = {
                         context.getSystemService(ClipboardManager::class.java)
                             ?.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.chat_message), message.text))
@@ -1065,6 +1072,3 @@ private fun pinnedDateLabel(message: ChatMessage): String =
         DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(message.dateSeconds * 1000L))
     } else message.time
 
-
-private fun pinnedMonthLabel(message: ChatMessage): String =
-    if (message.dateSeconds > 0L) SimpleDateFormat("LLLL yyyy", Locale.getDefault()).format(Date(message.dateSeconds * 1000L)) else ""
