@@ -960,7 +960,10 @@ internal fun ProfileToolbar(
         derivedStateOf { (collapseValue?.value ?: 0f) < 0.30f }
     }
     val compactSemanticsShown by remember(collapseValue) {
-        derivedStateOf { (collapseValue?.value ?: 0f) >= 1f }
+        derivedStateOf {
+            collapseValue != null &&
+                compactToolbarIdentityAlpha(collapseValue.value, collapseGeometry?.overlayReady == true) > 0f
+        }
     }
     Row(container.padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
