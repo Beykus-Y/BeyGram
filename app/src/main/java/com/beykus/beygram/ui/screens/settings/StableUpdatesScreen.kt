@@ -106,7 +106,7 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
                         color = palette.textSecondary,
                         fontSize = 14.sp
                     )
-                    StatusLine(status, isDevBeta)
+                    StatusLine(status, isDevBeta, verifyFailed = model.installNotice == InstallNotice.VerifyFailed)
                     model.lastCheckedAt?.let { millis ->
                         Text(
                             stringResource(R.string.updates_last_checked, formatUpdateDate(context, millis, withTime = true)),
@@ -137,7 +137,7 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
 }
 
 @Composable
-private fun StatusLine(status: UpdateStatus, isDevBeta: Boolean) {
+private fun StatusLine(status: UpdateStatus, isDevBeta: Boolean, verifyFailed: Boolean) {
     val palette = beyGramPalette()
     val line = when (status) {
         UpdateStatus.Idle -> StatusLineContent(
@@ -179,8 +179,9 @@ private fun StatusLine(status: UpdateStatus, isDevBeta: Boolean) {
         )
         is UpdateStatus.Ready -> StatusLineContent(
             headline = stringResource(R.string.updates_state_ready),
-            detail = stringResource(R.string.updates_state_ready_detail),
-            tone = StatusTone.Success,
+            // After a failed verification the file is not trusted; the notice below explains it.
+            detail = if (verifyFailed) null else stringResource(R.string.updates_state_ready_detail),
+            tone = if (verifyFailed) StatusTone.Warning else StatusTone.Success,
             icon = Icons.Rounded.CheckCircle,
             announce = true
         )
