@@ -221,7 +221,7 @@
     <string name="updates_preparing_install">Verificando el APK antes de la instalación…</string>
     <string name="updates_confirm_android_install">Confirma la actualización en el instalador de Android.</string>
     <string name="updates_allow_unknown_sources">Permite las instalaciones desde BeyGram en los ajustes de Android, vuelve y toca Instalar.</string>
-    <string name="updates_error_launch_installer">No se pudo abrir el instalador de Android.</string>
+    <string name="updates_error_launch_installer">No se pudo abrir el instalador de Android. El archivo de actualización se conserva, así que puedes volver a intentarlo.</string>
     <string name="updates_error_check">No se pudieron comprobar las versiones de GitHub.</string>
     <string name="updates_error_download">La descarga falló. Se eliminó el archivo incompleto, así que puedes volver a intentarlo.</string>
 </resources>

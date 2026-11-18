@@ -1997,7 +1997,7 @@
     <string name="updates_preparing_install">Проверяем APK перед установкой…</string>
     <string name="updates_confirm_android_install">Подтвердите обновление в системном установщике Android.</string>
     <string name="updates_allow_unknown_sources">Разрешите установку из BeyGram в настройках Android, затем вернитесь и нажмите «Установить».</string>
-    <string name="updates_error_launch_installer">Не удалось открыть установщик Android.</string>
+    <string name="updates_error_launch_installer">Не удалось открыть установщик Android. Файл обновления сохранён, можно попробовать снова.</string>
     <string name="updates_error_check">Не удалось проверить GitHub Releases.</string>
     <string name="updates_error_download">Загрузка не удалась. Неполный файл удалён, можно попробовать снова.</string>
     <string name="forum_topics_partial_load_failed">Часть тем не загрузилась. Уже полученные темы доступны.</string>

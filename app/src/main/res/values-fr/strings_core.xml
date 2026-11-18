@@ -221,7 +221,7 @@
     <string name="updates_preparing_install">Vérification de l’APK avant l’installation…</string>
     <string name="updates_confirm_android_install">Confirmez la mise à jour dans l’installateur Android.</string>
     <string name="updates_allow_unknown_sources">Autorisez les installations depuis BeyGram dans les paramètres Android, puis revenez et appuyez sur Installer.</string>
-    <string name="updates_error_launch_installer">Impossible d’ouvrir l’installateur Android.</string>
+    <string name="updates_error_launch_installer">Impossible d’ouvrir l’installateur Android. Le fichier de mise à jour est conservé : vous pouvez réessayer.</string>
     <string name="updates_error_check">Impossible de vérifier les versions GitHub.</string>
     <string name="updates_error_download">Le téléchargement a échoué. Le fichier incomplet a été supprimé ; vous pouvez réessayer.</string>
 </resources>
