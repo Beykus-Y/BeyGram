@@ -1178,6 +1178,7 @@ private fun PinnedMessageRow(
             else -> stringResource(R.string.chat_pinned_unknown_sender)
         }
     }
+    val senderInitial = if (senderName.isEmpty()) "" else senderName.substring(0, senderName.offsetByCodePoints(0, 1)).uppercase()
     Box {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 64.dp)
@@ -1188,14 +1189,14 @@ private fun PinnedMessageRow(
             when {
                 member != null -> TelegramAvatar(member.initials, Color(member.avatarColorArgb), 36.dp, resolvedPhoto ?: member.photo, observeFile, downloadFile)
                 directChat != null && resolvedPhoto == null -> ChatAvatar(directChat, 36.dp, observeFile, downloadFile)
-                resolvedPhoto != null -> TelegramAvatar(senderName.substring(0, senderName.offsetByCodePoints(0, 1)).uppercase(), palette.surface2, 36.dp, resolvedPhoto, observeFile, downloadFile)
+                resolvedPhoto != null -> TelegramAvatar(senderInitial, palette.surface2, 36.dp, resolvedPhoto, observeFile, downloadFile)
                 message.isChannelPost || (!chat.isGroup && !message.isOutgoing && !chat.isSavedMessages) ->
                     ChatAvatar(chat, 36.dp, observeFile, downloadFile)
                 else -> Box(Modifier.size(36.dp).clip(CircleShape).background(palette.surface2), contentAlignment = Alignment.Center) {
                     if (message.senderName.isBlank() && !message.isOutgoing) {
                         Icon(Icons.Rounded.Person, contentDescription = null, tint = palette.textSecondary, modifier = Modifier.size(20.dp))
                     } else {
-                        Text(senderName.substring(0, senderName.offsetByCodePoints(0, 1)).uppercase(), color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(senderInitial, color = palette.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     }
                 }
             }
