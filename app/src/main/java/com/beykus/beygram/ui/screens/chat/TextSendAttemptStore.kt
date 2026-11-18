@@ -30,7 +30,7 @@ internal object TextSendSnapshotCodec {
             a.entities.forEach { e -> entities.put(JSONObject().put("offset", e.offset).put("length", e.length)
                 .put("kind", e.kind.name).put("argument", e.argument)) }
             rows.put(JSONObject().put("id", a.attemptId).put("account", a.scope.accountId)
-                .put("chat", a.scope.chatId).put("topic", a.scope.forumTopicId).put("text", a.text)
+                .put("chat", a.scope.chatId).put("topic", a.scope.forumTopicId).put("dest", a.destinationTopicId).put("text", a.text)
                 .put("entities", entities).put("reply", a.replyToMessageId).put("time", a.timeLabel)
                 .put("forceReply", a.dismissForceReplyMessageId).put("baseline", a.baselineSequence)
                 .put("silent", a.options.disableNotification).put("scheduled", a.options.scheduledAtSeconds)
@@ -61,8 +61,9 @@ internal object TextSendSnapshotCodec {
             val id = a.getLong("id")
             require(id > 0 && id < Long.MAX_VALUE && seen.add(id)) { "Invalid pending text attempt id" }
             val entities = a.getJSONArray("entities")
+            val scope = TextSendScopeKey(a.getString("account"), a.getLong("chat"), a.getLong("topic"))
             TextSendAttempt(
-                attemptId = id, scope = TextSendScopeKey(a.getString("account"), a.getLong("chat"), a.getLong("topic")),
+                attemptId = id, scope = scope,
                 text = a.getString("text"), entities = (0 until entities.length()).map { i ->
                     val e = entities.getJSONObject(i)
                     MessageTextEntity(e.getInt("offset"), e.getInt("length"), TextStyleKind.valueOf(e.getString("kind")), e.getString("argument"))
@@ -72,7 +73,9 @@ internal object TextSendSnapshotCodec {
                 baselineSequence = a.getLong("baseline"), timeLabel = a.getString("time"),
                 dismissForceReplyMessageId = if (a.has("forceReply")) a.getLong("forceReply") else null,
                 phase = TextSendAttemptPhase.valueOf(a.optString("phase", "Sending")),
-                errorMessage = if (a.has("error")) a.getString("error") else null
+                errorMessage = if (a.has("error")) a.getString("error") else null,
+                // Rows written before the feed had its own scope carry no destination: their scope's topic is it.
+                destinationTopicId = if (a.has("dest")) a.getLong("dest") else scope.forumTopicId
             )
         }
     }

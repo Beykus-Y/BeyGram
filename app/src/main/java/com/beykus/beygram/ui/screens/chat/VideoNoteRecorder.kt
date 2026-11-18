@@ -942,6 +942,8 @@ internal fun rememberVideoNoteRecorder(
     chatId: Long,
     topicId: Long = 0L,
     accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
+    replyToMessageId: Long? = null,
+    recordedInFeed: Boolean = false,
     onError: (String) -> Unit
 ): VideoNoteRecorder {
     val context = LocalContext.current
@@ -949,11 +951,13 @@ internal fun rememberVideoNoteRecorder(
     val currentChatId by rememberUpdatedState(chatId)
     val currentTopicId by rememberUpdatedState(topicId)
     val currentAccountId by rememberUpdatedState(accountId)
+    val currentReplyToMessageId by rememberUpdatedState(replyToMessageId)
+    val currentRecordedInFeed by rememberUpdatedState(recordedInFeed)
     val currentOnError by rememberUpdatedState(onError)
     val recorder = remember(owner, settings, processingScope) {
         VideoNoteRecorder(context, owner, processingScope, { settings.settings.value },
             onTakeReady = { raw, takeSettings, sessionName, previewFirst ->
-                VideoNoteExportCenter.enqueue(context.applicationContext, currentChatId, raw, takeSettings, sessionName, previewFirst, currentTopicId, currentAccountId)
+                VideoNoteExportCenter.enqueue(context.applicationContext, currentChatId, raw, takeSettings, sessionName, previewFirst, currentTopicId, currentAccountId, currentReplyToMessageId, currentRecordedInFeed)
             },
             onError = { currentOnError(it) })
     }

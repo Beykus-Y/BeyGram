@@ -380,9 +380,9 @@ fun ChatScreen(
     val textSendQueue = remember(sendApplication, accountId, textSendGeneration) {
         PendingTextSendSessions.queue(sendApplication, accountId)
     }
-    // The feed keeps one queue scope while a reply is set or cleared, so a queued or failed text stays visible. Its topic is
-    // General; a queued reply still goes into the replied message's topic, because the send follows the reply target.
-    val textScopeTopicId = if (forumAllMessages) feedGeneralTopic?.id ?: 0L else sendForumTopicId
+    // The feed has a fixed queue scope that does not depend on the General topic, so a queued or failed text stays visible and can be
+    // retried or discarded while General appears or disappears. Each queued text names its own destination topic.
+    val textScopeTopicId = if (forumAllMessages) FORUM_FEED_TEXT_SCOPE_TOPIC_ID else sendForumTopicId
     val textSendScopeKey = remember(accountId, chat.id, textScopeTopicId) { TextSendScopeKey(accountId, chat.id, textScopeTopicId) }
     val textQueueWriting by remember(textSendQueue, textSendScopeKey) {
         textSendQueue.composerWriting(textSendScopeKey)
@@ -548,10 +548,12 @@ fun ChatScreen(
     // Voice messages use this local queue; video notes are owned by VideoNoteExportCenter.
     val pendingRecordingSends = remember(chat.id) { ArrayDeque<List<OutgoingMedia>>() }
     val videoExports by VideoNoteExportCenter.results.collectAsStateWithLifecycle()
-    val videoPreview = videoExports.firstOrNull { it.accountId == accountId && it.chatId == chat.id && it.topicId == sendForumTopicId && it.requiresPreview }
+    // The feed claims the notes of every topic of its chat; a topic view claims only the notes recorded in its own topic.
+    val videoClaimTopicId: Long? = if (forumAllMessages) null else sendForumTopicId
+    val videoPreview = videoExports.firstOrNull { it.claimedBy(chat.id, accountId, videoClaimTopicId) && it.requiresPreview }
     val videoPending by VideoNoteExportCenter.pendingNotes.collectAsStateWithLifecycle()
     // Автоматический кружок виден в ленте сразу: сначала обработка, потом отправка, пока TDLib не примет сообщение.
-    val pendingVideoNotes = remember(videoPending, videoExports, chat.id, sendForumTopicId, accountId) { pendingVideoNotesFor(chat.id, videoPending, videoExports, sendForumTopicId, accountId) }
+    val pendingVideoNotes = remember(videoPending, videoExports, chat.id, videoClaimTopicId, accountId) { pendingVideoNotesFor(chat.id, videoPending, videoExports, videoClaimTopicId, accountId) }
     fun startRecordingSendWorker() {
         if (recordingQueueSending) return
         if (pendingRecordingSends.isEmpty()) return
@@ -708,18 +710,20 @@ fun ChatScreen(
         else -> chat.canSendPolls || info?.kind == ProfileKind.Bot
     }
     ComposerExtraPickers(chat.id, pollsAllowed, conversation, attachments, remember(accountId, chat.isSecret) { if (chat.isSecret) null else ComposerMusicSource(accountId, observeFile, onDownloadFile) })
-    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, sendForumTopicId, accountId = accountId, onError = { error = it })
+    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, sendForumTopicId, accountId = accountId, replyToMessageId = replyId, recordedInFeed = forumAllMessages, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.
-    // A note goes to the topic it was recorded in, so another topic never claims it.
-    LaunchedEffect(accountId, chat.id, sendForumTopicId, conversation) {
+    // A note goes to the topic it was recorded in, so another topic never claims it; the feed claims the notes of every topic.
+    LaunchedEffect(accountId, chat.id, sendForumTopicId, videoClaimTopicId, forumAllMessages, conversation) {
         launch {
             VideoNoteExportCenter.results.collect { list ->
-                list.filter { it.accountId == accountId && it.chatId == chat.id && it.topicId == sendForumTopicId && !it.requiresPreview && !it.sending }.forEach { item ->
-                    val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, replyId, accountId) { media, targetReply ->
+                list.filter { it.claimedBy(chat.id, accountId, videoClaimTopicId) && !it.requiresPreview && !it.sending }.forEach { item ->
+                    val reply = item.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
+                    val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, reply, accountId) { media, targetReply ->
                         conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
-                    if (accepted) clearReply()
+                    // Clear the composer's reply only when this note used it; a reply set after the note was recorded stays.
+                    if (accepted && reply == replyId) clearReply()
                 }
             }
         }
@@ -1881,6 +1885,8 @@ fun ChatScreen(
                         baselineSequence = baselineSeq,
                         timeLabel = timeLabel,
                         dismissForceReplyMessageId = forceReplyId,
+                        // Fixed when the text is queued: a feed text goes to the reply's topic or General, whatever the composer does next.
+                        destinationTopicId = sendForumTopicId,
                         execute = { attempt -> executeTextSendAttempt(conversation, attempt) },
                         onSuccess = {
                             launch?.awaitingSend = false
@@ -2929,10 +2935,11 @@ fun ChatScreen(
             onSelect = recordingRecovery::select,
             onDelete = { VideoNoteExportCenter.discard(video.chatId, video.sessionName, accountId) },
             onSend = {
-                val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, replyId, accountId) { media, targetReply ->
+                val reply = video.sendReplyId(feedSender = forumAllMessages, composerReplyId = replyId)
+                val accepted = VideoNoteExportCenter.send(video.chatId, video.sessionName, reply, accountId) { media, targetReply ->
                     conversation.sendMedia(video.chatId, media, "", targetReply, forumTopicId = video.topicId).map { Unit }
                 }
-                if (accepted) clearReply()
+                if (accepted && reply == replyId) clearReply()
             }
         )
     }
