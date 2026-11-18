@@ -1068,6 +1068,12 @@ internal class AttachmentState(
 /** Telegram captions are limited in Unicode code points, not UTF-16 code units. */
 internal fun attachmentCaptionLength(caption: String): Int = caption.codePointCount(0, caption.length)
 
+internal fun showCaptionCounter(count: Int, limit: Int): Boolean =
+    limit > 0 && count.toLong() * 10 >= limit.toLong() * 9
+
+internal fun showAttachmentLimit(count: Int, limit: Int): Boolean =
+    limit > 0 && count >= (limit - 1).coerceAtLeast(1)
+
 /**
  * Telegram albums contain only 2–10 photo/video media. If a staged item is a document,
  * audio or a video converted to File delivery, preserve the existing sequential semantics.
@@ -1138,7 +1144,7 @@ internal fun rememberAttachmentState(
 }
 
 @Composable
-internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
+internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true, embedded: Boolean = false) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -1155,16 +1161,18 @@ internal fun AttachmentButton(state: AttachmentState, enabled: Boolean = true) {
             state.toggleMenu()
         },
         enabled = available,
-        modifier = Modifier.size(48.dp).clip(CircleShape)
-            .background(if (tonal) palette.accentSoft else palette.surface2)
+        modifier = Modifier.size(ComposerButtonSize)
             .semantics { contentDescription = context.getString(R.string.composer_attach_description) }
     ) {
-        Icon(
-            Icons.Rounded.AttachFile,
-            contentDescription = null,
-            tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary,
-            modifier = Modifier.size(24.dp)
-        )
+        Box(Modifier.size(ComposerButtonSize), contentAlignment = Alignment.Center) {
+            ComposerMaterial(if (tonal) palette.accentSoft else palette.surface2, CircleShape, embedded)
+            Icon(
+                Icons.Rounded.AttachFile,
+                contentDescription = null,
+                tint = if (state.menuOpen || state.active) palette.accent else palette.textSecondary,
+                modifier = Modifier.size(ComposerIconSize)
+            )
+        }
     }
 }
 
@@ -1241,7 +1249,7 @@ internal fun AttachmentPanel(
             shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = exitSpec.animationSpec()) +
                 fadeOut(animationSpec = exitSpec.animationSpec())
     ) {
-    val sheetModifier = if (embedded) Modifier else Modifier.glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)
+    val sheetModifier = if (embedded || (!visible && exitPreview.isNotEmpty() && !exitMenuOpen)) Modifier else Modifier.glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)
     Column(Modifier.fillMaxWidth().then(sheetModifier)) {
         when {
             state.menuOpen || (!visible && exitMenuOpen) -> AttachmentMenu(
@@ -1348,7 +1356,7 @@ private fun PreparedAttachmentsPanel(
     val itemCount = displayPending.size + if (state.extra != null && !closing) 1 else 0
     val compactSet = isCompactAttachmentSet(displayPending, if (closing) null else state.extra)
     // A full gallery is self-explanatory. Reserve the count row for the limit and non-gallery drafts.
-    if (!compactSet || itemCount >= MAX_PENDING_ATTACHMENTS - 1) Row(
+    if (!compactSet || showAttachmentLimit(itemCount, MAX_PENDING_ATTACHMENTS)) Row(
         Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp)
             .heightIn(min = if (compactSet) 24.dp else 48.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1532,6 +1540,7 @@ private fun CompactVisualAttachmentTray(
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
+    val reorderMotion = rememberMotionSpec(MotionToken.ListReorder)
     var selectedItemKey by remember(state) { mutableStateOf<String?>(null) }
     var menuItemKey by remember(state) { mutableStateOf<String?>(null) }
     val activeItem = if (enabled) displayPending.withIndex().firstOrNull { (index, item) ->
@@ -1552,7 +1561,7 @@ private fun CompactVisualAttachmentTray(
                 val actionsLabel = stringResource(R.string.composer_attachment_actions)
                 val documentTile = isDocumentAttachmentTile(item, preparation)
                 Box(
-                    modifier = Modifier.size(80.dp).clip(styledShape(12.dp))
+                    modifier = Modifier.animateItem(fadeInSpec = if (reorderMotion.isInstant) null else reorderMotion.animationSpec(), placementSpec = if (reorderMotion.isInstant) null else reorderMotion.animationSpec(), fadeOutSpec = null).size(80.dp).clip(styledShape(12.dp))
                         .background(palette.surface2)
                 ) {
                     if (documentTile) {
@@ -1675,7 +1684,7 @@ private fun CompactVisualAttachmentTray(
             if (enabled && displayPending.size < MAX_PENDING_ATTACHMENTS) {
                 item(key = "add-more-media") {
                     Box(
-                        Modifier.size(width = 52.dp, height = 80.dp).clip(styledShape(12.dp))
+                        Modifier.animateItem(fadeInSpec = null, placementSpec = if (reorderMotion.isInstant) null else reorderMotion.animationSpec(), fadeOutSpec = null).size(width = 52.dp, height = 80.dp).clip(styledShape(12.dp))
                             .background(palette.surface2)
                             .clickable(enabled = enabled, role = Role.Button, onClick = state.pickPhotos)
                             .semantics { contentDescription = context.getString(R.string.composer_attach_description) },

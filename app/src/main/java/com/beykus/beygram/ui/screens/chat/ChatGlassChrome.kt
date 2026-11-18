@@ -80,7 +80,7 @@ internal fun ChatChromeHost(
         return
     }
     if (edge == GlassEdge.TopHairline) {
-        // The Liquid Glass composer has no full-width glass slab: a soft scrim fades the list out under the row, and the
+        // The attached Liquid Glass composer uses a soft scrim; the floating composer has none. The
         // field and round buttons carry their own surfaces. Bars drawn in this stack (read-only notice, search, selection,
         // delayed send) have no pane behind them any more, so they paint their own opaque fill again.
         CompositionLocalProvider(LocalChatChromeOnGlass provides false, LocalGlassBackdrop provides backdrop) {

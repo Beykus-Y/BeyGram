@@ -70,7 +70,6 @@ import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.usesGlassPanels
-import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.squareSendButton
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
@@ -2695,11 +2694,7 @@ fun ChatScreen(
         )
         delayed.Strip(composerEmpty = draft.isEmpty() && replyId == null, onRestoreDraft = { restored -> updateDraft { restored } })
         val embeddedAttachments = !editing && attachments.active && !attachments.menuOpen && !stickerPanelOpen
-        ChatScreenColumn(Modifier.fillMaxWidth().then(
-            if (embeddedAttachments) Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                .glassCard(design, palette.surface, palette.textSecondary, styledShape(22.dp))
-            else Modifier
-        )) {
+        AttachmentComposerContainer(embeddedAttachments) {
         if (!editing) {
             ChatComposerPanel(
                 stickerPanelOpen = stickerPanelOpen,
@@ -2730,13 +2725,13 @@ fun ChatScreen(
                 onCloseStickerPanel = { stickerPanelOpen = false }
             )
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = if (embeddedAttachments) 6.dp else 10.dp, vertical = if (compactChrome || embeddedAttachments) 4.dp else 8.dp), verticalAlignment = Alignment.Bottom) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = if (embeddedAttachments) 2.dp else 10.dp, vertical = if (compactChrome || embeddedAttachments) 4.dp else 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) {
                     botCommandMenu?.takeIf { it.commands.isNotEmpty() }?.let {
                         BotCommandButton(enabled = !sending && !inlineSending && !attachments.active) { botCommandMenuOpen = true }
                     }
-                    AttachmentButton(attachments, enabled = !sending && !inlineSending)
+                    AttachmentButton(attachments, enabled = !sending && !inlineSending, embedded = embeddedAttachments)
                     Spacer(Modifier.width(8.dp))
                 } else Spacer(Modifier.width(8.dp))
             }
@@ -2752,7 +2747,8 @@ fun ChatScreen(
                 focusRequest = replyFocusRequest, cursor = composerCursor,
                 // One entry to Emoji / Stickers / GIF, inside the input and before Record/Send.
                 header = if (editing) null else replyHeader,
-                trailingAction = if (!editing) {
+                embedded = embeddedAttachments,
+                trailingAction = if (!editing && !attachments.active) {
                     {
                         StickerPanelEntryButton(
                             open = stickerPanelOpen,
@@ -2829,7 +2825,7 @@ fun ChatScreen(
         // The counter is outside the control row: showing it must not shift the buttons below the field.
         if (!recordingActive && !editing && attachments.active && attachments.extra == null) {
             val count = attachmentCaptionLength(draft)
-            if (count.toLong() * 10 >= limits.caption.toLong() * 9) {
+            if (showCaptionCounter(count, limits.caption)) {
                 Text(
                     "$count / ${limits.caption}",
                     color = if (count > limits.caption) palette.danger else palette.textSecondary,

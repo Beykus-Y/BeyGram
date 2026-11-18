@@ -42,7 +42,8 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
     onEntitiesChange: (List<MessageTextEntity>) -> Unit, placeholder: String, locked: Boolean, isError: Boolean, modifier: Modifier,
     focusRequest: Int = 0, cursor: ComposerCursor? = null,
     trailingAction: (@Composable () -> Unit)? = null,
-    header: (@Composable () -> Unit)? = null) {
+    header: (@Composable () -> Unit)? = null,
+    embedded: Boolean = false) {
     var field by remember { mutableStateOf(TextFieldValue(value)) }
     // Text set from outside keeps the cursor an outside edit chose (see [ComposerCursor]); otherwise it goes to the end.
     val current = if (field.text == value) field else TextFieldValue(value, cursor?.selectionFor(value) ?: TextRange(value.length))
@@ -102,17 +103,18 @@ internal fun FormattingTextField(value: String, entities: List<MessageTextEntity
             decorationBox = { inner ->
                 // The field's own container: one 48 dp row for one line of text, growing up to five lines.
                 // The trailing action (stickers, counter) sits inside it, pinned to the bottom line.
-                Column(
-                    Modifier.fillMaxWidth().clip(fieldShape).background(container)
-                        .border(if (isError) 1.dp else 0.dp, if (isError) palette.danger else Color.Transparent, fieldShape)
-                ) {
-                    header?.invoke()
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                        Box(Modifier.weight(1f).padding(start = 16.dp, top = 12.dp, bottom = 12.dp)) {
-                            if (current.text.isEmpty()) Text(placeholder, color = palette.textSecondary, fontSize = 16.sp, lineHeight = 24.sp)
-                            inner()
+                Box(Modifier.fillMaxWidth().clip(fieldShape)
+                    .border(if (isError) 1.dp else 0.dp, if (isError) palette.danger else Color.Transparent, fieldShape)) {
+                    ComposerMaterial(container, fieldShape, embedded)
+                    Column(Modifier.fillMaxWidth()) {
+                        header?.invoke()
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                            Box(Modifier.weight(1f).padding(start = 16.dp, end = if (trailingAction == null) 12.dp else 0.dp, top = 12.dp, bottom = 12.dp)) {
+                                if (current.text.isEmpty()) Text(placeholder, color = palette.textSecondary, fontSize = 16.sp, lineHeight = 24.sp)
+                                inner()
+                            }
+                            trailingAction?.invoke()
                         }
-                        trailingAction?.invoke()
                     }
                 }
             }
