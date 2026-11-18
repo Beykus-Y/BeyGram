@@ -38,7 +38,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -194,6 +194,7 @@ import com.beykus.beygram.ui.screens.music.PlayerProviderTrackMenuItems
 
 private const val SEEK_STEP_MS = 5_000L
 private val QUEUE_ROW_HEIGHT = 76.dp
+private val QUEUE_RISE_DP = 48.dp
 
 internal enum class PlayerPanel { Player, Queue }
 
@@ -238,6 +239,35 @@ internal fun MusicPlayerContent(
     val endless = PlaybackEngine.activeRadio != null && PlaybackEngine.currentQueueIsEndless()
     val waveRibbons = endless && player.playing
     val palette = beyGramPalette()
+    val queueSpec = rememberMotionSpec(MotionToken.PlayerExpand)
+    val risePx = with(LocalDensity.current) { QUEUE_RISE_DP.toPx() }
+    // 0 = player, 1 = queue. Only layer lambdas read it, so a frame of the transition never recomposes the content.
+    val queueMotion = remember { Animatable(if (panel == PlayerPanel.Queue) 1f else 0f) }
+    // The panel at rest. It lags the requested panel while a transition runs, and both panels are composed then.
+    var settled by remember { mutableStateOf(panel) }
+    LaunchedEffect(panel) {
+        val target = if (panel == PlayerPanel.Queue) 1f else 0f
+        if (queueMotion.value != target) {
+            // Two frames after the incoming panel is composed, so its layout exists before it starts to move.
+            withFrameNanos { }
+            withFrameNanos { }
+            if (queueSpec.isInstant) {
+                queueMotion.snapTo(target)
+            } else {
+                queueMotion.animateTo(target, animationSpec = queueSpec.animationSpec<Float>())
+            }
+        }
+        settled = panel
+    }
+    val moving = settled != panel
+    // The mini bar's shared elements do not fly while the queue moves; the container still does.
+    SideEffect { PlayerExpansion.queueBusy = moving }
+    DisposableEffect(Unit) { onDispose { PlayerExpansion.queueBusy = false } }
+    val showPlayer = settled == PlayerPanel.Player || panel == PlayerPanel.Player
+    val showQueue = settled == PlayerPanel.Queue || panel == PlayerPanel.Queue
+    // Kept across Player and Queue, so the list keeps its place while the overlay stays open.
+    val queueList = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    var queuePlaced by rememberSaveable { mutableStateOf(false) }
     Box(modifier.fillMaxWidth()) {
         if (waveRibbons) {
             WaveBackdrop(
@@ -246,14 +276,19 @@ internal fun MusicPlayerContent(
                 modifier = Modifier.matchParentSize().alpha(0.5f),
             )
         }
-        Column(
+        Box(
             Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                 .navigationBarsPadding()
         ) {
-            when (panel) {
-                PlayerPanel.Player -> {
+            if (showPlayer) {
+                // The player fades out over the first part of the transition, before the queue comes up.
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 1f - ramp(queueMotion.value, 0f, 0.45f) }
+                ) {
                     PlayerHeader(
                         player = player,
                         source = source,
@@ -277,8 +312,10 @@ internal fun MusicPlayerContent(
                         onShowInChat = player.item.origin?.let { origin -> { PlaybackEngine.requestShowInChat(origin); onLeave() } }
                     )
                 }
-
-                PlayerPanel.Queue -> QueuePanel(
+            }
+            if (showQueue) {
+                // The queue fades in while it rises; it starts only after the player has faded, so the two never overlap.
+                QueuePanel(
                     source = source,
                     onBack = { onPanel(PlayerPanel.Player) },
                     onDismiss = onLeave,
@@ -287,7 +324,15 @@ internal fun MusicPlayerContent(
                             onLeave()
                             open()
                         }
-                    }
+                    },
+                    modifier = Modifier.graphicsLayer {
+                        val q = queueMotion.value
+                        alpha = ramp(q, 0.55f, 1f)
+                        translationY = (1f - q) * risePx
+                    },
+                    listState = queueList,
+                    placed = queuePlaced,
+                    onPlaced = { queuePlaced = true }
                 )
             }
         }
@@ -1333,7 +1378,11 @@ private fun QueuePanel(
     source: PlaybackSourceLabel,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
-    onSearch: (() -> Unit)? = null
+    onSearch: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    listState: LazyListState,
+    placed: Boolean,
+    onPlaced: () -> Unit
 ) {
     val queue = rememberMusicQueueUi()
     LaunchedEffect(queue == null) { if (queue == null) onDismiss() }
@@ -1347,7 +1396,13 @@ private fun QueuePanel(
     var saveQueueOpen by remember { mutableStateOf(false) }
     // Tracks that already played stay reachable above the current one; with shuffle there is no meaningful "before".
     val playedRows = if (current.shuffleEnabled || current.currentIndex <= 0) emptyList() else current.rows.take(current.currentIndex)
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (playedRows.isEmpty()) 0 else playedRows.size + 1)
+    // The first open starts at the current track; later opens keep the place the list was left at.
+    LaunchedEffect(Unit) {
+        if (!placed) {
+            listState.scrollToItem(if (playedRows.isEmpty()) 0 else playedRows.size + 1)
+            onPlaced()
+        }
+    }
     val backFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { backFocus.requestFocus() } }
     val density = LocalDensity.current
@@ -1360,7 +1415,7 @@ private fun QueuePanel(
         dropTarget = -1
     }
     // An opaque panel: the screen under the sheet must not show through the list.
-    Column(Modifier.fillMaxSize().background(palette.surface.copy(alpha = 1f))) {
+    Column(modifier.fillMaxSize().background(palette.surface.copy(alpha = 1f))) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically

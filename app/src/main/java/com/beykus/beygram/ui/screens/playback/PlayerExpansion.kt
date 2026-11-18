@@ -244,6 +244,8 @@ internal object PlayerExpansion {
     var scope: CoroutineScope? = null
     var density: Float = 1f
     var statusTopPx: Float = 0f
+    /** True while the queue panel moves: the shared elements then stay put and only the container moves. */
+    var queueBusy: Boolean = false
     /** The overlay root, the full window of the app. Null while no host is composed. */
     var rootCoords: LayoutCoordinates? = null
         internal set
@@ -335,7 +337,7 @@ internal object PlayerExpansion {
         }
         val anchor = liveAnchor(anchorId) ?: bestAnchor()
         activeState.value = anchor?.id
-        flightsState.value = anchor != null && !motion.isInstant
+        flightsState.value = anchor != null && !motion.isInstant && !queueBusy
         resetFlightState()
         phaseState.value = PlayerExpansionPhase.Expanding
         val launcher = scope
@@ -363,7 +365,7 @@ internal object PlayerExpansion {
         val live = liveAnchor(activeAnchorId) ?: bestAnchor()
         val keepLost = live == null && activeAnchorId != null && lastSource != null && !motion.isInstant
         if (live != null) activeState.value = live.id else if (!keepLost) activeState.value = null
-        flightsState.value = (live != null && !motion.isInstant) || keepLost
+        flightsState.value = ((live != null && !motion.isInstant) || keepLost) && !queueBusy
         anchorLost = keepLost
         phaseState.value = PlayerExpansionPhase.Collapsing
         runAnimation(0f)
@@ -406,7 +408,7 @@ internal object PlayerExpansion {
         dragOrigin = origin
         travelPx = dragTravelPx(origin, dragEdge, source?.container, full, density)
         activeState.value = anchor?.id
-        flightsState.value = anchor != null && !motion.isInstant
+        flightsState.value = anchor != null && !motion.isInstant && !queueBusy
         resetFlightState()
         phaseState.value = PlayerExpansionPhase.Dragging
         if (flights) refreshRoles()
