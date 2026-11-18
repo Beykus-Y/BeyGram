@@ -1634,7 +1634,8 @@
     <string name="settings_video_diagnostics_clear">Очистить</string>
     <string name="settings_video_diagnostics_clear_confirm">Удалить все локальные диагностические отчёты по видеосообщениям?</string>
     <string name="settings_video_diagnostics_cancel">Отмена</string>
-    <string name="feature_language">Язык приложения</string>
+    <string name="feature_language">Язык и перевод</string>
+    <string name="feature_language_group_interface">Язык интерфейса</string>
     <string name="feature_language_system">Как в системе</string>
     <string name="settings_language_ru">Русский</string>
     <string name="settings_language_en">English</string>
@@ -1642,7 +1643,7 @@
     <string name="settings_language_es">Español</string>
     <string name="settings_language_fr">Français</string>
     <string name="feature_language_hint">Язык меняется сразу.</string>
-    <string name="translation_settings_title">Перевод</string>
+    <string name="translation_settings_title">Перевод сообщений</string>
     <string name="translation_target_title">Перевести на</string>
     <string name="translation_translating">Перевод…</string>
     <string name="translation_translated_to">Переведено на %1$s</string>
