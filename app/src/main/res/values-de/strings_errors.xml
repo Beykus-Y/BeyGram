@@ -167,6 +167,11 @@
     <string name="channel_statistics_post_forwards">Weiterleitungen: %1$s</string>
     <string name="channel_statistics_post_reactions">Reaktionen: %1$s</string>
     <string name="channel_statistics_open_post">Beitrag öffnen</string>
+    <string name="channel_statistics_kpi_title">Wichtigste Kennzahlen</string>
+    <string name="channel_statistics_kpi_per_post">pro Beitrag</string>
+    <string name="channel_statistics_kpi_change">%1$s im Zeitraum</string>
+    <string name="channel_statistics_other_metrics">Weitere Werte</string>
+    <string name="channel_statistics_chart_no_data">Zu wenige Daten für dieses Diagramm</string>
     <string name="channel_admin_log_title">Admin-Protokoll</string>
     <string name="channel_admin_log_all">Alle</string>
     <string name="channel_admin_log_messages">Nachrichten</string>
@@ -175,6 +180,7 @@
     <string name="channel_admin_log_empty">Keine Einträge</string>
     <string name="channel_admin_log_more">Mehr laden</string>
     <string name="channel_admin_log_failed">Das Admin-Protokoll konnte nicht geladen werden</string>
+    <string name="channel_admin_log_actor_missing">Autor nicht angegeben</string>
     <string name="channel_event_title_changed">Neuer Titel: %1$s</string>
     <string name="channel_event_photo_changed">Kanalbild geändert</string>
     <string name="channel_event_description_changed">Beschreibung geändert</string>
@@ -189,5 +195,4 @@
     <string name="channel_event_member_promoted">Rechte geändert: %1$s</string>
     <string name="channel_event_member_restricted">Einschränkungen geändert: %1$s</string>
     <string name="channel_event_settings_changed">Kanaleinstellungen geändert</string>
-    <string name="channel_statistics_actor">%1$s · %2$s</string>
 </resources>
