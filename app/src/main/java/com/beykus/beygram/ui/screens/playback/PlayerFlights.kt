@@ -137,13 +137,13 @@ private fun DrawScope.drawFlightText(
     val c = smooth(ramp(p, 0.2f, 0.6f))
     withTransform({
         translate(anchorX - aLeft * sa, anchorY - aBase * sa)
-        scale(sa, pivot = Offset.Zero)
+        scale(scaleX = sa, scaleY = sa, pivot = Offset.Zero)
     }) {
         drawText(a, alpha = 1f - c)
     }
     withTransform({
         translate(anchorX - bLeft * sb, anchorY - bBase * sb)
-        scale(sb, pivot = Offset.Zero)
+        scale(scaleX = sb, scaleY = sb, pivot = Offset.Zero)
     }) {
         drawText(b, alpha = c)
     }
