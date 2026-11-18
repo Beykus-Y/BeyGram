@@ -1767,8 +1767,12 @@
     <string name="new_chat_group">Создать группу</string>
     <string name="new_chat_group_hint">Выберите участников и название</string>
     <string name="new_chat_channel_hint">Новости, объявления и публикации</string>
-    <string name="new_chat_public_title">ПУБЛИЧНЫЕ ЧАТЫ И ССЫЛКИ</string>
     <string name="new_chat_public_hint">@username, t.me/… или tg://…</string>
+    <string name="new_chat_create_section">СОЗДАТЬ</string>
+    <string name="new_chat_public_explain">Найдите пользователя, группу или канал по @username или ссылке, даже если их нет в контактах.</string>
+    <string name="new_chat_public_searching">Ищем…</string>
+    <string name="new_chat_contacts_empty_hint">Добавьте человека по номеру телефона, и он появится здесь. Или найдите его по @username выше.</string>
+    <string name="new_chat_public_find_for">Найти «%1$s» в Telegram</string>
     <string name="new_chat_public_search">Найти публичный чат</string>
     <string name="new_chat_public_invalid">Введите @username или ссылку t.me / tg://</string>
     <string name="new_chat_public_lookup_failed">Не удалось найти публичный чат</string>
