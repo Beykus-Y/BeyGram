@@ -1,29 +1,32 @@
 package com.beykus.beygram.ui.screens.proxy
 
 import androidx.compose.foundation.background
-import com.beykus.beygram.ui.components.topAppBarSurface
-import com.beykus.beygram.ui.design.styledShape
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.RadioButtonChecked
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
-import com.beykus.beygram.ui.components.Button
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -32,21 +35,35 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.TelegramProxyKind
 import com.beykus.beygram.ui.components.BeyGramPalette
+import com.beykus.beygram.ui.components.Button
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.beyGramTextFieldColors
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.ChipSelectionTone
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.corner
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.groupCardShape
+import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.text.pluralForm
 
 /** Название типа прокси, как в макете. */
@@ -55,6 +72,14 @@ internal val TelegramProxyKind.label: String
         TelegramProxyKind.MTPROTO -> stringResource(R.string.proxy_kind_mtproto)
         TelegramProxyKind.SOCKS5 -> stringResource(R.string.proxy_kind_socks5)
         TelegramProxyKind.HTTP -> stringResource(R.string.proxy_kind_http)
+    }
+
+/** Короткое имя протокола для плашки в строке списка: MTProto, SOCKS5 или HTTP. */
+internal val TelegramProxyKind.badge: String
+    @Composable get() = when (this) {
+        TelegramProxyKind.MTPROTO -> stringResource(R.string.proxy_badge_mtproto)
+        TelegramProxyKind.SOCKS5 -> stringResource(R.string.proxy_badge_socks5)
+        TelegramProxyKind.HTTP -> stringResource(R.string.proxy_badge_http)
     }
 
 /** Пинг до 100 мс зелёный, дальше жёлтый: та же шкала во всех списках прокси. */
@@ -98,61 +123,110 @@ internal fun ProxyTopBar(
     }
 }
 
-/** Вкладки-таблетки: выбранная подсвечена акцентом. */
+/**
+ * Вкладки-таблетки. Выбранная вкладка отмечена так, как принято в текущем стиле: заливкой, подчёркиванием, галочкой или
+ * чернилами (см. [ChipSelectionTone]), а не только цветом. Радиус берётся у стиля, высота касания не меньше 48 dp.
+ */
 @Composable
 internal fun ProxyPillTabs(labels: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val tone = design.mainScreen.chipSelection
+    val shape = RoundedCornerShape(design.shapes.corner(design.mainScreen.chipRadius))
     Row(
         modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(design.spacing.sm)
     ) {
         labels.forEachIndexed { index, label ->
             val selected = index == selectedIndex
+            val container: Modifier = when {
+                tone == ChipSelectionTone.Underlined -> Modifier
+                selected && tone == ChipSelectionTone.Ink -> Modifier.background(palette.textPrimary, shape)
+                selected -> Modifier.background(palette.accentSoft, shape)
+                tone == ChipSelectionTone.Filter -> Modifier.border(1.dp, palette.divider, shape)
+                tone == ChipSelectionTone.Ink -> Modifier
+                else -> Modifier.glassCard(design, palette.surface2, palette.textSecondary, shape)
+            }
+            val labelColor = when {
+                selected && tone == ChipSelectionTone.Ink -> palette.screen
+                selected -> palette.accentInk
+                else -> palette.textSecondary
+            }
             Box(
                 Modifier
                     .weight(1f)
-                    .height(36.dp)
-                    .clip(styledShape(18.dp))
-                    .background(if (selected) palette.accentSoft else palette.surface2)
-                    .clickable { onSelect(index) },
+                    .defaultMinSize(minHeight = 48.dp)
+                    .clip(shape)
+                    .then(container)
+                    .selectable(selected = selected, role = Role.Tab, onClick = { onSelect(index) }),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    label,
-                    color = if (selected) palette.accentInk else palette.textSecondary,
-                    fontSize = 13.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (selected && tone == ChipSelectionTone.Filter) {
+                        Icon(Icons.Rounded.Check, contentDescription = null, tint = labelColor, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(
+                        label,
+                        color = labelColor,
+                        fontSize = 14.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (selected && tone == ChipSelectionTone.Underlined) {
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp).background(palette.accent))
+                }
             }
         }
     }
 }
 
-/** Двухсторонний переключатель внутри светлой плашки. */
+/**
+ * Переключатель внутри светлой дорожки. Дорожка и выделенный сегмент берут радиус и заливку у текущего стиля;
+ * у стиля с чернилами выделенный сегмент тёмный, у тонального светлый с акцентом.
+ */
 @Composable
 internal fun ProxySegmented(labels: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val tone = design.mainScreen.chipSelection
+    val track = RoundedCornerShape(design.shapes.button)
+    val thumb = RoundedCornerShape(design.shapes.small)
     Row(
-        Modifier.fillMaxWidth().clip(styledShape(14.dp)).background(palette.surface2).padding(4.dp),
+        Modifier.fillMaxWidth().glassCard(design, palette.surface2, palette.textSecondary, track).padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         labels.forEachIndexed { index, label ->
             val selected = index == selectedIndex
+            val thumbFill = when {
+                !selected -> Color.Transparent
+                tone == ChipSelectionTone.Ink -> palette.textPrimary
+                tone == ChipSelectionTone.Filter || tone == ChipSelectionTone.Tonal -> palette.accentSoft
+                else -> palette.surface
+            }
+            val labelColor = when {
+                selected && tone == ChipSelectionTone.Ink -> palette.screen
+                selected -> palette.accentInk
+                else -> palette.textSecondary
+            }
             Box(
                 Modifier
                     .weight(1f)
-                    .height(36.dp)
-                    .clip(styledShape(10.dp))
-                    .background(if (selected) palette.surface else Color.Transparent)
-                    .clickable { onSelect(index) },
+                    .defaultMinSize(minHeight = 48.dp)
+                    .clip(thumb)
+                    .background(thumbFill)
+                    .selectable(selected = selected, role = Role.Tab, onClick = { onSelect(index) }),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     label,
-                    color = if (selected) palette.accentInk else palette.textSecondary,
+                    color = labelColor,
                     fontSize = 14.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -182,82 +256,136 @@ internal fun ProxyField(
     )
 }
 
-/** Белая карточка со строками. Разделители между строками ставит вызывающий код. */
+/**
+ * Группа строк. Поверхность, радиус и обводка совпадают с карточками настроек: Material 3 берёт тональный контейнер,
+ * Liquid Glass стеклянную карточку, остальные стили свою заливку и радиус. Разделители ставит вызывающий код.
+ */
 @Composable
 internal fun ProxyCard(content: @Composable ColumnScope.() -> Unit) {
+    val design = LocalDesignSystem.current
+    val palette = beyGramPalette()
     Column(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .clip(styledShape(20.dp))
-            .background(beyGramPalette().surface)
+            .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
             .padding(vertical = 4.dp),
         content = content
     )
 }
 
+/** Заголовок группы: регистр задаёт стиль, как у заголовков карточек настроек. */
 @Composable
 internal fun ProxySectionLabel(text: String) {
+    val design = LocalDesignSystem.current
     Text(
-        text,
+        if (design.mainScreen.sectionLabelUppercase) text.uppercase() else text,
         color = beyGramPalette().textSecondary,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Bold,
-        letterSpacing = 0.8.sp,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp)
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = design.mainScreen.sectionLabelTracking,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 22.dp, end = 22.dp, top = 12.dp, bottom = 8.dp)
+            .semantics { heading() }
     )
 }
 
-/** Строка с радио-кнопкой: название, необязательная подпись и правая часть (пинг, кнопки). */
+/** Плашка у строки: тип протокола, «лучший», «выбран». Цвета задаёт место, где плашка нужна. */
+@Composable
+internal fun ProxyBadge(text: String, container: Color, contentColor: Color) {
+    Text(
+        text,
+        color = contentColor,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        modifier = Modifier
+            .padding(start = 6.dp)
+            .clip(styledShape(8.dp))
+            .background(container)
+            .padding(horizontal = 6.dp, vertical = 1.dp)
+    )
+}
+
+/** Пинг или «нет связи» в строке. У плохого результата есть значок, поэтому состояние читается и без цвета. */
+@Composable
+internal fun ProxyLatencyText(text: String, color: Color, warning: Boolean = false) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (warning) {
+            Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+        }
+        Text(text, color = color, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** Пинг ещё измеряется: вращающийся индикатор с описанием для TalkBack. */
+@Composable
+internal fun ProxyMeasuring() {
+    val description = stringResource(R.string.proxy_latency_measuring)
+    CircularProgressIndicator(
+        Modifier.size(16.dp).semantics { contentDescription = description },
+        color = beyGramPalette().textSecondary,
+        strokeWidth = 2.dp
+    )
+}
+
+/**
+ * Строка-переключатель: кружок, название и подпись. Область выбора занимает строку целиком, кроме [actions]: кнопки
+ * действий стоят отдельно и доступны TalkBack как самостоятельные элементы. [badges] выводятся у названия, [trailing]
+ * внутри области выбора (пинг, статус).
+ */
 @Composable
 internal fun ProxyRadioRow(
     selected: Boolean,
     title: String,
     subtitle: String?,
     onClick: () -> Unit,
-    badge: String? = null,
-    trailing: @Composable RowScope.() -> Unit = {}
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    badges: @Composable RowScope.() -> Unit = {},
+    trailing: @Composable RowScope.() -> Unit = {},
+    actions: @Composable RowScope.() -> Unit = {}
 ) {
     val palette = beyGramPalette()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            if (selected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
-            contentDescription = null,
-            tint = if (selected) palette.accent else palette.textSecondary,
-            modifier = Modifier.size(22.dp)
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    title,
-                    color = palette.textPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                badge?.let {
-                    Spacer(Modifier.width(6.dp))
+    val design = LocalDesignSystem.current
+    Row(modifier.fillMaxWidth().padding(end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .weight(1f)
+                .heightIn(min = design.spacing.listRowMinHeight)
+                .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+                .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                if (selected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                contentDescription = null,
+                tint = if (selected && enabled) palette.accent else palette.textSecondary,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        it,
-                        color = palette.successText,
-                        fontSize = 12.sp,
+                        title,
+                        color = if (enabled) palette.textPrimary else palette.textSecondary,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .clip(styledShape(8.dp))
-                            .background(palette.successSurface)
-                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
+                    badges()
+                }
+                subtitle?.let {
+                    Text(it, color = palette.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
-            subtitle?.let { Text(it, color = palette.textSecondary, fontSize = 13.sp) }
+            trailing()
         }
-        trailing()
+        actions()
     }
 }
 

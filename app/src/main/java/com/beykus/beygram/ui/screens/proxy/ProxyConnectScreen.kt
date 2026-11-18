@@ -4,7 +4,6 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,7 +26,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -38,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.beykus.beygram.R
 import com.beykus.beygram.data.vpn.VpnBackend
+import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramProxyDraft
 import com.beykus.beygram.domain.model.TelegramProxyKind
@@ -236,25 +235,22 @@ internal fun ProxyConnectScreen(
                         lineHeight = 16.sp
                     )
                 }
-                error?.let { Text(it, color = palette.danger, fontSize = 13.sp) }
+                error?.let { Text(it, color = palette.danger, fontSize = 13.sp, modifier = Modifier.errorAnnouncement()) }
             }
         }
 
-        Row(
+        // The main action is the pinned primary button; cancel stays a text action under it.
+        Column(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            TextButton(onClick = onBack) {
+            ProxyPrimaryButton(
+                text = stringResource(R.string.proxy_connect_action_connect),
+                onClick = connect,
+                enabled = canConnect
+            )
+            TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.common_cancel), color = palette.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            }
-            TextButton(onClick = connect, enabled = canConnect) {
-                Text(
-                    stringResource(R.string.proxy_connect_action_connect),
-                    color = if (canConnect) palette.accent else palette.textSecondary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
             }
         }
     }
