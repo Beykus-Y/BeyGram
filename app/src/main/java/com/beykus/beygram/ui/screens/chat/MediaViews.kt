@@ -356,10 +356,12 @@ internal fun LocalMediaImage(
         if (animate) animated?.start()
         onDispose { animated?.stop() }
     }
-    // Fade in over the placeholder only when it is shown and the drawable was not cached.
+    // Fade in over the placeholder only when it is shown and nothing is cached or already on screen. A drawable kept on screen
+    // while a new path decodes starts at full alpha, so it does not fade again; only an empty tile starts at 0.
     val fadeSpec = rememberMotionSpec(MotionToken.MicroFeedback)
-    val reveal = remember(path) { Animatable(if (cached != null || placeholder == null) 1f else 0f) }
-    LaunchedEffect(drawable != null) {
+    val reveal = remember(path) { Animatable(if (cached != null || placeholder == null || drawable != null) 1f else 0f) }
+    // Keyed on the Animatable too, so a new path restarts the check; the seeded value above decides whether anything fades.
+    LaunchedEffect(reveal, drawable != null) {
         if (drawable != null && reveal.value < 1f) {
             if (fadeSpec.isInstant) reveal.snapTo(1f) else reveal.animateTo(1f, fadeSpec.animationSpec())
         }

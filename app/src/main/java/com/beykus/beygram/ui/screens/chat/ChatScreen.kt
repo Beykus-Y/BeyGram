@@ -141,7 +141,9 @@ import com.beykus.beygram.ui.motion.rememberMotionInstant
 import com.beykus.beygram.ui.motion.scrollToItemRespectingMotion
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
+import com.beykus.beygram.ui.screens.playback.PlayerExpansion
 import com.beykus.beygram.ui.screens.playback.parseShareTimecodeMs
+import com.beykus.beygram.ui.screens.playback.receiptsAllowedOf
 import com.beykus.beygram.ui.text.resolve
 import com.beykus.beygram.ui.text.userMessage
 import kotlin.math.roundToInt
@@ -1349,11 +1351,11 @@ fun ChatScreen(
     var bottomChromePx by remember { mutableIntStateOf(0) }
     // With glass chrome the list also runs under the header and composer; those strips do not count as seen.
     val coveredByChrome by rememberUpdatedState((if (chatBackdrop != null) topChromePx else 0) to (if (chatBackdrop != null || floatingComposer) bottomChromePx else 0))
-    // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
+    // Loading/caching messages never triggers receipts; only the focused, resumed viewport does, and not while the full player covers it (the player takes no focus).
     LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             snapshotFlow {
-                if (!window.isWindowFocused || searching || threadOpen || attachments.cameraOpen || attachments.editor != null || !scrollPosition.readBoundaryChecked) emptyList() else {
+                if (!window.isWindowFocused || searching || threadOpen || attachments.cameraOpen || attachments.editor != null || !scrollPosition.readBoundaryChecked || !receiptsAllowedOf(PlayerExpansion.phase)) emptyList() else {
                     val layout = listState.layoutInfo
                     val (coveredTop, coveredBottom) = coveredByChrome
                     val ids = ArrayList<Long>()
@@ -1374,7 +1376,10 @@ fun ChatScreen(
                     }
                     ids
                 }
-            }.debounce(350).distinctUntilChanged().collect { ids -> if (ids.isNotEmpty()) conversation.messagesVisible(chat.id, ids) }
+            }.debounce(350).distinctUntilChanged().collect { ids ->
+                // The debounce can still hold a list computed before the player opened, so the player is checked again at send time.
+                if (ids.isNotEmpty() && receiptsAllowedOf(PlayerExpansion.phase)) conversation.messagesVisible(chat.id, ids)
+            }
         }
     }
     // LaunchedEffect lives across recompositions; rememberUpdatedState keeps the collector on fresh history/row counts.

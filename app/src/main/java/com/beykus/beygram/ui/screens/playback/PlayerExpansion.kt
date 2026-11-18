@@ -132,6 +132,9 @@ internal fun miniSharedHiddenOf(
 internal fun fullSharedHiddenOf(role: FlightRole, flights: Boolean, phase: PlayerExpansionPhase, roles: Set<FlightRole>): Boolean =
     flights && phase != PlayerExpansionPhase.Expanded && phase != PlayerExpansionPhase.Collapsed && role in roles
 
+/** Read receipts wait while the full player covers the chat: any drag or transition counts as covering it. */
+internal fun receiptsAllowedOf(phase: PlayerExpansionPhase): Boolean = phase == PlayerExpansionPhase.Collapsed
+
 /** The rect of this layout in the coordinates of [root], or null while either layout is detached. */
 internal fun LayoutCoordinates.rectIn(root: LayoutCoordinates): Rect? {
     if (!isAttached || !root.isAttached) return null
