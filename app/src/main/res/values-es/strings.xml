@@ -78,7 +78,6 @@
     <string name="chat_pinned_title">Mensajes fijados</string>
     <string name="chat_pinned_retry">Reintentar</string>
     <string name="chat_pinned_list">Mostrar todos los mensajes fijados</string>
-    <string name="chat_pinned_more">Cargar más</string>
     <string name="chat_pinned_failed">No se pudieron cargar los mensajes fijados</string>
     <string name="chat_pinned_position">Fijado %1$d de %2$d</string>
     <string name="chat_pin_channel_title">¿Fijar en este canal?</string>

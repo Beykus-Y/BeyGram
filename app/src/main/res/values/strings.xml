@@ -1384,7 +1384,6 @@
     <string name="chat_pinned_search_empty">Ничего не найдено</string>
     <string name="chat_pinned_empty">Нет закреплённых сообщений</string>
     <string name="chat_pinned_failed">Не удалось загрузить закреплённые сообщения</string>
-    <string name="chat_pinned_more">Загрузить ещё</string>
     <string name="chat_pinned_retry">Повторить</string>
     <string name="chat_link_failed">Не удалось открыть ссылку</string>
     <string name="message_link_username_failed">Не удалось открыть %1$s</string>
