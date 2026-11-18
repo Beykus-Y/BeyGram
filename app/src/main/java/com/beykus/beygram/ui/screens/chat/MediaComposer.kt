@@ -63,6 +63,8 @@ import androidx.compose.foundation.horizontalScroll
 import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
@@ -169,7 +171,8 @@ internal class AttachmentState(
     private val qualityState: MutableState<HashMap<String, MediaPreparation>>,
     private val sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>,
     private val sendSticker: suspend (OutgoingMedia, MessageSendOptions) -> Result<Unit>,
-    private val sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>
+    private val sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>,
+    internal val mediaLaunchController: ComposerMediaLaunchController? = null
 ) {
     var menuOpen by mutableStateOf(false)
     var cameraOpen by mutableStateOf(false)
@@ -1106,7 +1109,8 @@ internal fun rememberAttachmentState(
     chatId: Long,
     sendMedia: suspend (List<OutgoingMedia>, String, MessageSendOptions) -> Result<Unit>,
     sendSticker: suspend (OutgoingMedia, MessageSendOptions) -> Result<Unit>,
-    sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>
+    sendExtra: suspend (MessageExtraDraft, MessageSendOptions) -> Result<Unit>,
+    mediaLaunchController: ComposerMediaLaunchController? = null
 ): AttachmentState {
     val context = LocalContext.current
     val accountId = com.beykus.beygram.playback.LocalPlaybackAccountId.current
@@ -1132,7 +1136,8 @@ internal fun rememberAttachmentState(
         AttachmentState(context, importer, scope, pending, error, viewOnce, editor, captureRetry, quality,
             sendMedia = { media, caption, options -> currentSend(media, caption, options) },
             sendSticker = { media, options -> currentSticker(media, options) },
-            sendExtra = { draft, options -> currentSendExtra(draft, options) })
+            sendExtra = { draft, options -> currentSendExtra(draft, options) },
+            mediaLaunchController = mediaLaunchController)
     }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MediaLimits.MAX_ATTACHMENTS)) { state.prepare(it, false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { state.prepare(it, true) }
@@ -1560,8 +1565,15 @@ private fun CompactVisualAttachmentTray(
                 val moveRight = stringResource(R.string.composer_move_attachment_right)
                 val actionsLabel = stringResource(R.string.composer_attachment_actions)
                 val documentTile = isDocumentAttachmentTile(item, preparation)
+                val flightController = state.mediaLaunchController
+                val trackPhoto = item.kind == MediaKind.Photo && !documentTile && item.stagingKey.isNotBlank()
+                if (flightController != null && trackPhoto) {
+                    DisposableEffect(flightController, item.stagingKey) {
+                        onDispose { flightController.forget(item.stagingKey) }
+                    }
+                }
                 Box(
-                    modifier = Modifier.animateItem(fadeInSpec = if (reorderMotion.isInstant) null else reorderMotion.animationSpec(), placementSpec = if (reorderMotion.isInstant) null else reorderMotion.animationSpec(), fadeOutSpec = null).size(80.dp).clip(styledShape(12.dp))
+                    modifier = Modifier.animateItem(fadeInSpec = if (reorderMotion.isInstant) null else reorderMotion.animationSpec(), placementSpec = if (reorderMotion.isInstant) null else reorderMotion.animationSpec(), fadeOutSpec = null).size(80.dp).then(if (flightController != null && trackPhoto) Modifier.onGloballyPositioned { flightController.record(item.stagingKey, it) } else Modifier).clip(styledShape(12.dp))
                         .background(palette.surface2)
                 ) {
                     if (documentTile) {

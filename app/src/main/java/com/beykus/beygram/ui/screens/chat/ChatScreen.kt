@@ -609,14 +609,34 @@ fun ChatScreen(
         if (previewFirst) recordingRecovery.showPreview(listOf(media))
         else sendRecordedMedia(listOf(media))
     }
+    val mediaLaunchController = remember(accountId, chat.id, forumTopicId) { ComposerMediaLaunchController() }
+    val mediaLaunchMotion = rememberMotionSpec(MotionToken.MediaExpand)
+    LaunchedEffect(mediaLaunchController.active) {
+        val launch = mediaLaunchController.active ?: return@LaunchedEffect
+        delay(2_500L)
+        mediaLaunchController.finish(launch)
+    }
     val attachments = rememberAttachmentState(
         chatId = chat.id,
+        mediaLaunchController = mediaLaunchController,
         sendMedia = { media, caption, options ->
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
-            val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = sendForumTopicId, options = options)
-            else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = sendForumTopicId, options = options)
-            if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
-            result
+            // Only the real, visible outgoing photo can receive the spatial effect. Never match by caption/file name.
+            val capture = if (design.navigationFloating && messageAnimations.enabled && !mediaLaunchMotion.isInstant &&
+                !chat.isSecret && !chat.hasProtectedContent && !options.viewOnce &&
+                options.scheduledAtSeconds == null && !stealthScheduledBefore) {
+                mediaLaunchController.capture(media)
+            } else null
+            val result = conversation.sendComposerMedia(chat.id, media, caption, replyId, draftEntities, sendForumTopicId, options)
+            if (result.isSuccess) {
+                val id = result.getOrNull()?.singleOrNull()
+                if (capture != null && id != null && mediaCoordinates[id] == null) {
+                    mediaLaunchController.accept(capture, id)
+                }
+                clearReply()
+                if (stealthScheduledBefore) showStealthScheduledNotice(context)
+            }
+            result.map { Unit }
         },
         sendSticker = { sticker, options ->
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
@@ -2271,6 +2291,11 @@ fun ChatScreen(
                     // A confirmed send replaces the temporary id; the dice throw keeps its original identity.
                     val diceAnimationId = rememberDiceAnimationId(message.id, history.recentReplacements)
                     val launch = launchTargets[message.id]
+                    val mediaLaunch = mediaLaunchController.active?.takeIf {
+                        message.media?.kind == MediaKind.Photo && message.isOutgoing &&
+                            message.sendState != MessageSendState.Failed &&
+                            resolveMessageIdThroughReplacements(it.messageId, history.recentReplacements) == message.id
+                    }
                     val launchModifier = if (launch != null) Modifier.graphicsLayer { alpha = 0f } else Modifier
                     // Only an open action menu and an in-flight launch follow the bubble while the list moves. Other rows only
                     // store their layout; the rectangle is computed when something reads it.
@@ -2294,7 +2319,7 @@ fun ChatScreen(
                     val isCircleMedia = !isCenteredRow && message.media?.kind == MediaKind.VideoNote
                     val bubbleSideInset = if (isCenteredRow || isCircleMedia) 0.dp else metrics.sideInset
                     MessageAnimationFrame(
-                        animate = animateArrival && launch == null,
+                        animate = animateArrival && launch == null && mediaLaunch == null,
                         outgoing = message.isOutgoing,
                         config = messageAnimations,
                         modifier = launchModifier,
@@ -2353,6 +2378,8 @@ fun ChatScreen(
                                     onReaction = ::react, observeCustomEmoji = conversation::observeCustomEmoji, inlineContent = { InlineBotButtons(message, conversation, riskGuard, ::requestBotWebApp, onOpenEntity = onOpenMessageEntity) },
                                 onBubblePositioned = bubblePosition,
                                 onMediaBounds = { coordinates -> mediaCoordinates[message.id] = coordinates },
+                                composerMediaLaunch = mediaLaunch,
+                                onComposerMediaLaunchFinished = mediaLaunchController::finish,
                                 translation = translationState,
                                 onTranslationRetry = { retryTranslation(message) },
                                 onTranslationCancel = { cancelTranslation(message.id) },
@@ -3669,7 +3696,9 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     /** Loads the earlier texts that Chat Memory kept for this message; without it a bubble shows no versions link. */
     onLoadVersions: (suspend (chatId: Long, messageId: Long) -> List<ChatMemoryVersion>)? = null,
     connectionState: TelegramConnectionState = TelegramConnectionState.Connected,
-    onShowFailureDetails: (() -> Unit)? = null
+    onShowFailureDetails: (() -> Unit)? = null,
+    composerMediaLaunch: ComposerMediaLaunch? = null,
+    onComposerMediaLaunchFinished: (ComposerMediaLaunch) -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val metrics = LocalBubbleMetrics.current
@@ -3719,6 +3748,7 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
     var captionPlay by remember(message.id) { mutableStateOf<AudioPlayRequest?>(null) }
     // On a tablet the pane is wide: a bubble grows with it (70 % of the pane, 292 to 480 dp) instead of hugging the edge.
     val bubbleMax = chatBubbleMaxWidthDp(com.beykus.beygram.ui.screens.chats.LocalChatPaneWidthDp.current ?: chatPaneWidthDp(LocalWindowLayout.current)).dp
+    val mediaFlightModifier = composerMediaLaunchModifier(composerMediaLaunch, onComposerMediaLaunchFinished)
     Column(Modifier.fillMaxWidth().then(if (circle) Modifier else Modifier.padding(horizontal = metrics.sideInset)), horizontalAlignment = if (message.isOutgoing) Alignment.End else Alignment.Start) {
         SwipeToReply(enabled = onReply != null && message.sendState == MessageSendState.Sent, outgoing = message.isOutgoing,
             onReply = { onReply?.invoke(message.id) }) { swipe ->
@@ -3728,7 +3758,8 @@ internal fun MessageBubble(message: ChatMessage, observeFile: (Int) -> StateFlow
                     Modifier.testTag("message-bubble:${message.id}")
                         .widthIn(max = if (circle) androidx.compose.ui.unit.Dp.Infinity else bubbleMax)
                         .then(if (message.media != null && !circle && !sticker)
-                             Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier).clip(shape)
+                             Modifier.width(if (message.media.kind == MediaKind.Audio) 280.dp else 244.dp) else Modifier)
+                        .then(mediaFlightModifier).clip(shape)
                         .background(if (circle || sticker) Color.Transparent else if (message.isOutgoing) palette.outgoingBubble else palette.incomingBubble)
                         .then(if (message.memory?.deletedAtMillis != null) Modifier.alpha(0.6f) else Modifier)
                         .then(if ((selected || highlighted) && !circle) Modifier.border(2.dp, palette.accent, shape) else Modifier)
