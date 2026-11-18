@@ -168,7 +168,7 @@ import java.util.Date
 /** Captured from the actual one-line preview; no guessed screen position. */
 internal data class PinnedPreviewSource(val id: Long, val text: String, val bounds: Rect, val screenWidth: Int, val screenHeight: Int)
 
-private fun LayoutCoordinates.pinnedBoundsOnScreen(view: View): Rect? {
+internal fun LayoutCoordinates.pinnedBoundsOnScreen(view: View): Rect? {
     if (!isAttached) return null
     val rect = boundsInWindow()
     if (rect.width <= 0f || rect.height <= 0f) return null
@@ -735,6 +735,8 @@ internal fun PinnedMessagesScreen(
     barHidden: Boolean,
     previewSource: PinnedPreviewSource? = null,
     livePreviewSource: () -> PinnedPreviewSource? = { null },
+    headerSource: Rect? = null,
+    liveHeaderSource: () -> Rect? = { null },
     onRestoreBar: () -> Unit,
     onOpenMessage: (ChatMessage) -> Unit,
     onClose: () -> Unit
@@ -868,6 +870,7 @@ internal fun PinnedMessagesScreen(
     var closing by remember(flightSource) { mutableStateOf(false) }
     var rootBounds by remember(flightSource) { mutableStateOf<Rect?>(null) }
     var targetBounds by remember(flightSource) { mutableStateOf<Rect?>(null) }
+    var targetHeaderBounds by remember(flightSource) { mutableStateOf<Rect?>(null) }
     val validDisplay = flightSource?.let {
         val metrics = context.resources.displayMetrics
         it.screenWidth == metrics.widthPixels && it.screenHeight == metrics.heightPixels
@@ -952,8 +955,23 @@ internal fun PinnedMessagesScreen(
                 .background(palette.screen)
                 .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
         ) {
+            Box(Modifier.fillMaxWidth().onGloballyPositioned { targetHeaderBounds = it.pinnedBoundsOnScreen(view) }) {
             Row(
-                Modifier.fillMaxWidth().topAppBarSurface().padding(horizontal = 4.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().graphicsLayer {
+                    val source = headerSource
+                    val destination = targetHeaderBounds
+                    val root = rootBounds
+                    if (flightActive && validDisplay && source != null && destination != null && root != null &&
+                        liveHeaderSource() == source && root.containsBounds(source) && root.containsBounds(destination)) {
+                        val remaining = 1f - progress.value.coerceIn(0f, 1f)
+                        translationX = (source.center.x - destination.center.x) * remaining
+                        translationY = (source.center.y - destination.center.y) * remaining
+                        scaleX = 1f + (source.width / destination.width - 1f) * remaining
+                        scaleY = 1f + (source.height / destination.height - 1f) * remaining
+                    } else {
+                        translationX = 0f; translationY = 0f; scaleX = 1f; scaleY = 1f
+                    }
+                }.topAppBarSurface().padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { if (searchOpen) closeSearch() else closeWithFlight(onClose) }) {
@@ -987,6 +1005,7 @@ internal fun PinnedMessagesScreen(
                         tint = palette.textSecondary
                     )
                 }
+            }
             }
             AnimatedVisibility(
                 visible = searchOpen,
