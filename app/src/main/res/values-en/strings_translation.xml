@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="message_action_translate">Translate</string>
-    <string name="translation_settings_title">Translation</string>
+    <string name="translation_settings_title">Message translation</string>
     <string name="translation_target_title">Translate to</string>
     <string name="translation_translating">Translating…</string>
     <string name="translation_translated_to">Translated to %1$s</string>

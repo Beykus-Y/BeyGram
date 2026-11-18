@@ -89,7 +89,8 @@
     <string name="message_action_unpin">Désépingler</string>
     <string name="err_chat_pin_failed">Impossible de mettre à jour l’épinglage du message</string>
     <string name="err_message_pin_unavailable">Ce message ne peut pas être épinglé</string>
-    <string name="feature_language">Langue de l’application</string>
+    <string name="feature_language">Langue et traduction</string>
+    <string name="feature_language_group_interface">Langue de l’interface</string>
     <string name="feature_language_system">Suivre le système</string>
     <string name="settings_language_ru">Русский</string>
     <string name="settings_language_en">English</string>

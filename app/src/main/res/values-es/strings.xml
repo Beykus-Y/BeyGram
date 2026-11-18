@@ -87,7 +87,8 @@
     <string name="message_action_unpin">Desfijar</string>
     <string name="err_chat_pin_failed">No se pudo actualizar el mensaje fijado</string>
     <string name="err_message_pin_unavailable">Este mensaje no se puede fijar</string>
-    <string name="feature_language">Idioma de la aplicación</string>
+    <string name="feature_language">Idioma y traducción</string>
+    <string name="feature_language_group_interface">Idioma de la interfaz</string>
     <string name="feature_language_system">Seguir el sistema</string>
     <string name="settings_language_ru">Русский</string>
     <string name="settings_language_en">English</string>
