@@ -79,6 +79,9 @@
     <string name="chat_unread_separator">Ungelesene Nachrichten</string>
     <string name="chat_pinned_title">Angepinnte Nachrichten</string>
     <string name="chat_pinned_retry">Wiederholen</string>
+    <string name="chat_pinned_unpin_title">Nachricht nicht mehr anheften?</string>
+    <string name="chat_pinned_unpin_message">Die Nachricht wird in diesem Chat nicht mehr angeheftet.</string>
+    <string name="chat_pinned_actions_label">Aktionen für die angeheftete Nachricht</string>
     <string name="chat_pinned_list">Alle angehefteten Nachrichten anzeigen</string>
     <string name="chat_pinned_failed">Angeheftete Nachrichten konnten nicht geladen werden</string>
     <string name="chat_pinned_position">Angepinnt %1$d von %2$d</string>

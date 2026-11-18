@@ -151,4 +151,54 @@ class PinnedMessagesStateTest {
         assertEquals(listOf(999L), state.pins.map { it.id })
         assertFalse(state.loading)
     }
+
+    @Test
+    fun aFailedRefreshRetriesTheFirstPageEvenWhileAnOlderCursorIsOpen() = runTest {
+        val script = ScriptedPins()
+        val state = script.holder()
+        state.refresh(1L, connected = true)
+        // A pin was removed elsewhere, but the reload fails: the last valid pins and the open older cursor stay.
+        script.firstPage = Result.failure(IllegalStateException("offline"))
+        state.refresh(2L, connected = true)
+        assertTrue(state.failed)
+        assertEquals(listOf(300L, 200L), state.pins.map { it.id })
+        // The retry asks for the first page again, and never for the older page at the open cursor.
+        val ticks = state.retryTick
+        script.firstPage = Result.success(PinnedMessagePage(listOf(message(300L)), 3, 0L))
+        state.retryFailedLoad()
+        assertEquals(ticks + 1, state.retryTick)
+        // The owner's effect runs the refresh that the retry asked for.
+        state.refresh(2L, connected = true)
+        assertEquals(listOf(0L, 0L, 0L), script.cursors)
+        assertFalse(state.failed)
+        assertEquals(listOf(300L), state.pins.map { it.id })
+    }
+
+    @Test
+    fun anOlderPageCannotClearAFailedRefresh() = runTest {
+        val script = ScriptedPins()
+        val state = script.holder()
+        state.refresh(1L, connected = true)
+        script.firstPage = Result.failure(IllegalStateException("offline"))
+        state.refresh(2L, connected = true)
+        // The older cursor is still open, but the failed load is the refresh: no older page is requested.
+        state.loadOlder()
+        assertTrue(state.failed)
+        assertEquals(listOf(0L, 0L), script.cursors)
+    }
+
+    @Test
+    fun aFailedOlderPageIsRetriedAsAnOlderPage() = runTest {
+        val script = ScriptedPins()
+        script.olderPages[200L] = Result.failure(IllegalStateException("page failed"))
+        val state = script.holder()
+        state.refresh(1L, connected = true)
+        state.loadOlder()
+        assertTrue(state.failed)
+        script.olderPages[200L] = Result.success(PinnedMessagePage(listOf(message(150L)), 4, 0L))
+        state.retryFailedLoad()
+        assertFalse(state.failed)
+        assertEquals(listOf(300L, 200L, 150L), state.pins.map { it.id })
+        assertEquals(listOf(0L, 200L, 200L), script.cursors)
+    }
 }

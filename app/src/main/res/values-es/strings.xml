@@ -77,6 +77,9 @@
     <string name="chat_unread_separator">Mensajes sin leer</string>
     <string name="chat_pinned_title">Mensajes fijados</string>
     <string name="chat_pinned_retry">Reintentar</string>
+    <string name="chat_pinned_unpin_title">¿Dejar de fijar el mensaje?</string>
+    <string name="chat_pinned_unpin_message">El mensaje dejará de estar fijado en este chat.</string>
+    <string name="chat_pinned_actions_label">Acciones del mensaje fijado</string>
     <string name="chat_pinned_list">Mostrar todos los mensajes fijados</string>
     <string name="chat_pinned_failed">No se pudieron cargar los mensajes fijados</string>
     <string name="chat_pinned_position">Fijado %1$d de %2$d</string>
