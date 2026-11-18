@@ -88,6 +88,8 @@ import com.beykus.beygram.domain.model.mergeThreadMessages
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.screens.playback.NowPlayingBar
+import com.beykus.beygram.ui.screens.playback.PlayerExpansion
+import com.beykus.beygram.ui.screens.playback.receiptsAllowedOf
 import com.beykus.beygram.ui.text.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
@@ -214,13 +216,17 @@ internal fun MessageThreadScreen(
                 // Read receipts go through the existing privacy-aware gateway and only for genuinely visible rows.
                 // Restarting on RESUMED re-reports the same viewport after the app returns from background.
                 lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                    snapshotFlow { listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Long } }
+                    // Not while the full player covers the thread: the player takes no focus, so the thread still looks visible.
+                    snapshotFlow {
+                        if (!receiptsAllowedOf(PlayerExpansion.phase)) emptyList<Long>() else listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? Long }
+                    }
                         .distinctUntilChanged()
                         .collect { visibleIds ->
                             val sent = visibleIds.filter { id ->
                                 messages.any { it.id == id && it.sendState == MessageSendState.Sent }
                             }
-                            if (sent.isNotEmpty()) conversation.messagesVisible(chatId, sent)
+                            // Checked again at send time: a list emitted before the player opened must not go out after it.
+                            if (sent.isNotEmpty() && receiptsAllowedOf(PlayerExpansion.phase)) conversation.messagesVisible(chatId, sent)
                         }
                 }
             }
