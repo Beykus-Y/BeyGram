@@ -5,34 +5,42 @@ import android.content.ClipboardManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.HorizontalDivider
-import com.beykus.beygram.ui.components.OutlinedButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,7 +58,10 @@ import com.beykus.beygram.diagnostics.shareConnectionDiagnosticsOrError
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import com.beykus.beygram.domain.model.TelegramRoute
 import com.beykus.beygram.domain.repository.TelegramRepository
+import com.beykus.beygram.ui.components.OutlinedButton
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.screens.notifications.statusLabelRes
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import com.beykus.beygram.ui.screens.proxy.ProxyCard
@@ -65,10 +76,12 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private val FAILURE_TIME = DateTimeFormatter.ofPattern("dd.MM HH:mm:ss", Locale.ROOT).withZone(ZoneId.systemDefault())
+private val CHECK_TIME = DateTimeFormatter.ofPattern("HH:mm:ss", Locale.ROOT).withZone(ZoneId.systemDefault())
 
 /**
- * Экран «Диагностика подключения» из настроек уведомлений. Проверки запускаются при открытии
- * и по кнопке «Проверить снова». Макет: BeyGram Scenarios 2, раздел 5.
+ * Экран «Диагностика подключения». Проверки запускаются при открытии и по кнопке «Проверить снова».
+ * Сначала видно состояние Telegram, маршрут, задержку и ошибки. Адрес, сеть и прокси свёрнуты: адрес в интернете
+ * не показывается, пока раздел не открыт. Каждое значение можно скопировать отдельно.
  */
 @Composable
 internal fun ConnectionDiagnosticsScreen(
@@ -79,12 +92,15 @@ internal fun ConnectionDiagnosticsScreen(
 ) {
     val context = LocalContext.current
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val scope = rememberCoroutineScope()
     var check by remember { mutableStateOf<ConnectionCheck?>(null) }
     var checking by remember { mutableStateOf(false) }
+    var checkedAtMillis by remember { mutableStateOf<Long?>(null) }
     var failures by remember { mutableStateOf<List<ConnectionFailureEntry>>(emptyList()) }
     var sharing by remember { mutableStateOf(false) }
     var shareError by remember { mutableStateOf<String?>(null) }
+    var detailsExpanded by rememberSaveable { mutableStateOf(false) }
     BackHandler(onBack = onBack)
 
     val runChecks: () -> Unit = {
@@ -92,6 +108,7 @@ internal fun ConnectionDiagnosticsScreen(
             checking = true
             try {
                 check = runConnectionCheck(context, repository, vpnBackend)
+                checkedAtMillis = System.currentTimeMillis()
                 failures = ConnectionFailureLog.shared.snapshot()
             } finally {
                 checking = false
@@ -119,91 +136,54 @@ internal fun ConnectionDiagnosticsScreen(
     val route = current?.route?.getOrNull()
     val checkingText = stringResource(R.string.diag_checking)
     val unknownText = stringResource(R.string.diag_address_failed)
+    val stateText = stringResource(connectionState.statusLabelRes())
+    val routeText = when {
+        current == null -> checkingText
+        route == null -> stringResource(R.string.diag_route_unknown)
+        route == TelegramRoute.Direct -> stringResource(R.string.diag_route_direct)
+        route is TelegramRoute.Proxy -> stringResource(R.string.diag_route_proxy, route.kind.label)
+        else -> stringResource(R.string.diag_route_subscription)
+    }
+    val latencyMeasured = current?.latency is LatencyCheck.Measured
+    val (latencyText, latencyColor) = latencyLabel(current?.latency)
+    val checkedMillis = checkedAtMillis
+    val statusText = if (checking) {
+        checkingText
+    } else {
+        checkedMillis?.let { stringResource(R.string.diag_checked_at, CHECK_TIME.format(Instant.ofEpochMilli(it))) }
+            ?: checkingText
+    }
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(
+        Modifier.fillMaxSize()
+            .glassScreenBackground(design, palette.screen)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+    ) {
         ProfileToolbar(stringResource(R.string.notif_diagnostics_title), onBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            ProxySectionLabel(stringResource(R.string.diag_section_address))
-            ProxyCard {
-                InfoRow(
-                    title = stringResource(R.string.diag_ip),
-                    value = when {
-                        current == null -> checkingText
-                        address == null -> unknownText
-                        else -> address.ip
-                    },
-                    note = stringResource(R.string.diag_address_note),
-                    copyText = address?.let { "${it.ip} (${it.country.ifBlank { stringResource(R.string.diag_unknown) }})" },
-                    onCopy = copy
-                )
-                HorizontalDivider(color = palette.divider)
-                InfoRow(
-                    title = stringResource(R.string.diag_country),
-                    value = when {
-                        current == null -> checkingText
-                        address == null -> unknownText
-                        address.country.isBlank() -> stringResource(R.string.diag_unknown)
-                        else -> address.country
-                    }
-                )
-            }
-
-            ProxySectionLabel(stringResource(R.string.diag_section_network))
-            ProxyCard {
-                InfoRow(
-                    title = stringResource(R.string.diag_vpn),
-                    value = when {
-                        network == null -> checkingText
-                        network.vpnActive -> stringResource(R.string.diag_vpn_on)
-                        else -> stringResource(R.string.diag_vpn_off)
-                    }
-                )
-                HorizontalDivider(color = palette.divider)
-                InfoRow(
-                    title = stringResource(R.string.diag_network),
-                    value = when (network?.kind) {
-                        null -> checkingText
-                        NetworkKind.Wifi -> stringResource(R.string.diag_network_wifi)
-                        NetworkKind.Mobile -> stringResource(R.string.diag_network_mobile)
-                        NetworkKind.Other -> stringResource(R.string.diag_network_other)
-                        NetworkKind.None -> stringResource(R.string.diag_network_none)
-                    }
-                )
-            }
-
-            ProxySectionLabel(stringResource(R.string.diag_section_proxy))
-            ProxyCard {
-                InfoRow(
-                    title = stringResource(R.string.diag_proxy),
-                    value = when {
-                        current == null -> checkingText
-                        route == null -> stringResource(R.string.diag_route_unknown)
-                        route == TelegramRoute.Direct -> stringResource(R.string.diag_proxy_none)
-                        route is TelegramRoute.Proxy -> route.kind.label
-                        else -> stringResource(R.string.diag_proxy_subscription)
-                    }
-                )
-            }
+            Text(
+                statusText,
+                color = palette.textSecondary,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 8.dp, bottom = 4.dp)
+            )
 
             ProxySectionLabel(stringResource(R.string.diag_section_telegram))
             ProxyCard {
                 InfoRow(
                     title = stringResource(R.string.diag_state),
-                    value = stringResource(connectionState.statusLabelRes())
+                    value = stateText,
+                    copyText = stateText,
+                    onCopy = copy
                 )
                 HorizontalDivider(color = palette.divider)
                 InfoRow(
                     title = stringResource(R.string.diag_route),
-                    value = when {
-                        current == null -> checkingText
-                        route == null -> stringResource(R.string.diag_route_unknown)
-                        route == TelegramRoute.Direct -> stringResource(R.string.diag_route_direct)
-                        route is TelegramRoute.Proxy -> stringResource(R.string.diag_route_proxy, route.kind.label)
-                        else -> stringResource(R.string.diag_route_subscription)
-                    }
+                    value = routeText,
+                    copyText = if (route != null) routeText else null,
+                    onCopy = copy
                 )
                 HorizontalDivider(color = palette.divider)
-                val (latencyText, latencyColor) = latencyLabel(current?.latency)
                 InfoRow(
                     title = stringResource(R.string.diag_latency),
                     value = latencyText,
@@ -213,10 +193,13 @@ internal fun ConnectionDiagnosticsScreen(
                         TelegramRoute.Direct -> stringResource(R.string.diag_latency_note_direct)
                         is TelegramRoute.Proxy -> stringResource(R.string.diag_latency_note_proxy)
                         TelegramRoute.Subscription -> stringResource(R.string.diag_latency_note_subscription)
-                    }
+                    },
+                    copyText = if (latencyMeasured) latencyText else null,
+                    onCopy = copy
                 )
             }
 
+            // Errors are never folded away: they are the reason someone opens this screen.
             ProxySectionLabel(stringResource(R.string.diag_section_errors))
             ProxyCard {
                 if (failures.isEmpty()) {
@@ -231,7 +214,73 @@ internal fun ConnectionDiagnosticsScreen(
                     if (index > 0) HorizontalDivider(color = palette.divider)
                     InfoRow(
                         title = stringResource(entry.failure.labelRes()),
-                        value = FAILURE_TIME.format(Instant.ofEpochMilli(entry.atMillis))
+                        value = FAILURE_TIME.format(Instant.ofEpochMilli(entry.atMillis)),
+                        valueColor = palette.warningText
+                    )
+                }
+            }
+
+            DetailsToggle(expanded = detailsExpanded, onToggle = { detailsExpanded = !detailsExpanded })
+            if (detailsExpanded) {
+                ProxySectionLabel(stringResource(R.string.diag_section_address))
+                ProxyCard {
+                    InfoRow(
+                        title = stringResource(R.string.diag_ip),
+                        value = when {
+                            current == null -> checkingText
+                            address == null -> unknownText
+                            else -> address.ip
+                        },
+                        note = stringResource(R.string.diag_address_note),
+                        copyText = address?.let { "${it.ip} (${it.country.ifBlank { stringResource(R.string.diag_unknown) }})" },
+                        onCopy = copy
+                    )
+                    HorizontalDivider(color = palette.divider)
+                    InfoRow(
+                        title = stringResource(R.string.diag_country),
+                        value = when {
+                            current == null -> checkingText
+                            address == null -> unknownText
+                            address.country.isBlank() -> stringResource(R.string.diag_unknown)
+                            else -> address.country
+                        }
+                    )
+                }
+
+                ProxySectionLabel(stringResource(R.string.diag_section_network))
+                ProxyCard {
+                    InfoRow(
+                        title = stringResource(R.string.diag_vpn),
+                        value = when {
+                            network == null -> checkingText
+                            network.vpnActive -> stringResource(R.string.diag_vpn_on)
+                            else -> stringResource(R.string.diag_vpn_off)
+                        }
+                    )
+                    HorizontalDivider(color = palette.divider)
+                    InfoRow(
+                        title = stringResource(R.string.diag_network),
+                        value = when (network?.kind) {
+                            null -> checkingText
+                            NetworkKind.Wifi -> stringResource(R.string.diag_network_wifi)
+                            NetworkKind.Mobile -> stringResource(R.string.diag_network_mobile)
+                            NetworkKind.Other -> stringResource(R.string.diag_network_other)
+                            NetworkKind.None -> stringResource(R.string.diag_network_none)
+                        }
+                    )
+                }
+
+                ProxySectionLabel(stringResource(R.string.diag_section_proxy))
+                ProxyCard {
+                    InfoRow(
+                        title = stringResource(R.string.diag_proxy),
+                        value = when {
+                            current == null -> checkingText
+                            route == null -> stringResource(R.string.diag_route_unknown)
+                            route == TelegramRoute.Direct -> stringResource(R.string.diag_proxy_none)
+                            route is TelegramRoute.Proxy -> route.kind.label
+                            else -> stringResource(R.string.diag_proxy_subscription)
+                        }
                     )
                 }
             }
@@ -261,7 +310,41 @@ internal fun ConnectionDiagnosticsScreen(
     }
 }
 
-/** Строка «название — значение», необязательная подсказка под ней и кнопка копирования. */
+/** Заголовок раскрываемого раздела «Подробные параметры». Состояние, маршрут и ошибки от него не зависят. */
+@Composable
+private fun DetailsToggle(expanded: Boolean, onToggle: () -> Unit) {
+    val palette = beyGramPalette()
+    Row(
+        Modifier.fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = onToggle)
+            .padding(start = 22.dp, end = 16.dp, top = 12.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                stringResource(R.string.diag_details_title),
+                color = palette.textPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                stringResource(R.string.diag_details_hint),
+                color = palette.textSecondary,
+                fontSize = 13.sp,
+                lineHeight = 17.sp
+            )
+        }
+        Icon(
+            if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+            contentDescription = null,
+            tint = palette.textSecondary,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+/** Строка «название — значение», необязательная подсказка под ней и кнопка копирования этого значения. */
 @Composable
 private fun InfoRow(
     title: String,
@@ -272,15 +355,22 @@ private fun InfoRow(
     onCopy: (String) -> Unit = {}
 ) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f))
             Text(value, color = valueColor ?: palette.textSecondary, fontSize = 15.sp, textAlign = TextAlign.End)
             copyText?.let { text ->
-                TextButton(onClick = { onCopy(text) }) { Text(stringResource(R.string.diag_copy), fontWeight = FontWeight.SemiBold) }
+                IconButton(onClick = { onCopy(text) }) {
+                    Icon(
+                        Icons.Rounded.ContentCopy,
+                        contentDescription = stringResource(R.string.diag_copy),
+                        tint = palette.textSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
-        note?.let { Text(it, color = palette.textSecondary, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp)) }
+        note?.let { Text(it, color = palette.textSecondary, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 2.dp, end = 12.dp)) }
     }
 }
 
