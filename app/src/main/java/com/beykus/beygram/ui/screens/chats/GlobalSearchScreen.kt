@@ -223,7 +223,6 @@ fun GlobalSearchScreen(
         filter.chatType?.let { stringResource(chatTypeLabel(it)) },
         filter.period.takeIf { it != GlobalSearchPeriod.Any }?.let { stringResource(periodLabel(it)) }
     ).joinToString(" · ")
-    val showAllLabel = stringResource(R.string.global_search_show_all)
 
     // Message filters and offset paging are unchanged; only the request guard was extended to the
     // session generation so account switches cannot publish an old page.
@@ -426,28 +425,31 @@ fun GlobalSearchScreen(
                 Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(
-                    onClick = { filtersExpanded = !filtersExpanded },
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Icon(Icons.Rounded.Tune, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        stringResource(R.string.global_search_filters) +
-                            if (activeFilterCount > 0) " · $activeFilterCount" else "",
-                        color = palette.accentInk,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1
-                    )
-                    Icon(
-                        if (filtersExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = null,
-                        tint = palette.accentInk,
-                        modifier = Modifier.size(18.dp)
-                    )
+                // The toggle may shrink at large font scales; the reset keeps its own width beside it.
+                Box(Modifier.weight(1f, fill = false)) {
+                    TextButton(
+                        onClick = { filtersExpanded = !filtersExpanded },
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Icon(Icons.Rounded.Tune, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            stringResource(R.string.global_search_filters) +
+                                if (activeFilterCount > 0) " · $activeFilterCount" else "",
+                            color = palette.accentInk,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Icon(
+                            if (filtersExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = palette.accentInk,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
-                Spacer(Modifier.weight(1f))
                 if (activeFilterCount > 0) {
                     TextButton(
                         onClick = { filter = GlobalSearchFilter(kind = impliedKind) },
@@ -528,9 +530,7 @@ fun GlobalSearchScreen(
                         SearchSectionHeader(
                             title = stringResource(R.string.global_search_recent),
                             count = null,
-                            loading = false,
-                            failed = false,
-                            onRetry = {}
+                            loading = false
                         )
                     }
                     if (recentChats.isEmpty()) {
@@ -555,37 +555,37 @@ fun GlobalSearchScreen(
                     if (showChats || showPeople) {
                         val chatsLoading = session.chats.searching.value
                         val chatsFailed = session.chats.failed.value
-                        val chatsHasMore = displayedLocalChats.size > SEARCH_ALL_PREVIEW_ROWS || session.chats.canLoadMore()
+                        val chatsMore = displayedLocalChats.size > SEARCH_ALL_PREVIEW_ROWS || session.chats.canLoadMore()
                         val chatRows = if (inAll) displayedLocalChats.take(SEARCH_ALL_PREVIEW_ROWS) else displayedLocalChats
                         item("chats-header") {
                             SearchSectionHeader(
                                 title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalChat)),
                                 count = sectionCount(displayedLocalChats.size, chatsLoading, chatsFailed),
-                                loading = chatsLoading,
-                                failed = chatsFailed,
-                                onRetry = { session.chats.retryVersion.value++ },
-                                actionLabel = if (inAll && chatsHasMore) showAllLabel else null,
-                                onAction = { showAll(GlobalSearchCategory.Chats) }
+                                loading = chatsLoading && displayedLocalChats.isNotEmpty()
                             )
                         }
-                        if (displayedLocalChats.isEmpty()) {
+                        itemsIndexed(chatRows, key = { _, chat -> "chat:${chat.id}" }) { index, chat ->
+                            GlobalChatRow(chat, GlobalSearchChatScope.Local, observeFile, downloadFile) {
+                                openSearchChat(chat, GlobalSearchChatScope.Local, onOpenChat, onOpenPublicChat)
+                            }
+                            if (index < chatRows.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
+                        }
+                        if (displayedLocalChats.isEmpty() || chatsFailed) {
                             item("chats-state") {
                                 SearchSourceState(
                                     loading = chatsLoading,
                                     failed = chatsFailed,
                                     offline = offline,
                                     emptyText = stringResource(R.string.global_search_section_empty_chats),
-                                    failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_chats))
+                                    failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_chats)),
+                                    onRetry = { session.chats.retryVersion.value++ }
                                 )
                             }
-                        } else {
-                            itemsIndexed(chatRows, key = { _, chat -> "chat:${chat.id}" }) { index, chat ->
-                                GlobalChatRow(chat, GlobalSearchChatScope.Local, observeFile, downloadFile) {
-                                    openSearchChat(chat, GlobalSearchChatScope.Local, onOpenChat, onOpenPublicChat)
-                                }
-                                if (index < chatRows.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
-                            }
-                            if (!inAll && session.chats.canLoadMore()) {
+                        }
+                        if (displayedLocalChats.isNotEmpty()) {
+                            if (inAll) {
+                                if (chatsMore) item("chats-all") { SearchShowAllRow(onClick = { showAll(GlobalSearchCategory.Chats) }) }
+                            } else if (session.chats.canLoadMore()) {
                                 item("chats-more") {
                                     SearchMoreRow(
                                         loading = session.chats.loadingMore.value,
@@ -599,35 +599,35 @@ fun GlobalSearchScreen(
                     if (showPeople) {
                         val contactsLoading = session.contacts.searching.value
                         val contactsFailed = session.contacts.failed.value
-                        val contactsHasMore = contactItems.size > SEARCH_ALL_PREVIEW_ROWS || session.contacts.canLoadMore()
+                        val contactsMore = contactItems.size > SEARCH_ALL_PREVIEW_ROWS || session.contacts.canLoadMore()
                         val contactRows = if (inAll) contactItems.take(SEARCH_ALL_PREVIEW_ROWS) else contactItems
                         item("contacts-header") {
                             SearchSectionHeader(
                                 title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalContact)),
                                 count = sectionCount(contactItems.size, contactsLoading, contactsFailed),
-                                loading = contactsLoading,
-                                failed = contactsFailed,
-                                onRetry = { session.contacts.retryVersion.value++ },
-                                actionLabel = if (inAll && contactsHasMore) showAllLabel else null,
-                                onAction = { showAll(GlobalSearchCategory.People) }
+                                loading = contactsLoading && contactItems.isNotEmpty()
                             )
                         }
-                        if (contactItems.isEmpty()) {
+                        itemsIndexed(contactRows, key = { _, contact -> "contact:${contact.userId}" }) { index, contact ->
+                            GlobalContactRow(contact, observeFile, downloadFile) { onOpenProfile(contact.userId) }
+                            if (index < contactRows.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
+                        }
+                        if (contactItems.isEmpty() || contactsFailed) {
                             item("contacts-state") {
                                 SearchSourceState(
                                     loading = contactsLoading,
                                     failed = contactsFailed,
                                     offline = offline,
                                     emptyText = stringResource(R.string.global_search_section_empty_contacts),
-                                    failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_contacts))
+                                    failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_contacts)),
+                                    onRetry = { session.contacts.retryVersion.value++ }
                                 )
                             }
-                        } else {
-                            itemsIndexed(contactRows, key = { _, contact -> "contact:${contact.userId}" }) { index, contact ->
-                                GlobalContactRow(contact, observeFile, downloadFile) { onOpenProfile(contact.userId) }
-                                if (index < contactRows.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
-                            }
-                            if (!inAll && session.contacts.canLoadMore()) {
+                        }
+                        if (contactItems.isNotEmpty()) {
+                            if (inAll) {
+                                if (contactsMore) item("contacts-all") { SearchShowAllRow(onClick = { showAll(GlobalSearchCategory.People) }) }
+                            } else if (session.contacts.canLoadMore()) {
                                 item("contacts-more") {
                                     SearchMoreRow(
                                         loading = session.contacts.loadingMore.value,
@@ -645,33 +645,31 @@ fun GlobalSearchScreen(
                             SearchSectionHeader(
                                 title = stringResource(sectionTitleRes(GlobalSearchResultSource.PublicResult)),
                                 count = sectionCount(shownPublicChats.size, publicLoading, publicFailed),
-                                loading = publicLoading,
-                                failed = publicFailed,
-                                onRetry = { session.publicChats.retryVersion.value++ }
+                                loading = publicLoading && shownPublicChats.isNotEmpty()
                             )
                         }
-                        if (shownPublicChats.isEmpty()) {
+                        itemsIndexed(shownPublicChats, key = { _, chat -> "public:${chat.id}" }) { index, chat ->
+                            GlobalChatRow(chat, GlobalSearchChatScope.Public, observeFile, downloadFile) {
+                                openSearchChat(chat, GlobalSearchChatScope.Public, onOpenChat, onOpenPublicChat)
+                            }
+                            if (index < shownPublicChats.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
+                        }
+                        if (shownPublicChats.isEmpty() || publicFailed) {
                             item("public-state") {
                                 SearchSourceState(
                                     loading = publicLoading,
                                     failed = publicFailed,
                                     offline = offline,
                                     emptyText = stringResource(R.string.global_search_section_empty_public),
-                                    failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_public))
+                                    failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_public)),
+                                    onRetry = { session.publicChats.retryVersion.value++ }
                                 )
-                            }
-                        } else {
-                            itemsIndexed(shownPublicChats, key = { _, chat -> "public:${chat.id}" }) { index, chat ->
-                                GlobalChatRow(chat, GlobalSearchChatScope.Public, observeFile, downloadFile) {
-                                    openSearchChat(chat, GlobalSearchChatScope.Public, onOpenChat, onOpenPublicChat)
-                                }
-                                if (index < shownPublicChats.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
                             }
                         }
                     }
                     if (showMessages) {
                         val messageRows = if (inAll) visibleHits.take(SEARCH_ALL_PREVIEW_ROWS) else visibleHits
-                        val messagesHasMore = visibleHits.size > SEARCH_ALL_PREVIEW_ROWS || nextOffset.isNotEmpty()
+                        val messagesMore = visibleHits.size > SEARCH_ALL_PREVIEW_ROWS || nextOffset.isNotEmpty()
                         item("messages-header") {
                             SearchSectionHeader(
                                 title = stringResource(
@@ -679,43 +677,39 @@ fun GlobalSearchScreen(
                                     else R.string.global_search_section_messages
                                 ),
                                 count = sectionCount(visibleHits.size, searching, failed),
-                                loading = searching,
-                                failed = failed,
-                                onRetry = { retryVersion++ },
-                                actionLabel = if (inAll && messagesHasMore) showAllLabel else null,
-                                onAction = { showAll(GlobalSearchCategory.Messages) }
+                                loading = searching && visibleHits.isNotEmpty()
                             )
                         }
-                        if (visibleHits.isEmpty()) {
+                        itemsIndexed(messageRows, key = { _, message -> "message:${message.chatId}:${message.id}" }) { index, message ->
+                            GlobalMessageRow(
+                                message = message,
+                                query = query,
+                                chat = chatContexts[message.chatId],
+                                dateFormat = dateFormat,
+                                observeFile = observeFile,
+                                downloadFile = downloadFile,
+                                onClick = { onOpenMessage(message.chatId, message.forumTopicId, message.id) }
+                            )
+                            if (index < messageRows.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
+                        }
+                        if (visibleHits.isEmpty() || failed) {
                             item("messages-state") {
                                 SearchSourceState(
                                     loading = searching,
                                     failed = failed,
                                     offline = offline,
                                     emptyText = stringResource(R.string.global_search_empty),
-                                    failedText = stringResource(R.string.global_search_failed)
+                                    failedText = stringResource(R.string.global_search_failed),
+                                    onRetry = { retryVersion++ }
                                 )
                             }
-                        } else {
-                            itemsIndexed(messageRows, key = { _, message -> "message:${message.chatId}:${message.id}" }) { index, message ->
-                                GlobalMessageRow(
-                                    message = message,
-                                    query = query,
-                                    chat = chatContexts[message.chatId],
-                                    dateFormat = dateFormat,
-                                    observeFile = observeFile,
-                                    downloadFile = downloadFile,
-                                    onClick = { onOpenMessage(message.chatId, message.forumTopicId, message.id) }
-                                )
-                                if (index < messageRows.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
-                            }
-                            if (!inAll && nextOffset.isNotEmpty()) {
+                        }
+                        if (visibleHits.isNotEmpty()) {
+                            if (inAll) {
+                                if (messagesMore) item("messages-all") { SearchShowAllRow(onClick = { showAll(GlobalSearchCategory.Messages) }) }
+                            } else if (nextOffset.isNotEmpty()) {
                                 item("messages-more") {
-                                    SearchMoreRow(
-                                        loading = loadingMore,
-                                        failed = moreFailed,
-                                        onClick = { loadMoreMessages() }
-                                    )
+                                    SearchMoreRow(loading = loadingMore, failed = moreFailed, onClick = { loadMoreMessages() })
                                 }
                             }
                         }
@@ -787,24 +781,17 @@ private fun sectionCount(size: Int, loading: Boolean, failed: Boolean): Int? =
     if (size > 0 || (!loading && !failed)) size else null
 
 /**
- * The heading of one result section: the title with its count, a spinner while the source runs, a retry after a
- * failure and, in the All view, «Показать все». The title follows the style's section-label treatment.
+ * The heading of one result section: its title, the count once the section has rows or has settled, and a spinner while
+ * the source runs with rows on screen. Its actions are rows of their own (retry in the state line, «Показать все» in the
+ * footer), so the heading never squeezes its title at large font scales.
  */
 @Composable
-private fun SearchSectionHeader(
-    title: String,
-    count: Int?,
-    loading: Boolean,
-    failed: Boolean,
-    onRetry: () -> Unit,
-    actionLabel: String? = null,
-    onAction: () -> Unit = {}
-) {
+private fun SearchSectionHeader(title: String, count: Int?, loading: Boolean) {
     val palette = beyGramPalette()
     val main = LocalDesignSystem.current.mainScreen
     val label = if (count == null) title else stringResource(R.string.global_search_section_count, title, count)
     Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 2.dp),
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -819,27 +806,18 @@ private fun SearchSectionHeader(
         )
         if (loading) {
             CircularProgressIndicator(
-                modifier = Modifier.padding(end = 4.dp).size(16.dp),
+                modifier = Modifier.padding(start = 8.dp).size(16.dp),
                 color = palette.accent,
                 strokeWidth = 1.5.dp
             )
-        }
-        if (failed) {
-            TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Text(stringResource(R.string.common_retry), fontSize = 13.sp)
-            }
-        }
-        if (actionLabel != null) {
-            TextButton(onClick = onAction, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Text(actionLabel, color = palette.accentInk, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
         }
     }
 }
 
 /**
- * The state of one empty source: a spinner while it runs, its own offline or failure line, or its empty line. It is text
- * inside the results card, never a panel of its own, so the rows of the other sources stay in view.
+ * What a section shows instead of rows, or after a failure: a spinner while it runs, its offline or failure line with a
+ * retry (not while offline), or its empty line. It is text inside the results card, never a panel of its own, so the
+ * other sections stay in view.
  */
 @Composable
 private fun SearchSourceState(
@@ -847,7 +825,8 @@ private fun SearchSourceState(
     failed: Boolean,
     offline: Boolean,
     emptyText: String,
-    failedText: String
+    failedText: String,
+    onRetry: () -> Unit
 ) {
     val palette = beyGramPalette()
     val text = when {
@@ -858,7 +837,7 @@ private fun SearchSourceState(
     }
     val isFailure = failed && !loading
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (loading) {
@@ -871,6 +850,11 @@ private fun SearchSourceState(
             fontSize = 13.sp,
             modifier = Modifier.weight(1f).then(if (isFailure) Modifier.errorAnnouncement() else Modifier)
         )
+        if (isFailure && !offline) {
+            TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text(stringResource(R.string.common_retry), fontSize = 13.sp)
+            }
+        }
     }
 }
 
@@ -894,6 +878,18 @@ private fun SearchMoreRow(loading: Boolean, failed: Boolean, onClick: () -> Unit
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp).errorAnnouncement()
             )
         }
+    }
+}
+
+/** «Показать все» at the foot of a previewed section. It only switches to that section's category. */
+@Composable
+private fun SearchShowAllRow(onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+    ) {
+        Text(stringResource(R.string.global_search_show_all), color = palette.accentInk)
     }
 }
 
