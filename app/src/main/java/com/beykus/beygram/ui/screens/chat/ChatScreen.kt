@@ -1321,11 +1321,12 @@ fun ChatScreen(
     }
 
     val chatGlass = design.usesGlassPanels
+    val floatingComposer = design.navigationFloating
     val chatBackdrop = if (chatGlass && design.recordsGlassBackdrop) rememberGlassBackdrop() else null
     var topChromePx by remember { mutableIntStateOf(0) }
     var bottomChromePx by remember { mutableIntStateOf(0) }
     // With glass chrome the list also runs under the header and composer; those strips do not count as seen.
-    val coveredByChrome by rememberUpdatedState(if (chatBackdrop != null) topChromePx to bottomChromePx else 0 to 0)
+    val coveredByChrome by rememberUpdatedState((if (chatBackdrop != null) topChromePx else 0) to (if (chatBackdrop != null || floatingComposer) bottomChromePx else 0))
     // Loading/caching messages never triggers receipts; only the focused, resumed viewport does.
     LaunchedEffect(chat.id, lifecycle, conversation, threadOpen) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -2187,12 +2188,12 @@ fun ChatScreen(
             floatingContent = { if (design.navigationFloating) pinnedBarSlot() }
         )
         ChatScreenBox(Modifier.fillMaxWidth().weight(1f)) {
-        ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { if (chatBackdrop != null) bottomChromePx else 0 }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
+        ChatScreenBox(Modifier.underChatChrome({ if (chatBackdrop != null) topChromePx else 0 }, { if (chatBackdrop != null || floatingComposer) bottomChromePx else 0 }).let { m -> if (chatBackdrop != null) m.glassBackdropSource(chatBackdrop) else m }) {
         ChatWallpaperLayer(chatWallpaper)
         val metrics = LocalBubbleMetrics.current
         val chromeDensity = LocalDensity.current
         val chromeTopPad = if (chatBackdrop != null) with(chromeDensity) { topChromePx.toDp() } else 0.dp
-        val chromeBottomPad = if (chatBackdrop != null) with(chromeDensity) { bottomChromePx.toDp() } else 0.dp
+        val chromeBottomPad = if (chatBackdrop != null || floatingComposer) with(chromeDensity) { bottomChromePx.toDp() } else 0.dp
         LazyColumn(state = listState, reverseLayout = true, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = metrics.listPadding + chromeTopPad, bottom = metrics.listPadding + chromeBottomPad), verticalArrangement = Arrangement.spacedBy(metrics.itemSpacing)) {
             items(messageListItems, key = { it.key }, contentType = { chatListContentType(it) }) { listItem ->
@@ -2524,7 +2525,7 @@ fun ChatScreen(
         )
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
         }
-        ChatChromeHost(chatGlass, GlassEdge.TopHairline, chatBackdrop, { bottomChromePx = it }, paneContent = {
+        ChatChromeHost(chatGlass, GlassEdge.TopHairline, chatBackdrop, { bottomChromePx = it }, floatingComposer = floatingComposer, paneContent = {
         if (queueStorageCorrupt) Row(
             Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -2686,7 +2687,7 @@ fun ChatScreen(
         )
         if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().then(
             // Signature keeps the composer on the canvas behind one hairline; the field itself is the only filled plane.
-            if (chatGlass) Modifier
+            if (chatGlass || floatingComposer) Modifier
             else if (design.components.composer == ComposerVariant.Signature) Modifier.signatureChrome(palette.screen, palette.divider, HairlineEdge.Top)
             else Modifier.background(palette.surface)
         ).navigationBarsPadding().imePadding()) {
@@ -2727,6 +2728,7 @@ fun ChatScreen(
                         BotCommandButton(enabled = !sending && !inlineSending && !attachments.active) { botCommandMenuOpen = true }
                     }
                     AttachmentButton(attachments, enabled = !sending && !inlineSending)
+                    Spacer(Modifier.width(8.dp))
                 } else Spacer(Modifier.width(8.dp))
             }
             if (audioNote.active) AudioNoteRecordingDock(audioNote, Modifier.weight(1f), onCancel = audioNote::discardLocked)
@@ -2757,16 +2759,6 @@ fun ChatScreen(
                         )
                     }
                 } else null)
-                // Caption belongs to this text field, not to the thumbnail tray above it.
-                if (!editing && attachments.active && attachments.extra == null) {
-                    val count = attachmentCaptionLength(draft)
-                    Text(
-                        "$count / ${limits.caption}",
-                        color = if (count > limits.caption) palette.danger else palette.textSecondary,
-                        fontSize = 11.sp,
-                        modifier = Modifier.align(Alignment.End).padding(end = 12.dp, top = 2.dp)
-                    )
-                }
             }
             Spacer(Modifier.width(8.dp))
             // Keep the same pointer-input node mounted while recording. Removing the button here
@@ -2823,6 +2815,18 @@ fun ChatScreen(
                 },
                 contentAlignment = Alignment.Center) {
                 SendControlFace(busy = busy, canSend = canSend, editing = editing)
+            }
+        }
+        // The counter is outside the control row: showing it must not shift the buttons below the field.
+        if (!recordingActive && !editing && attachments.active && attachments.extra == null) {
+            val count = attachmentCaptionLength(draft)
+            if (count.toLong() * 10 >= limits.caption.toLong() * 9) {
+                Text(
+                    "$count / ${limits.caption}",
+                    color = if (count > limits.caption) palette.danger else palette.textSecondary,
+                    fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.End).padding(end = 18.dp, bottom = 2.dp)
+                )
             }
         }
         if (!recordingActive && overLimit) Text(
