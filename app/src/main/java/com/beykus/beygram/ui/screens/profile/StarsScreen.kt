@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.profile
 
 import androidx.activity.compose.BackHandler
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassScreenBackground
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.motion.MotionToken
 import com.beykus.beygram.ui.motion.rememberMotionInstant
@@ -56,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -100,6 +103,8 @@ fun StarsScreen(
     onBack: () -> Unit
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val loadingText = stringResource(R.string.a11y_state_loading)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -360,7 +365,7 @@ fun StarsScreen(
     }
     val readyStep = checkout as? StarsTopUpStep.Ready
 
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(stringResource(R.string.stars_title), onBack) {
             IconButton(onClick = { if (!loading && !checkoutBusy) reload++ }, enabled = !loading && !checkoutBusy) {
                 Icon(Icons.Rounded.Refresh, stringResource(R.string.common_retry), tint = palette.textPrimary)
@@ -377,8 +382,9 @@ fun StarsScreen(
                 isError = true,
                 onRetry = { reload++ }
             )
-            info == null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = palette.accent)
+            // The first read shows the page's own shape instead of a bare spinner, as the Premium screen does.
+            info == null -> Box(Modifier.weight(1f).fillMaxWidth()) {
+                MonetizationLoadingPlaceholder(listOf(2, 3))
             }
             else -> {
                 val stars = info!!
@@ -388,13 +394,14 @@ fun StarsScreen(
                     contentPadding = PaddingValues(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    // A failed refresh keeps the page on screen and offers the same retry as the full-screen error.
                     if (error != null) item("refresh_error") {
-                        Text(
-                            error.orEmpty(),
-                            color = palette.danger,
-                            fontSize = 14.sp,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)
-                                .errorAnnouncement()
+                        MonetizationStateCard(
+                            title = stringResource(R.string.stars_load_error),
+                            body = error.orEmpty(),
+                            tone = MonetizationTone.Error,
+                            onRetry = if (loading || checkoutBusy) null else ({ reload++ }),
+                            announce = true
                         )
                     }
                     notice?.let { current ->
@@ -486,7 +493,7 @@ fun StarsScreen(
                     }
                     if (loadingMore) item("more_loading") {
                         Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent)
+                            CircularProgressIndicator(Modifier.size(22.dp).semantics { contentDescription = loadingText }, color = palette.accent)
                         }
                     }
                     moreError?.let { message ->
@@ -502,7 +509,7 @@ fun StarsScreen(
                     }
                     if (loading) item("loading") {
                         Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(Modifier.size(22.dp), color = palette.accent)
+                            CircularProgressIndicator(Modifier.size(22.dp).semantics { contentDescription = loadingText }, color = palette.accent)
                         }
                     }
                 }
