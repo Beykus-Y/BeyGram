@@ -224,4 +224,7 @@
     <string name="updates_error_launch_installer">No se pudo abrir el instalador de Android. El archivo de actualización se conserva, así que puedes volver a intentarlo.</string>
     <string name="updates_error_check">No se pudieron comprobar las versiones de GitHub.</string>
     <string name="updates_error_download">La descarga falló. Se eliminó el archivo incompleto, así que puedes volver a intentarlo.</string>
+    <string name="updates_error_no_space">No hay suficiente espacio libre en el dispositivo para descargar la actualización. Libera espacio e inténtalo de nuevo.</string>
+    <string name="updates_error_already_installed">Esta versión ya está instalada o es anterior. Vuelve a buscar actualizaciones.</string>
+    <string name="updates_error_checksum">El archivo descargado no coincide con la versión publicada. Vuelve a descargar la actualización.</string>
 </resources>
