@@ -47,7 +47,6 @@
     <string name="channel_event_member_promoted">Permisos cambiados: %1$s</string>
     <string name="channel_event_member_restricted">Restricciones cambiadas: %1$s</string>
     <string name="channel_event_settings_changed">Ajustes del canal cambiados</string>
-    <string name="channel_statistics_actor">%1$s · %2$s</string>
     <string name="err_tdlib_schedule_date">Telegram rechazó la hora programada</string>
     <string name="err_tdlib_schedule_failed">Telegram no permitió el envío programado</string>
     <string name="err_tdlib_schedule_too_much">Demasiados mensajes programados en este chat</string>

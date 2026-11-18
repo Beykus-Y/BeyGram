@@ -85,7 +85,6 @@
     <string name="channel_event_member_promoted">Droits modifiés : %1$s</string>
     <string name="channel_event_member_restricted">Restrictions modifiées : %1$s</string>
     <string name="channel_event_settings_changed">Paramètres du canal modifiés</string>
-    <string name="channel_statistics_actor">%1$s · %2$s</string>
     <string name="err_tdlib_schedule_date">Telegram a refusé l’heure programmée</string>
     <string name="err_tdlib_schedule_failed">Telegram n’a pas autorisé l’envoi programmé</string>
     <string name="err_tdlib_schedule_too_much">Trop de messages programmés dans cette discussion</string>

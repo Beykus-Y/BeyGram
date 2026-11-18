@@ -89,7 +89,6 @@
     <string name="channel_event_member_promoted">Rights changed: %1$s</string>
     <string name="channel_event_member_restricted">Restrictions changed: %1$s</string>
     <string name="channel_event_settings_changed">Channel settings changed</string>
-    <string name="channel_statistics_actor">%1$s · %2$s</string>
     <string name="err_tdlib_schedule_date">Telegram rejected the scheduled time</string>
     <string name="err_tdlib_schedule_failed">Telegram did not allow scheduled sending</string>
     <string name="err_tdlib_schedule_too_much">Too many scheduled messages in this chat</string>

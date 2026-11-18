@@ -195,5 +195,4 @@
     <string name="channel_event_member_promoted">Rechte geändert: %1$s</string>
     <string name="channel_event_member_restricted">Einschränkungen geändert: %1$s</string>
     <string name="channel_event_settings_changed">Kanaleinstellungen geändert</string>
-    <string name="channel_statistics_actor">%1$s · %2$s</string>
 </resources>
