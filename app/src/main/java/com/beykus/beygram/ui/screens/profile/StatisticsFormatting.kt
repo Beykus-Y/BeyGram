@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.profile
 
 import java.text.DateFormat
+import java.text.DecimalFormatSymbols
 import java.text.NumberFormat
 import java.util.Date
 import java.util.Locale
@@ -117,12 +118,15 @@ internal fun formatCompactCount(value: Long): String {
 internal fun formatChartDate(millis: Long): String =
     DateFormat.getDateInstance(DateFormat.SHORT).format(Date(millis))
 
+/** Short count with at most one decimal, written with the decimal separator of the user's locale ("1,5K" or "1.5K"). */
 private fun compact(value: Long, divisor: Double, suffix: String): String {
+    val locale = Locale.getDefault()
     val scaled = value / divisor
     val number = if (abs(scaled) >= 100.0) {
-        String.format(Locale.ROOT, "%.0f", scaled)
+        String.format(locale, "%.0f", scaled)
     } else {
-        String.format(Locale.ROOT, "%.1f", scaled).trimEnd('0').trimEnd('.')
+        val separator = DecimalFormatSymbols.getInstance(locale).decimalSeparator
+        String.format(locale, "%.1f", scaled).trimEnd('0').trimEnd(separator)
     }
     return number + suffix
 }
