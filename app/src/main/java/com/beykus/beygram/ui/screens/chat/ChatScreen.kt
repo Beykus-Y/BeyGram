@@ -70,6 +70,7 @@ import com.beykus.beygram.ui.design.glassBackdropSource
 import com.beykus.beygram.ui.design.rememberGlassBackdrop
 import com.beykus.beygram.ui.design.recordsGlassBackdrop
 import com.beykus.beygram.ui.design.usesGlassPanels
+import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.squareSendButton
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
@@ -2616,34 +2617,6 @@ fun ChatScreen(
                 } })
         } else if (editMessage != null) {
             EditBanner(editMessage.text.ifBlank { editMessage.summary() }, editMessage.media != null, editText.codePointCount(0, editText.length), editLimit, editError, onClose = ::closeEdit)
-        } else if (!searching && !selectionMode) {
-            ChatComposerPanel(
-                stickerPanelOpen = stickerPanelOpen,
-                attachments = attachments,
-                conversation = conversation,
-                observeFile = observeFile,
-                onDownloadFile = onDownloadFile,
-                allowViewOnce = allowViewOnce,
-                chatId = chat.id,
-                replyId = replyId,
-                forumTopicId = sendForumTopicId,
-                scope = scope,
-                onReplyConsumed = { sentReplyId ->
-                    if (sentReplyId != null) {
-                        updateDraft { current ->
-                            if (current.replyToMessageId == sentReplyId) current.copy(replyToMessageId = null) else current
-                        }
-                    }
-                },
-                onStickerOptions = { sticker ->
-                    pendingSticker = sticker
-                    sendOptionsOpen = true
-                },
-                onSendError = { message -> error = message },
-                onInsertEmoji = { emoji -> editComposerText { text, selection -> insertAtSelection(text, selection, emoji) } },
-                onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
-                onCloseStickerPanel = { stickerPanelOpen = false }
-            )
         }
         // The reply strip lives inside the field container, above the text, as one composer unit.
         val replyHeader: (@Composable () -> Unit)? = if (replyId == null) null else ({
@@ -2721,7 +2694,43 @@ fun ChatScreen(
             }
         )
         delayed.Strip(composerEmpty = draft.isEmpty() && replyId == null, onRestoreDraft = { restored -> updateDraft { restored } })
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = if (compactChrome) 4.dp else 8.dp), verticalAlignment = Alignment.Bottom) {
+        val embeddedAttachments = !editing && attachments.active && !attachments.menuOpen && !stickerPanelOpen
+        ChatScreenColumn(Modifier.fillMaxWidth().then(
+            if (embeddedAttachments) Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                .glassCard(design, palette.surface, palette.textSecondary, styledShape(22.dp))
+            else Modifier
+        )) {
+        if (!editing) {
+            ChatComposerPanel(
+                stickerPanelOpen = stickerPanelOpen,
+                embedded = embeddedAttachments,
+                attachments = attachments,
+                conversation = conversation,
+                observeFile = observeFile,
+                onDownloadFile = onDownloadFile,
+                allowViewOnce = allowViewOnce,
+                chatId = chat.id,
+                replyId = replyId,
+                forumTopicId = sendForumTopicId,
+                scope = scope,
+                onReplyConsumed = { sentReplyId ->
+                    if (sentReplyId != null) {
+                        updateDraft { current ->
+                            if (current.replyToMessageId == sentReplyId) current.copy(replyToMessageId = null) else current
+                        }
+                    }
+                },
+                onStickerOptions = { sticker ->
+                    pendingSticker = sticker
+                    sendOptionsOpen = true
+                },
+                onSendError = { message -> error = message },
+                onInsertEmoji = { emoji -> editComposerText { text, selection -> insertAtSelection(text, selection, emoji) } },
+                onDeleteBackward = { editComposerText(::deleteBeforeSelection) },
+                onCloseStickerPanel = { stickerPanelOpen = false }
+            )
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = if (embeddedAttachments) 6.dp else 10.dp, vertical = if (compactChrome || embeddedAttachments) 4.dp else 8.dp), verticalAlignment = Alignment.Bottom) {
             if (!recordingActive) {
                 if (!editing) {
                     botCommandMenu?.takeIf { it.commands.isNotEmpty() }?.let {
@@ -2834,6 +2843,7 @@ fun ChatScreen(
             color = palette.warningText, fontSize = 12.sp,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
         )
+        }
         if (!recordingActive && !editing && !attachments.active) BotReplyKeyboard(chat.id, botKeyboard, conversation, sendGuard, ::requestBotWebApp)
         }
         })
@@ -3286,6 +3296,7 @@ private fun ChatScreenColumn(modifier: Modifier, content: @Composable ColumnScop
 @Composable
 private fun ChatComposerPanel(
     stickerPanelOpen: Boolean,
+    embedded: Boolean,
     attachments: AttachmentState,
     conversation: ConversationRepository,
     observeFile: (Int) -> StateFlow<MediaFileState>,
@@ -3331,7 +3342,8 @@ private fun ChatComposerPanel(
             state = attachments,
             observeFile = observeFile,
             onDownloadFile = onDownloadFile,
-            allowViewOnce = allowViewOnce
+            allowViewOnce = allowViewOnce,
+            embedded = embedded
         )
     }
 }

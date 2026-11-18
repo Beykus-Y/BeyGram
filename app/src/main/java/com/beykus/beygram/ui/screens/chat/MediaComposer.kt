@@ -1193,7 +1193,8 @@ internal fun AttachmentPanel(
     state: AttachmentState,
     observeFile: (Int) -> StateFlow<MediaFileState>,
     onDownloadFile: (Int) -> Unit,
-    allowViewOnce: Boolean = false
+    allowViewOnce: Boolean = false,
+    embedded: Boolean = false
 ) {
     val palette = beyGramPalette()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -1240,7 +1241,8 @@ internal fun AttachmentPanel(
             shrinkVertically(shrinkTowards = Alignment.Bottom, animationSpec = exitSpec.animationSpec()) +
                 fadeOut(animationSpec = exitSpec.animationSpec())
     ) {
-    Column(Modifier.fillMaxWidth().glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)) {
+    val sheetModifier = if (embedded) Modifier else Modifier.glassSheet(LocalDesignSystem.current, palette.surface, palette.textSecondary)
+    Column(Modifier.fillMaxWidth().then(sheetModifier)) {
         when {
             state.menuOpen || (!visible && exitMenuOpen) -> AttachmentMenu(
                 allowsPolls = state.allowsPolls,
@@ -1344,14 +1346,11 @@ private fun PreparedAttachmentsPanel(
     val palette = beyGramPalette()
     val enabled = !closing && !state.sending && !state.importing
     val itemCount = displayPending.size + if (state.extra != null && !closing) 1 else 0
-    // Визуальный каркас: шапка предпросмотра — отдельная поверхность с токеном палитры, без изменения логики очереди и качества.
-    Row(
-        Modifier.fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clip(styledShape(16.dp))
-            .background(palette.surface2)
-            .heightIn(min = 48.dp)
-            .padding(start = 14.dp, end = 6.dp),
+    val compactSet = isCompactAttachmentSet(displayPending, if (closing) null else state.extra)
+    // A full gallery is self-explanatory. Reserve the count row for the limit and non-gallery drafts.
+    if (!compactSet || itemCount >= MAX_PENDING_ATTACHMENTS - 1) Row(
+        Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp)
+            .heightIn(min = if (compactSet) 24.dp else 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -1361,17 +1360,17 @@ private fun PreparedAttachmentsPanel(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f)
         )
-        IconButton(onClick = onDiscardRequested, enabled = !closing && !state.sending, modifier = Modifier.size(48.dp)) {
+        if (!compactSet) IconButton(onClick = onDiscardRequested, enabled = !closing && !state.sending, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Rounded.Close, stringResource(R.string.composer_attachments_clear_action), tint = palette.textSecondary)
         }
     }
     // Один общий выбор качества для всех видео и аудио в наборе. Каждый файл всё равно хранит своё состояние.
     val qualityItems = displayPending.filter { it.qualityKind() != null }
     if (enabled && qualityItems.size >= 2) QualityForAllRow(state, qualityItems)
-    if (isCompactAttachmentSet(displayPending, if (closing) null else state.extra)) {
+    if (compactSet) {
         // Mixed batches now share the fixed-height rail. Polls, contacts and other
         // MessageExtraDraft actions keep their dedicated semantic cards.
-        CompactVisualAttachmentTray(state, observeFile, onDownloadFile, enabled, maxListHeight, displayPending)
+        CompactVisualAttachmentTray(state, observeFile, onDownloadFile, enabled, maxListHeight, displayPending, onDiscardRequested)
     } else Column(
         Modifier.fillMaxWidth().heightIn(max = maxListHeight).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)
     ) {
@@ -1528,7 +1527,8 @@ private fun CompactVisualAttachmentTray(
     onDownloadFile: (Int) -> Unit,
     enabled: Boolean,
     maxListHeight: androidx.compose.ui.unit.Dp,
-    displayPending: List<OutgoingMedia> = state.pending
+    displayPending: List<OutgoingMedia> = state.pending,
+    onDiscardRequested: () -> Unit
 ) {
     val palette = beyGramPalette()
     val context = LocalContext.current
@@ -1538,9 +1538,10 @@ private fun CompactVisualAttachmentTray(
         stagedMediaKey(item, index) == selectedItemKey
     }?.value else null
     Column(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+            modifier = Modifier.weight(1f),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             itemsIndexed(displayPending, key = { index, item -> stagedMediaKey(item, index) }) { index, item ->
@@ -1551,7 +1552,7 @@ private fun CompactVisualAttachmentTray(
                 val actionsLabel = stringResource(R.string.composer_attachment_actions)
                 val documentTile = isDocumentAttachmentTile(item, preparation)
                 Box(
-                    modifier = Modifier.size(100.dp).clip(styledShape(14.dp))
+                    modifier = Modifier.size(80.dp).clip(styledShape(12.dp))
                         .background(palette.surface2)
                 ) {
                     if (documentTile) {
@@ -1609,11 +1610,6 @@ private fun CompactVisualAttachmentTray(
                             }
                         }
                     )
-                    // Видимое удаление одним нажатием поверх тайла; long-press меню остаётся как прежде.
-                    Box(Modifier.align(Alignment.TopEnd)) {
-                        AttachmentRemoveButton(fileName = item.fileName.ifBlank { item.kind.label(context) }, enabled = enabled,
-                            onClick = { state.remove(item) })
-                    }
                     if (item.kind == MediaKind.Video && !documentTile) {
                         Row(
                             modifier = Modifier.align(Alignment.BottomStart)
@@ -1663,21 +1659,23 @@ private fun CompactVisualAttachmentTray(
                             contentDescription = context.getString(R.string.composer_remove_attachment_named, item.fileName)
                         }
                     ) {
-                        Icon(
-                            Icons.Rounded.Close,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
-                                .background(Color.Black.copy(alpha = 0.70f), CircleShape)
-                                .padding(4.dp)
-                        )
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.padding(3.dp).size(24.dp)
+                                    .background(Color.Black.copy(alpha = 0.70f), CircleShape)
+                                    .padding(4.dp)
+                            )
+                        }
                     }
                 }
             }
             if (enabled && displayPending.size < MAX_PENDING_ATTACHMENTS) {
                 item(key = "add-more-media") {
                     Box(
-                        Modifier.size(100.dp).clip(styledShape(14.dp))
+                        Modifier.size(width = 52.dp, height = 80.dp).clip(styledShape(12.dp))
                             .background(palette.surface2)
                             .clickable(enabled = enabled, role = Role.Button, onClick = state.pickPhotos)
                             .semantics { contentDescription = context.getString(R.string.composer_attach_description) },
@@ -1688,6 +1686,10 @@ private fun CompactVisualAttachmentTray(
                     }
                 }
             }
+        }
+        IconButton(onClick = onDiscardRequested, enabled = enabled, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Rounded.Close, stringResource(R.string.composer_attachments_clear_action), tint = palette.textSecondary)
+        }
         }
         if (activeItem != null) {
             val preparation = state.preparationFor(activeItem)
