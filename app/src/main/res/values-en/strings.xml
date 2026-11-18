@@ -936,4 +936,10 @@
     <string name="forum_navigation_tabs">Tabs on top</string>
     <string name="forum_navigation_rail">Side panel</string>
     <string name="forum_panel_all_topics">All topics</string>
+    <string name="forum_topics_reorder">Change order</string>
+    <string name="forum_topics_reorder_hint">Drag pinned topics to change their order</string>
+    <string name="forum_topics_reorder_done">Done</string>
+    <string name="forum_topics_reorder_failed">Could not change the topic order</string>
+    <string name="forum_topic_move_up">Move up</string>
+    <string name="forum_topic_move_down">Move down</string>
 </resources>

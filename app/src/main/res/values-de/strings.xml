@@ -936,4 +936,10 @@
     <string name="forum_navigation_tabs">Registerkarten oben</string>
     <string name="forum_navigation_rail">Seitenleiste</string>
     <string name="forum_panel_all_topics">Alle Themen</string>
+    <string name="forum_topics_reorder">Reihenfolge ändern</string>
+    <string name="forum_topics_reorder_hint">Ziehen Sie angeheftete Themen, um ihre Reihenfolge zu ändern</string>
+    <string name="forum_topics_reorder_done">Fertig</string>
+    <string name="forum_topics_reorder_failed">Die Reihenfolge der Themen konnte nicht geändert werden</string>
+    <string name="forum_topic_move_up">Nach oben</string>
+    <string name="forum_topic_move_down">Nach unten</string>
 </resources>

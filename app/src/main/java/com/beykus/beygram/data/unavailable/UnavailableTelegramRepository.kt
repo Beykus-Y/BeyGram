@@ -464,6 +464,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = unavailable()
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = unavailable()
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = unavailable()
+    override suspend fun setPinnedForumTopicsOrder(chatId: Long, forumTopicIds: List<Long>): Result<Unit> = unavailable()
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = unavailable()
     override suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?): Result<Unit> = unavailable()
     override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter): Result<MessageSearchPage> = unavailable()
