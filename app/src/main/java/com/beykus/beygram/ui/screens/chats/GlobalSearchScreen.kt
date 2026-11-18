@@ -787,7 +787,7 @@ private fun sectionCount(size: Int, loading: Boolean, failed: Boolean): Int? =
  * footer), so the heading never squeezes its title at large font scales.
  */
 @Composable
-private fun SearchSectionHeader(title: String, count: Int?, loading: Boolean) {
+internal fun SearchSectionHeader(title: String, count: Int?, loading: Boolean) {
     val palette = beyGramPalette()
     val main = LocalDesignSystem.current.mainScreen
     val label = if (count == null) title else stringResource(R.string.global_search_section_count, title, count)
