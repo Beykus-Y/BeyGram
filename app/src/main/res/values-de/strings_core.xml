@@ -206,6 +206,9 @@
     <string name="updates_error_launch_installer">Das Android-Installationsprogramm konnte nicht geöffnet werden. Die Update-Datei bleibt erhalten, Sie können es erneut versuchen.</string>
     <string name="updates_error_check">GitHub-Releases konnten nicht überprüft werden.</string>
     <string name="updates_error_download">Der Download ist fehlgeschlagen. Die unvollständige Datei wurde entfernt, Sie können es erneut versuchen.</string>
+    <string name="updates_error_no_space">Auf dem Gerät ist nicht genug freier Speicherplatz für das Update. Geben Sie Speicherplatz frei und versuchen Sie es erneut.</string>
+    <string name="updates_error_already_installed">Diese Version ist bereits installiert oder älter. Suchen Sie erneut nach Updates.</string>
+    <string name="updates_error_checksum">Die heruntergeladene Datei stimmt nicht mit dem veröffentlichten Release überein. Laden Sie das Update erneut herunter.</string>
     <string name="global_search_public_join_declined">Beitritt zu diesem Chat nicht möglich. Der Beitritt ist möglicherweise eingeschränkt</string>
     <string name="global_search_public_join_guard">Der Beitritt erfordert die Zustimmung eines Bots</string>
     <string name="global_search_public_join_request_sent">Beitrittsanfrage gesendet</string>

@@ -14,6 +14,8 @@ import com.beykus.beygram.data.update.ApkUpdateSource
 import com.beykus.beygram.data.update.DEV_PACKAGE
 import com.beykus.beygram.data.update.DevUpdateRepository
 import com.beykus.beygram.data.update.StableRelease
+import com.beykus.beygram.data.update.StableUpdateException
+import com.beykus.beygram.data.update.StableUpdateReason
 import com.beykus.beygram.data.update.StableUpdateRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -64,12 +66,21 @@ internal fun updateChannelFor(packageName: String): UpdateChannel =
     if (packageName == DEV_PACKAGE) UpdateChannel.DevBeta else UpdateChannel.Stable
 
 /**
- * The friendly text of a failed update step. Connection failures get the connection text; every other failure gets the
- * text of its step, so the repository's own messages, which can carry server text, never reach the screen.
+ * The friendly text of a failed update step. Connection failures get the connection text and typed failures get their own
+ * text; every other failure gets the text of its step, so the repository's own messages, which can carry server text,
+ * never reach the screen.
  */
 internal fun updateFailureTextRes(error: Throwable, @StringRes fallback: Int): Int = when (error) {
     is UnknownHostException, is SocketException, is SocketTimeoutException, is SSLException -> R.string.updates_error_network
+    is StableUpdateException -> updateReasonTextRes(error.reason)
     else -> fallback
+}
+
+/** The text of a typed update failure. */
+internal fun updateReasonTextRes(reason: StableUpdateReason): Int = when (reason) {
+    StableUpdateReason.NoFreeSpace -> R.string.updates_error_no_space
+    StableUpdateReason.AlreadyInstalled -> R.string.updates_error_already_installed
+    StableUpdateReason.ChecksumMismatch -> R.string.updates_error_checksum
 }
 
 class StableUpdatesViewModel(application: Application) : AndroidViewModel(application) {

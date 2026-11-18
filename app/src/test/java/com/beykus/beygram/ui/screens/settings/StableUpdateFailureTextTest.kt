@@ -1,6 +1,8 @@
 package com.beykus.beygram.ui.screens.settings
 
 import com.beykus.beygram.R
+import com.beykus.beygram.data.update.StableUpdateException
+import com.beykus.beygram.data.update.StableUpdateReason
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.IOException
@@ -24,5 +26,17 @@ class StableUpdateFailureTextTest {
             updateFailureTextRes(IOException("Ошибка GitHub: HTTP 503."), R.string.updates_error_check))
         assertEquals(R.string.updates_error_download,
             updateFailureTextRes(IOException("Контрольная сумма APK не совпадает."), R.string.updates_error_download))
+    }
+
+    @Test fun typedFailuresGetTheirOwnText() {
+        assertEquals(R.string.updates_error_no_space,
+            updateFailureTextRes(StableUpdateException(StableUpdateReason.NoFreeSpace, "Недостаточно свободного места для APK."),
+                R.string.updates_error_download))
+        assertEquals(R.string.updates_error_already_installed,
+            updateFailureTextRes(StableUpdateException(StableUpdateReason.AlreadyInstalled, "Эта версия уже установлена или устарела."),
+                R.string.updates_error_download))
+        assertEquals(R.string.updates_error_checksum,
+            updateFailureTextRes(StableUpdateException(StableUpdateReason.ChecksumMismatch, "Контрольная сумма APK не совпадает."),
+                R.string.updates_error_download))
     }
 }

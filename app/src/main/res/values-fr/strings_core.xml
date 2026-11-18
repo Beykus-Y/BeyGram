@@ -224,4 +224,7 @@
     <string name="updates_error_launch_installer">Impossible d’ouvrir l’installateur Android. Le fichier de mise à jour est conservé : vous pouvez réessayer.</string>
     <string name="updates_error_check">Impossible de vérifier les versions GitHub.</string>
     <string name="updates_error_download">Le téléchargement a échoué. Le fichier incomplet a été supprimé ; vous pouvez réessayer.</string>
+    <string name="updates_error_no_space">Espace de stockage insuffisant sur l’appareil pour télécharger la mise à jour. Libérez de l’espace et réessayez.</string>
+    <string name="updates_error_already_installed">Cette version est déjà installée ou plus ancienne. Recherchez à nouveau les mises à jour.</string>
+    <string name="updates_error_checksum">Le fichier téléchargé ne correspond pas à la version publiée. Téléchargez à nouveau la mise à jour.</string>
 </resources>

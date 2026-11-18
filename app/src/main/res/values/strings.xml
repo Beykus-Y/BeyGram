@@ -2038,6 +2038,9 @@
     <string name="updates_error_launch_installer">Не удалось открыть установщик Android. Файл обновления сохранён, можно попробовать снова.</string>
     <string name="updates_error_check">Не удалось проверить GitHub Releases.</string>
     <string name="updates_error_download">Загрузка не удалась. Неполный файл удалён, можно попробовать снова.</string>
+    <string name="updates_error_no_space">Недостаточно свободного места на устройстве для обновления. Освободите место и повторите попытку.</string>
+    <string name="updates_error_already_installed">Эта версия уже установлена или устарела. Проверьте обновления ещё раз.</string>
+    <string name="updates_error_checksum">Скачанный файл не совпадает с опубликованным релизом. Скачайте обновление ещё раз.</string>
     <string name="forum_topics_partial_load_failed">Часть тем не загрузилась. Уже полученные темы доступны.</string>
     <string name="forum_topics_search">Поиск по темам</string>
     <string name="forum_topics_search_placeholder">Поиск по темам</string>

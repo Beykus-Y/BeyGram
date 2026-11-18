@@ -80,6 +80,12 @@ internal object StableApkSignerPolicy {
     }
 }
 
+/** The update failures the user can act on. Every other failure of an update step stays a generic error. */
+enum class StableUpdateReason { NoFreeSpace, AlreadyInstalled, ChecksumMismatch }
+
+/** A failure with a known [reason]. [message] is for the log only; the screen words the failure by [reason]. */
+class StableUpdateException(val reason: StableUpdateReason, message: String) : IOException(message)
+
 class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
     private val repoApi = "https://api.github.com/repos/Beykus-Y/BeyGram/releases/latest"
     private val downloadPrefix = "https://github.com/Beykus-Y/BeyGram/releases/download/"
@@ -139,7 +145,7 @@ class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
                 release.versionName, release.versionCode, release.size, release.sha256, release.apkName
             ) && release.tag == "v${release.versionName}")
             if (!StableUpdatePolicy.isNewer(installedCode(), release.versionCode)) {
-                throw IOException("Эта версия уже установлена или устарела.")
+                throw StableUpdateException(StableUpdateReason.AlreadyInstalled, "Эта версия уже установлена или устарела.")
             }
             if (!updateDir.exists() && !updateDir.mkdirs()) throw IOException("Нет места для загрузки.")
             // Never reuse/delete a path already granted to Android Package Installer.
@@ -148,7 +154,7 @@ class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
             val temp = File(updateDir, "stable-$downloadId.part")
             val target = File(updateDir, "stable-$downloadId.apk")
             if (updateDir.usableSpace < release.size + 20_000_000L) {
-                throw IOException("Недостаточно свободного места для APK.")
+                throw StableUpdateException(StableUpdateReason.NoFreeSpace, "Недостаточно свободного места для APK.")
             }
             try {
                 val digest = MessageDigest.getInstance("SHA-256")
@@ -182,7 +188,7 @@ class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
                     }
                     if (downloaded != release.size ||
                         digest.digest().joinToString("") { "%02x".format(it) } != release.sha256) {
-                        throw IOException("Контрольная сумма APK не совпадает.")
+                        throw StableUpdateException(StableUpdateReason.ChecksumMismatch, "Контрольная сумма APK не совпадает.")
                     }
                 } finally {
                     connection.disconnect()
