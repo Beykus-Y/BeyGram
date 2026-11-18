@@ -1,7 +1,6 @@
 package com.beykus.beygram.ui.screens.chat
 
 import androidx.annotation.StringRes
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -147,38 +146,6 @@ internal fun TranslationBlock(
                     TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry), color = palette.accent) }
                 }
             }
-        }
-    }
-}
-
-/** Compact translation settings row: current target opens the same picker used by the message action. */
-@Composable
-internal fun TranslationSettingsSection(
-    autoTranslate: Boolean,
-    targetLanguageCode: String,
-    onAutoTranslateChange: (Boolean) -> Unit,
-    onChooseLanguage: () -> Unit
-) {
-    val palette = beyGramPalette()
-    val targetName = stringResource(translationLanguageLabel(targetLanguageCode))
-    HorizontalDivider(color = palette.divider, modifier = Modifier.padding(top = 10.dp))
-    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)) {
-        Text(stringResource(R.string.translation_settings_title), color = palette.textSecondary, fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold)
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.translation_auto_title), color = palette.textPrimary)
-                Text(stringResource(R.string.translation_auto_hint), color = palette.textSecondary, fontSize = 12.sp)
-            }
-            com.beykus.beygram.ui.components.Switch(checked = autoTranslate, onCheckedChange = onAutoTranslateChange)
-        }
-        Row(
-            Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onChooseLanguage)
-                .padding(top = 10.dp, bottom = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(stringResource(R.string.translation_target_title), color = palette.textPrimary, modifier = Modifier.weight(1f))
-            Text(targetName, color = palette.accentInk)
         }
     }
 }
