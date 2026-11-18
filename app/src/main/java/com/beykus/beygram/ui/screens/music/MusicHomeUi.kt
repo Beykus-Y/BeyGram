@@ -1,6 +1,7 @@
 package com.beykus.beygram.ui.screens.music
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,23 +10,35 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -34,10 +47,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.beykus.beygram.R
+import com.beykus.beygram.ui.components.Button
+import com.beykus.beygram.ui.components.OutlinedButton
 import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
 import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.components.topAppBarSurface
+import com.beykus.beygram.ui.design.ChipSelectionTone
 import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.corner
 import com.beykus.beygram.ui.design.glassCard
 import com.beykus.beygram.ui.design.styledShape
 import com.beykus.beygram.ui.screens.playback.TrackArtwork
@@ -156,9 +175,18 @@ internal fun MusicTileGrid(count: Int, cell: @Composable (Int) -> Unit) {
 
 internal fun coverColumns(width: Dp): Int = (width / 124.dp).toInt().coerceIn(3, 8)
 
-/** A quick-access tile: icon, name and how many tracks it holds. [count] null hides the count while it is looked up. */
+/**
+ * A quick-access tile: icon, name and how many tracks it holds. [count] null hides the count while it is looked up.
+ * [trailing] is an action at the end of the tile, such as a play button; nothing is drawn there by default.
+ */
 @Composable
-internal fun MusicQuickTile(icon: ImageVector, title: String, count: String?, onClick: () -> Unit) {
+internal fun MusicQuickTile(
+    icon: ImageVector,
+    title: String,
+    count: String?,
+    onClick: () -> Unit,
+    trailing: @Composable () -> Unit = {}
+) {
     val palette = beyGramPalette()
     Row(
         Modifier.fillMaxWidth()
@@ -191,6 +219,7 @@ internal fun MusicQuickTile(icon: ImageVector, title: String, count: String?, on
                 maxLines = 1
             )
         }
+        trailing()
     }
 }
 
@@ -309,17 +338,153 @@ internal fun MusicCollectionHeader(
     }
 }
 
-/** A playlist cover that fills [modifier], or the generated placeholder. */
+/**
+ * The cover of a collection screen, filling [modifier]: its picture, or the generated placeholder. A liked or favorites
+ * list without a picture of its own shows a heart on the accent tile instead of the note.
+ */
 @Composable
-internal fun MusicPlaylistCoverFill(coverPath: String?, modifier: Modifier) {
+internal fun MusicPlaylistCoverFill(coverPath: String?, modifier: Modifier, liked: Boolean = false) {
     val palette = beyGramPalette()
-    TrackArtwork(
-        artworkPath = coverPath,
-        audioPath = null,
-        modifier = modifier,
-        background = palette.accentSoft,
-        tint = palette.accentInk,
-        symbolSize = 40.dp,
-        cornerRadius = 20.dp
+    val cornerRadius = LocalDesignSystem.current.shapes.corner(20.dp)
+    if (liked && coverPath == null) {
+        Box(
+            modifier.clip(RoundedCornerShape(cornerRadius)).background(palette.accentSoft),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.Favorite, null, tint = palette.accentInk, modifier = Modifier.size(44.dp))
+        }
+    } else {
+        TrackArtwork(
+            artworkPath = coverPath,
+            audioPath = null,
+            modifier = modifier,
+            background = palette.accentSoft,
+            tint = palette.accentInk,
+            symbolSize = 40.dp,
+            cornerRadius = cornerRadius
+        )
+    }
+}
+
+/**
+ * The top bar of every collection screen, the same for a stored playlist, a smart collection and a source playlist or
+ * album: back, the title on one line, then the actions of the screen.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun MusicCollectionTopBar(
+    title: String,
+    onBack: () -> Unit,
+    actions: @Composable RowScope.() -> Unit = {}
+) {
+    val palette = beyGramPalette()
+    TopAppBar(
+        modifier = Modifier.topAppBarSurface(),
+        title = {
+            Text(
+                title,
+                color = palette.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.ArrowBack,
+                    stringResource(R.string.common_back),
+                    tint = palette.textPrimary
+                )
+            }
+        },
+        actions = actions,
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = palette.surface)
     )
+}
+
+/** Play and shuffle under the header of a collection screen. Both are off while the list has nothing to play. */
+@Composable
+internal fun MusicCollectionActions(enabled: Boolean, onPlay: () -> Unit, onShuffle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = MusicScreenGutter, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Button(onClick = onPlay, enabled = enabled, modifier = Modifier.weight(1f)) {
+            Text(stringResource(R.string.music_play))
+        }
+        OutlinedButton(onClick = onShuffle, enabled = enabled, modifier = Modifier.weight(1f)) {
+            Text(stringResource(R.string.player_shuffle))
+        }
+    }
+}
+
+/** A list that failed to load: what went wrong, then the retry button. The rows above it, if any, stay on screen. */
+@Composable
+internal fun MusicRetryRow(text: String, onRetry: () -> Unit) {
+    val palette = beyGramPalette()
+    Column(Modifier.fillMaxWidth().padding(horizontal = MusicScreenGutter, vertical = 16.dp)) {
+        Text(text, color = palette.textSecondary, fontSize = 14.sp)
+        Spacer(Modifier.height(10.dp))
+        Button(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(stringResource(R.string.yandex_library_retry))
+        }
+    }
+}
+
+/**
+ * One choice of a row of single-choice chips, drawn with the selection the style asks for ([ChipSelectionTone]): a filled
+ * accent, a tonal glass, an underline, the outlined filter chip with a check, or the ink of Signature. The touch target
+ * is at least 48 dp around the chip.
+ */
+@Composable
+internal fun MusicChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val tone = design.mainScreen.chipSelection
+    val shape = RoundedCornerShape(design.shapes.corner(design.mainScreen.chipRadius))
+    val container: Modifier = when (tone) {
+        ChipSelectionTone.Filled -> Modifier.background(if (selected) palette.accent else palette.surface2, shape)
+        ChipSelectionTone.Tonal ->
+            if (selected) Modifier.background(palette.accentSoft, shape)
+            else Modifier.glassCard(design, palette.surface2, palette.textSecondary, shape)
+        ChipSelectionTone.Underlined -> Modifier
+        ChipSelectionTone.Filter ->
+            if (selected) Modifier.background(palette.accentSoft, shape)
+            else Modifier.border(1.dp, palette.divider, shape)
+        ChipSelectionTone.Ink -> if (selected) Modifier.background(palette.textPrimary, shape) else Modifier
+    }
+    val labelColor = when (tone) {
+        ChipSelectionTone.Filled -> if (selected) palette.onAccent else palette.textPrimary
+        ChipSelectionTone.Tonal, ChipSelectionTone.Underlined -> if (selected) palette.accentInk else palette.textPrimary
+        ChipSelectionTone.Filter -> if (selected) palette.accentInk else palette.textSecondary
+        ChipSelectionTone.Ink -> if (selected) palette.screen else palette.textSecondary
+    }
+    Box(
+        Modifier
+            .defaultMinSize(minHeight = 48.dp)
+            .clip(shape)
+            .then(container)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (selected && tone == ChipSelectionTone.Filter) {
+                Icon(Icons.Rounded.Check, null, tint = labelColor, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+            }
+            Text(
+                label,
+                color = labelColor,
+                fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (selected && tone == ChipSelectionTone.Underlined) {
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp).background(palette.accent))
+        }
+    }
 }

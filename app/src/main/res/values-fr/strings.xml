@@ -826,6 +826,7 @@
     <string name="music_chat_collection_title">De ce chat</string>
     <string name="music_collection_added">Ajoutés récemment</string>
     <string name="music_collection_empty">Rien ici pour l’instant</string>
+    <string name="music_collection_failed">Échec du chargement. Réessayez.</string>
     <string name="music_collection_frequent">Écoutés souvent</string>
     <string name="music_collection_lately">Pas écoutés depuis longtemps</string>
     <string name="music_copy_suffix">(copie)</string>

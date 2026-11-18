@@ -800,6 +800,7 @@
     <string name="music_chat_collection_title">Aus diesem Chat</string>
     <string name="music_collection_added">Kürzlich hinzugefügt</string>
     <string name="music_collection_empty">Hier ist noch nichts</string>
+    <string name="music_collection_failed">Laden fehlgeschlagen. Bitte versuchen Sie es erneut.</string>
     <string name="music_collection_frequent">Oft gehört</string>
     <string name="music_collection_lately">Lange nicht gehört</string>
     <string name="music_copy_suffix">(Kopie)</string>
