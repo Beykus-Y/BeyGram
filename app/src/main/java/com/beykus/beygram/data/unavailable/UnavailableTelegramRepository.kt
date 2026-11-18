@@ -304,9 +304,13 @@ class UnavailableTelegramRepository : TelegramRepository {
 
     override suspend fun removeGroupPhoto(chatId: Long): Result<Unit> = unavailable()
 
-    override suspend fun activeSessions(): Result<List<com.beykus.beygram.domain.model.DeviceSession>> = unavailable()
+    override suspend fun activeSessions(): Result<com.beykus.beygram.domain.model.ActiveSessions> = unavailable()
     override suspend fun terminateOtherSession(sessionId: Long): Result<Unit> = unavailable()
     override suspend fun terminateAllOtherSessions(): Result<Unit> = unavailable()
+    override suspend fun confirmSession(sessionId: Long): Result<Unit> = unavailable()
+    override suspend fun setInactiveSessionTtl(days: Int): Result<Unit> = unavailable()
+    override suspend fun setSessionCanAcceptCalls(sessionId: Long, enabled: Boolean): Result<Unit> = unavailable()
+    override suspend fun setSessionCanAcceptSecretChats(sessionId: Long, enabled: Boolean): Result<Unit> = unavailable()
     override suspend fun cloudPasswordState(): Result<com.beykus.beygram.domain.model.CloudPasswordState> = unavailable()
     override suspend fun setCloudPassword(
         currentPassword: String,
@@ -461,6 +465,7 @@ class UnavailableTelegramRepository : TelegramRepository {
     override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = unavailable()
     override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = unavailable()
     override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = unavailable()
+    override suspend fun setPinnedForumTopicsOrder(chatId: Long, forumTopicIds: List<Long>): Result<Unit> = unavailable()
     override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = unavailable()
     override suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?): Result<Unit> = unavailable()
     override suspend fun searchForumTopicMessages(chatId: Long, forumTopicId: Long, query: String, fromMessageId: Long, filter: ChatSearchFilter): Result<MessageSearchPage> = unavailable()

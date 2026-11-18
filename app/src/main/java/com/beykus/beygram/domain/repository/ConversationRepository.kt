@@ -153,6 +153,8 @@ interface ConversationRepository {
     suspend fun customEmojiSetIds(setId: Long): Result<List<Long>>
     suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit>
     suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit>
+    /** The new order of the pinned topics, first id on top. The server takes the whole pinned set, so pass every pinned topic. */
+    suspend fun setPinnedForumTopicsOrder(chatId: Long, forumTopicIds: List<Long>): Result<Unit>
     suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>
     /** Per-topic notifications: true mutes the topic, false unmutes it, and null lets the topic follow the group again. */
     suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?): Result<Unit>
