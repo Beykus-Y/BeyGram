@@ -843,6 +843,8 @@ object PlaybackEngine {
             updateWaveCaptureEligibility(merged)
             _state.update { it.copy(item = merged, queue = nextItems, queueIndex = nextIndex).withTimelineNavigation(exo) }
             if (timelineChanged(currentState, nextItems, nextIndex)) {
+                // A queue that replaces the playing one is a new queue: the old one's page load and extensions stop here.
+                dropQueuePages()
                 if (!replaceQueueAroundCurrent(nextItems, nextIndex, currentState.queue.size)) {
                     rebuildTimeline(nextItems, nextIndex, currentState.positionMs, shouldPlay)
                 }
@@ -2883,6 +2885,61 @@ object PlaybackEngine {
             return
         }
         rebuildTimeline(queue, base.indexOfFirst { it.key == current.key }.coerceAtLeast(0), state.positionMs, state.playing || state.intentPlaying)
+    }
+
+    /**
+     * Changes whenever the playing queue starts over, is replaced, cleared or stopped. [appendYandexTracks] takes the value
+     * read when its tracks were started, so tracks of an older queue never land in a newer one.
+     */
+    val queueGeneration: Long get() = queuePageGeneration
+
+    /**
+     * Adds [tracks] after the last track of the playing queue without restarting the current track. It acts only while the
+     * queue is still the one [generation] was read for; a queue started, replaced or stopped since then is left alone, and
+     * nothing starts when no music plays. Returns whether the queue took any track.
+     */
+    @OptIn(UnstableApi::class)
+    fun appendYandexTracks(tracks: List<com.beykus.beygram.data.music.provider.ProviderTrack>, generation: Long): Boolean {
+        val state = _state.value
+        val current = state.item ?: return false
+        if (generation != queuePageGeneration || !current.isMusic || current.systemPrivate || current.accountId != LEGACY_PLAYBACK_ACCOUNT_ID) return false
+        val base = state.queue.ifEmpty { listOf(current) }
+        val queued = base.mapTo(HashSet()) { it.key }
+        val items = tracks.filter { it.isAvailable }.distinctBy { it.key }.filter { it.key !in queued }.map(::providerPlaybackItem)
+        if (items.isEmpty()) return false
+        val target = exo ?: return false
+        val queue = base + items
+        // The queue ran out while the rest was loading: its first new track plays on, as a page of an endless queue does.
+        val ended = state.ended && state.intentPlaying
+        if (canEditInPlace(target, base.size)) {
+            items.forEach { registerSource(it, queueSource) }
+            target.addMediaItems(items.map(::mediaItemFor))
+            commitInPlaceQueue(queue)
+            if (ended) {
+                target.seekTo(base.size, 0L)
+                if (target.playbackState == Player.STATE_IDLE || target.playbackState == Player.STATE_ENDED) target.prepare()
+                target.play()
+                startPlaybackService()
+                startProgress()
+            }
+            return true
+        }
+        if (ended) {
+            rebuildTimeline(queue, base.size, 0L, play = true)
+        } else {
+            rebuildTimeline(queue, base.indexOfFirst { it.key == current.key }.coerceAtLeast(0), state.positionMs, state.playing || state.intentPlaying)
+        }
+        return true
+    }
+
+    /** Ends the page load of a queue that a new one replaces: its result is dropped when it arrives. */
+    private fun dropQueuePages() {
+        queuePageGeneration++
+        queuePageJob?.cancel()
+        queuePageJob = null
+        queuePageRetryJob?.cancel()
+        queuePageRetryJob = null
+        _queuePageLoading.value = false
     }
 
     /** Removes an item from the queue; removing the playing item advances to the next (or previous) one. */
