@@ -1945,6 +1945,7 @@ fun ChatScreen(
     val pinsConnected = connectionState == TelegramConnectionState.Connected
     LaunchedEffect(pinnedState, pinnedVersion, pinsConnected, pinnedState.retryTick) { pinnedState.refresh(pinnedVersion, pinsConnected) }
     var pinnedListOpen by rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
+    var pinnedPreviewSource by remember(chat.id, forumTopicId) { mutableStateOf<PinnedPreviewSource?>(null) }
     // Hiding the pinned bar is local to this chat and this account; the pins themselves stay on the server.
     val pinnedBarHidden = chatOverrideState[chat.id]?.pinnedBarHidden == true
     val windowLayout = LocalWindowLayout.current
@@ -2006,7 +2007,9 @@ fun ChatScreen(
                 observeFile = observeFile,
                 visibleOldestMessageId = visibleOldestPinnedBoundary,
                 onOpen = ::jumpToPinned,
-                onOpenList = { pinnedListOpen = true },
+                onOpenList = { pinnedPreviewSource = null; pinnedListOpen = true },
+                onOpenListFromPreview = { source -> pinnedPreviewSource = source; pinnedListOpen = true },
+                hiddenPreviewId = pinnedPreviewSource?.id?.takeIf { pinnedListOpen },
                 onHideBar = { chatOverrides.setPinnedBarHidden(chat.id, true) },
                 onUnpin = { message -> setPinned(message, false) },
                 onRowShownChange = { pinnedPreviewShown = it }
@@ -2064,7 +2067,7 @@ fun ChatScreen(
             showBack = !windowLayout.twoPane || forumTopicId > 0L || forumAllMessages,
             compact = compactChrome,
             pinnedCount = pinnedState.count,
-            onOpenPinned = { pinnedListOpen = true },
+            onOpenPinned = { pinnedPreviewSource = null; pinnedListOpen = true },
             forumNavigationMode = forumNavigationMode,
             onForumNavigationMode = onForumNavigationMode,
             forumAllMessages = forumAllMessages
@@ -3170,9 +3173,10 @@ fun ChatScreen(
         observeFile = observeFile,
         downloadFile = onDownloadFile,
         barHidden = pinnedBarHidden,
+        previewSource = pinnedPreviewSource,
         onRestoreBar = { chatOverrides.setPinnedBarHidden(chat.id, false) },
-        onOpenMessage = { message -> pinnedListOpen = false; jumpToPinned(message) },
-        onClose = { pinnedListOpen = false }
+        onOpenMessage = { message -> pinnedListOpen = false; pinnedPreviewSource = null; jumpToPinned(message) },
+        onClose = { pinnedListOpen = false; pinnedPreviewSource = null }
     )
     if (chatSettingsOpen) ChatSettingsSheet(
         chatId = chat.id,

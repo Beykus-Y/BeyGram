@@ -2,6 +2,24 @@ package com.beykus.beygram.ui.screens.chat
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.view.View
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.DialogWindowProvider
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.roundToInt
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.rounded.Search
@@ -147,6 +165,25 @@ import kotlinx.coroutines.flow.StateFlow
 import java.text.DateFormat
 import java.util.Date
 
+/** Captured from the actual one-line preview; no guessed screen position. */
+internal data class PinnedPreviewSource(val id: Long, val text: String, val bounds: Rect, val screenWidth: Int, val screenHeight: Int)
+
+private fun LayoutCoordinates.pinnedBoundsOnScreen(view: View): Rect? {
+    if (!isAttached) return null
+    val rect = boundsInWindow()
+    if (rect.width <= 0f || rect.height <= 0f) return null
+    val screen = IntArray(2)
+    val window = IntArray(2)
+    view.getLocationOnScreen(screen)
+    view.getLocationInWindow(window)
+    val x = (screen[0] - window[0]).toFloat()
+    val y = (screen[1] - window[1]).toFloat()
+    return Rect(rect.left + x, rect.top + y, rect.right + x, rect.bottom + y)
+}
+
+private fun Rect.containsBounds(other: Rect): Boolean =
+    other.left >= left && other.right <= right && other.top >= top && other.bottom <= bottom
+
 /** Which pin is relevant to the message window currently visible in chat history. */
 internal fun currentPinnedIndex(pins: List<ChatMessage>, visibleOldestMessageId: Long?): Int {
     if (pins.isEmpty()) return -1
@@ -276,6 +313,8 @@ internal fun PinnedMessagesBar(
     visibleOldestMessageId: Long? = null,
     onOpen: (ChatMessage) -> Unit,
     onOpenList: () -> Unit,
+    onOpenListFromPreview: ((PinnedPreviewSource) -> Unit)? = null,
+    hiddenPreviewId: Long? = null,
     onHideBar: () -> Unit,
     onUnpin: (ChatMessage) -> Unit,
     /** Reports whether a row is drawn, so the header can give its bottom hairline to this row. */
@@ -357,6 +396,8 @@ internal fun PinnedMessagesBar(
         val target = shown ?: return@AnimatedVisibility
         val pinTotal = state.count
         val previewText = target.summary()
+        val view = LocalView.current
+        var previewBounds by remember(target.id) { mutableStateOf<Rect?>(null) }
         val positionDescription = stringResource(R.string.chat_pinned_position, index + 1, pinTotal)
         val pagingFailed = needsOlder && state.failed
 
@@ -400,6 +441,8 @@ internal fun PinnedMessagesBar(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
+                            .onGloballyPositioned { previewBounds = it.pinnedBoundsOnScreen(view) }
+                            .graphicsLayer { alpha = if (hiddenPreviewId == target.id) 0f else 1f }
                     )
                     if (pinTotal > 1) {
                         if (state.loading && !pagingFailed) {
@@ -422,7 +465,14 @@ internal fun PinnedMessagesBar(
                         Icon(Icons.Rounded.Refresh, stringResource(R.string.chat_pinned_retry), tint = palette.textSecondary, modifier = Modifier.size(18.dp))
                     }
                 }
-                IconButton(onClick = onOpenList) {
+                IconButton(onClick = {
+                    val bounds = previewBounds
+                    val openFromPreview = onOpenListFromPreview
+                    if (bounds != null && openFromPreview != null) {
+                        val metrics = view.resources.displayMetrics
+                        openFromPreview(PinnedPreviewSource(target.id, previewText, bounds, metrics.widthPixels, metrics.heightPixels))
+                    } else onOpenList()
+                }) {
                     Icon(Icons.Rounded.PushPin, stringResource(R.string.chat_pinned_list), tint = pinTint, modifier = Modifier.size(20.dp))
                 }
             }
@@ -673,6 +723,7 @@ internal fun PinnedMessagesScreen(
     observeFile: (Int) -> StateFlow<MediaFileState>,
     downloadFile: (Int) -> Unit,
     barHidden: Boolean,
+    previewSource: PinnedPreviewSource? = null,
     onRestoreBar: () -> Unit,
     onOpenMessage: (ChatMessage) -> Unit,
     onClose: () -> Unit
@@ -761,7 +812,8 @@ internal fun PinnedMessagesScreen(
         if (query.isNotBlank() && searchResults.isNotEmpty()) loadSearchPage(0L, replace = true)
     }
 
-    val listState = rememberLazyListState()
+    val initialIndex = remember(previewSource, chatKey) { state.pins.indexOfFirst { it.id == previewSource?.id }.coerceAtLeast(0) }
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
     val resolvedAvatars = remember(chatKey) { mutableStateMapOf<Long, AvatarPhoto?>() }
     // Resolve only senders actually visible in the pinned list, not the whole chat or every loaded history page.
     val visibleSenderIds by remember(listState, shown) {
@@ -795,6 +847,59 @@ internal fun PinnedMessagesScreen(
         if (nearListEnd && searching && searchNextId != 0L) loadSearchPage(searchNextId, replace = false)
     }
 
+    val entryMotion = rememberMotionSpec(MotionToken.NavigationPush)
+    val exitMotion = rememberMotionSpec(MotionToken.NavigationPop)
+    val flightSource = previewSource?.takeIf { !entryMotion.isInstant && it.text.isNotBlank() }
+    val progress = remember(flightSource) { Animatable(if (flightSource == null) 1f else 0f) }
+    var flightActive by remember(flightSource) { mutableStateOf(flightSource != null) }
+    var closing by remember(flightSource) { mutableStateOf(false) }
+    var rootBounds by remember(flightSource) { mutableStateOf<Rect?>(null) }
+    var targetBounds by remember(flightSource) { mutableStateOf<Rect?>(null) }
+    val validDisplay = flightSource?.let {
+        val metrics = context.resources.displayMetrics
+        it.screenWidth == metrics.widthPixels && it.screenHeight == metrics.heightPixels
+    } == true
+    fun canReturnToPreview(): Boolean {
+        val source = flightSource ?: return false
+        val root = rootBounds ?: return false
+        val target = targetBounds ?: return false
+        return validDisplay && !searchOpen && !exitMotion.isInstant &&
+            root.containsBounds(source.bounds) && root.containsBounds(target) &&
+            listState.layoutInfo.visibleItemsInfo.any { it.key == source.id } &&
+            shown.any { it.id == source.id && it.summary() == source.text }
+    }
+    fun closeWithFlight(action: () -> Unit, messageId: Long? = null) {
+        if (closing) return
+        if (flightActive || !canReturnToPreview() || (messageId != null && messageId != flightSource?.id)) {
+            action()
+            return
+        }
+        closing = true
+        flightActive = true
+        scope.launch {
+            progress.animateTo(0f, exitMotion.animationSpec())
+            action()
+        }
+    }
+    LaunchedEffect(flightSource, validDisplay, entryMotion.isInstant) {
+        if (flightSource == null || !validDisplay || entryMotion.isInstant) {
+            progress.snapTo(1f)
+            flightActive = false
+            return@LaunchedEffect
+        }
+        val validBounds = withTimeoutOrNull(250) {
+            snapshotFlow {
+                val root = rootBounds
+                val target = targetBounds
+                if (root != null && target != null) root.containsBounds(flightSource.bounds) && root.containsBounds(target)
+                else null
+            }.filterNotNull().first()
+        }
+        if (validBounds == true) progress.animateTo(1f, entryMotion.animationSpec())
+        else progress.snapTo(1f)
+        flightActive = false
+    }
+
     fun unpin(target: ChatMessage) {
         scope.launch {
             unpinError = null
@@ -804,7 +909,7 @@ internal fun PinnedMessagesScreen(
     }
 
     Dialog(
-        onDismissRequest = { if (searchOpen) closeSearch() else onClose() },
+        onDismissRequest = { if (searchOpen) closeSearch() else closeWithFlight(onClose) },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
@@ -820,15 +925,24 @@ internal fun PinnedMessagesScreen(
                 keyboard?.hide()
             }
         }
+        val view = LocalView.current
+        val dialogWindow = (view.parent as? DialogWindowProvider)?.window
+        DisposableEffect(dialogWindow, flightSource) {
+            val previous = dialogWindow?.attributes?.dimAmount
+            if (flightSource != null) dialogWindow?.setDimAmount(0f)
+            onDispose { if (previous != null) dialogWindow?.setDimAmount(previous) }
+        }
+        Box(Modifier.fillMaxSize().onGloballyPositioned { rootBounds = it.pinnedBoundsOnScreen(view) }) {
         Column(
-            Modifier.fillMaxSize().background(palette.screen)
+            Modifier.fillMaxSize().graphicsLayer { alpha = if (flightActive) progress.value else 1f }
+                .background(palette.screen)
                 .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()
         ) {
             Row(
                 Modifier.fillMaxWidth().topAppBarSurface().padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { if (searchOpen) closeSearch() else onClose() }) {
+                IconButton(onClick = { if (searchOpen) closeSearch() else closeWithFlight(onClose) }) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary)
                 }
                 Column(Modifier.weight(1f)) {
@@ -935,9 +1049,12 @@ internal fun PinnedMessagesScreen(
                                 menuExpanded = rowMenuFor?.id == message.id,
                                 capabilities = if (rowMenuFor?.id == message.id) capabilities else null,
                                 onMenuDismiss = { if (rowMenuFor?.id == message.id) rowMenuFor = null },
-                                onClick = { onOpenMessage(message) },
+                                previewTextModifier = if (message.id == flightSource?.id) Modifier
+                                    .onGloballyPositioned { targetBounds = it.pinnedBoundsOnScreen(view) }
+                                    .graphicsLayer { alpha = if (flightActive) 0f else 1f } else Modifier,
+                                onClick = { closeWithFlight({ onOpenMessage(message) }, message.id) },
                                 onLongPress = { rowMenuFor = message; capabilities = null },
-                                onJump = { onOpenMessage(message) },
+                                onJump = { closeWithFlight({ onOpenMessage(message) }, message.id) },
                                 onUnpin = { unpin(message) }
                             )
                             if (index < shown.lastIndex && monthLabels[index + 1] == month) {
@@ -972,6 +1089,26 @@ internal fun PinnedMessagesScreen(
                 }
             }
         }
+        if (flightActive && validDisplay && flightSource != null) {
+            val root = rootBounds
+            val target = targetBounds
+            if (root != null && root.containsBounds(flightSource.bounds)) {
+                val density = LocalDensity.current
+                val start = flightSource.bounds
+                // Animate a separate text copy between the measured source and destination.
+                // If the destination is not laid out yet, keep it at the real source.
+                val end = target?.takeIf { root.containsBounds(it) } ?: start
+                val t = progress.value.coerceIn(0f, 1f)
+                val x = start.left + (end.left - start.left) * t - root.left
+                val y = start.top + (end.top - start.top) * t - root.top
+                val width = start.width + (end.width - start.width) * t
+                Text(flightSource.text, color = palette.textPrimary, fontSize = 14.sp,
+                    maxLines = if (t < 0.5f) 1 else 3, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.offset { IntOffset(x.roundToInt(), y.roundToInt()) }
+                        .width(with(density) { width.coerceAtLeast(1f).toDp() }).clearAndSetSemantics {})
+            }
+        }
+        }
         // The row menu hosts its own popover (anchored to the row); this screen only resolves the rights for it.
         LaunchedEffect(rowMenuFor) {
             val target = rowMenuFor ?: return@LaunchedEffect
@@ -992,6 +1129,7 @@ private fun PinnedMessageRow(
     downloadFile: (Int) -> Unit,
     menuExpanded: Boolean,
     capabilities: MessageCapabilities?,
+    previewTextModifier: Modifier = Modifier,
     onMenuDismiss: () -> Unit,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
@@ -1040,6 +1178,7 @@ private fun PinnedMessageRow(
                 )
                 Text(
                     message.summary(),
+                    modifier = previewTextModifier.fillMaxWidth(),
                     color = palette.textPrimary,
                     fontSize = 14.sp,
                     maxLines = 3,
