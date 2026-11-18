@@ -1933,6 +1933,12 @@
     <string name="forum_delete_confirm">Удалить тему «%1$s» вместе с сообщениями? Отменить удаление нельзя.</string>
     <string name="forum_action_failed">Не удалось выполнить действие с темой. Проверьте права доступа и соединение.</string>
     <string name="forum_topic_history_hint">Откройте тему, чтобы посмотреть историю</string>
+    <string name="forum_topics_reorder">Изменить порядок</string>
+    <string name="forum_topics_reorder_hint">Перетащите закреплённые темы, чтобы изменить их порядок</string>
+    <string name="forum_topics_reorder_done">Готово</string>
+    <string name="forum_topics_reorder_failed">Не удалось изменить порядок тем</string>
+    <string name="forum_topic_move_up">Выше</string>
+    <string name="forum_topic_move_down">Ниже</string>
     <string name="service_join_link_named">По ссылке в группу вступил(а) %1$s</string>
     <string name="service_join_request_named">По заявке в группу вступил(а) %1$s</string>
     <string name="service_members_added_named">В группу добавлен(а) %1$s</string>
@@ -2025,6 +2031,11 @@
     <string name="forum_navigation_tabs">Вкладки сверху</string>
     <string name="forum_navigation_rail">Панель сбоку</string>
     <string name="forum_panel_all_topics">Все темы</string>
+    <string name="forum_all_messages">Все сообщения</string>
+    <string name="forum_all_messages_tab">Все</string>
+    <string name="forum_all_messages_hint">Выберите тему или ответьте на сообщение</string>
+    <string name="forum_all_messages_open_topic">Открыть тему</string>
+    <string name="forum_all_messages_unknown_topic">Тема</string>
     <string name="share_saved_quick_action">Избранное</string>
     <string name="share_recent_destinations">Недавние и другие чаты</string>
     <string name="sessions_load_timeout">Не удалось получить сеансы за отведённое время. Проверь подключение и нажми «Повторить».</string>
@@ -2185,6 +2196,7 @@
     <string name="a11y_view_once_chip">Одноразовое фото или видео</string>
     <string name="chats_secret_chat">Секретный чат</string>
     <string name="chats_forum">Форум</string>
+    <string name="chats_open_topic">Открыть тему</string>
     <string name="app_lock_title">Блокировка приложения</string>
     <string name="app_lock_intro">Запрашивать PIN или биометрию при запуске BeyGram и после возврата в приложение. Блокировка общая для всех аккаунтов на этом устройстве.</string>
     <string name="app_lock_enable_title">Блокировка приложения</string>

@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.List
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
@@ -113,13 +114,17 @@ fun ForumTopicTabStrip(
     downloadFile: (Int) -> Unit,
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     modifier: Modifier = Modifier,
-    listState: LazyListState = rememberLazyListState()
+    listState: LazyListState = rememberLazyListState(),
+    /** The feed of every topic's messages is open: its pseudo-item is then the selected one, and no topic is. */
+    allMessagesSelected: Boolean = false,
+    /** Null leaves the feed's pseudo-item out of the strip. */
+    onAllMessages: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     // Inside the glass header the pane behind the strip is the background; a plain header paints its own surface.
     val onGlass = LocalChatChromeOnGlass.current
     val selectedIndex = remember(topics, selectedTopicId) { topics.indexOfFirst { it.id == selectedTopicId } }
-    ForumPanelRevealSelected(listState = listState, selectedIndex = selectedIndex)
+    ForumPanelRevealSelected(listState = listState, selectedIndex = selectedIndex, leadingItems = if (onAllMessages != null) 2 else 1)
     Column(modifier.fillMaxWidth().then(if (onGlass) Modifier else Modifier.background(palette.surface))) {
         LazyRow(
             state = listState,
@@ -128,6 +133,9 @@ fun ForumTopicTabStrip(
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             item(key = "forum-panel-all") { ForumPanelAllTopicsTab(onOpenList = onOpenList) }
+            onAllMessages?.let { open ->
+                item(key = "forum-panel-all-messages") { ForumPanelAllMessagesTab(selected = allMessagesSelected, onOpen = open) }
+            }
             items(topics, key = { "forum-panel-topic:${it.id}" }) { topic ->
                 ForumPanelTab(
                     topic = topic,
@@ -160,11 +168,13 @@ fun ForumTopicRail(
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     modifier: Modifier = Modifier,
     expanded: Boolean = false,
-    listState: LazyListState = rememberLazyListState()
+    listState: LazyListState = rememberLazyListState(),
+    allMessagesSelected: Boolean = false,
+    onAllMessages: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val selectedIndex = remember(topics, selectedTopicId) { topics.indexOfFirst { it.id == selectedTopicId } }
-    ForumPanelRevealSelected(listState = listState, selectedIndex = selectedIndex)
+    ForumPanelRevealSelected(listState = listState, selectedIndex = selectedIndex, leadingItems = if (onAllMessages != null) 2 else 1)
     Row(
         modifier
             .fillMaxHeight()
@@ -180,6 +190,9 @@ fun ForumTopicRail(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             item(key = "forum-panel-all") { ForumPanelRailAllTopics(expanded = expanded, onOpenList = onOpenList) }
+            onAllMessages?.let { open ->
+                item(key = "forum-panel-all-messages") { ForumPanelRailAllMessages(expanded = expanded, selected = allMessagesSelected, onOpen = open) }
+            }
             items(topics, key = { "forum-panel-topic:${it.id}" }) { topic ->
                 ForumPanelRailItem(
                     topic = topic,
@@ -213,6 +226,8 @@ fun ForumTopicRailPane(
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     listState: LazyListState,
     modifier: Modifier = Modifier,
+    allMessagesSelected: Boolean = false,
+    onAllMessages: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     BoxWithConstraints(modifier.fillMaxSize()) {
@@ -228,7 +243,9 @@ fun ForumTopicRailPane(
                 downloadFile = downloadFile,
                 observeCustomEmoji = observeCustomEmoji,
                 expanded = expandedRail,
-                listState = listState
+                listState = listState,
+                allMessagesSelected = allMessagesSelected,
+                onAllMessages = onAllMessages
             )
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 content()
@@ -243,13 +260,22 @@ fun ForumTopicRailPane(
 fun ForumNavigationModeSheet(
     current: ForumNavigationMode,
     onSelect: (ForumNavigationMode) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** Null leaves the feed of every topic's messages out of the sheet. */
+    onAllMessages: (() -> Unit)? = null
 ) {
     val palette = beyGramPalette()
     val checkMark: @Composable () -> Unit = {
         Icon(Icons.Rounded.Check, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
     }
     BeyGramSheet(onDismissRequest = onDismiss, title = stringResource(R.string.forum_navigation_title)) {
+        onAllMessages?.let { open ->
+            SheetActionRow(
+                icon = Icons.Rounded.Forum,
+                title = stringResource(R.string.forum_all_messages),
+                onClick = open
+            )
+        }
         ForumNavigationMode.entries.forEach { mode ->
             val isCurrent = mode == current
             SheetActionRow(
@@ -264,15 +290,16 @@ fun ForumNavigationModeSheet(
 }
 
 /**
- * Keeps the open topic inside a panel. Item 0 is the "all topics" button, so topic [selectedIndex] is item index + 1. A
- * topic that is already fully visible does not move the panel. The scroll follows the motion setting.
+ * Keeps the open topic inside a panel. The items before the topics are the "all topics" button and, when the host offers it, the
+ * feed's pseudo-item; [leadingItems] counts them, so topic [selectedIndex] is item index + leadingItems. A topic that is already
+ * fully visible does not move the panel. The scroll follows the motion setting.
  */
 @Composable
-private fun ForumPanelRevealSelected(listState: LazyListState, selectedIndex: Int) {
+private fun ForumPanelRevealSelected(listState: LazyListState, selectedIndex: Int, leadingItems: Int) {
     val motionInstant = rememberMotionInstant(MotionToken.TabSelect)
-    LaunchedEffect(selectedIndex) {
+    LaunchedEffect(selectedIndex, leadingItems) {
         if (selectedIndex < 0) return@LaunchedEffect
-        val item = selectedIndex + 1
+        val item = selectedIndex + leadingItems
         val layout = listState.layoutInfo
         val shown = layout.visibleItemsInfo.firstOrNull { it.index == item }
         val fullyVisible = shown != null &&
@@ -311,6 +338,40 @@ private fun ForumPanelAllTopicsTab(onOpenList: () -> Unit) {
                 color = palette.textPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/** The strip's pseudo-item beside the list button: the feed of every topic's messages, selected while it is open. */
+@Composable
+private fun ForumPanelAllMessagesTab(selected: Boolean, onOpen: () -> Unit) {
+    val palette = beyGramPalette()
+    val label = stringResource(R.string.forum_all_messages_tab)
+    val shape = styledShape(14.dp)
+    Box(
+        Modifier
+            .heightIn(min = ForumPanelTouchTarget)
+            .selectable(selected = selected, role = Role.Tab, onClick = onOpen),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            Modifier
+                .heightIn(min = 36.dp)
+                .clip(shape)
+                .background(if (selected) palette.accentSoft else palette.surface2)
+                .padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.Forum, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                label,
+                color = if (selected) palette.accentInk else palette.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -415,6 +476,61 @@ private fun ForumPanelRailAllTopics(expanded: Boolean, onOpenList: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(Icons.Rounded.List, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
+            Text(
+                label,
+                color = palette.textPrimary,
+                fontSize = 10.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+/** The rail's pseudo-item under the list button: the feed of every topic's messages, as an icon with a tiny label or a full row. */
+@Composable
+private fun ForumPanelRailAllMessages(expanded: Boolean, selected: Boolean, onOpen: () -> Unit) {
+    val palette = beyGramPalette()
+    val label = stringResource(R.string.forum_all_messages_tab)
+    val shape = styledShape(14.dp)
+    val background = if (selected) palette.accentSoft else palette.surface2
+    if (expanded) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = ForumPanelTouchTarget)
+                .clip(shape)
+                .background(background)
+                .selectable(selected = selected, role = Role.Tab, onClick = onOpen)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.Forum, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                label,
+                color = palette.textPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    } else {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .clip(shape)
+                .background(background)
+                .selectable(selected = selected, role = Role.Tab, onClick = onOpen)
+                .padding(vertical = 6.dp, horizontal = 2.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(Icons.Rounded.Forum, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(22.dp))
             Text(
                 label,
                 color = palette.textPrimary,

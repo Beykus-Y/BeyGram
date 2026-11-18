@@ -54,6 +54,7 @@ import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.CustomEmoji
 import com.beykus.beygram.domain.model.CustomEmojiSetBrief
 import com.beykus.beygram.domain.model.DeleteMessageScope
+import com.beykus.beygram.domain.model.ForumTopicBrief
 import com.beykus.beygram.domain.model.ForumTopicIcon
 import com.beykus.beygram.domain.model.ForumTopicsPage
 import com.beykus.beygram.domain.model.ForwardedMessages
@@ -715,6 +716,7 @@ class TextSendUiTest {
         override suspend fun customEmojiSetIds(setId: Long): Result<List<Long>> = Result.success(emptyList())
         override suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit> = Result.success(Unit)
         override suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit> = Result.success(Unit)
+        override suspend fun setPinnedForumTopicsOrder(chatId: Long, forumTopicIds: List<Long>): Result<Unit> = Result.success(Unit)
         override suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit> = Result.success(Unit)
         override suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?): Result<Unit> = Result.success(Unit)
         override suspend fun sendMedia(chatId: Long, media: OutgoingMedia, caption: String, replyToMessageId: Long?, entities: List<MessageTextEntity>, forumTopicId: Long, options: MessageSendOptions): Result<Unit> = Result.success(Unit)
@@ -782,6 +784,7 @@ class TextSendUiTest {
         override suspend fun toggleReaction(chatId: Long, messageId: Long, reaction: ReactionOption, addToRecent: Boolean): Result<List<MessageReaction>> =
             Result.success(emptyList())
         override fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?> = MutableStateFlow(null)
+        override fun observeForumTopicInfo(chatId: Long, forumTopicId: Long): StateFlow<ForumTopicBrief?> = MutableStateFlow(null)
         override fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?> = MutableStateFlow(null)
         override suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext> =
             Result.failure(UnsupportedOperationException())

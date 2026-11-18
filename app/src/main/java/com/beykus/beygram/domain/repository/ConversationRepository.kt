@@ -153,6 +153,8 @@ interface ConversationRepository {
     suspend fun customEmojiSetIds(setId: Long): Result<List<Long>>
     suspend fun setForumTopicClosed(chatId: Long, forumTopicId: Long, closed: Boolean): Result<Unit>
     suspend fun setForumTopicPinned(chatId: Long, forumTopicId: Long, pinned: Boolean): Result<Unit>
+    /** The new order of the pinned topics, first id on top. The server takes the whole pinned set, so pass every pinned topic. */
+    suspend fun setPinnedForumTopicsOrder(chatId: Long, forumTopicIds: List<Long>): Result<Unit>
     suspend fun deleteForumTopic(chatId: Long, forumTopicId: Long): Result<Unit>
     /** Per-topic notifications: true mutes the topic, false unmutes it, and null lets the topic follow the group again. */
     suspend fun setForumTopicMuted(chatId: Long, forumTopicId: Long, muted: Boolean?): Result<Unit>
@@ -305,6 +307,11 @@ interface ConversationRepository {
     suspend fun starBalance(): Result<StarBalance> = Result.failure(UnsupportedOperationException())
     /** The custom emoji sticker behind [customEmojiId]. TDLib is asked on first use; the value stays null until it answers. */
     fun observeCustomEmoji(customEmojiId: Long): StateFlow<CustomEmoji?>
+    /**
+     * The name and icon of a forum topic, for a chat row that names the topic of its last message. The value stays null
+     * until the topic is known. A topic TDLib cannot describe gets a brief with an empty title, and it is not asked again while the cache holds it.
+     */
+    fun observeForumTopicInfo(chatId: Long, forumTopicId: Long): StateFlow<ForumTopicBrief?>
     /** The effect behind [effectId]. Only fresh-message overlays call this; the value stays null until TDLib answers. */
     fun observeMessageEffect(effectId: Long): StateFlow<MessageEffect?>
     suspend fun messageContext(chatId: Long, messageId: Long): Result<MessageContext>

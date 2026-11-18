@@ -217,7 +217,13 @@ fun ChatScreen(
     topicStrip: (@Composable () -> Unit)? = null,
     /** The forum's view of its topics, offered in the header menu; null outside a topic, which hides that menu item. */
     forumNavigationMode: ForumNavigationMode? = null,
-    onForumNavigationMode: ((ForumNavigationMode) -> Unit)? = null
+    onForumNavigationMode: ((ForumNavigationMode) -> Unit)? = null,
+    /** The all-messages feed of this forum: [forumTopicId] is 0 and the history lists the messages of every topic. */
+    forumAllMessages: Boolean = false,
+    /** The forum's topics by id, for the topic labels of the feed; empty outside a forum. */
+    forumTopicsById: Map<Long, ForumTopic> = emptyMap(),
+    /** Opens a topic from its label in the feed; null leaves the labels unclickable. */
+    onOpenForumTopic: ((ForumTopic) -> Unit)? = null
 ) {
     // One persistent state source for text, rich formatting and the selected reply target.
     val composerDraftState = remember(conversation, chat.id, forumTopicId) {
@@ -232,6 +238,22 @@ fun ChatScreen(
         if (forumTopicId > 0L) conversation.updateForumTopicDraft(chat.id, forumTopicId, transform)
         else conversation.updateMessageDraft(chat.id, transform)
     fun clearReply() = updateDraft { it.copy(replyToMessageId = null) }
+    // The all-messages feed has no topic of its own. A reply goes into the topic of the message it answers, and any other message
+    // goes to the General topic; the composer waits when that topic is hidden or cannot take messages.
+    val feedGeneralTopic = remember(forumTopicsById) { forumTopicsById.values.firstOrNull { it.isGeneral } }
+    val feedSendTarget: ForumFeedSendTarget? = if (forumAllMessages) {
+        val feedGeneralTopicId = feedGeneralTopic?.id ?: 0L
+        val replyTopicId = history.messages.firstOrNull { it.id == replyId }?.let { forumFeedTopicId(it, feedGeneralTopicId) } ?: 0L
+        forumFeedSendTarget(replyId, replyTopicId, feedGeneralTopic)
+    } else {
+        null
+    }
+    // The topic a new message is sent to. Ordinary chats and the topic views keep their own topic id.
+    val sendForumTopicId: Long = when (feedSendTarget) {
+        is ForumFeedSendTarget.Reply -> feedSendTarget.replyTopicId
+        is ForumFeedSendTarget.General -> feedSendTarget.topicId
+        else -> forumTopicId
+    }
     var editEntities by remember(chat.id) { mutableStateOf<List<MessageTextEntity>>(emptyList()) }
     val botKeyboard by remember(conversation, chat.id) { conversation.observeBotKeyboard(chat.id) }.collectAsStateWithLifecycle()
     val speechRecognitionTrial by remember(conversation) { conversation.speechRecognitionTrial }.collectAsStateWithLifecycle()
@@ -353,7 +375,10 @@ fun ChatScreen(
     val textSendQueue = remember(sendApplication, accountId, textSendGeneration) {
         PendingTextSendSessions.queue(sendApplication, accountId)
     }
-    val textSendScopeKey = remember(accountId, chat.id, forumTopicId) { TextSendScopeKey(accountId, chat.id, forumTopicId) }
+    // The feed keeps one queue scope while a reply is set or cleared, so a queued or failed text stays visible. Its topic is
+    // General; a queued reply still goes into the replied message's topic, because the send follows the reply target.
+    val textScopeTopicId = if (forumAllMessages) feedGeneralTopic?.id ?: 0L else sendForumTopicId
+    val textSendScopeKey = remember(accountId, chat.id, textScopeTopicId) { TextSendScopeKey(accountId, chat.id, textScopeTopicId) }
     val textQueueWriting by remember(textSendQueue, textSendScopeKey) {
         textSendQueue.composerWriting(textSendScopeKey)
     }.collectAsStateWithLifecycle(initialValue = false)
@@ -375,7 +400,13 @@ fun ChatScreen(
     val secretChat = secretChats[chat.id]
     val secretChatClosed = chat.isSecret && secretChat?.state == SecretChatState.Closed
     // A closed secret chat cannot accept new messages even though TDLib may still report posting permission.
-    val canPostHere = SecretChatPosting.canPost(chat.canPost && topicCanPost, chat.isSecret, secretChat?.state)
+    // In the feed a reply clears right after it is sent; the composer stays until that send has finished.
+    val feedSendInFlight = feedSendTarget == ForumFeedSendTarget.Unavailable && (sending || textQueueWriting)
+    val canPostHere = SecretChatPosting.canPost(
+        chat.canPost && topicCanPost && (feedSendTarget != ForumFeedSendTarget.Unavailable || feedSendInFlight),
+        chat.isSecret,
+        secretChat?.state
+    )
     LaunchedEffect(chat.id, chat.isSecret, conversation) {
         if (chat.isSecret) conversation.refreshSecretChat(chat.id)
     }
@@ -512,10 +543,10 @@ fun ChatScreen(
     // Voice messages use this local queue; video notes are owned by VideoNoteExportCenter.
     val pendingRecordingSends = remember(chat.id) { ArrayDeque<List<OutgoingMedia>>() }
     val videoExports by VideoNoteExportCenter.results.collectAsStateWithLifecycle()
-    val videoPreview = videoExports.firstOrNull { it.accountId == accountId && it.chatId == chat.id && it.topicId == forumTopicId && it.requiresPreview }
+    val videoPreview = videoExports.firstOrNull { it.accountId == accountId && it.chatId == chat.id && it.topicId == sendForumTopicId && it.requiresPreview }
     val videoPending by VideoNoteExportCenter.pendingNotes.collectAsStateWithLifecycle()
     // Автоматический кружок виден в ленте сразу: сначала обработка, потом отправка, пока TDLib не примет сообщение.
-    val pendingVideoNotes = remember(videoPending, videoExports, chat.id, forumTopicId, accountId) { pendingVideoNotesFor(chat.id, videoPending, videoExports, forumTopicId, accountId) }
+    val pendingVideoNotes = remember(videoPending, videoExports, chat.id, sendForumTopicId, accountId) { pendingVideoNotesFor(chat.id, videoPending, videoExports, sendForumTopicId, accountId) }
     fun startRecordingSendWorker() {
         if (recordingQueueSending) return
         if (pendingRecordingSends.isEmpty()) return
@@ -528,7 +559,7 @@ fun ChatScreen(
                     mediaList.forEachIndexed { index, media ->
                         if (media.path in sentRecordingPaths) return@forEachIndexed
                         recordingQueueProgress = index + 1
-                        val result = conversation.sendMedia(chat.id, media, "", replyId, forumTopicId = forumTopicId)
+                        val result = conversation.sendMedia(chat.id, media, "", replyId, forumTopicId = sendForumTopicId)
                         if (result.isSuccess) {
                             sentRecordingPaths = sentRecordingPaths + media.path
                             clearReply()
@@ -579,25 +610,25 @@ fun ChatScreen(
         chatId = chat.id,
         sendMedia = { media, caption, options ->
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
-            val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
-            else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = forumTopicId, options = options)
+            val result = if (media.size > 1) conversation.sendMediaAlbum(chat.id, media, caption, replyId, draftEntities, forumTopicId = sendForumTopicId, options = options)
+            else conversation.sendMedia(chat.id, media.single(), caption, replyId, draftEntities, forumTopicId = sendForumTopicId, options = options)
             if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
         },
         sendSticker = { sticker, options ->
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
-            val result = conversation.sendSticker(chat.id, sticker, replyId, forumTopicId = forumTopicId, options = options)
+            val result = conversation.sendSticker(chat.id, sticker, replyId, forumTopicId = sendForumTopicId, options = options)
             if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
         },
         sendExtra = { draft, options ->
             val stealthScheduledBefore = stealthWillSchedule(conversation, options)
             val result = when (draft) {
-                is MessageExtraDraft.Poll -> conversation.sendPoll(chat.id, draft.poll, replyId, forumTopicId = forumTopicId, options = options)
-                is MessageExtraDraft.Location -> conversation.sendLocation(chat.id, draft.point, false, replyId, forumTopicId = forumTopicId, options = options)
-                is MessageExtraDraft.Contact -> conversation.sendContactCard(chat.id, draft.userId, replyId, forumTopicId = forumTopicId, options = options)
-                is MessageExtraDraft.Dice -> conversation.sendDice(chat.id, draft.emoji, replyId, forumTopicId = forumTopicId, options = options)
-                is MessageExtraDraft.MusicFile, is MessageExtraDraft.MusicBotResult -> conversation.sendMusicDraft(chat.id, draft, replyId, forumTopicId, options)
+                is MessageExtraDraft.Poll -> conversation.sendPoll(chat.id, draft.poll, replyId, forumTopicId = sendForumTopicId, options = options)
+                is MessageExtraDraft.Location -> conversation.sendLocation(chat.id, draft.point, false, replyId, forumTopicId = sendForumTopicId, options = options)
+                is MessageExtraDraft.Contact -> conversation.sendContactCard(chat.id, draft.userId, replyId, forumTopicId = sendForumTopicId, options = options)
+                is MessageExtraDraft.Dice -> conversation.sendDice(chat.id, draft.emoji, replyId, forumTopicId = sendForumTopicId, options = options)
+                is MessageExtraDraft.MusicFile, is MessageExtraDraft.MusicBotResult -> conversation.sendMusicDraft(chat.id, draft, replyId, sendForumTopicId, options)
             }
             if (result.isSuccess) { clearReply(); if (stealthScheduledBefore) showStealthScheduledNotice(context) }
             result
@@ -650,14 +681,14 @@ fun ChatScreen(
         else -> chat.canSendPolls || info?.kind == ProfileKind.Bot
     }
     ComposerExtraPickers(chat.id, pollsAllowed, conversation, attachments, remember(accountId, chat.isSecret) { if (chat.isSecret) null else ComposerMusicSource(accountId, observeFile, onDownloadFile) })
-    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, forumTopicId, accountId = accountId, onError = { error = it })
+    val videoNote = rememberVideoNoteRecorder(recordingSettings, recordingRecovery.processingScope, chat.id, sendForumTopicId, accountId = accountId, onError = { error = it })
     // Video delivery, including TDLib send retries, belongs to the app-wide center.
     // Only automatic notes are claimed here; preview and failed notes remain visible.
     // A note goes to the topic it was recorded in, so another topic never claims it.
-    LaunchedEffect(accountId, chat.id, forumTopicId, conversation) {
+    LaunchedEffect(accountId, chat.id, sendForumTopicId, conversation) {
         launch {
             VideoNoteExportCenter.results.collect { list ->
-                list.filter { it.accountId == accountId && it.chatId == chat.id && it.topicId == forumTopicId && !it.requiresPreview && !it.sending }.forEach { item ->
+                list.filter { it.accountId == accountId && it.chatId == chat.id && it.topicId == sendForumTopicId && !it.requiresPreview && !it.sending }.forEach { item ->
                     val accepted = VideoNoteExportCenter.send(item.chatId, item.sessionName, replyId, accountId) { media, targetReply ->
                         conversation.sendMedia(item.chatId, media, "", targetReply, forumTopicId = item.topicId).map { Unit }
                     }
@@ -667,7 +698,7 @@ fun ChatScreen(
         }
         launch {
             VideoNoteExportCenter.failures.collect {
-                if (VideoNoteExportCenter.consumeFailure(chat.id, forumTopicId, accountId)) error = context.getString(R.string.recorder_save_failed)
+                if (VideoNoteExportCenter.consumeFailure(chat.id, sendForumTopicId, accountId)) error = context.getString(R.string.recorder_save_failed)
             }
         }
     }
@@ -810,8 +841,13 @@ fun ChatScreen(
         chatDaySeparators(messageListItems, showOldestDay = !history.hasOlderMessages)
     }
     // In a private chat the peer is already named in the header; groups need the author once per block, not per bubble.
-    val senderHeaderByKey = remember(timelineRows.structureVersion, timelineGrouper, pendingVideoNotes, visibleTextAttempts, scrollPosition.readBoundaryId, chat.isGroup, chat.isChannel, chat.isSavedMessages) {
-        senderHeaderVisibility(chat, messageListItems)
+    // The all-messages feed names the topic above the first message of each run that belongs to one topic.
+    val feedTopicOf: (ChatMessage) -> Long = { message -> forumFeedTopicId(message, feedGeneralTopic?.id ?: 0L) }
+    val feedTopicHeaders = remember(timelineRows.structureVersion, timelineGrouper, pendingVideoNotes, visibleTextAttempts, scrollPosition.readBoundaryId, forumAllMessages, feedGeneralTopic) {
+        if (forumAllMessages) forumFeedTopicHeaders(messageListItems, feedTopicOf) else emptyMap<String, Long>()
+    }
+    val senderHeaderByKey = remember(timelineRows.structureVersion, timelineGrouper, pendingVideoNotes, visibleTextAttempts, scrollPosition.readBoundaryId, chat.isGroup, chat.isChannel, chat.isSavedMessages, forumAllMessages, feedGeneralTopic) {
+        senderHeaderVisibility(chat, messageListItems, if (forumAllMessages) feedTopicOf else null)
     }
     val messageItemsByKey = remember(messageListItems) { messageListItems.associateBy { it.key } }
     val currentMessageItemsByKey by rememberUpdatedState(messageItemsByKey)
@@ -948,7 +984,7 @@ fun ChatScreen(
     val editMessage = editId?.let { id -> messages.firstOrNull { it.id == id } }
     // A swipe reply needs an idle composer on screen: no search, deletion, edit, recording or open action menu, and no
     // send in flight, because a finished send clears the reply target it used.
-    val swipeReplyAllowed = canPostHere && !searching && !deleting && !selectionMode && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
+    val swipeReplyAllowed = (canPostHere || feedSendTarget == ForumFeedSendTarget.Unavailable && chat.canPost) && !searching && !deleting && !selectionMode && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
         !sending && !attachments.sending && !recordingQueueSending && pendingVideoNotes.isEmpty()
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
@@ -1679,13 +1715,13 @@ fun ChatScreen(
 
     // Composer sends confirm first while hidden presence warns about sending; asked once per chat screen (see StealthSendGuard).
     val sendGuard = rememberStealthSendGuard(chat.id, conversation)
-    val delayed = rememberDelayedSend(chat.id, forumTopicId, conversation)
+    val delayed = rememberDelayedSend(chat.id, sendForumTopicId, conversation)
     // A plain text send that came before the account's delay was read. It is sent again once that is known, if the composer still
     // holds it; see below.
     var sendWaitingForDelay by remember(chat.id, forumTopicId) { mutableStateOf<HeldDelayedSend?>(null) }
     var paidTextConfirmation by remember(conversation, chat.id, forumTopicId) { mutableStateOf<PaidTextConfirmation?>(null) }
-    val paidTextContext by rememberUpdatedState(Triple(conversation, chat.id, forumTopicId))
-    val paidTextDestination by rememberUpdatedState(com.beykus.beygram.domain.model.PaidTextDestination(accountId, chat.id, forumTopicId))
+    val paidTextContext by rememberUpdatedState(Triple(conversation, chat.id, sendForumTopicId))
+    val paidTextDestination by rememberUpdatedState(com.beykus.beygram.domain.model.PaidTextDestination(accountId, chat.id, sendForumTopicId))
     /**
      * Sends the current text draft or prepared attachments with [options]. The send-options menu is one-shot:
      * the choice applies to this send only and is not kept for the next one.
@@ -1697,7 +1733,7 @@ fun ChatScreen(
         if (!priceChecked && com.beykus.beygram.domain.model.supportsPaidTextQuote(chat) &&
             pendingSticker == null && !attachments.active && draft.isNotBlank()) {
             val submitted = composerDraft
-            val target = Triple(conversation, chat.id, forumTopicId)
+            val target = Triple(conversation, chat.id, sendForumTopicId)
             val destination = paidTextDestination
             sending = true
             scope.launch {
@@ -1759,7 +1795,7 @@ fun ChatScreen(
                 // Only the text that was stored leaves the composer: text typed while the write ran stays.
                 // Snapshot now: draft is a live derived state, and the callback runs after the write.
                 val storedText = draft
-                delayed.enqueue(outgoing.text, outgoing.entities, replyId, forumTopicId, effectiveOptions, onQueued = { updateDraft { current -> draftAfterDelayedQueue(current, storedText = storedText) } })
+                delayed.enqueue(outgoing.text, outgoing.entities, replyId, sendForumTopicId, effectiveOptions, onQueued = { updateDraft { current -> draftAfterDelayedQueue(current, storedText = storedText) } })
                 return
             }
             DelayedSendRoute.SendNow -> Unit
@@ -1852,7 +1888,7 @@ fun ChatScreen(
             var delivered = false
             try {
                 val result = conversation.sendMessage(
-                    chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = forumTopicId,
+                    chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = sendForumTopicId,
                     clearDraft = !stealthWaitsLocally, options = effectiveOptions
                 )
                 if (stealthWaitsLocally && result.isFailure) updateDraft { current -> if (current.text.isEmpty()) submitted else current }
@@ -1975,10 +2011,11 @@ fun ChatScreen(
             onExport = { exportOpen = true },
             secretChat = secretChat,
             pinnedBelow = pinnedPreviewShown && !(compactChrome && keyboardOpen),
-            showBack = !windowLayout.twoPane || forumTopicId > 0L,
+            showBack = !windowLayout.twoPane || forumTopicId > 0L || forumAllMessages,
             compact = compactChrome,
             forumNavigationMode = forumNavigationMode,
-            onForumNavigationMode = onForumNavigationMode
+            onForumNavigationMode = onForumNavigationMode,
+            forumAllMessages = forumAllMessages
         )
         // The forum's Tabs strip sits under the header. Search and selection own that band while they are open.
         if (!selectionMode && !searching && topicStrip != null) topicStrip()
@@ -2119,6 +2156,16 @@ fun ChatScreen(
             items(messageListItems, key = { it.key }, contentType = { chatListContentType(it) }) { listItem ->
                 ChatScreenColumn(Modifier.fillMaxWidth()) {
                 daySeparators[listItem.key]?.let { ChatHistoryDateSeparator(it) }
+                feedTopicHeaders[listItem.key]?.let { topicId ->
+                    ForumFeedTopicHeader(
+                        topic = forumTopicsById[topicId],
+                        observeFile = observeFile,
+                        downloadFile = onDownloadFile,
+                        observeCustomEmoji = conversation::observeCustomEmoji,
+                        onOpen = onOpenForumTopic,
+                        modifier = Modifier.padding(horizontal = metrics.sideInset)
+                    )
+                }
                 if (listItem.unreadSeparator) {
                     UnreadMessagesSeparator()
                 } else if (listItem.pendingVideoNote != null) {
@@ -2536,7 +2583,7 @@ fun ChatScreen(
                 allowViewOnce = allowViewOnce,
                 chatId = chat.id,
                 replyId = replyId,
-                forumTopicId = forumTopicId,
+                forumTopicId = sendForumTopicId,
                 scope = scope,
                 onReplyConsumed = { sentReplyId ->
                     if (sentReplyId != null) {
@@ -2588,7 +2635,12 @@ fun ChatScreen(
         val showRecord = recordingActive || (!editing && !attachments.active && fieldText.isBlank())
         // Chats the user cannot write to get no composer, only a plain notice, as in Telegram.
         if (!deleting && !searching && !selectionMode && !canPostHere) ReadOnlyChatBar(
-            if (secretChatClosed) stringResource(R.string.secret_chat_closed_composer) else stringResource(R.string.chat_read_only)
+            when {
+                secretChatClosed -> stringResource(R.string.secret_chat_closed_composer)
+                // The feed needs a reply or a writable General topic; a chat without posting rights keeps the plain notice.
+                feedSendTarget == ForumFeedSendTarget.Unavailable && chat.canPost -> stringResource(R.string.forum_all_messages_hint)
+                else -> stringResource(R.string.chat_read_only)
+            }
         )
         if (!deleting && !searching && !selectionMode && canPostHere) ChatScreenColumn(Modifier.fillMaxWidth().then(
             // Signature keeps the composer on the canvas behind one hairline; the field itself is the only filled plane.
@@ -2602,7 +2654,7 @@ fun ChatScreen(
         ) BotStartBar(
             conversation = conversation,
             chatId = chat.id,
-            forumTopicId = forumTopicId,
+            forumTopicId = sendForumTopicId,
             onError = { error = it.userMessage(context, R.string.chat_bot_start_failed) }
         )
         if (!recordingActive && !editing && !attachments.active) BotInlineResultsPanel(
@@ -2610,7 +2662,7 @@ fun ChatScreen(
             text = draft,
             active = !sending && !hidingComposerForLaunch,
             replyToMessageId = replyId,
-            forumTopicId = forumTopicId,
+            forumTopicId = sendForumTopicId,
             conversation = conversation,
             observeFile = observeFile,
             onDownloadFile = onDownloadFile,
@@ -3258,7 +3310,9 @@ private fun ChatTopBar(
     compact: Boolean = false,
     /** The forum's view of its topics for the menu item; ordinary chats pass null and get no such item. */
     forumNavigationMode: ForumNavigationMode? = null,
-    onForumNavigationMode: ((ForumNavigationMode) -> Unit)? = null
+    onForumNavigationMode: ((ForumNavigationMode) -> Unit)? = null,
+    /** The all-messages feed: the subtitle names the feed instead of the chat's presence. */
+    forumAllMessages: Boolean = false
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
@@ -3292,6 +3346,7 @@ private fun ChatTopBar(
                 // pretending that the group's presence is the topic's status.
                 val statusText = when {
                     forumTopic != null -> stringResource(R.string.forum_topic_in_group, chat.title)
+                    forumAllMessages -> stringResource(R.string.forum_all_messages)
                     chat.isSecret -> secretChatStatusLine(secretChat)
                     else -> chatPresenceLine(chat, info, lastSeenStyle, now).resolve()
                 }

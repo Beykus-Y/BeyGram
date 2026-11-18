@@ -518,6 +518,7 @@
     <string name="a11y_view_once_chip">Einmaliges Foto oder Video</string>
     <string name="chats_secret_chat">Geheimer Chat</string>
     <string name="chats_forum">Forum</string>
+    <string name="chats_open_topic">Thema öffnen</string>
     <string name="app_lock_title">App-Sperre</string>
     <string name="app_lock_intro">Beim Start von BeyGram und nach der Rückkehr aus dem Hintergrund PIN oder Biometrie verlangen. Die Sperre gilt für alle Konten auf diesem Gerät.</string>
     <string name="app_lock_enable_title">App-Sperre</string>
@@ -936,4 +937,15 @@
     <string name="forum_navigation_tabs">Registerkarten oben</string>
     <string name="forum_navigation_rail">Seitenleiste</string>
     <string name="forum_panel_all_topics">Alle Themen</string>
+    <string name="forum_all_messages">Alle Nachrichten</string>
+    <string name="forum_all_messages_tab">Alle</string>
+    <string name="forum_all_messages_hint">Wähle ein Thema oder antworte auf eine Nachricht</string>
+    <string name="forum_all_messages_open_topic">Thema öffnen</string>
+    <string name="forum_all_messages_unknown_topic">Thema</string>
+    <string name="forum_topics_reorder">Reihenfolge ändern</string>
+    <string name="forum_topics_reorder_hint">Ziehen Sie angeheftete Themen, um ihre Reihenfolge zu ändern</string>
+    <string name="forum_topics_reorder_done">Fertig</string>
+    <string name="forum_topics_reorder_failed">Die Reihenfolge der Themen konnte nicht geändert werden</string>
+    <string name="forum_topic_move_up">Nach oben</string>
+    <string name="forum_topic_move_down">Nach unten</string>
 </resources>
