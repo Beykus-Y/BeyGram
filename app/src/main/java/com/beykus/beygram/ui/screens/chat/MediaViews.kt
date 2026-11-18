@@ -359,7 +359,8 @@ internal fun LocalMediaImage(
     // Fade in over the placeholder only when it is shown and the drawable was not cached.
     val fadeSpec = rememberMotionSpec(MotionToken.MicroFeedback)
     val reveal = remember(path) { Animatable(if (cached != null || placeholder == null) 1f else 0f) }
-    LaunchedEffect(drawable != null) {
+    // Keyed on the Animatable too: a new path makes a new reveal, and it must fade in even when a drawable was already present.
+    LaunchedEffect(reveal, drawable != null) {
         if (drawable != null && reveal.value < 1f) {
             if (fadeSpec.isInstant) reveal.snapTo(1f) else reveal.animateTo(1f, fadeSpec.animationSpec())
         }

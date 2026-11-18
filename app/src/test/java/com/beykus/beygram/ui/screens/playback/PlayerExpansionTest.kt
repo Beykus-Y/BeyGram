@@ -162,6 +162,19 @@ class PlayerExpansionTest {
     }
 
     @Test
+    fun readReceiptsWaitWhileTheFullPlayerCoversTheChat() {
+        assertTrue(receiptsAllowedOf(PlayerExpansionPhase.Collapsed))
+        assertFalse(receiptsAllowedOf(PlayerExpansionPhase.Expanding))
+        assertFalse(receiptsAllowedOf(PlayerExpansionPhase.Expanded))
+        assertFalse(receiptsAllowedOf(PlayerExpansionPhase.Collapsing))
+        assertFalse(receiptsAllowedOf(PlayerExpansionPhase.Dragging))
+        PlayerExpansion.open(null)
+        assertFalse(receiptsAllowedOf(PlayerExpansion.phase))
+        PlayerExpansion.collapse()
+        assertTrue(receiptsAllowedOf(PlayerExpansion.phase))
+    }
+
+    @Test
     fun dismissImmediatelyResetsEveryTransitionValue() {
         PlayerExpansion.open(null)
         assertTrue(PlayerExpansion.beginDrag(PlayerDragOrigin.Full, null))
