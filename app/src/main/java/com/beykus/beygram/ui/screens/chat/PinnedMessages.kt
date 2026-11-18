@@ -831,7 +831,8 @@ internal fun PinnedMessagesScreen(
         derivedStateOf {
             val byId = shown.associateBy { it.id }
             listState.layoutInfo.visibleItemsInfo.mapNotNull { row ->
-                byId[row.key as? Long]?.senderId?.takeIf { it > 0L }
+                val messageId = row.key as? Long ?: return@mapNotNull null
+                byId[messageId]?.senderId?.takeIf { it > 0L }
             }.distinct()
         }
     }
