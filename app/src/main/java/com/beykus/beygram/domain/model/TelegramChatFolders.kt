@@ -47,19 +47,28 @@ data class TelegramFolderDraft(
 ) {
     val memberChatIds: Set<Long> get() = pinnedChatIds.toSet() + includedChatIds
 
-
-    fun valid(): Boolean {
+    /** Every reason the server would refuse this draft, one entry per reason, in the order the editor lists them. */
+    fun problems(): List<TelegramFolderProblem> {
         val clean = title.trim()
+        val categories = includeContacts || includeNonContacts || includeBots || includeGroups || includeChannels
         val incompatibleWithShare = isShareable && (
-            includeContacts || includeNonContacts || includeBots || includeGroups || includeChannels ||
-                excludeMuted || excludeRead || excludeArchived || excludedChatIds.isNotEmpty()
+            categories || excludeMuted || excludeRead || excludeArchived || excludedChatIds.isNotEmpty()
         )
-        return clean.isNotEmpty() && '\n' !in clean && '\r' !in clean &&
-            clean.codePointCount(0, clean.length) <= 12 &&
-            (includeContacts || includeNonContacts || includeBots || includeGroups || includeChannels || memberChatIds.isNotEmpty()) &&
-            memberChatIds.intersect(excludedChatIds).isEmpty() && !incompatibleWithShare
+        return buildList<TelegramFolderProblem> {
+            if (clean.isEmpty() || '\n' in clean || '\r' in clean || clean.codePointCount(0, clean.length) > 12) {
+                add(TelegramFolderProblem.EmptyName)
+            }
+            if (!categories && memberChatIds.isEmpty()) add(TelegramFolderProblem.NoSelection)
+            if (memberChatIds.intersect(excludedChatIds).isNotEmpty()) add(TelegramFolderProblem.OverlappingChats)
+            if (incompatibleWithShare) add(TelegramFolderProblem.ShareableRestricted)
+        }
     }
+
+    fun valid(): Boolean = problems().isEmpty()
 }
+
+/** A reason the editor cannot save a server folder yet. Each reason has its own message in the editor. */
+enum class TelegramFolderProblem { EmptyName, NoSelection, OverlappingChats, ShareableRestricted }
 
 /** Reorder only real server folder IDs while keeping Main's TDLib-defined position unchanged. */
 fun movedTelegramFolderIds(state: TelegramChatFolders, id: Int, delta: Int): List<Int>? {
