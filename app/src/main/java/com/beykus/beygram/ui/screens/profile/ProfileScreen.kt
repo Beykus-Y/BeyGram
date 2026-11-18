@@ -6,6 +6,8 @@ import com.beykus.beygram.ui.design.HairlineEdge
 import com.beykus.beygram.ui.design.signatureChrome
 import android.content.Context
 import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.glassScreenBackground
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -123,6 +125,8 @@ fun ProfileScreen(
     recipientRepository: TelegramRepository? = null
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val loadingText = stringResource(R.string.a11y_state_loading)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val importer = remember { OutgoingMediaImporter(context) }
@@ -155,7 +159,7 @@ fun ProfileScreen(
         onContentOpened = onContentOpened, onOpenMessage = onOpenMessage, onManage = onManage, autoDownloadFile = autoDownloadFile,
         chatLibrary = chatLibrary, onOpenMessageEntity = onOpenMessageEntity,
         loadForwardTopics = loadForwardTopics, forwardToTopic = forwardToTopic, recipientRepository = recipientRepository
-    ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    ) else if (pendingPhoto == null) Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
         ProfileToolbar(if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat), { if (!saving && !preparing) onBack() }) {
             if (!isOwnProfile) ChatInfoMenu(
                 canBlock = state.info?.kind in listOf(ProfileKind.Person, ProfileKind.Bot) && state.info?.isSelf != true,
@@ -164,14 +168,19 @@ fun ProfileScreen(
                 canDelete = true, onSetBlocked = onSetBlocked, onReportSpam = onReportSpam, onDelete = onDelete, onDeleted = onDeleted
             )
         }
-        if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = loadingText })
         state.error?.let { ProfileLoadError(it.resolve(), state.isLoading, onRefresh) }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 28.dp)) {
             state.info?.let { info ->
                 Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    // Only an avatar with a photo is a control; without one there is nothing to open and nothing to announce.
                     Box(
-                        Modifier.clickable(enabled = info.photo != null, role = Role.Button) { showPhoto = true }
-                            .semantics { contentDescription = context.getString(R.string.a11y_profile_photo_open) },
+                        if (info.photo != null) {
+                            Modifier.clickable(role = Role.Button) { showPhoto = true }
+                                .semantics { contentDescription = context.getString(R.string.a11y_profile_photo_open) }
+                        } else {
+                            Modifier
+                        },
                         contentAlignment = Alignment.Center
                     ) {
                         TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
@@ -309,6 +318,10 @@ fun ProfileScreen(
                     ProfileLinkRow(Icons.Rounded.Notifications, stringResource(R.string.profile_notifications), onNotifications)
                 }
             }
+            // The first read has no profile yet; a spinner says so, where a blank page would look finished.
+            if (state.info == null && state.isLoading) Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.semantics { contentDescription = loadingText }, color = palette.accent)
+            }
             if (state.info == null && !state.isLoading && state.error == null) Text(stringResource(R.string.profile_info_not_loaded), color = palette.textSecondary, modifier = Modifier.padding(24.dp))
             photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp).errorAnnouncement()) }
         }
@@ -327,7 +340,7 @@ fun ProfileScreen(
     pendingPhoto?.let { selected ->
         fun discard() { if (!saving) { pendingPhoto = null; scope.launch { importer.discard(selected) } } }
         BackHandler(onBack = ::discard)
-        Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
             ProfileToolbar(stringResource(R.string.profile_photo_new_title), ::discard)
             Column(Modifier.weight(1f).fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 LocalMediaImage(selected.path, Modifier.size(240.dp).clip(CircleShape))
@@ -640,6 +653,7 @@ internal fun ProfileToolbar(title: String, onBack: () -> Unit, actions: @Composa
 @Composable
 fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save: suspend (ProfileEdit) -> Result<Unit>) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var first by rememberSaveable(info.id) { mutableStateOf(info.firstName) }
@@ -653,7 +667,7 @@ fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save
     val bioCount = bio.codePointCount(0, bio.length)
     fun back() { if (!saving) { if (changed && !discard) discard = true else onBack() } }
     BackHandler(onBack = ::back)
-    Column(Modifier.fillMaxSize().background(palette.screen).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
+    Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
         ProfileToolbar(stringResource(R.string.profile_title_own), ::back) {
             TextButton(enabled = !saving && changed && first.isNotBlank() && bioCount <= bioLimit, onClick = { scope.launch {
                 discard = false
@@ -663,10 +677,10 @@ fun EditProfileScreen(info: ProfileInfo, bioLimit: Int, onBack: () -> Unit, save
                     if (result.isSuccess) onBack()
                     else error = result.exceptionOrNull().userMessage(context, R.string.profile_save_failed) + "\n" + context.getString(R.string.profile_save_partial_hint)
                 } finally { saving = false }
-            } }) { Text(if (saving) "…" else stringResource(R.string.common_save)) }
+            } }) { Text(if (saving) stringResource(R.string.common_saving) else stringResource(R.string.common_save)) }
         }
         if (saving) LinearProgressIndicator(Modifier.fillMaxWidth(), color = palette.accent)
-        if (discard) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(styledShape(16.dp)).background(palette.warningSurface).errorAnnouncement().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (discard) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).glassCard(design, palette.warningSurface, palette.textSecondary, styledShape(16.dp)).errorAnnouncement().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.profile_unsaved_changes), color = palette.warningText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             TextButton(onClick = onBack) { Text(stringResource(R.string.profile_discard_changes), color = palette.warningText, fontWeight = FontWeight.SemiBold) }
         }
