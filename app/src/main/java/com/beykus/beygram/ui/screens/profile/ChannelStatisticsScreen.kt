@@ -154,6 +154,8 @@ fun ChannelStatisticsScreen(
                     if (generation != eventGeneration) return@onSuccess
                     events = (events + page.events).distinctBy { it.id }
                     nextId = if (page.nextFromEventId == from) 0L else page.nextFromEventId
+                    // A successful request clears the error left by an earlier failed page.
+                    eventsError = null
                 }
                 .onFailure {
                     if (generation == eventGeneration) {
