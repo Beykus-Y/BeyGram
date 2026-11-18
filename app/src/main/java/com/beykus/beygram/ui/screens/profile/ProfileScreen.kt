@@ -46,15 +46,26 @@ import com.beykus.beygram.ui.design.TopBarVariant
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import com.beykus.beygram.ui.motion.shrunkAroundCenter
+import com.beykus.beygram.ui.motion.collapsingOverlayActive
+import com.beykus.beygram.ui.motion.collapsingTextCrossfade
+import com.beykus.beygram.ui.motion.compactToolbarIdentityAlpha
+import com.beykus.beygram.ui.motion.expandedBadgesAlpha
+import com.beykus.beygram.ui.motion.expandedHeaderIdentityAlpha
+import com.beykus.beygram.ui.motion.lerpRect
+import com.beykus.beygram.ui.motion.staticToolbarTitleAlpha
+import com.beykus.beygram.ui.motion.windowProgress
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -203,6 +214,7 @@ fun ProfileScreen(
         val scrollState = rememberScrollState()
         var identityHeightPx by remember { mutableIntStateOf(0) }
         val collapse = remember { derivedStateOf { com.beykus.beygram.ui.motion.collapseFractionForScroll(scrollState.value, identityHeightPx) } }
+        val collapseGeometry = remember(state.info?.id) { ProfileCollapseGeometry() }
         val transitionTarget = profileTransition
         val transitionFingerprint = transitionTarget?.let {
             val container = LocalWindowInfo.current.containerSize
@@ -219,7 +231,8 @@ fun ProfileScreen(
         }
         val compactTitle = state.info?.profileTitleText()
         val compactStatus = state.info?.let { info -> info.profileSubtitleLine(lastSeenStyle) }
-        Column(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Box(Modifier.fillMaxSize().glassScreenBackground(design, palette.screen).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Column(Modifier.fillMaxSize()) {
         ProfileToolbar(
             if (isOwnProfile) stringResource(R.string.profile_title_own) else stringResource(R.string.profile_title_chat),
             { if (!saving && !preparing) profileTransition?.back() ?: onBack() },
@@ -228,10 +241,11 @@ fun ProfileScreen(
             compactStatus = compactStatus,
             compactAvatar = state.info?.let { info ->
                 {
-                    TelegramAvatar(info.initials, palette.accent, 32.dp, info.photo, observeFile, downloadFile,
+                    TelegramAvatar(info.initials, palette.accent, 40.dp, info.photo, observeFile, downloadFile,
                         Modifier.clearAndSetSemantics {})
                 }
             },
+            collapseGeometry = collapseGeometry,
             transition = profileTransition
         ) {
             if (!isOwnProfile) ChatInfoMenu(
@@ -246,33 +260,82 @@ fun ProfileScreen(
         Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(bottom = 28.dp)) {
             state.info?.let { info ->
                 Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Column(Modifier.fillMaxWidth().onSizeChanged { identityHeightPx = it.height }) {
+                    Column(
+                        Modifier.fillMaxWidth().onSizeChanged { identityHeightPx = it.height },
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                     // Only an avatar with a photo is a control; without one there is nothing to open and nothing to announce.
-                    // While a flight carries the avatar it is invisible, so it must not be tappable either.
+                    // While a flight or mid-scroll collapse carries the avatar it is invisible, so it must not be tappable either.
                     Box(
-                        (if (info.photo != null && (profileTransition == null || !profileTransition.flightActive())) {
+                        (if (info.photo != null && collapse.value <= 0f && (profileTransition == null || !profileTransition.flightActive())) {
                             Modifier.clickable(role = Role.Button) { showPhoto = true }
                                 .semantics { contentDescription = context.getString(R.string.a11y_profile_photo_open) }
                         } else {
                             Modifier
                         }).graphicsLayer {
-                            val scale = 1f - 0.5f * collapse.value
-                            scaleX = scale; scaleY = scale
-                            alpha = profileTransition?.headerVisibility() ?: 1f
-                        }.then(if (profileTransition != null && transitionFingerprint != null) {
-                            Modifier.onGloballyPositioned { coordinates ->
-                                // Layout bounds ignore the collapse scale: report the visual bounds
-                                // the flight must start from when Back happens mid-collapse.
-                                profileTransition.reportAvatar(
-                                    coordinates.boundsInWindow().shrunkAroundCenter(collapse.value, 0.5f),
-                                    transitionFingerprint
-                                )
+                            alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
+                                (profileTransition?.headerVisibility() ?: 1f)
+                        }.onGloballyPositioned { coordinates ->
+                            val bounds = coordinates.boundsInWindow()
+                            val zeroBounds = bounds.translate(0f, scrollState.value.toFloat())
+                            collapseGeometry.expandedAvatarAtZero = zeroBounds
+                            if (profileTransition != null && transitionFingerprint != null) {
+                                val visualBounds = collapseGeometry.compactAvatar?.let { compact ->
+                                    if (collapse.value > 0f) lerpRect(zeroBounds, compact, collapse.value) else bounds
+                                } ?: bounds
+                                profileTransition.reportAvatar(visualBounds, transitionFingerprint)
                             }
-                        } else Modifier),
+                        },
                         contentAlignment = Alignment.Center
                     ) {
                         TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
                             Modifier.clearAndSetSemantics {})
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text(info.profileTitleText(), color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .graphicsLayer {
+                                alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
+                                    (profileTransition?.headerVisibility() ?: 1f)
+                            }
+                            .onGloballyPositioned { coordinates ->
+                                val bounds = coordinates.boundsInWindow()
+                                val zeroBounds = bounds.translate(0f, scrollState.value.toFloat())
+                                collapseGeometry.expandedTitleAtZero = zeroBounds
+                                if (profileTransition != null && transitionFingerprint != null) {
+                                    val visualBounds = collapseGeometry.compactTitle?.let { compact ->
+                                        if (collapse.value > 0f) lerpRect(zeroBounds, compact, collapse.value) else bounds
+                                    } ?: bounds
+                                    profileTransition.reportTitle(visualBounds, transitionFingerprint)
+                                }
+                            }
+                            .semantics { heading() })
+                    Spacer(Modifier.height(4.dp))
+                    Box(
+                        Modifier
+                            .graphicsLayer {
+                                alpha = expandedHeaderIdentityAlpha(collapse.value, collapseGeometry.overlayReady) *
+                                    (profileTransition?.headerVisibility() ?: 1f)
+                            }
+                            .onGloballyPositioned { coordinates ->
+                                val bounds = coordinates.boundsInWindow()
+                                val zeroBounds = bounds.translate(0f, scrollState.value.toFloat())
+                                collapseGeometry.expandedStatusAtZero = zeroBounds
+                                if (profileTransition != null && transitionFingerprint != null) {
+                                    val visualBounds = collapseGeometry.compactStatus?.let { compact ->
+                                        if (collapse.value > 0f) lerpRect(zeroBounds, compact, collapse.value) else bounds
+                                    } ?: bounds
+                                    profileTransition.reportStatus(visualBounds, transitionFingerprint)
+                                }
+                            }
+                    ) {
+                        ProfileSubtitle(info, lastSeenStyle)
+                    }
+                    }
+                    Box(Modifier.graphicsLayer {
+                        alpha = expandedBadgesAlpha(collapse.value) * (profileTransition?.headerVisibility() ?: 1f)
+                    }) {
+                        ProfileBadges(info)
                     }
                     if (info.profileAudios.isNotEmpty()) {
                         Spacer(Modifier.height(14.dp))
@@ -282,30 +345,6 @@ fun ProfileScreen(
                             removeTrack = removeProfileAudio, moveTrackToFront = moveProfileAudioToFront
                         )
                     }
-                    Spacer(Modifier.height(16.dp))
-                    Text(info.profileTitleText(), color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .graphicsLayer { alpha = (1f - collapse.value) * (profileTransition?.headerVisibility() ?: 1f) }
-                            .then(if (profileTransition != null && transitionFingerprint != null) {
-                                Modifier.onGloballyPositioned { coordinates ->
-                                    profileTransition.reportTitle(coordinates.boundsInWindow(), transitionFingerprint)
-                                }
-                            } else Modifier)
-                            .semantics { heading() })
-                    Spacer(Modifier.height(4.dp))
-                    Box(
-                        Modifier
-                            .graphicsLayer { alpha = (1f - collapse.value) * (profileTransition?.headerVisibility() ?: 1f) }
-                            .then(if (profileTransition != null && transitionFingerprint != null) {
-                                Modifier.onGloballyPositioned { coordinates ->
-                                    profileTransition.reportStatus(coordinates.boundsInWindow(), transitionFingerprint)
-                                }
-                            } else Modifier)
-                    ) {
-                        ProfileSubtitle(info, lastSeenStyle)
-                    }
-                    }
-                    ProfileBadges(info)
                     if (isOwnProfile) {
                         Spacer(Modifier.height(14.dp))
                         // Equal-width actions at normal font sizes; stack with full labels if the screen or text is large.
@@ -431,7 +470,24 @@ fun ProfileScreen(
             if (state.info == null && !state.isLoading && state.error == null) Text(stringResource(R.string.profile_info_not_loaded), color = palette.textSecondary, modifier = Modifier.padding(24.dp))
             photoError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(20.dp).errorAnnouncement()) }
         }
-    }
+        }
+        state.info?.let { info ->
+            if (collapsingOverlayActive(collapse.value) && collapseGeometry.overlayReady &&
+                (profileTransition == null || !profileTransition.flightActive())
+            ) {
+                ProfileCollapsingOverlay(
+                    collapse = collapse.value,
+                    geometry = collapseGeometry,
+                    title = info.profileTitleText(),
+                    status = compactStatus.orEmpty(),
+                    avatar = {
+                        TelegramAvatar(info.initials, palette.accent, 112.dp, info.photo, observeFile, downloadFile,
+                            Modifier.clearAndSetSemantics {})
+                    }
+                )
+            }
+        }
+        }
     }
     val photo = state.info?.photo
     // Profile photo ids are distinct from message ids. History loads only after the avatar is tapped.
@@ -536,7 +592,7 @@ internal fun ProfileLoadError(message: String, loading: Boolean, onRetry: () -> 
     val palette = beyGramPalette()
     // Тик времени перерисовывает только подпись, а не весь экран профиля.
     val now by rememberPresenceClock(info.status is ProfilePresence.LastSeen)
-    Text(info.subtitle(lastSeenStyle, now), color = palette.textSecondary, fontSize = 14.sp)
+    Text(info.subtitle(lastSeenStyle, now), color = palette.textSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
 }
 
 /** The presence line for the compact toolbar identity (#999); the text the big subtitle shows. */
@@ -617,7 +673,7 @@ internal fun ProfileBadges(info: ProfileInfo) {
     val palette = beyGramPalette()
     if (info.isVerified || info.isPremium) Text(
         listOfNotNull(if (info.isVerified) stringResource(R.string.profile_badge_verified) else null, if (info.isPremium) stringResource(R.string.profile_badge_premium) else null).joinToString(" · "),
-        color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp)
+        color = palette.accentInk, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp)
     )
 }
 
@@ -737,6 +793,134 @@ private fun HiddenTabsSection(hiddenTabs: List<MainTab>, onOpenTab: (MainTab) ->
     }
 }
 
+@Stable
+internal class ProfileCollapseGeometry {
+    var expandedAvatarAtZero by mutableStateOf<Rect?>(null)
+    var expandedTitleAtZero by mutableStateOf<Rect?>(null)
+    var expandedStatusAtZero by mutableStateOf<Rect?>(null)
+    var compactAvatar by mutableStateOf<Rect?>(null)
+    var compactTitle by mutableStateOf<Rect?>(null)
+    var compactStatus by mutableStateOf<Rect?>(null)
+
+    val overlayReady: Boolean
+        get() = expandedAvatarAtZero != null && compactAvatar != null
+}
+
+/**
+ * Single scroll-driven collapsing identity layer (#999): moves the avatar, name and status
+ * smoothly between the centered expanded header and the compact two-line toolbar without
+ * clipping by the scroll container or duplicating elements at intermediate scroll offsets.
+ */
+@Composable
+internal fun ProfileCollapsingOverlay(
+    collapse: Float,
+    geometry: ProfileCollapseGeometry,
+    title: String,
+    status: String,
+    avatar: @Composable () -> Unit
+) {
+    val palette = beyGramPalette()
+    val density = LocalDensity.current
+    var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
+    val expandedAvatar = geometry.expandedAvatarAtZero
+    val compactAvatar = geometry.compactAvatar
+    val expandedTitle = geometry.expandedTitleAtZero
+    val compactTitle = geometry.compactTitle
+    val expandedStatus = geometry.expandedStatusAtZero
+    val compactStatus = geometry.compactStatus
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { overlayOrigin = it.positionInWindow() }
+            .clearAndSetSemantics {}
+    ) {
+        if (expandedAvatar != null && compactAvatar != null) {
+            val avatarLayoutPx = with(density) { 112.dp.toPx() }
+            Box(
+                Modifier
+                    .graphicsLayer {
+                        val current = lerpRect(expandedAvatar, compactAvatar, collapse)
+                        translationX = current.left - overlayOrigin.x
+                        translationY = current.top - overlayOrigin.y
+                        scaleX = current.width / avatarLayoutPx
+                        scaleY = current.height / avatarLayoutPx
+                        transformOrigin = TransformOrigin(0f, 0f)
+                    }
+                    .size(112.dp)
+            ) {
+                avatar()
+            }
+        }
+        if (expandedTitle != null && compactTitle != null && title.isNotBlank()) {
+            val crossfade = collapsingTextCrossfade(collapse)
+            val expandedWidthDp = with(density) { expandedTitle.width.toDp() }
+            val compactWidthDp = with(density) { compactTitle.width.toDp() }
+            if (crossfade < 1f) {
+                Text(
+                    text = title,
+                    color = palette.textPrimary,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .width(expandedWidthDp)
+                        .graphicsLayer {
+                            val scale = 1f + (17f / 26f - 1f) * collapse
+                            translationX = expandedTitle.left + (compactTitle.left - expandedTitle.left) * collapse - overlayOrigin.x
+                            translationY = expandedTitle.top + (compactTitle.top - expandedTitle.top) * collapse - overlayOrigin.y
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = 1f - crossfade
+                            transformOrigin = TransformOrigin(0f, 0f)
+                        }
+                )
+            }
+            if (crossfade > 0f) {
+                Text(
+                    text = title,
+                    color = palette.textPrimary,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .widthIn(max = compactWidthDp)
+                        .graphicsLayer {
+                            val scale = 26f / 17f + (1f - 26f / 17f) * collapse
+                            val startLeft = expandedTitle.center.x - (compactTitle.width * (26f / 17f)) / 2f
+                            translationX = startLeft + (compactTitle.left - startLeft) * collapse - overlayOrigin.x
+                            translationY = expandedTitle.top + (compactTitle.top - expandedTitle.top) * collapse - overlayOrigin.y
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = crossfade
+                            transformOrigin = TransformOrigin(0f, 0f)
+                        }
+                )
+            }
+        }
+        if (expandedStatus != null && compactStatus != null && status.isNotBlank()) {
+            val compactWidthDp = with(density) { compactStatus.width.toDp() }
+            Text(
+                text = status,
+                color = palette.textSecondary,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .widthIn(max = compactWidthDp * (14f / 13f))
+                    .graphicsLayer {
+                        val scale = 1f + (13f / 14f - 1f) * collapse
+                        translationX = expandedStatus.left + (compactStatus.left - expandedStatus.left) * collapse - overlayOrigin.x
+                        translationY = expandedStatus.top + (compactStatus.top - expandedStatus.top) * collapse - overlayOrigin.y
+                        scaleX = scale
+                        scaleY = scale
+                        transformOrigin = TransformOrigin(0f, 0f)
+                    }
+            )
+        }
+    }
+}
+
 @Composable
 internal fun ProfileToolbar(
     title: String, onBack: () -> Unit,
@@ -746,15 +930,18 @@ internal fun ProfileToolbar(
     compactTitle: String? = null,
     compactStatus: String? = null,
     compactAvatar: (@Composable () -> Unit)? = null,
+    /** Shared geometry holder for the scroll-driven collapsing overlay (#999). */
+    collapseGeometry: ProfileCollapseGeometry? = null,
     /** The shared-element transition back to the chat (#999); reports the compact identity bounds. */
     transition: com.beykus.beygram.ui.motion.ChatProfileHeaderTarget? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
+    val density = LocalDensity.current
     val transitionFingerprint = transition?.let {
         val container = LocalWindowInfo.current.containerSize
-        val densityScale = LocalDensity.current.density
+        val densityScale = density.density
         remember(container, densityScale) {
             com.beykus.beygram.ui.motion.ChatProfileWindowFingerprint(container.width, container.height, densityScale)
         }
@@ -768,38 +955,17 @@ internal fun ProfileToolbar(
             TopBarVariant.Flat -> Modifier
         }
     )
-    // Two threshold crossings per scroll direction, not a recomposition per scroll frame.
     val collapseValue = collapse
-    val compactShown by remember(collapseValue) {
-        derivedStateOf { (collapseValue?.value ?: 0f) > 0.05f }
-    }
     val staticShown by remember(collapseValue) {
-        derivedStateOf { (collapseValue?.value ?: 0f) < 0.95f }
+        derivedStateOf { (collapseValue?.value ?: 0f) < 0.30f }
     }
-    Row(container.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(container.padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
         if (collapseValue != null && compactTitle != null && compactAvatar != null) {
-            // The compact avatar lands in the toolbar as the big one shrinks; it is also the return
-            // flight's source when Back happens from a collapsed profile. Composed from the
-            // threshold on, so the expanded toolbar keeps its exact previous layout.
-            if (compactShown) {
-                Box(
-                    Modifier
-                        .graphicsLayer {
-                            alpha = collapseValue.value * (transition?.toolbarVisibility() ?: 1f)
-                        }
-                        .then(if (transition != null && transitionFingerprint != null) {
-                            Modifier.onGloballyPositioned { coordinates ->
-                                transition.reportToolbarAvatar(coordinates.boundsInWindow(), transitionFingerprint)
-                            }
-                        } else Modifier)
-                ) {
-                    compactAvatar()
-                }
-                Spacer(Modifier.width(10.dp))
-            }
-            // One title slot: the static label and the compact identity cross-fade inside it.
-            Box(Modifier.weight(1f)) {
+            // One title slot: the static label ("Chat Info") fades out before the collapsing
+            // identity enters, and the compact two-line ChatTopBar-style identity is always
+            // measured in place so bounds are ready from frame 1 without layout jumps.
+            Box(Modifier.weight(1f).heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
                 if (staticShown) Text(
                     title,
                     color = palette.textPrimary,
@@ -812,44 +978,68 @@ internal fun ProfileToolbar(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
-                        .graphicsLayer { alpha = 1f - collapseValue.value }
+                        .graphicsLayer {
+                            val c = collapseValue.value
+                            alpha = staticToolbarTitleAlpha(c)
+                            translationY = -with(density) { 6.dp.toPx() } * windowProgress(c, 0f, 0.30f)
+                        }
                         .semantics { heading() }
                 )
-                if (compactShown) Row(
+                Row(
                     Modifier
-                        .graphicsLayer { alpha = collapseValue.value * (transition?.toolbarVisibility() ?: 1f) },
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            alpha = compactToolbarIdentityAlpha(collapseValue.value, collapseGeometry?.overlayReady == true) *
+                                (transition?.toolbarVisibility() ?: 1f)
+                        },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        compactTitle,
-                        color = palette.textPrimary,
-                        fontSize = if (design.style == DesignStyle.Default) 18.sp else 19.sp,
-                        fontWeight = when (design.style) {
-                            DesignStyle.Material2 -> FontWeight.Medium
-                            DesignStyle.Material3 -> FontWeight.Medium
-                            else -> FontWeight.SemiBold
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .then(if (transition != null && transitionFingerprint != null) {
-                                Modifier.onGloballyPositioned { coordinates ->
-                                    transition.reportToolbarTitle(coordinates.boundsInWindow(), transitionFingerprint)
-                                }
-                            } else Modifier)
-                            .semantics { heading() }
-                    )
-                    // At a large font the status line gives up before it would cut the title.
-                    if (compactStatus != null && LocalDensity.current.fontScale < 1.3f) {
+                    Box(
+                        Modifier.onGloballyPositioned { coordinates ->
+                            val bounds = coordinates.boundsInWindow()
+                            collapseGeometry?.compactAvatar = bounds
+                            if (transition != null && transitionFingerprint != null) {
+                                transition.reportToolbarAvatar(bounds, transitionFingerprint)
+                            }
+                        }
+                    ) {
+                        compactAvatar()
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
                         Text(
-                            " · $compactStatus",
-                            color = palette.textSecondary,
-                            fontSize = 13.sp,
+                            compactTitle,
+                            color = palette.textPrimary,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
+                            modifier = Modifier
+                                .onGloballyPositioned { coordinates ->
+                                    val bounds = coordinates.boundsInWindow()
+                                    collapseGeometry?.compactTitle = bounds
+                                    if (transition != null && transitionFingerprint != null) {
+                                        transition.reportToolbarTitle(bounds, transitionFingerprint)
+                                    }
+                                }
+                                .semantics { heading() }
                         )
+                        if (!compactStatus.isNullOrBlank()) {
+                            Text(
+                                compactStatus,
+                                color = palette.textSecondary,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.onGloballyPositioned { coordinates ->
+                                    val bounds = coordinates.boundsInWindow()
+                                    collapseGeometry?.compactStatus = bounds
+                                    if (transition != null && transitionFingerprint != null) {
+                                        transition.reportToolbarStatus(bounds, transitionFingerprint)
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
