@@ -57,10 +57,10 @@ internal class TdStealthScheduler(
 
     /**
      * A failed message is resent as it was. With stealth sending on, that is allowed only for a message still waiting in the
-     * scheduled queue far enough ahead; anything else would go out at once, so it needs the user's consent.
+     * scheduled queue far enough ahead; anything else would go out at once, so it needs the user's consent. Once started,
+     * the check runs to its end and does not read the live switch again.
      */
-    suspend fun checkResend(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean) {
-        if (!active() || sendNowConsent) return
+    private suspend fun checkResend(chatId: Long, messageIds: List<Long>) {
         val now = serverUnixTime()
         val allScheduled = messageIds.all { id ->
             val state = request(TdApi.GetMessage(chatId, id)).schedulingState as? TdApi.MessageSchedulingStateSendAtDate
@@ -70,15 +70,20 @@ internal class TdStealthScheduler(
     }
 
     /**
-     * Resends failed messages as they were. With stealth sending on, only messages still waiting far enough ahead in the
-     * scheduled queue may go (see [checkResend]); the live switch is decided again under the settings lock at the hand-off,
-     * so protection turned on after the check still refuses an unchecked resend.
+     * Resends failed messages as they were. With stealth sending on when the resend starts, only messages still waiting far
+     * enough ahead in the scheduled queue may go (see [checkResend]). [verified] becomes true only when that check
+     * completed, so an intent to check never counts as a check. The live switch is decided again under the settings lock
+     * at the hand-off: while protection is on there, a resend that the check did not verify is refused, however the switch
+     * moved meanwhile.
      */
     suspend fun resend(chatId: Long, messageIds: List<Long>, sendNowConsent: Boolean): TdApi.Messages {
-        val checked = active() && !sendNowConsent
-        if (checked) checkResend(chatId, messageIds, sendNowConsent)
+        var verified = false
+        if (active() && !sendNowConsent) {
+            checkResend(chatId, messageIds)
+            verified = true
+        }
         return request.invokeAdmitted(TdApi.ResendMessages(chatId, messageIds.toLongArray(), null, 0L), lock, admit = {
-            if (!sendNowConsent && !checked && active()) throw unavailable(R.string.stealth_schedule_retry)
+            if (!sendNowConsent && !verified && active()) throw unavailable(R.string.stealth_schedule_retry)
         })
     }
 

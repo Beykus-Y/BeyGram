@@ -19,6 +19,7 @@ import com.beykus.beygram.data.settings.DelayedSendSettingsStore
 import com.beykus.beygram.data.settings.StealthSettingsStore
 import com.beykus.beygram.data.settings.chatOverridePreferencesName
 import com.beykus.beygram.data.settings.delayedSendPreferencesName
+import com.beykus.beygram.data.settings.forumNavigationPreferencesName
 import com.beykus.beygram.data.settings.chatMemoryPreferencesName
 import com.beykus.beygram.data.settings.stealthPreferencesName
 import com.beykus.beygram.data.settings.translationPreferencesName
@@ -590,6 +591,7 @@ internal class TdSecondaryAccountController private constructor(
             stealthPreferencesName(accountId),
             chatMemoryPreferencesName(accountId),
             delayedSendPreferencesName(accountId),
+            forumNavigationPreferencesName(accountId),
             "pending_group_creation_$accountId",
             "mihomo_tdlib_proxy_$accountId"
         ).forEach { prefName -> app.deleteSharedPreferences(prefName) }

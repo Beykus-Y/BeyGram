@@ -23,7 +23,11 @@ internal class TdRequestError(val code: Int, message: String) : IllegalStateExce
 
 private const val DEFAULT_REQUEST_TIMEOUT_MS = 30_000L
 
-internal class TdRequests(private val client: () -> Client) {
+/**
+ * Requests made through this class reach TDLib only in [handOff]. Tests replace [handOff] to answer requests without a
+ * native client.
+ */
+internal open class TdRequests(private val client: () -> Client) {
     suspend operator fun <T : TdApi.Object> invoke(function: TdApi.Function<T>, timeoutMillis: Long = DEFAULT_REQUEST_TIMEOUT_MS): T = withTimeout(timeoutMillis) {
         awaitResponse(function)
     }
@@ -35,12 +39,18 @@ internal class TdRequests(private val client: () -> Client) {
      */
     internal suspend fun <T : TdApi.Object> awaitResponse(function: TdApi.Function<T>): T =
         suspendCancellableCoroutine { continuation ->
-            client().send(function, resultHandler(continuation))
+            handOff(function, resultHandler(continuation))
         }
+
+    internal open fun handOff(function: TdApi.Function<*>, handler: Client.ResultHandler) {
+        client().send(function, handler)
+    }
 
     /**
      * Sends [function] only if [admit] passes, both under [lock] (see StealthSettingsStore.whileUnchanged), so a settings
      * change cannot land between the decision and the hand-off to TDLib. [admit] throws to refuse; nothing is sent then.
+     * The lock is a blocking monitor, so the caller can be cancelled or time out while it waits for it. A caller that
+     * is no longer waiting is not admitted, and nothing is handed to TDLib for it.
      */
     suspend fun <T : TdApi.Object> invokeAdmitted(
         function: TdApi.Function<T>,
@@ -50,8 +60,10 @@ internal class TdRequests(private val client: () -> Client) {
     ): T = withTimeout(timeoutMillis) {
         suspendCancellableCoroutine<T> { continuation ->
             lock {
-                admit()
-                client().send(function, resultHandler(continuation))
+                if (continuation.isActive) {
+                    admit()
+                    handOff(function, resultHandler(continuation))
+                }
             }
         }
     }
