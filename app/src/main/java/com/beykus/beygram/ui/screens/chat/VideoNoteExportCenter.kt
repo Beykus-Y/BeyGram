@@ -43,7 +43,11 @@ internal data class VideoNoteExportResult(
     val requiresPreview: Boolean = previewFirst || media.size > 1,
     /** Forum topic the note was recorded in (0 outside forums): it is sent there, not to the open topic. */
     val topicId: Long = 0L,
-    val accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID
+    val accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID,
+    /** The reply the note was recorded with. The all-messages feed sends with it, not with the composer's current reply. */
+    val replyToMessageId: Long? = null,
+    /** Recorded in the all-messages feed: any screen that sends it uses [replyToMessageId], see [sendReplyId]. */
+    val recordedInFeed: Boolean = false
 )
 
 /** Pure transitions shared by the app-level sender and regression tests. */
@@ -60,10 +64,21 @@ internal data class PendingVideoNote(val chatId: Long, val sessionName: String, 
  * Кружки чата для ленты: сначала обрабатываемые, затем ждущие отправки. Кружок с предпросмотром здесь не показывается:
  * он остаётся в диалоге, пока пользователь не отправит или не удалит его. Одна сессия показывается один раз.
  */
-internal fun pendingVideoNotesFor(chatId: Long, processing: List<PendingVideoNote>, results: List<VideoNoteExportResult>, topicId: Long = 0L, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): List<PendingVideoNote> =
-    (processing.filter { it.chatId == chatId && it.topicId == topicId && it.accountId == accountId } + results.filter { it.chatId == chatId && it.topicId == topicId && it.accountId == accountId && !it.requiresPreview }
+internal fun pendingVideoNotesFor(chatId: Long, processing: List<PendingVideoNote>, results: List<VideoNoteExportResult>, topicId: Long? = 0L, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): List<PendingVideoNote> =
+    (processing.filter { it.chatId == chatId && (topicId == null || it.topicId == topicId) && it.accountId == accountId } + results.filter { it.chatId == chatId && (topicId == null || it.topicId == topicId) && it.accountId == accountId && !it.requiresPreview }
         .map { PendingVideoNote(it.chatId, it.sessionName, processing = false, previewPath = it.media.firstOrNull()?.thumbnailPath, topicId = it.topicId, accountId = it.accountId) })
         .distinctBy { it.sessionName }
+
+/** Whether a screen claims this note for sending. A null [topicId] is the all-messages feed, which claims every topic of its chat. */
+internal fun VideoNoteExportResult.claimedBy(chatId: Long, accountId: String, topicId: Long?): Boolean =
+    this.chatId == chatId && this.accountId == accountId && (topicId == null || this.topicId == topicId)
+
+/**
+ * The reply a note is sent with. The all-messages feed sends with the reply stored with the note, and so does any screen that sends
+ * a note recorded in the feed. A note recorded and sent in one topic keeps using the composer's reply, as before.
+ */
+internal fun VideoNoteExportResult.sendReplyId(feedSender: Boolean, composerReplyId: Long?): Long? =
+    if (feedSender || recordedInFeed) replyToMessageId else composerReplyId
 
 private val exportMutex = Mutex()
 
@@ -116,7 +131,7 @@ internal object VideoNoteExportCenter {
         }
     }
 
-    fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean, topicId: Long = 0L, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID) {
+    fun enqueue(context: Context, chatId: Long, source: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean, topicId: Long = 0L, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID, replyToMessageId: Long? = null, recordedInFeed: Boolean = false) {
         val appContext = context.applicationContext
         VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_queued, VideoNoteDiagnostics.text(if (previewFirst) R.string.loss_yes else R.string.loss_no)), VideoNoteStatus.QUEUED)
         // Автоматический кружок виден в ленте сразу после отпускания, а не когда обработка закончится.
@@ -132,7 +147,7 @@ internal object VideoNoteExportCenter {
                 Log.i(TAG, "video_processing_completed session=" + sessionName + " segments=" + media.size)
                 recordAppEvent(EventKind.OTHER, "video_note_processed", "Кружок: обработка завершена", attrs = mapOf("segments" to media.size.toString()))
                 VideoNoteDiagnostics.append(sessionName, VideoNoteDiagnostics.text(R.string.vn_entry_export_succeeded, media.size), if (previewFirst) VideoNoteStatus.PREVIEW else VideoNoteStatus.READY)
-                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName, topicId = topicId, accountId = accountId))
+                publish(VideoNoteExportResult(chatId, media, previewFirst, sessionName, topicId = topicId, accountId = accountId, replyToMessageId = replyToMessageId, recordedInFeed = recordedInFeed))
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
@@ -232,6 +247,13 @@ internal object VideoNoteExportCenter {
         val key = Triple(accountId, chatId, topicId)
         val had = key in _failures.value
         if (had) _failures.update { current -> current - key }
+        return had
+    }
+
+    /** Feed variant: consumes failures of every topic of the chat for this account. */
+    fun consumeFailureForChat(chatId: Long, accountId: String = com.beykus.beygram.data.tdlib.TdAccountStorageLayout.LEGACY_ACCOUNT_ID): Boolean {
+        val had = _failures.value.any { it.first == accountId && it.second == chatId }
+        if (had) _failures.update { current -> current.filterNot { it.first == accountId && it.second == chatId } }
         return had
     }
 }

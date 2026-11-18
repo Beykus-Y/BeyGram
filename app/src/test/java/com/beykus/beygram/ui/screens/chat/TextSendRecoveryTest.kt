@@ -220,4 +220,26 @@ class TextSendRecoveryTest {
         gate.complete(Unit)
         assertTrue(store.rows.isEmpty())
     }
+
+    @Test fun feedTextKeepsItsDestinationUnderTheFixedFeedScope() = runTest(UnconfinedTestDispatcher()) {
+        val feed = TextSendScopeKey("account", 1, FORUM_FEED_TEXT_SCOPE_TOPIC_ID)
+        val queue = TextSendQueue(backgroundScope, storageDispatcher = backgroundScope.coroutineContext[kotlin.coroutines.ContinuationInterceptor] as kotlinx.coroutines.CoroutineDispatcher)
+        val queued = queue.enqueue(feed, "reply", emptyList(), 42L, null, MessageSendOptions(), 0, "12:00", destinationTopicId = 5L,
+            execute = { Result.failure(IllegalStateException("failed")) }, formatError = { "error" })
+        val failed = queue.current(feed).single()
+        assertEquals(queued.attemptId, failed.attemptId)
+        assertEquals(5L, failed.destinationTopicId)
+        assertEquals(5L, failed.toChatMessage().forumTopicId)
+        assertEquals(FORUM_FEED_TEXT_SCOPE_TOPIC_ID, failed.scope.forumTopicId)
+        val restored = TextSendSnapshotCodec.decode(TextSendSnapshotCodec.encode(queue.current(feed))).single()
+        assertEquals(feed, restored.scope)
+        assertEquals(5L, restored.destinationTopicId)
+    }
+
+    @Test fun snapshotRowsWithoutADestinationReadBackAsTheirScopeTopic() {
+        val legacy = """{"version":1,"attempts":[{"id":4,"account":"account","chat":1,"topic":7,"text":"old","entities":[],"time":"12:00","baseline":0,"silent":false,"viewOnce":false,"consent":false,"noPreview":false,"phase":"Failed"}]}"""
+        val decoded = TextSendSnapshotCodec.decode(legacy.toByteArray()).single()
+        assertEquals(7L, decoded.scope.forumTopicId)
+        assertEquals(7L, decoded.destinationTopicId)
+    }
 }

@@ -33,6 +33,12 @@ import kotlinx.coroutines.flow.StateFlow
 internal fun forumFeedTopicId(message: ChatMessage, generalTopicId: Long): Long =
     if (message.forumTopicId > 0L) message.forumTopicId else generalTopicId
 
+/**
+ * The queue scope of the feed's own text. It is a fixed id and does not depend on the General topic, which can be missing while
+ * the feed is open: a scope that followed it would strand queued and failed texts. Each queued text names its own destination.
+ */
+internal const val FORUM_FEED_TEXT_SCOPE_TOPIC_ID: Long = -1L
+
 /** Where a message sent from the feed goes. */
 internal sealed interface ForumFeedSendTarget {
     /**
