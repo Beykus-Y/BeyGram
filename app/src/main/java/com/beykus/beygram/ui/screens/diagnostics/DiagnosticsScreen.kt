@@ -140,7 +140,11 @@ fun DiagnosticsScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
     ) {
         ProfileToolbar(stringResource(R.string.diagnostics_title), onBack)
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState())
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
             DiagnosticsOverview(connectionState = connectionState, route = route, failures = failures, memory = memory)
 
             SettingsGroup(stringResource(R.string.diag_network)) {
