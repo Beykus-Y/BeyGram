@@ -249,7 +249,7 @@ fun ChannelStatisticsScreen(
                     TextButton(
                         onClick = ::loadMore,
                         enabled = !loadingMore,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     ) {
                         Text(stringResource(R.string.channel_admin_log_more))
                     }
@@ -530,7 +530,7 @@ private fun ErrorNotice(message: String, palette: BeyGramPalette, onRetry: () ->
             textAlign = TextAlign.Center,
             modifier = Modifier.errorAnnouncement()
         )
-        TextButton(onClick = onRetry) {
+        TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
             Text(stringResource(R.string.common_retry), color = palette.accentInk)
         }
     }
