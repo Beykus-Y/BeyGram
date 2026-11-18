@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_pinned_short_title">Закреплённые</string>
+    <string name="chat_pinned_unknown_sender">Неизвестный отправитель</string>
+    <plurals name="chat_pinned_message_count">
+        <item quantity="one">%d сообщение</item>
+        <item quantity="few">%d сообщения</item>
+        <item quantity="many">%d сообщений</item>
+        <item quantity="other">%d сообщения</item>
+    </plurals>
+</resources>

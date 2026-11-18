@@ -1968,6 +1968,10 @@ fun ChatScreen(
     val pinsConnected = connectionState == TelegramConnectionState.Connected
     LaunchedEffect(pinnedState, pinnedVersion, pinsConnected, pinnedState.retryTick) { pinnedState.refresh(pinnedVersion, pinsConnected) }
     var pinnedListOpen by rememberSaveable(chat.id, forumTopicId) { mutableStateOf(false) }
+    var pinnedPreviewSource by remember(chat.id, forumTopicId) { mutableStateOf<PinnedPreviewSource?>(null) }
+    var livePinnedPreview by remember(chat.id, forumTopicId) { mutableStateOf<PinnedPreviewSource?>(null) }
+    var livePinnedHeader by remember(chat.id, forumTopicId) { mutableStateOf<Rect?>(null) }
+    var pinnedHeaderSource by remember(chat.id, forumTopicId) { mutableStateOf<Rect?>(null) }
     // Hiding the pinned bar is local to this chat and this account; the pins themselves stay on the server.
     val pinnedBarHidden = chatOverrideState[chat.id]?.pinnedBarHidden == true
     val windowLayout = LocalWindowLayout.current
@@ -2029,7 +2033,10 @@ fun ChatScreen(
                 observeFile = observeFile,
                 visibleOldestMessageId = visibleOldestPinnedBoundary,
                 onOpen = ::jumpToPinned,
-                onOpenList = { pinnedListOpen = true },
+                onOpenList = { pinnedPreviewSource = null; pinnedHeaderSource = null; pinnedListOpen = true },
+                onOpenListFromPreview = { source -> pinnedPreviewSource = source; pinnedHeaderSource = livePinnedHeader; pinnedListOpen = true },
+                hiddenPreviewId = pinnedPreviewSource?.id?.takeIf { pinnedListOpen },
+                onPreviewMeasured = { livePinnedPreview = it },
                 onHideBar = { chatOverrides.setPinnedBarHidden(chat.id, true) },
                 onUnpin = { message -> setPinned(message, false) },
                 onRowShownChange = { pinnedPreviewShown = it }
@@ -2087,7 +2094,8 @@ fun ChatScreen(
             showBack = !windowLayout.twoPane || forumTopicId > 0L || forumAllMessages,
             compact = compactChrome,
             pinnedCount = pinnedState.count,
-            onOpenPinned = { pinnedListOpen = true },
+            onPinnedHeaderMeasured = { livePinnedHeader = it },
+            onOpenPinned = { pinnedPreviewSource = null; pinnedHeaderSource = null; pinnedListOpen = true },
             forumNavigationMode = forumNavigationMode,
             onForumNavigationMode = onForumNavigationMode,
             forumAllMessages = forumAllMessages
@@ -3212,11 +3220,20 @@ fun ChatScreen(
     if (pinnedListOpen) PinnedMessagesScreen(
         state = pinnedState,
         conversation = conversation,
+        chat = chat,
+        chatTitle = forumTopicTitle?.takeIf { it.isNotBlank() }?.let { "${chat.title} · $it" } ?: chat.title,
+        members = info?.memberPreview.orEmpty(),
+        senderChats = chats(),
         observeFile = observeFile,
+        downloadFile = onDownloadFile,
         barHidden = pinnedBarHidden,
+        previewSource = pinnedPreviewSource,
+        livePreviewSource = { livePinnedPreview },
+        headerSource = pinnedHeaderSource,
+        liveHeaderSource = { livePinnedHeader },
         onRestoreBar = { chatOverrides.setPinnedBarHidden(chat.id, false) },
-        onOpenMessage = { message -> pinnedListOpen = false; jumpToPinned(message) },
-        onClose = { pinnedListOpen = false }
+        onOpenMessage = { message -> pinnedListOpen = false; pinnedPreviewSource = null; pinnedHeaderSource = null; jumpToPinned(message) },
+        onClose = { pinnedListOpen = false; pinnedPreviewSource = null; pinnedHeaderSource = null }
     )
     if (chatSettingsOpen) ChatSettingsSheet(
         chatId = chat.id,
@@ -3408,6 +3425,7 @@ private fun ChatTopBar(
     pinnedBelow: Boolean = false,
     /** Pins in the chat: above zero the overflow menu can open the pinned list even while the bar is hidden. */
     pinnedCount: Int = 0,
+    onPinnedHeaderMeasured: (Rect?) -> Unit = {},
     onOpenPinned: () -> Unit = {},
     /** False in the split layout: the list is already on screen, so an arrow that "goes back" would promise nothing new. */
     showBack: Boolean = true,
@@ -3428,6 +3446,9 @@ private fun ChatTopBar(
     // Время в строке статуса пересчитывается отдельно от экрана: тик перерисовывает только шапку.
     val now by rememberPresenceClock(info?.status is ProfilePresence.LastSeen)
     val chatInfoLabel = stringResource(R.string.a11y_chat_info)
+    val headerView = androidx.compose.ui.platform.LocalView.current
+    val reportHeader by androidx.compose.runtime.rememberUpdatedState(onPinnedHeaderMeasured)
+    DisposableEffect(chat.id, forumTopicTitle) { onDispose { reportHeader(null) } }
     val onGlass = LocalChatChromeOnGlass.current
     // The window identity the header bounds are captured with; a resize invalidates them.
     val transitionFingerprint = profileTransition?.let {
@@ -3449,7 +3470,8 @@ private fun ChatTopBar(
         }
     )) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = if (compact) 0.dp else 6.dp, bottom = if (compact) 0.dp else 10.dp),
+            Modifier.fillMaxWidth().onGloballyPositioned { reportHeader(it.pinnedBoundsOnScreen(headerView)) }
+                .padding(start = 8.dp, end = 8.dp, top = if (compact) 0.dp else 6.dp, bottom = if (compact) 0.dp else 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showBack) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.common_back), tint = palette.textPrimary) }
