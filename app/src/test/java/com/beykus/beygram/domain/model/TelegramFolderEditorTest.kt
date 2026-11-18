@@ -28,6 +28,22 @@ class TelegramFolderEditorTest {
             includedChatIds = setOf(10L, 11L)).valid())
     }
 
+    @Test fun reportsEachProblemInEditorOrder() {
+        assertEquals(
+            listOf(TelegramFolderProblem.EmptyName, TelegramFolderProblem.NoSelection),
+            TelegramFolderDraft(title = " ").problems()
+        )
+        assertEquals(
+            listOf(TelegramFolderProblem.OverlappingChats),
+            TelegramFolderDraft(title = "A", includeGroups = true, includedChatIds = setOf(3L), excludedChatIds = setOf(3L)).problems()
+        )
+        assertEquals(
+            listOf(TelegramFolderProblem.ShareableRestricted),
+            TelegramFolderDraft(title = "Shared", isShareable = true, includeGroups = true).problems()
+        )
+        assertTrue(TelegramFolderDraft(title = "Семья", includeGroups = true).problems().isEmpty())
+    }
+
     @Test fun movesServerFolderWithoutLosingMainPosition() {
         val state = TelegramChatFolders(
             initialized = true, folders = listOf(
