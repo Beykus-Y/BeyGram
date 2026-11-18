@@ -375,7 +375,10 @@ fun ChatScreen(
     val textSendQueue = remember(sendApplication, accountId, textSendGeneration) {
         PendingTextSendSessions.queue(sendApplication, accountId)
     }
-    val textSendScopeKey = remember(accountId, chat.id, sendForumTopicId) { TextSendScopeKey(accountId, chat.id, sendForumTopicId) }
+    // The feed keeps one queue scope while a reply is set or cleared, so a queued or failed text stays visible. Its topic is
+    // General; a queued reply still goes into the replied message's topic, because the send follows the reply target.
+    val textScopeTopicId = if (forumAllMessages) feedGeneralTopic?.id ?: 0L else sendForumTopicId
+    val textSendScopeKey = remember(accountId, chat.id, textScopeTopicId) { TextSendScopeKey(accountId, chat.id, textScopeTopicId) }
     val textQueueWriting by remember(textSendQueue, textSendScopeKey) {
         textSendQueue.composerWriting(textSendScopeKey)
     }.collectAsStateWithLifecycle(initialValue = false)
@@ -397,8 +400,10 @@ fun ChatScreen(
     val secretChat = secretChats[chat.id]
     val secretChatClosed = chat.isSecret && secretChat?.state == SecretChatState.Closed
     // A closed secret chat cannot accept new messages even though TDLib may still report posting permission.
+    // In the feed a reply clears right after it is sent; the composer stays until that send has finished.
+    val feedSendInFlight = feedSendTarget == ForumFeedSendTarget.Unavailable && (sending || textQueueWriting)
     val canPostHere = SecretChatPosting.canPost(
-        chat.canPost && topicCanPost && feedSendTarget != ForumFeedSendTarget.Unavailable,
+        chat.canPost && topicCanPost && (feedSendTarget != ForumFeedSendTarget.Unavailable || feedSendInFlight),
         chat.isSecret,
         secretChat?.state
     )
@@ -979,7 +984,7 @@ fun ChatScreen(
     val editMessage = editId?.let { id -> messages.firstOrNull { it.id == id } }
     // A swipe reply needs an idle composer on screen: no search, deletion, edit, recording or open action menu, and no
     // send in flight, because a finished send clears the reply target it used.
-    val swipeReplyAllowed = canPostHere && !searching && !deleting && !selectionMode && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
+    val swipeReplyAllowed = (canPostHere || feedSendTarget == ForumFeedSendTarget.Unavailable && chat.canPost) && !searching && !deleting && !selectionMode && editMessage == null && actionMessage == null && !videoNote.active && !audioNote.active &&
         !sending && !attachments.sending && !recordingQueueSending && pendingVideoNotes.isEmpty()
     LaunchedEffect(editId) { editEntities = editMessage?.entities.orEmpty() }
     LaunchedEffect(botKeyboard?.messageId) { if (botKeyboard?.forceReply == true) updateDraft { it.copy(replyToMessageId = botKeyboard?.messageId) } }
@@ -2006,7 +2011,7 @@ fun ChatScreen(
             onExport = { exportOpen = true },
             secretChat = secretChat,
             pinnedBelow = pinnedPreviewShown && !(compactChrome && keyboardOpen),
-            showBack = !windowLayout.twoPane || forumTopicId > 0L,
+            showBack = !windowLayout.twoPane || forumTopicId > 0L || forumAllMessages,
             compact = compactChrome,
             forumNavigationMode = forumNavigationMode,
             onForumNavigationMode = onForumNavigationMode,
