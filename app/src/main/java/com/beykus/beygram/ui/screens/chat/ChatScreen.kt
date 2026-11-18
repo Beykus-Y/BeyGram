@@ -3163,7 +3163,12 @@ fun ChatScreen(
     if (pinnedListOpen) PinnedMessagesScreen(
         state = pinnedState,
         conversation = conversation,
+        chat = chat,
+        chatTitle = forumTopicTitle?.takeIf { it.isNotBlank() }?.let { "${chat.title} · $it" } ?: chat.title,
+        members = info?.memberPreview.orEmpty(),
+        senderChats = chats(),
         observeFile = observeFile,
+        downloadFile = onDownloadFile,
         barHidden = pinnedBarHidden,
         onRestoreBar = { chatOverrides.setPinnedBarHidden(chat.id, false) },
         onOpenMessage = { message -> pinnedListOpen = false; jumpToPinned(message) },
