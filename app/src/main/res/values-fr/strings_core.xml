@@ -142,13 +142,14 @@
     <string name="global_search_idle">Saisissez un nom, @username ou t.me/… pour trouver des discussions, personnes, bots et messages</string>
     <string name="global_search_loading">Recherche…</string>
     <string name="global_search_more">Afficher plus</string>
+    <string name="global_search_show_all">Tout afficher</string>
     <string name="global_search_more_failed">Impossible de charger la suite. Appuyez sur Afficher plus pour réessayer</string>
     <string name="global_search_offline">Pas de réseau. Les résultats enregistrés sont affichés ; la recherche reprendra au retour de la connexion</string>
     <string name="global_search_source_offline">Pas de réseau. Cette section sera actualisée dès votre retour en ligne</string>
     <string name="global_search_section_chats">Discussions</string>
     <string name="global_search_section_contacts">Personnes et bots</string>
     <string name="global_search_section_public">Résultats publics</string>
-    <string name="global_search_section_messages">Recherche globale</string>
+    <string name="global_search_section_messages">Messages</string>
     <string name="global_search_section_count">%1$s · %2$d</string>
     <string name="global_search_section_empty_chats">Aucune discussion trouvée</string>
     <string name="global_search_section_empty_contacts">Aucune personne ni aucun bot trouvé</string>

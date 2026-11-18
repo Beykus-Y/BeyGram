@@ -2,8 +2,10 @@ package com.beykus.beygram.ui.screens.chats
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -20,14 +23,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,19 +47,21 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
@@ -56,6 +69,7 @@ import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.model.ChatPreview
 import com.beykus.beygram.domain.model.ContactPreview
 import com.beykus.beygram.domain.model.GlobalChatType
+import com.beykus.beygram.domain.model.GlobalSearchFilter
 import com.beykus.beygram.domain.model.GlobalSearchPage
 import com.beykus.beygram.domain.model.GlobalSearchPeriod
 import com.beykus.beygram.domain.model.MediaFileState
@@ -79,21 +93,44 @@ import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.Avatar
 import com.beykus.beygram.ui.components.ChatAvatar
 import com.beykus.beygram.ui.components.SearchField
+import com.beykus.beygram.ui.components.StyledListDivider
 import com.beykus.beygram.ui.components.TelegramAvatar
+import com.beykus.beygram.ui.components.TextButton
 import com.beykus.beygram.ui.components.beyGramPalette
+import com.beykus.beygram.ui.components.groupSurfaceColor
+import com.beykus.beygram.ui.design.ChipSelectionTone
+import com.beykus.beygram.ui.design.LocalDesignSystem
+import com.beykus.beygram.ui.design.glassCard
+import com.beykus.beygram.ui.design.glassScreenBackground
+import com.beykus.beygram.ui.design.groupCardShape
+import com.beykus.beygram.ui.design.styledShape
+import com.beykus.beygram.ui.design.usesGlassPanels
 import com.beykus.beygram.ui.screens.profile.ProfileToolbar
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
 private const val SEARCH_DEBOUNCE_MILLIS = 400L
 
+/** Rows of one section in the All view. The rest of the section is one tap away, under «Показать все». */
+private const val SEARCH_ALL_PREVIEW_ROWS = 3
+
+/** A row divider starts where the text does: the row padding, the 42 dp avatar and its 12 dp gap. */
+private val SearchRowDividerInset = 70.dp
+
+/** How much accent the Signature ink chip carries; the same share as the chat list's ink folder. */
+private const val SEARCH_INK_ACCENT_SHARE = 0.18f
+
 /**
  * Unified global search: local/server chats and contacts, public chats, then message hits.
  * Each source owns its loading/error/paging state and every request is guarded by the query and
  * session generation, so a late answer from an old query/account never reaches the screen.
+ *
+ * The presentation is one results card in the active style (its group-card shape and surface), with sections that show
+ * their count once they have settled. The All view previews each section and offers «Показать все», which switches to
+ * that section's category without starting a new request.
  */
 @Composable
 fun GlobalSearchScreen(
@@ -111,6 +148,7 @@ fun GlobalSearchScreen(
     session: GlobalSearchSession = remember { GlobalSearchSession(initialQuery) }
 ) {
     val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val currentLocale = context.resources.configuration.locales[0]
@@ -168,6 +206,24 @@ fun GlobalSearchScreen(
         session.completedRequest == (query to filter) && session.completedGeneration == generation
     }.orEmpty().filterNot { chatContexts[it.chatId]?.isSecret == true }
     BackHandler(onBack = onBack)
+
+    // Presentation only: the filters themselves are the same values the search reads.
+    val inAll = category == GlobalSearchCategory.All
+    val categoryListState = rememberLazyListState()
+    // The Media category implies the media kind, so that kind is not listed as a filter the user chose.
+    val impliedKind = if (category == GlobalSearchCategory.Media) SharedMediaKind.Media else null
+    val appliedKind = filter.kind?.takeIf { it != impliedKind }
+    val activeFilterCount = listOf(
+        appliedKind,
+        filter.chatType,
+        filter.period.takeIf { it != GlobalSearchPeriod.Any }
+    ).count { it != null }
+    val filterBarVisible = query.isNotBlank() && (showMessages || activeFilterCount > 0)
+    val appliedFilterSummary = listOfNotNull(
+        appliedKind?.let { stringResource(kindLabel(it)) },
+        filter.chatType?.let { stringResource(chatTypeLabel(it)) },
+        filter.period.takeIf { it != GlobalSearchPeriod.Any }?.let { stringResource(periodLabel(it)) }
+    ).joinToString(" · ")
 
     // Message filters and offset paging are unchanged; only the request guard was extended to the
     // session generation so account switches cannot publish an old page.
@@ -297,8 +353,46 @@ fun GlobalSearchScreen(
         }
     }
 
+    // The same paging as before (same query, filter and generation guard), now shared by the list and the All preview.
+    fun loadMoreMessages() {
+        if (loadingMore) return
+        loadingMore = true
+        moreFailed = false
+        val requestedQuery = query
+        val requestedFilter = filter
+        val requestedGeneration = session.generation.value
+        val requestedOffset = nextOffset
+        val isCurrent = {
+            query == requestedQuery &&
+                filter == requestedFilter &&
+                session.generation.value == requestedGeneration
+        }
+        pagingJob?.cancel()
+        pagingJob = scope.launch {
+            try {
+                conversation.searchGlobalMessages(requestedQuery, requestedOffset, requestedFilter)
+                    .onSuccess { page ->
+                        if (isCurrent()) {
+                            hits = appendDistinctBy(hits, page.messages) { it.chatId to it.id }
+                            chatContexts = chatContexts + page.chats
+                            nextOffset = page.nextOffset
+                        }
+                    }
+                    .onFailure { if (isCurrent()) moreFailed = true }
+            } finally {
+                if (isCurrent()) loadingMore = false
+            }
+        }
+    }
+
+    // «Показать все» only changes the category: the query, the filter and the sources stay as they are.
+    fun showAll(target: GlobalSearchCategory) {
+        session.category.value = target
+        scope.launch { session.listState.scrollToItem(0) }
+    }
+
     Column(
-        Modifier.fillMaxSize().background(palette.screen)
+        Modifier.fillMaxSize().glassScreenBackground(design, palette.screen)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
     ) {
         ProfileToolbar(stringResource(R.string.global_search_title), onBack)
@@ -322,24 +416,65 @@ fun GlobalSearchScreen(
                     filter = filter.copy(kind = SharedMediaKind.Media)
                 }
                 scope.launch { session.listState.scrollToItem(0) }
-            }
+            },
+            state = categoryListState
         )
-        if (showMessages && query.isNotBlank()) {
-            val activeFilterCount = listOf(filter.kind, filter.chatType, filter.period.takeIf { it != GlobalSearchPeriod.Any })
-                .count { it != null }
-            TextButton(
-                onClick = { filtersExpanded = !filtersExpanded },
-                modifier = Modifier.padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp)
+        if (filterBarVisible) {
+            // The toggle, the applied filters and their reset stay visible together, so a filter that still narrows
+            // the results is never hidden behind a collapsed panel.
+            Row(
+                Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // The toggle may shrink at large font scales; the reset keeps its own width beside it.
+                Box(Modifier.weight(1f, fill = false)) {
+                    TextButton(
+                        onClick = { filtersExpanded = !filtersExpanded },
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Icon(Icons.Rounded.Tune, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            stringResource(R.string.global_search_filters) +
+                                if (activeFilterCount > 0) " · $activeFilterCount" else "",
+                            color = palette.accentInk,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Icon(
+                            if (filtersExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = palette.accentInk,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                if (activeFilterCount > 0) {
+                    TextButton(
+                        onClick = { filter = GlobalSearchFilter(kind = impliedKind) },
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Text(stringResource(R.string.search_filter_reset), fontSize = 14.sp)
+                    }
+                }
+            }
+            if (activeFilterCount > 0 && appliedFilterSummary.isNotEmpty()) {
                 Text(
-                    stringResource(R.string.global_search_filters) +
-                        if (activeFilterCount > 0) " · $activeFilterCount" else "",
-                    color = palette.accentInk
+                    appliedFilterSummary,
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
                 )
             }
             if (filtersExpanded) {
-                Column(Modifier.padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(
+                    Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     SearchChips(
                         options = SharedMediaKind.entries.map { it to stringResource(kindLabel(it)) },
                         selected = filter.kind,
@@ -380,223 +515,206 @@ fun GlobalSearchScreen(
                 )
             }
         }
-        if (query.isBlank()) {
+        // The whole result list is one group card, as the contacts and calls lists are. Its rows carry no card of their own.
+        Box(
+            Modifier.weight(1f).fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)
+                .glassCard(design, groupSurfaceColor(), palette.textSecondary, groupCardShape())
+        ) {
             LazyColumn(
-                Modifier.fillMaxWidth().weight(1f),
-                state = session.listState
+                Modifier.fillMaxSize(),
+                state = session.listState,
+                contentPadding = PaddingValues(vertical = 4.dp)
             ) {
-                item("recent-heading") {
-                    Text(
-                        stringResource(R.string.global_search_recent),
-                        color = palette.textSecondary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
-                    )
-                }
-                if (recentChats.isEmpty()) {
-                    item("search-help") {
-                        Text(
-                            stringResource(R.string.global_search_idle),
-                            color = palette.textSecondary,
-                            fontSize = 14.sp,
-                            modifier = Modifier.padding(20.dp)
+                if (query.isBlank()) {
+                    item("recent-heading") {
+                        SearchSectionHeader(
+                            title = stringResource(R.string.global_search_recent),
+                            count = null,
+                            loading = false
                         )
                     }
-                } else {
-                    items(recentChats.take(12), key = { "recent:${it.id}" }) { chat ->
-                        GlobalChatRow(chat, GlobalSearchChatScope.Local, observeFile, downloadFile) {
-                            openSearchChat(chat, GlobalSearchChatScope.Local, onOpenChat, onOpenPublicChat)
-                        }
-                    }
-                }
-            }
-        } else {
-            LazyColumn(Modifier.fillMaxWidth().weight(1f), state = session.listState) {
-                if (showChats || showPeople) {
-                item("chats-header") {
-                    SearchSectionHeader(
-                        title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalChat)),
-                        count = displayedLocalChats.size,
-                        loading = session.chats.searching.value,
-                        failed = session.chats.failed.value,
-                        onRetry = { session.chats.retryVersion.value++ }
-                    )
-                }
-                if (displayedLocalChats.isEmpty()) {
-                    item("chats-state") {
-                        SearchSourceState(
-                            loading = session.chats.searching.value,
-                            failed = session.chats.failed.value,
-                            offline = offline,
-                            emptyText = stringResource(R.string.global_search_section_empty_chats),
-                            failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_chats))
-                        )
-                    }
-                } else {
-                    items(displayedLocalChats, key = { "chat:${it.id}" }) { chat ->
-                        GlobalChatRow(chat, GlobalSearchChatScope.Local, observeFile, downloadFile) {
-                            openSearchChat(chat, GlobalSearchChatScope.Local, onOpenChat, onOpenPublicChat)
-                        }
-                    }
-                    if (session.chats.canLoadMore()) {
-                        item("chats-more") {
-                            SearchMoreRow(
-                                loading = session.chats.loadingMore.value,
-                                failed = session.chats.moreFailed.value,
-                                onClick = { loadMore(session.chats, parsedQuery.publicText, conversation::searchGlobalChats, ::mergeGlobalChatResults) }
+                    if (recentChats.isEmpty()) {
+                        item("search-help") {
+                            Text(
+                                stringResource(R.string.global_search_idle),
+                                color = palette.textSecondary,
+                                fontSize = 14.sp,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                             )
                         }
-                    }
-                }
-
-                }
-                if (showPeople) {
-                item("contacts-header") {
-                    SearchSectionHeader(
-                        title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalContact)),
-                        count = contactItems.size,
-                        loading = session.contacts.searching.value,
-                        failed = session.contacts.failed.value,
-                        onRetry = { session.contacts.retryVersion.value++ }
-                    )
-                }
-                if (contactItems.isEmpty()) {
-                    item("contacts-state") {
-                        SearchSourceState(
-                            loading = session.contacts.searching.value,
-                            failed = session.contacts.failed.value,
-                            offline = offline,
-                            emptyText = stringResource(R.string.global_search_section_empty_contacts),
-                            failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_contacts))
-                        )
+                    } else {
+                        val recent = recentChats.take(12)
+                        itemsIndexed(recent, key = { _, chat -> "recent:${chat.id}" }) { index, chat ->
+                            GlobalChatRow(chat, GlobalSearchChatScope.Local, observeFile, downloadFile) {
+                                openSearchChat(chat, GlobalSearchChatScope.Local, onOpenChat, onOpenPublicChat)
+                            }
+                            if (index < recent.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
+                        }
                     }
                 } else {
-                    items(contactItems, key = { "contact:${it.userId}" }) { contact ->
-                        GlobalContactRow(contact, observeFile, downloadFile) { onOpenProfile(contact.userId) }
-                    }
-                    if (session.contacts.canLoadMore()) {
-                        item("contacts-more") {
-                            SearchMoreRow(
-                                loading = session.contacts.loadingMore.value,
-                                failed = session.contacts.moreFailed.value,
-                                onClick = { loadMore(session.contacts, parsedQuery.publicText, conversation::searchGlobalContacts, ::mergeGlobalContactResults) }
+                    if (showChats || showPeople) {
+                        val chatsLoading = session.chats.searching.value
+                        val chatsFailed = session.chats.failed.value
+                        val chatsMore = displayedLocalChats.size > SEARCH_ALL_PREVIEW_ROWS || session.chats.canLoadMore()
+                        val chatRows = if (inAll) displayedLocalChats.take(SEARCH_ALL_PREVIEW_ROWS) else displayedLocalChats
+                        item("chats-header") {
+                            SearchSectionHeader(
+                                title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalChat)),
+                                count = sectionCount(displayedLocalChats.size, chatsLoading, chatsFailed),
+                                loading = chatsLoading && displayedLocalChats.isNotEmpty()
                             )
                         }
-                    }
-                }
-
-                }
-                if (showChats || showPeople) {
-                item("public-header") {
-                    SearchSectionHeader(
-                        title = stringResource(sectionTitleRes(GlobalSearchResultSource.PublicResult)),
-                        count = shownPublicChats.size,
-                        loading = session.publicChats.searching.value,
-                        failed = session.publicChats.failed.value,
-                        onRetry = { session.publicChats.retryVersion.value++ }
-                    )
-                }
-                if (shownPublicChats.isEmpty()) {
-                    item("public-state") {
-                        SearchSourceState(
-                            loading = session.publicChats.searching.value,
-                            failed = session.publicChats.failed.value,
-                            offline = offline,
-                            emptyText = stringResource(R.string.global_search_section_empty_public),
-                            failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_public))
-                        )
-                    }
-                } else {
-                    items(shownPublicChats, key = { "public:${it.id}" }) { chat ->
-                        GlobalChatRow(chat, GlobalSearchChatScope.Public, observeFile, downloadFile) {
-                            openSearchChat(chat, GlobalSearchChatScope.Public, onOpenChat, onOpenPublicChat)
+                        itemsIndexed(chatRows, key = { _, chat -> "chat:${chat.id}" }) { index, chat ->
+                            GlobalChatRow(chat, GlobalSearchChatScope.Local, observeFile, downloadFile) {
+                                openSearchChat(chat, GlobalSearchChatScope.Local, onOpenChat, onOpenPublicChat)
+                            }
+                            if (index < chatRows.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
                         }
-                    }
-                }
-
-                }
-                if (showMessages) {
-                item("messages-header") {
-                    SearchSectionHeader(
-                        title = stringResource(sectionTitleRes(GlobalSearchResultSource.GlobalMessage)),
-                        count = visibleHits.size,
-                        loading = searching,
-                        failed = failed,
-                        onRetry = { retryVersion++ }
-                    )
-                }
-                if (visibleHits.isEmpty()) {
-                    item("messages-state") {
-                        SearchSourceState(
-                            loading = searching,
-                            failed = failed,
-                            offline = offline,
-                            emptyText = stringResource(R.string.global_search_empty),
-                            failedText = stringResource(R.string.global_search_failed)
-                        )
-                    }
-                } else {
-                    items(visibleHits, key = { "message:${it.chatId}:${it.id}" }) { message ->
-                        GlobalMessageRow(
-                            message = message,
-                            query = query,
-                            chat = chatContexts[message.chatId],
-                            dateFormat = dateFormat,
-                            observeFile = observeFile,
-                            downloadFile = downloadFile,
-                            onClick = { onOpenMessage(message.chatId, message.forumTopicId, message.id) }
-                        )
-                    }
-                    if (nextOffset.isNotEmpty()) {
-                        item("messages-more") {
-                            Column(Modifier.fillMaxWidth()) {
-                                TextButton(
-                                    enabled = !loadingMore,
-                                    onClick = {
-                                        if (loadingMore) return@TextButton
-                                        loadingMore = true
-                                        moreFailed = false
-                                        val requestedQuery = query
-                                        val requestedFilter = filter
-                                        val requestedGeneration = session.generation.value
-                                        val requestedOffset = nextOffset
-                                        val isCurrent = {
-                                            query == requestedQuery &&
-                                                filter == requestedFilter &&
-                                                session.generation.value == requestedGeneration
-                                        }
-                                        pagingJob?.cancel()
-                                        pagingJob = scope.launch {
-                                            try {
-                                                conversation.searchGlobalMessages(requestedQuery, requestedOffset, requestedFilter)
-                                                    .onSuccess { page ->
-                                                        if (isCurrent()) {
-                                                            hits = appendDistinctBy(hits, page.messages) { it.chatId to it.id }
-                                                            chatContexts = chatContexts + page.chats
-                                                            nextOffset = page.nextOffset
-                                                        }
-                                                    }
-                                                    .onFailure { if (isCurrent()) moreFailed = true }
-                                            } finally {
-                                                if (isCurrent()) loadingMore = false
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.padding(horizontal = 16.dp)
-                                ) { Text(stringResource(R.string.global_search_more)) }
-                                if (moreFailed) {
-                                    Text(
-                                        stringResource(R.string.global_search_more_failed),
-                                        color = palette.textSecondary,
-                                        fontSize = 13.sp,
-                                        modifier = Modifier.padding(horizontal = 20.dp)
+                        if (displayedLocalChats.isEmpty() || chatsFailed) {
+                            item("chats-state") {
+                                SearchSourceState(
+                                    loading = chatsLoading,
+                                    failed = chatsFailed,
+                                    offline = offline,
+                                    emptyText = stringResource(R.string.global_search_section_empty_chats),
+                                    failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_chats)),
+                                    onRetry = { session.chats.retryVersion.value++ }
+                                )
+                            }
+                        }
+                        if (displayedLocalChats.isNotEmpty()) {
+                            if (inAll) {
+                                if (chatsMore) item("chats-all") { SearchShowAllRow(onClick = { showAll(GlobalSearchCategory.Chats) }) }
+                            } else if (session.chats.canLoadMore()) {
+                                item("chats-more") {
+                                    SearchMoreRow(
+                                        loading = session.chats.loadingMore.value,
+                                        failed = session.chats.moreFailed.value,
+                                        onClick = { loadMore(session.chats, parsedQuery.publicText, conversation::searchGlobalChats, ::mergeGlobalChatResults) }
                                     )
                                 }
                             }
                         }
                     }
-                }
+                    if (showPeople) {
+                        val contactsLoading = session.contacts.searching.value
+                        val contactsFailed = session.contacts.failed.value
+                        val contactsMore = contactItems.size > SEARCH_ALL_PREVIEW_ROWS || session.contacts.canLoadMore()
+                        val contactRows = if (inAll) contactItems.take(SEARCH_ALL_PREVIEW_ROWS) else contactItems
+                        item("contacts-header") {
+                            SearchSectionHeader(
+                                title = stringResource(sectionTitleRes(GlobalSearchResultSource.LocalContact)),
+                                count = sectionCount(contactItems.size, contactsLoading, contactsFailed),
+                                loading = contactsLoading && contactItems.isNotEmpty()
+                            )
+                        }
+                        itemsIndexed(contactRows, key = { _, contact -> "contact:${contact.userId}" }) { index, contact ->
+                            GlobalContactRow(contact, observeFile, downloadFile) { onOpenProfile(contact.userId) }
+                            if (index < contactRows.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
+                        }
+                        if (contactItems.isEmpty() || contactsFailed) {
+                            item("contacts-state") {
+                                SearchSourceState(
+                                    loading = contactsLoading,
+                                    failed = contactsFailed,
+                                    offline = offline,
+                                    emptyText = stringResource(R.string.global_search_section_empty_contacts),
+                                    failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_contacts)),
+                                    onRetry = { session.contacts.retryVersion.value++ }
+                                )
+                            }
+                        }
+                        if (contactItems.isNotEmpty()) {
+                            if (inAll) {
+                                if (contactsMore) item("contacts-all") { SearchShowAllRow(onClick = { showAll(GlobalSearchCategory.People) }) }
+                            } else if (session.contacts.canLoadMore()) {
+                                item("contacts-more") {
+                                    SearchMoreRow(
+                                        loading = session.contacts.loadingMore.value,
+                                        failed = session.contacts.moreFailed.value,
+                                        onClick = { loadMore(session.contacts, parsedQuery.publicText, conversation::searchGlobalContacts, ::mergeGlobalContactResults) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (showChats || showPeople) {
+                        val publicLoading = session.publicChats.searching.value
+                        val publicFailed = session.publicChats.failed.value
+                        item("public-header") {
+                            SearchSectionHeader(
+                                title = stringResource(sectionTitleRes(GlobalSearchResultSource.PublicResult)),
+                                count = sectionCount(shownPublicChats.size, publicLoading, publicFailed),
+                                loading = publicLoading && shownPublicChats.isNotEmpty()
+                            )
+                        }
+                        itemsIndexed(shownPublicChats, key = { _, chat -> "public:${chat.id}" }) { index, chat ->
+                            GlobalChatRow(chat, GlobalSearchChatScope.Public, observeFile, downloadFile) {
+                                openSearchChat(chat, GlobalSearchChatScope.Public, onOpenChat, onOpenPublicChat)
+                            }
+                            if (index < shownPublicChats.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
+                        }
+                        if (shownPublicChats.isEmpty() || publicFailed) {
+                            item("public-state") {
+                                SearchSourceState(
+                                    loading = publicLoading,
+                                    failed = publicFailed,
+                                    offline = offline,
+                                    emptyText = stringResource(R.string.global_search_section_empty_public),
+                                    failedText = stringResource(R.string.global_search_source_failed, stringResource(R.string.global_search_section_public)),
+                                    onRetry = { session.publicChats.retryVersion.value++ }
+                                )
+                            }
+                        }
+                    }
+                    if (showMessages) {
+                        val messageRows = if (inAll) visibleHits.take(SEARCH_ALL_PREVIEW_ROWS) else visibleHits
+                        val messagesMore = visibleHits.size > SEARCH_ALL_PREVIEW_ROWS || nextOffset.isNotEmpty()
+                        item("messages-header") {
+                            SearchSectionHeader(
+                                title = stringResource(
+                                    if (category == GlobalSearchCategory.Media) R.string.global_search_category_media
+                                    else R.string.global_search_section_messages
+                                ),
+                                count = sectionCount(visibleHits.size, searching, failed),
+                                loading = searching && visibleHits.isNotEmpty()
+                            )
+                        }
+                        itemsIndexed(messageRows, key = { _, message -> "message:${message.chatId}:${message.id}" }) { index, message ->
+                            GlobalMessageRow(
+                                message = message,
+                                query = query,
+                                chat = chatContexts[message.chatId],
+                                dateFormat = dateFormat,
+                                observeFile = observeFile,
+                                downloadFile = downloadFile,
+                                onClick = { onOpenMessage(message.chatId, message.forumTopicId, message.id) }
+                            )
+                            if (index < messageRows.lastIndex) StyledListDivider(startIndent = SearchRowDividerInset)
+                        }
+                        if (visibleHits.isEmpty() || failed) {
+                            item("messages-state") {
+                                SearchSourceState(
+                                    loading = searching,
+                                    failed = failed,
+                                    offline = offline,
+                                    emptyText = stringResource(R.string.global_search_empty),
+                                    failedText = stringResource(R.string.global_search_failed),
+                                    onRetry = { retryVersion++ }
+                                )
+                            }
+                        }
+                        if (visibleHits.isNotEmpty()) {
+                            if (inAll) {
+                                if (messagesMore) item("messages-all") { SearchShowAllRow(onClick = { showAll(GlobalSearchCategory.Messages) }) }
+                            } else if (nextOffset.isNotEmpty()) {
+                                item("messages-more") {
+                                    SearchMoreRow(loading = loadingMore, failed = moreFailed, onClick = { loadMoreMessages() })
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -656,84 +774,123 @@ private suspend fun <T> searchGlobalSource(
     }
 }
 
+/**
+ * A section shows its count once it has rows or has settled. While its request is still running and it is empty, the
+ * header carries no count, so no stack of «0» headers appears before the answers arrive.
+ */
+private fun sectionCount(size: Int, loading: Boolean, failed: Boolean): Int? =
+    if (size > 0 || (!loading && !failed)) size else null
+
+/**
+ * The heading of one result section: its title, the count once the section has rows or has settled, and a spinner while
+ * the source runs with rows on screen. Its actions are rows of their own (retry in the state line, «Показать все» in the
+ * footer), so the heading never squeezes its title at large font scales.
+ */
 @Composable
-private fun SearchSectionHeader(
-    title: String,
-    count: Int,
-    loading: Boolean,
-    failed: Boolean,
-    onRetry: () -> Unit
-) {
+private fun SearchSectionHeader(title: String, count: Int?, loading: Boolean) {
     val palette = beyGramPalette()
+    val main = LocalDesignSystem.current.mainScreen
+    val label = if (count == null) title else stringResource(R.string.global_search_section_count, title, count)
     Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 2.dp),
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            stringResource(R.string.global_search_section_count, title, count),
-            color = palette.textPrimary,
+            if (main.sectionLabelUppercase) label.uppercase() else label,
+            color = palette.textSecondary,
             fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = main.sectionLabelTracking,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).semantics { heading() }
         )
         if (loading) {
             CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.padding(start = 8.dp).size(16.dp),
                 color = palette.accent,
                 strokeWidth = 1.5.dp
             )
         }
-        if (failed) {
-            TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Text(stringResource(R.string.common_retry), fontSize = 12.sp)
-            }
-        }
     }
 }
 
+/**
+ * What a section shows instead of rows, or after a failure: a spinner while it runs, its offline or failure line with a
+ * retry (not while offline), or its empty line. It is text inside the results card, never a panel of its own, so the
+ * other sections stay in view.
+ */
 @Composable
 private fun SearchSourceState(
     loading: Boolean,
     failed: Boolean,
     offline: Boolean,
     emptyText: String,
-    failedText: String
+    failedText: String,
+    onRetry: () -> Unit
 ) {
     val palette = beyGramPalette()
-    Text(
-        when {
-            loading -> stringResource(R.string.global_search_loading)
-            failed && offline -> stringResource(R.string.global_search_source_offline)
-            failed -> failedText
-            else -> emptyText
-        },
-        color = palette.textSecondary,
-        fontSize = 13.sp,
-        modifier = if (failed) {
-            Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement()
-        } else {
-            Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+    val text = when {
+        loading -> stringResource(R.string.global_search_loading)
+        failed && offline -> stringResource(R.string.global_search_source_offline)
+        failed -> failedText
+        else -> emptyText
+    }
+    val isFailure = failed && !loading
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp), color = palette.accent, strokeWidth = 1.5.dp)
+            Spacer(Modifier.width(8.dp))
         }
-    )
+        Text(
+            text,
+            color = if (isFailure) palette.warningText else palette.textSecondary,
+            fontSize = 13.sp,
+            modifier = Modifier.weight(1f).then(if (isFailure) Modifier.errorAnnouncement() else Modifier)
+        )
+        if (isFailure && !offline) {
+            TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text(stringResource(R.string.common_retry), fontSize = 13.sp)
+            }
+        }
+    }
 }
 
+/** The «Показать ещё» row under a section in its own category. It names the wait while the next page loads. */
 @Composable
 private fun SearchMoreRow(loading: Boolean, failed: Boolean, onClick: () -> Unit) {
     val palette = beyGramPalette()
-    Column(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         TextButton(
             enabled = !loading,
             onClick = onClick,
-            modifier = Modifier.padding(horizontal = 16.dp)
-        ) { Text(stringResource(R.string.global_search_more)) }
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(if (loading) R.string.global_search_loading else R.string.global_search_more))
+        }
         if (failed) {
             Text(
                 stringResource(R.string.global_search_more_failed),
-                color = palette.textSecondary,
+                color = palette.warningText,
                 fontSize = 13.sp,
-                modifier = Modifier.padding(horizontal = 20.dp)
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp).errorAnnouncement()
             )
         }
+    }
+}
+
+/** «Показать все» at the foot of a previewed section. It only switches to that section's category. */
+@Composable
+private fun SearchShowAllRow(onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+    ) {
+        Text(stringResource(R.string.global_search_show_all), color = palette.accentInk)
     }
 }
 
@@ -753,6 +910,10 @@ private fun openSearchChat(
     }
 }
 
+/**
+ * A chat row. A public result is the only row that is not one of the account's chats, so it carries the globe and the
+ * scope word; a local chat shows only its type. Neither pretends to be the other.
+ */
 @Composable
 private fun GlobalChatRow(
     chat: ChatPreview,
@@ -762,21 +923,23 @@ private fun GlobalChatRow(
     onClick: () -> Unit
 ) {
     val palette = beyGramPalette()
-    val scopeLabel = stringResource(
-        if (scope == GlobalSearchChatScope.Local) R.string.global_search_scope_local else R.string.global_search_scope_public
-    )
-    val typeLabel = if (scope == GlobalSearchChatScope.Public && !chat.isGroup && !chat.isChannel) {
+    val isPublic = scope == GlobalSearchChatScope.Public
+    val typeLabel = if (isPublic && !chat.isGroup && !chat.isChannel) {
         stringResource(R.string.global_search_chat_person_or_bot)
     } else {
         stringResource(chatTypeLabel(chat))
     }
-    val subtitle = "$scopeLabel · $typeLabel"
+    val subtitle = if (isPublic) {
+        "${stringResource(R.string.global_search_scope_public)} · $typeLabel"
+    } else {
+        typeLabel
+    }
     Row(
         Modifier.fillMaxWidth()
             .heightIn(min = 48.dp)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = accessibleDescription(chat.title, scopeLabel, typeLabel)
+                contentDescription = accessibleDescription(chat.title, subtitle)
             }
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -791,11 +954,21 @@ private fun GlobalChatRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                subtitle,
-                color = if (scope == GlobalSearchChatScope.Public) palette.accentInk else palette.textSecondary,
-                fontSize = 12.sp
-            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (isPublic) {
+                    Icon(Icons.Rounded.Language, contentDescription = null, tint = palette.accentInk, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(
+                    subtitle,
+                    color = if (isPublic) palette.accentInk else palette.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = if (isPublic) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }
@@ -809,14 +982,14 @@ private fun GlobalContactRow(
 ) {
     val palette = beyGramPalette()
     val title = contact.title.ifBlank { stringResource(R.string.user_name_unknown) }
-    val kindLabel = stringResource(if (contact.isBot) R.string.global_search_scope_bot else R.string.global_search_scope_contact)
-    val subtitle = if (contact.subtitle.isBlank()) kindLabel else "$kindLabel · ${contact.subtitle}"
+    val kindText = stringResource(if (contact.isBot) R.string.global_search_scope_bot else R.string.global_search_scope_contact)
+    val subtitle = if (contact.subtitle.isBlank()) kindText else "$kindText · ${contact.subtitle}"
     Row(
         Modifier.fillMaxWidth()
             .heightIn(min = 48.dp)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = accessibleDescription(title, kindLabel, contact.subtitle)
+                contentDescription = accessibleDescription(title, kindText, contact.subtitle)
             }
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -851,6 +1024,10 @@ private fun GlobalContactRow(
     }
 }
 
+/**
+ * A message hit, read top to bottom as: the source chat, its author and chat type, the media kind when there is one, the
+ * matching text with the query highlighted, and the date.
+ */
 @Composable
 private fun GlobalMessageRow(
     message: ChatMessage,
@@ -868,12 +1045,23 @@ private fun GlobalMessageRow(
     }
     val date = if (message.dateSeconds > 0) dateFormat.format(Date(message.dateSeconds * 1000L)) else ""
     val timestamp = listOf(date, message.time).filter { it.isNotBlank() }.joinToString(" · ")
+    val chatType = chat?.let { stringResource(chatTypeLabel(it)) }
+    val mediaLabel = message.media?.let { stringResource(mediaKindLabel(it.kind)) }
+    val source: AnnotatedString = buildAnnotatedString {
+        if (message.senderName.isNotBlank()) {
+            withStyle(SpanStyle(color = palette.accentInk)) { append(message.senderName) }
+        }
+        if (chatType != null) {
+            if (message.senderName.isNotBlank()) append(" · ")
+            withStyle(SpanStyle(color = palette.textSecondary)) { append(chatType) }
+        }
+    }
     Row(
         Modifier.fillMaxWidth()
             .heightIn(min = 48.dp)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = accessibleDescription(title, message.senderName, preview, timestamp)
+                contentDescription = accessibleDescription(title, message.senderName, chatType, mediaLabel, preview, timestamp)
             }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top
@@ -884,52 +1072,143 @@ private fun GlobalMessageRow(
             Avatar("?", palette.accent, 42.dp)
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    title,
-                    color = palette.textPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f)
-                )
-                if (chat != null) {
-                    Text(stringResource(chatTypeLabel(chat)), color = palette.textSecondary, fontSize = 11.sp)
-                }
-            }
-            if (message.senderName.isNotBlank()) {
-                Text(message.senderName, color = palette.accentInk, fontSize = 12.sp, maxLines = 1)
-            }
-            message.media?.let { media ->
-                Text(
-                    stringResource(mediaKindLabel(media.kind)),
-                    color = palette.accentInk,
-                    fontSize = 12.sp,
-                    maxLines = 1
-                )
-            }
             Text(
-                highlightedSearchPreview(preview, query, palette.accentInk),
+                title,
                 color = palette.textPrimary,
-                fontSize = 14.sp,
-                maxLines = 2,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(timestamp, color = palette.textSecondary, fontSize = 12.sp)
+            if (source.text.isNotEmpty()) {
+                Text(source, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (mediaLabel != null) {
+                Text(
+                    mediaLabel,
+                    color = palette.accentInk,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (preview.isNotBlank()) {
+                Text(
+                    highlightedSearchPreview(preview, query, palette.accentInk),
+                    color = palette.textPrimary,
+                    fontSize = 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            if (timestamp.isNotBlank()) {
+                Text(
+                    timestamp,
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
         }
     }
 }
 
+/**
+ * One row of category or filter chips. The first chip is «all» (null); a selected chip is scrolled into view, so a
+ * category opened from the All view or from TalkBack is never off-screen at 320 dp.
+ */
 @Composable
-private fun <T> SearchChips(options: List<Pair<T, String>>, selected: T?, all: String, onSelect: (T?) -> Unit) {
+private fun <T> SearchChips(
+    options: List<Pair<T, String>>,
+    selected: T?,
+    all: String,
+    onSelect: (T?) -> Unit,
+    state: LazyListState = rememberLazyListState()
+) {
+    val selectedIndex = if (selected == null) 0 else options.indexOfFirst { it.first == selected } + 1
+    LaunchedEffect(selectedIndex) { state.animateScrollToItem(selectedIndex) }
     LazyRow(
         Modifier.fillMaxWidth(),
+        state = state,
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { FilterChip(title = all, selected = selected == null, count = null, onClick = { onSelect(null) }) }
+        item("all") { SearchFilterChip(title = all, selected = selected == null, onClick = { onSelect(null) }) }
         items(options) { (option, label) ->
-            FilterChip(title = label, selected = selected == option, count = null, onClick = { onSelect(option) })
+            SearchFilterChip(title = label, selected = selected == option, onClick = { onSelect(option) })
+        }
+    }
+}
+
+/**
+ * One chip. Its selection is drawn with the active style's own tone and radius: a filled accent, a tonal container with
+ * an accent label, an accent rule, a Material 3 outline with a check, or the ink of Signature. The touch target is 48 dp
+ * around the smaller chip.
+ */
+@Composable
+private fun SearchFilterChip(title: String, selected: Boolean, onClick: () -> Unit) {
+    val palette = beyGramPalette()
+    val design = LocalDesignSystem.current
+    val main = design.mainScreen
+    val tone = main.chipSelection
+    val shape = styledShape(main.chipRadius)
+    val container = when (tone) {
+        ChipSelectionTone.Underlined -> palette.surface2
+        ChipSelectionTone.Ink -> if (selected) lerp(palette.textPrimary, palette.accent, SEARCH_INK_ACCENT_SHARE) else Color.Transparent
+        ChipSelectionTone.Filter -> if (selected) palette.accentSoft else Color.Transparent
+        ChipSelectionTone.Tonal -> when {
+            selected -> palette.accentSoft
+            // On glass a surface2 chip would be the pane's own colour, so the unselected chip is a sunken wash instead.
+            design.usesGlassPanels -> palette.textPrimary.copy(alpha = 0.08f)
+            else -> palette.surface2
+        }
+        ChipSelectionTone.Filled -> if (selected) palette.accent else palette.surface2
+    }
+    val label = when (tone) {
+        ChipSelectionTone.Ink -> if (selected) palette.screen else palette.textSecondary
+        ChipSelectionTone.Filled -> if (selected) palette.onAccent else palette.textPrimary
+        ChipSelectionTone.Tonal, ChipSelectionTone.Underlined -> if (selected) palette.accentInk else palette.textPrimary
+        ChipSelectionTone.Filter -> if (selected) palette.accentInk else palette.textSecondary
+    }
+    val outlined = tone == ChipSelectionTone.Filter && !selected
+    Box(
+        Modifier.heightIn(min = 48.dp)
+            .clip(shape)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(
+                Modifier.heightIn(min = 36.dp)
+                    .clip(shape)
+                    .then(if (outlined) Modifier.border(1.dp, palette.divider, shape) else Modifier)
+                    .background(container)
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (tone == ChipSelectionTone.Filter && selected) {
+                    Icon(Icons.Rounded.Check, contentDescription = null, tint = label, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    title,
+                    color = label,
+                    fontSize = 14.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (tone == ChipSelectionTone.Underlined) {
+                // The rule is always laid out, so the row of chips never shifts when the selection moves.
+                Box(
+                    Modifier.padding(top = 2.dp).height(2.dp).width(if (selected) 28.dp else 0.dp)
+                        .background(if (selected) palette.accent else Color.Transparent)
+                )
+            }
         }
     }
 }

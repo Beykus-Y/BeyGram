@@ -327,6 +327,7 @@
     <string name="global_search_offline">Нет сети. Показаны сохранённые результаты; поиск продолжится после восстановления связи</string>
     <string name="global_search_source_offline">Нет сети. Раздел обновится, когда появится подключение</string>
     <string name="global_search_more">Показать ещё</string>
+    <string name="global_search_show_all">Показать все</string>
     <string name="global_search_more_failed">Не удалось загрузить ещё. Нажмите «Показать ещё» снова</string>
     <string name="global_search_attachment">Вложение без текста</string>
     <string name="global_search_filter_all_types">Все типы</string>
@@ -345,7 +346,7 @@
     <string name="global_search_section_chats">Чаты</string>
     <string name="global_search_section_contacts">Люди и боты</string>
     <string name="global_search_section_public">Публичные результаты</string>
-    <string name="global_search_section_messages">Глобальный поиск</string>
+    <string name="global_search_section_messages">Сообщения</string>
     <string name="global_search_section_count">%1$s · %2$d</string>
     <string name="global_search_section_empty_chats">Чаты не найдены</string>
     <string name="global_search_section_empty_contacts">Люди и боты не найдены</string>

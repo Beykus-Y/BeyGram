@@ -142,13 +142,14 @@
     <string name="global_search_idle">Introduce un nombre, @username o t.me/… para encontrar chats, personas, bots y mensajes</string>
     <string name="global_search_loading">Buscando…</string>
     <string name="global_search_more">Mostrar más</string>
+    <string name="global_search_show_all">Ver todo</string>
     <string name="global_search_more_failed">No se pudo cargar más. Toca Mostrar más para reintentar</string>
     <string name="global_search_offline">Sin red. Se muestran los resultados guardados; la búsqueda continuará cuando vuelva la conexión</string>
     <string name="global_search_source_offline">Sin red. Esta sección se actualizará cuando vuelvas a estar en línea</string>
     <string name="global_search_section_chats">Chats</string>
     <string name="global_search_section_contacts">Personas y bots</string>
     <string name="global_search_section_public">Resultados públicos</string>
-    <string name="global_search_section_messages">Búsqueda global</string>
+    <string name="global_search_section_messages">Mensajes</string>
     <string name="global_search_section_count">%1$s · %2$d</string>
     <string name="global_search_section_empty_chats">No se encontraron chats</string>
     <string name="global_search_section_empty_contacts">No se encontraron personas ni bots</string>
