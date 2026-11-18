@@ -134,6 +134,7 @@ import com.beykus.beygram.domain.model.MessageSpecialContent
 import com.beykus.beygram.domain.model.PinnedMessagePage
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
+import com.beykus.beygram.ui.components.BeyGramDialog
 import com.beykus.beygram.ui.components.BeyGramPalette
 import com.beykus.beygram.ui.components.BeyGramPopover
 import com.beykus.beygram.ui.components.BeyGramPopoverItem
@@ -199,6 +200,9 @@ internal fun currentPinnedIndex(pins: List<ChatMessage>, visibleOldestMessageId:
 internal fun needsOlderPinnedPage(pins: List<ChatMessage>, visibleOldestMessageId: Long?): Boolean =
     pins.isNotEmpty() && visibleOldestMessageId != null && visibleOldestMessageId > 0L && pins.none { it.id <= visibleOldestMessageId }
 
+/** Which load of the pinned list failed: the first page, which a refresh loads, or an older page. */
+internal enum class PinnedLoad { Refresh, OlderPage }
+
 /**
  * The pinned messages of one chat, newest first. The holder outlives the bar that draws it: the keyboard, the search
  * and the selection mode hide the row for a while, and a hidden bar must not lose its loaded pages or ask for them
@@ -218,7 +222,9 @@ internal class PinnedMessagesState(
     /** The next older page's cursor, or 0 when every page is loaded. */
     var nextId by mutableLongStateOf(0L); private set
     var loading by mutableStateOf(false); private set
-    var failed by mutableStateOf(false); private set
+    /** The load that failed last, or null. Its retry repeats exactly that load, never the other kind. */
+    var failedLoad by mutableStateOf<PinnedLoad?>(null); private set
+    val failed: Boolean get() = failedLoad != null
     /** Bumped by the retry affordance so the owner re-runs [refresh] with the same inputs. */
     var retryTick by mutableIntStateOf(0); private set
     /** The last (version, connection) pair this list was loaded for; an unchanged pair never re-requests. */
@@ -246,7 +252,7 @@ internal class PinnedMessagesState(
         loadedKey = key
         val requestedGeneration = ++generation
         loading = true
-        failed = false
+        failedLoad = null
         try {
             loadPage(0L)
                 .onSuccess { page ->
@@ -256,7 +262,7 @@ internal class PinnedMessagesState(
                         nextId = page.nextFromMessageId
                     }
                 }
-                .onFailure { if (generation == requestedGeneration) failed = true }
+                .onFailure { if (generation == requestedGeneration) failedLoad = PinnedLoad.Refresh }
         } finally {
             if (generation == requestedGeneration) loading = false
         }
@@ -268,11 +274,12 @@ internal class PinnedMessagesState(
      * paging as failed, so the bar keeps showing its last valid preview.
      */
     suspend fun loadOlder() {
-        if (loading || nextId == 0L) return
+        // A failed refresh is not a page: older pages wait until the failed first page has been retried.
+        if (loading || nextId == 0L || failedLoad == PinnedLoad.Refresh) return
         val requestedId = nextId
         val requestedGeneration = generation
         loading = true
-        failed = false
+        failedLoad = null
         try {
             loadPage(requestedId)
                 .onSuccess { page ->
@@ -282,9 +289,90 @@ internal class PinnedMessagesState(
                         nextId = if (page.nextFromMessageId == requestedId) 0L else page.nextFromMessageId
                     }
                 }
-                .onFailure { if (generation == requestedGeneration) failed = true }
+                .onFailure { if (generation == requestedGeneration) failedLoad = PinnedLoad.OlderPage }
         } finally {
             if (generation == requestedGeneration) loading = false
+        }
+    }
+
+    /**
+     * Repeats the load that failed last, and only that one: a failed refresh asks for the first page again through the
+     * owner's effect, a failed older page asks for its cursor again. When nothing failed, nothing happens.
+     */
+    suspend fun retryFailedLoad() {
+        when (failedLoad) {
+            PinnedLoad.Refresh -> requestRetry()
+            PinnedLoad.OlderPage -> loadOlder()
+            null -> Unit
+        }
+    }
+}
+
+/**
+ * The server-side search of the pinned messages: one query at a time, paged on demand. Each [restart] starts a new
+ * generation, and the answers and later pages of the generation before are dropped. So a search never keeps a pin that
+ * was removed while it loaded, and it never misses one that was added: a pin change simply restarts the same query.
+ */
+@Stable
+internal class PinnedSearchState(
+    private val debounceMillis: Long,
+    private val loadPage: suspend (query: String, fromMessageId: Long) -> Result<PinnedMessagePage>
+) {
+    /** The matches so far, newest first; duplicates from overlapping pages are dropped. */
+    var results by mutableStateOf<List<ChatMessage>>(emptyList()); private set
+    /** The next older page's cursor for the current query, or 0 when no page is left. */
+    var nextId by mutableLongStateOf(0L); private set
+    var busy by mutableStateOf(false); private set
+    var failed by mutableStateOf(false); private set
+    /** The trimmed query of the current generation. */
+    private var activeQuery = ""
+    /** Bumped by every [restart]: an answer that comes back for an older generation is never written. */
+    private var generation = 0
+
+    /**
+     * Starts the search again from its first page. A query that changed waits [debounceMillis] while the user is still
+     * typing; the same query, as after a pin change or a retry, runs at once. A blank query clears the results.
+     */
+    suspend fun restart(query: String) {
+        val trimmed = query.trim()
+        val typing = trimmed != activeQuery
+        val requestedGeneration = ++generation
+        activeQuery = trimmed
+        busy = false
+        failed = false
+        nextId = 0L
+        if (trimmed.isEmpty()) {
+            results = emptyList()
+            return
+        }
+        if (typing) delay(debounceMillis)
+        if (requestedGeneration == generation) requestPage(0L, replace = true)
+    }
+
+    /** Adds the next older page of the current query. Nothing happens while a page loads or when no page is left. */
+    suspend fun loadMore() {
+        if (nextId == 0L) return
+        requestPage(nextId, replace = false)
+    }
+
+    private suspend fun requestPage(fromMessageId: Long, replace: Boolean) {
+        if (busy) return
+        val requestedGeneration = generation
+        val query = activeQuery
+        busy = true
+        failed = false
+        try {
+            loadPage(query, fromMessageId)
+                .onSuccess { page ->
+                    if (requestedGeneration == generation) {
+                        results = (if (replace) emptyList() else results)
+                            .plus(page.messages).distinctBy(ChatMessage::id).sortedByDescending(ChatMessage::id)
+                        nextId = if (page.nextFromMessageId == fromMessageId) 0L else page.nextFromMessageId
+                    }
+                }
+                .onFailure { if (requestedGeneration == generation) failed = true }
+        } finally {
+            if (requestedGeneration == generation) busy = false
         }
     }
 }
@@ -295,6 +383,8 @@ private val PinnedCardBottomGap = 4.dp
 /** Visual height of the one preview line; the whole row is the touch target, so it never shrinks below 48 dp. */
 private val PinnedBarMinHeight = 48.dp
 private val PinnedPreviewSize = 32.dp
+/** How long a search waits after the last keystroke before it asks the server. */
+private const val PinnedSearchDebounceMillis = 300L
 
 /**
  * The pinned bar: one line that links to the message the reader is looking at, never a "next pin" button. Tapping the
@@ -333,6 +423,9 @@ internal fun PinnedMessagesBar(
     val rowShown = shown != null || initialFailure
     LaunchedEffect(rowShown) { onRowShownChange(rowShown) }
     DisposableEffect(Unit) { onDispose { onRowShownChange(false) } }
+    // Unpinning asks first. The request lives here, beside the confirmation, so the question stays up after the long-press
+    // menu that started it has closed.
+    var unpinRequest by remember(state) { mutableStateOf<ChatMessage?>(null) }
 
     // The shown pin follows the viewport, so an older viewport loads the page that holds its pin. A failed page is
     // retried by hand only; the row keeps its last valid preview in the meantime. loadOlder flips `loading` itself, so
@@ -418,6 +511,7 @@ internal fun PinnedMessagesBar(
                         .semantics(mergeDescendants = true) { contentDescription = "$positionDescription, $previewText" }
                         .combinedClickable(
                             role = Role.Button,
+                            onLongClickLabel = stringResource(R.string.chat_pinned_actions_label),
                             onClick = { onOpen(target) },
                             onLongClick = { menuOpen = true }
                         )
@@ -471,7 +565,7 @@ internal fun PinnedMessagesBar(
                 if (pagingFailed) {
                     // The viewport needs a pin on a page that failed to load: the preview stays, and the retry is a
                     // quiet icon instead of a row that would push the messages around.
-                    IconButton(onClick = { scope.launch { state.loadOlder() } }) {
+                    IconButton(onClick = { scope.launch { state.retryFailedLoad() } }) {
                         Icon(Icons.Rounded.Refresh, stringResource(R.string.chat_pinned_retry), tint = palette.textSecondary, modifier = Modifier.size(18.dp))
                     }
                 }
@@ -498,7 +592,7 @@ internal fun PinnedMessagesBar(
                         onDismiss = { menuOpen = false },
                         onShowAll = onOpenList,
                         onHideBar = onHideBar,
-                        onUnpin = { onUnpin(target) }
+                        onUnpin = { unpinRequest = target }
                     )
                 }
             }
@@ -512,7 +606,7 @@ internal fun PinnedMessagesBar(
                         onDismiss = { menuOpen = false },
                         onShowAll = onOpenList,
                         onHideBar = onHideBar,
-                        onUnpin = { onUnpin(target) }
+                        onUnpin = { unpinRequest = target }
                     )
                 }
                 // The group's single hairline: Signature draws its own in signatureChrome, Liquid Glass closes on the
@@ -523,6 +617,29 @@ internal fun PinnedMessagesBar(
             }
         }
     }
+    PinnedUnpinConfirm(
+        target = unpinRequest,
+        onConfirm = { message -> unpinRequest = null; onUnpin(message) },
+        onDismiss = { unpinRequest = null }
+    )
+}
+
+/**
+ * The one confirmation in front of an unpin from the pinned messages. The bar's long-press menu and the list's row menu
+ * both end here, so the question and its answers read the same wherever the unpin started.
+ */
+@Composable
+private fun PinnedUnpinConfirm(target: ChatMessage?, onConfirm: (ChatMessage) -> Unit, onDismiss: () -> Unit) {
+    if (target == null) return
+    BeyGramDialog(
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.chat_pinned_unpin_title),
+        message = stringResource(R.string.chat_pinned_unpin_message),
+        confirmText = stringResource(R.string.message_action_unpin),
+        onConfirm = { onConfirm(target) },
+        dismissText = stringResource(R.string.common_cancel),
+        onDismiss = onDismiss
+    )
 }
 
 /** The long-press actions of the preview line: every pin, a local hide, and an unpin that respects the server rights. */
@@ -758,20 +875,20 @@ internal fun PinnedMessagesScreen(
     }
     val searchEnter = rememberMotionSpec(MotionToken.BannerChange)
     val searchExit = rememberMotionSpec(MotionToken.BannerChange)
-    var searchResults by remember(chatKey) { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var searchNextId by remember(chatKey) { mutableLongStateOf(0L) }
-    var searchBusy by remember(chatKey) { mutableStateOf(false) }
-    var searchFailed by remember(chatKey) { mutableStateOf(false) }
     var searchAttempt by remember(chatKey) { mutableIntStateOf(0) }
-    // A request that a newer query superseded must not reach the list, and neither may a page of the previous query.
-    var searchGeneration by remember(chatKey) { mutableIntStateOf(0) }
+    val search = remember(conversation, state) {
+        PinnedSearchState(PinnedSearchDebounceMillis) { pinnedQuery, fromMessageId ->
+            conversation.pinnedMessages(state.chatId, fromMessageId, state.forumTopicId, pinnedQuery)
+        }
+    }
     var rowMenuFor by remember(chatKey) { mutableStateOf<ChatMessage?>(null) }
     var capabilities by remember(chatKey) { mutableStateOf<MessageCapabilities?>(null) }
     var unpinError by remember(chatKey) { mutableStateOf<String?>(null) }
+    var unpinRequest by remember(chatKey) { mutableStateOf<ChatMessage?>(null) }
     val version by remember(conversation, state.chatId) { conversation.observePinnedMessagesVersion(state.chatId) }.collectAsStateWithLifecycle()
 
     val searching = query.isNotBlank()
-    val shown = if (searching) searchResults else state.pins
+    val shown = if (searching) search.results else state.pins
     val locale = context.resources.configuration.locales[0]
     val monthLabels = remember(shown, locale) {
         val formatter = SimpleDateFormat("LLLL yyyy", locale)
@@ -779,50 +896,11 @@ internal fun PinnedMessagesScreen(
     }
 
     // The search is server-side inside the pinned filter, so it covers every page of pins, not only the loaded ones.
-    suspend fun loadSearchPage(fromMessageId: Long, replace: Boolean) {
-        if (searchBusy) return
-        val requestedGeneration = searchGeneration
-        searchBusy = true
-        searchFailed = false
-        try {
-            conversation.pinnedMessages(state.chatId, fromMessageId, state.forumTopicId, query.trim())
-                .onSuccess { page ->
-                    if (requestedGeneration == searchGeneration) {
-                        searchResults = (if (replace) emptyList() else searchResults)
-                            .plus(page.messages).distinctBy(ChatMessage::id).sortedByDescending(ChatMessage::id)
-                        searchNextId = if (page.nextFromMessageId == fromMessageId) 0L else page.nextFromMessageId
-                    }
-                }
-                .onFailure { if (requestedGeneration == searchGeneration) searchFailed = true }
-        } finally {
-            if (requestedGeneration == searchGeneration) searchBusy = false
-        }
-    }
-
-    // Debounced: typing cancels the previous request by relaunching the effect, and the generation guard drops any
-    // answer that still comes back from the superseded query.
-    LaunchedEffect(query, searchAttempt, state.chatId, state.forumTopicId) {
-        val requestedGeneration = ++searchGeneration
-        // A request of the superseded generation may still be in flight. Its answer is dropped and its finally leaves the
-        // flags alone, so this generation starts with them cleared: a busy flag left over would turn the new search away.
-        searchBusy = false
-        searchNextId = 0L
-        if (query.isBlank()) {
-            if (requestedGeneration == searchGeneration) {
-                searchResults = emptyList(); searchFailed = false
-            }
-            return@LaunchedEffect
-        }
-        delay(300)
-        if (requestedGeneration != searchGeneration) return@LaunchedEffect
-        loadSearchPage(0L, replace = true)
-    }
-
-    // The paged list follows the bar's holder: a pin added or removed anywhere (this screen included) bumps the
-    // version, and the chat screen's own effect reloads the holder for both of us. Only the search needs a rerun here,
-    // so the still-open query drops a pin that was just unpinned.
-    LaunchedEffect(version) {
-        if (query.isNotBlank() && searchResults.isNotEmpty()) loadSearchPage(0L, replace = true)
+    // Typing is debounced by the search itself. The pin version is part of the key: a pin added or removed while a page
+    // loads, or before the first answer arrives, restarts the same query at once, and the answers of the search it
+    // replaces are dropped. The list therefore never keeps an unpinned message, nor misses a message that was pinned.
+    LaunchedEffect(search, query, searchAttempt, version, state.chatId, state.forumTopicId) {
+        search.restart(query)
     }
 
     val initialIndex = remember(previewSource, chatKey) { state.pins.indexOfFirst { it.id == previewSource?.id }.coerceAtLeast(0) }
@@ -857,9 +935,10 @@ internal fun PinnedMessagesScreen(
     LaunchedEffect(nearListEnd, state.nextId, state.loading, state.failed, searching) {
         if (nearListEnd && !searching && !state.loading && !state.failed) scope.launch { state.loadOlder() }
     }
-    LaunchedEffect(nearListEnd, searchNextId, searching) {
-        // A spent cursor must not ask for the same page again: with no page left the list simply ends.
-        if (nearListEnd && searching && searchNextId != 0L) loadSearchPage(searchNextId, replace = false)
+    LaunchedEffect(search, nearListEnd, search.nextId, searching) {
+        // A spent cursor must not ask for the same page again: with no page left the list simply ends. The page runs on the
+        // scope, so a relaunch of this effect cannot cancel a page that is already on its way.
+        if (nearListEnd && searching) scope.launch { search.loadMore() }
     }
 
     val entryMotion = rememberMotionSpec(MotionToken.NavigationPush)
@@ -1032,8 +1111,8 @@ internal fun PinnedMessagesScreen(
             }
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 // The list busy/failed flags are the search's while searching, the holder's otherwise.
-                val listBusy = if (searching) searchBusy else state.loading
-                val listFailed = if (searching) searchFailed else state.failed
+                val listBusy = if (searching) search.busy else state.loading
+                val listFailed = if (searching) search.failed else state.failed
                 when {
                     shown.isEmpty() && listBusy -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = palette.accent, strokeWidth = 2.5.dp, modifier = Modifier.size(26.dp))
@@ -1049,8 +1128,8 @@ internal fun PinnedMessagesScreen(
                             fontSize = 14.sp
                         )
                         TextButton(onClick = {
-                            // A failed search restarts the query; a failed load asks for the older page again.
-                            if (searching) searchAttempt++ else state.requestRetry()
+                            // A failed search restarts the query; a failed load repeats the load that failed.
+                            if (searching) searchAttempt++ else scope.launch { state.retryFailedLoad() }
                         }) { Text(stringResource(R.string.chat_pinned_retry)) }
                     }
                     shown.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1088,7 +1167,7 @@ internal fun PinnedMessagesScreen(
                                 onClick = { closeWithFlight({ onOpenMessage(message) }, message.id) },
                                 onLongPress = { rowMenuFor = message; capabilities = null },
                                 onJump = { closeWithFlight({ onOpenMessage(message) }, message.id) },
-                                onUnpin = { unpin(message) }
+                                onUnpin = { unpinRequest = message }
                             )
                             if (index < shown.lastIndex && monthLabels[index + 1] == month) {
                                 HorizontalDivider(Modifier.padding(start = 58.dp, end = 12.dp), color = palette.divider)
@@ -1110,10 +1189,7 @@ internal fun PinnedMessagesScreen(
                                         modifier = Modifier.weight(1f).padding(start = 20.dp)
                                     )
                                     TextButton(onClick = {
-                                        if (searching) searchAttempt++
-                                        // A spent cursor means the failure was the refresh itself, not a page.
-                                        else if (state.nextId != 0L) scope.launch { state.loadOlder() }
-                                        else state.requestRetry()
+                                        if (searching) searchAttempt++ else scope.launch { state.retryFailedLoad() }
                                     }) { Text(stringResource(R.string.chat_pinned_retry)) }
                                 }
                             }
@@ -1147,6 +1223,11 @@ internal fun PinnedMessagesScreen(
             val target = rowMenuFor ?: return@LaunchedEffect
             capabilities = conversation.messageCapabilities(state.chatId, target.id).getOrNull()
         }
+        PinnedUnpinConfirm(
+            target = unpinRequest,
+            onConfirm = { message -> unpinRequest = null; unpin(message) },
+            onDismiss = { unpinRequest = null }
+        )
     }
 }
 
@@ -1182,7 +1263,12 @@ private fun PinnedMessageRow(
     Box {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 64.dp)
-                .combinedClickable(role = Role.Button, onClick = onClick, onLongClick = onLongPress)
+                .combinedClickable(
+                    role = Role.Button,
+                    onLongClickLabel = stringResource(R.string.chat_pinned_actions_label),
+                    onClick = onClick,
+                    onLongClick = onLongPress
+                )
                 .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
