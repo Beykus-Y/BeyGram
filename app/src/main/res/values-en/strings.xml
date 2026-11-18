@@ -187,8 +187,12 @@
     <string name="new_chat_group">New group</string>
     <string name="new_chat_group_hint">Select members and a group name</string>
     <string name="new_chat_channel_hint">Updates, announcements and posts</string>
-    <string name="new_chat_public_title">PUBLIC CHATS AND LINKS</string>
     <string name="new_chat_public_hint">@username, t.me/… or tg://…</string>
+    <string name="new_chat_create_section">CREATE</string>
+    <string name="new_chat_public_explain">Find a user, group or channel by @username or link, even if they are not in your contacts.</string>
+    <string name="new_chat_public_searching">Searching…</string>
+    <string name="new_chat_contacts_empty_hint">Add someone by phone number and they will appear here. Or find them by @username above.</string>
+    <string name="new_chat_public_find_for">Find “%1$s” in Telegram</string>
     <string name="new_chat_public_search">Find a public chat</string>
     <string name="new_chat_public_invalid">Enter an @username or a t.me / tg:// link</string>
     <string name="new_chat_public_lookup_failed">Could not find the public chat</string>
