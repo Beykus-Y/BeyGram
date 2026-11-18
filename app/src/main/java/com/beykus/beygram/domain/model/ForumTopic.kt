@@ -10,6 +10,19 @@ data class ForumTopicIcon(
     val hasCustomEmoji: Boolean get() = customEmojiId != 0L
 }
 
+/**
+ * The name and icon of one topic, enough for a chat row to name the topic of its last message. An empty [title] means
+ * TDLib gave no name for the topic, so the row shows the generic topic label instead.
+ */
+data class ForumTopicBrief(
+    val id: Long,
+    val title: String,
+    val icon: ForumTopicIcon? = null,
+    val isGeneral: Boolean = false,
+    /** TDLib's implicit name of the General topic; the UI shows its own localized name for it. */
+    val isNameImplicit: Boolean = false
+)
+
 /** An installed custom emoji set that a Premium topic icon can come from: its [title] and the custom emoji of its [covers]. */
 data class CustomEmojiSetBrief(val id: Long, val title: String, val covers: List<Long> = emptyList())
 

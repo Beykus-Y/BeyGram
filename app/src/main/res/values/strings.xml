@@ -2184,6 +2184,7 @@
     <string name="a11y_view_once_chip">Одноразовое фото или видео</string>
     <string name="chats_secret_chat">Секретный чат</string>
     <string name="chats_forum">Форум</string>
+    <string name="chats_open_topic">Открыть тему</string>
     <string name="app_lock_title">Блокировка приложения</string>
     <string name="app_lock_intro">Запрашивать PIN или биометрию при запуске BeyGram и после возврата в приложение. Блокировка общая для всех аккаунтов на этом устройстве.</string>
     <string name="app_lock_enable_title">Блокировка приложения</string>

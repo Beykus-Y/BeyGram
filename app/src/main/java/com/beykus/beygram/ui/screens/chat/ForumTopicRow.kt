@@ -357,11 +357,33 @@ internal fun ForumTopicIcon(
     observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
     modifier: Modifier = Modifier
 ) {
+    ForumTopicIconTile(
+        icon = topic.icon,
+        isGeneral = topic.isGeneral,
+        size = size,
+        observeFile = observeFile,
+        downloadFile = downloadFile,
+        observeCustomEmoji = observeCustomEmoji,
+        modifier = modifier
+    )
+}
+
+/** [ForumTopicIcon] for a topic known only by its server icon and General flag, such as a chat row's topic label. */
+@Composable
+internal fun ForumTopicIconTile(
+    icon: com.beykus.beygram.domain.model.ForumTopicIcon?,
+    isGeneral: Boolean,
+    size: Dp,
+    observeFile: (Int) -> StateFlow<MediaFileState>,
+    downloadFile: (Int) -> Unit,
+    observeCustomEmoji: (Long) -> StateFlow<CustomEmoji?>,
+    modifier: Modifier = Modifier
+) {
     val palette = beyGramPalette()
-    val serverColor = topic.icon?.colorArgb?.let(::forumTopicIconColor)
+    val serverColor = icon?.colorArgb?.let(::forumTopicIconColor)
     val background = serverColor ?: palette.accentSoft
     val ink = serverColor?.let(::forumTopicIconInk) ?: palette.accentInk
-    val emojiId = topic.icon?.customEmojiId ?: 0L
+    val emojiId = icon?.customEmojiId ?: 0L
     // The caller passes a bound repository method; keying by the id avoids re-subscribing on every recomposition.
     val emojiFlow = remember(emojiId) {
         if (emojiId != 0L) observeCustomEmoji(emojiId) else MutableStateFlow<CustomEmoji?>(null)
@@ -369,7 +391,7 @@ internal fun ForumTopicIcon(
     val emoji by emojiFlow.collectAsStateWithLifecycle()
     val fallback: @Composable () -> Unit = {
         Icon(
-            imageVector = if (topic.isGeneral) Icons.Rounded.Forum else Icons.Rounded.Tag,
+            imageVector = if (isGeneral) Icons.Rounded.Forum else Icons.Rounded.Tag,
             contentDescription = null,
             tint = ink,
             modifier = Modifier.size(size * 0.5f)

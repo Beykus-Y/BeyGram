@@ -518,6 +518,7 @@
     <string name="a11y_view_once_chip">Einmaliges Foto oder Video</string>
     <string name="chats_secret_chat">Geheimer Chat</string>
     <string name="chats_forum">Forum</string>
+    <string name="chats_open_topic">Thema öffnen</string>
     <string name="app_lock_title">App-Sperre</string>
     <string name="app_lock_intro">Beim Start von BeyGram und nach der Rückkehr aus dem Hintergrund PIN oder Biometrie verlangen. Die Sperre gilt für alle Konten auf diesem Gerät.</string>
     <string name="app_lock_enable_title">App-Sperre</string>
