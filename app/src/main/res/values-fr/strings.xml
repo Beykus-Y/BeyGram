@@ -80,7 +80,6 @@
     <string name="chat_pinned_title">Messages épinglés</string>
     <string name="chat_pinned_retry">Réessayer</string>
     <string name="chat_pinned_list">Afficher tous les messages épinglés</string>
-    <string name="chat_pinned_more">Charger plus</string>
     <string name="chat_pinned_failed">Impossible de charger les messages épinglés</string>
     <string name="chat_pinned_position">Épinglé %1$d sur %2$d</string>
     <string name="chat_pin_channel_title">Épingler dans ce canal ?</string>

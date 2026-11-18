@@ -624,7 +624,7 @@ class TextSendUiTest {
             topicHistories.getOrPut(chatId to topicId) { MutableStateFlow(ChatHistory(hasOlderMessages = false)) }
 
         override fun observePinnedMessagesVersion(chatId: Long): StateFlow<Long> = MutableStateFlow(0L)
-        override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long): Result<PinnedMessagePage> =
+        override suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long, query: String): Result<PinnedMessagePage> =
             Result.success(PinnedMessagePage(emptyList(), 0, 0L))
         override suspend fun setMessagePinned(chatId: Long, messageId: Long, pinned: Boolean): Result<Unit> = Result.success(Unit)
         override fun observeBotKeyboard(chatId: Long): StateFlow<BotKeyboard?> = MutableStateFlow(null)

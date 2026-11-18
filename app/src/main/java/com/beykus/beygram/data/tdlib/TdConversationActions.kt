@@ -594,8 +594,8 @@ internal class TdConversationActions(
         return if (options.shareDelivery) handoff.classify(result) else result
     }
 
-    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L): Result<PinnedMessagePage> = conversationResult {
-        val page = request(pinnedMessagesRequest(chatId, fromMessageId, forumTopicId))
+    suspend fun pinnedMessages(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L, query: String = ""): Result<PinnedMessagePage> = conversationResult {
+        val page = request(pinnedMessagesRequest(chatId, fromMessageId, forumTopicId, query))
         PinnedMessagePage(page.messages.orEmpty().filterNotNull().map(map), page.totalCount, page.nextFromMessageId)
     }
 
@@ -1208,10 +1208,10 @@ internal fun forwardMessagesRequest(toChatId: Long, fromChatId: Long, messageId:
 internal fun deleteMessagesRequest(chatId: Long, messageIds: List<Long>, revoke: Boolean) =
     TdApi.DeleteMessages(chatId, messageIds.toLongArray(), revoke)
 
-internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L) = TdApi.SearchChatMessages().apply {
+internal fun pinnedMessagesRequest(chatId: Long, fromMessageId: Long, forumTopicId: Long = 0L, query: String = "") = TdApi.SearchChatMessages().apply {
     this.chatId = chatId
     topicId = if (forumTopicId > 0L) TdApi.MessageTopicForum(forumTopicId.toInt()) else null
-    query = ""
+    this.query = query
     this.fromMessageId = fromMessageId
     limit = 50
     filter = TdApi.SearchMessagesFilterPinned()

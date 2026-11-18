@@ -80,7 +80,6 @@
     <string name="chat_pinned_title">Pinned messages</string>
     <string name="chat_pinned_retry">Retry</string>
     <string name="chat_pinned_list">Show all pinned messages</string>
-    <string name="chat_pinned_more">Load more</string>
     <string name="chat_pinned_failed">Could not load pinned messages</string>
     <string name="chat_pinned_position">Pinned %1$d of %2$d</string>
     <string name="chat_pin_channel_title">Pin in this channel?</string>

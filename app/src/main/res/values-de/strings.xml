@@ -80,7 +80,6 @@
     <string name="chat_pinned_title">Angepinnte Nachrichten</string>
     <string name="chat_pinned_retry">Wiederholen</string>
     <string name="chat_pinned_list">Alle angehefteten Nachrichten anzeigen</string>
-    <string name="chat_pinned_more">Mehr laden</string>
     <string name="chat_pinned_failed">Angeheftete Nachrichten konnten nicht geladen werden</string>
     <string name="chat_pinned_position">Angepinnt %1$d von %2$d</string>
     <string name="chat_pin_channel_title">In diesem Kanal anpinnen?</string>
