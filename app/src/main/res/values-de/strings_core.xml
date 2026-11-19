@@ -166,7 +166,6 @@
     <string name="tabs_calls">Anrufe</string>
     <string name="tabs_chats">Chats</string>
     <string name="tabs_contacts">Kontakte</string>
-    <string name="updates_available">BeyGram %1$s ist verfügbar</string>
     <string name="updates_cancel">Download abbrechen</string>
     <string name="updates_changes">Was ist neu?</string>
     <string name="updates_check">Nach Updates suchen</string>
@@ -180,8 +179,6 @@
     <string name="updates_no_notes">Der Entwickler hat keine Versionshinweise bereitgestellt.</string>
     <string name="updates_published">Veröffentlicht: %1$s</string>
     <string name="updates_retry_download">Download erneut versuchen</string>
-    <string name="updates_group_installed">Installiert</string>
-    <string name="updates_group_available">Verfügbare Version</string>
     <string name="updates_state_current">Aktuell</string>
     <string name="updates_state_available">Update verfügbar</string>
     <string name="updates_state_downloading">Wird heruntergeladen: %1$d%%</string>
@@ -189,8 +186,6 @@
     <string name="updates_state_ready_detail">Die Datei ist heruntergeladen und geprüft: Prüfsumme und Signatur stimmen überein.</string>
     <string name="updates_state_failed">Fehlgeschlagen</string>
     <string name="updates_retry_check">Prüfung wiederholen</string>
-    <string name="updates_type_stable">Stabile Version</string>
-    <string name="updates_type_dev">DEV-Beta-Vorabversion</string>
     <string name="updates_source">Quelle: GitHub Releases</string>
     <string name="updates_last_checked">Letzte Prüfung: %1$s</string>
     <string name="updates_stale_notice">Die Angaben stammen von der letzten erfolgreichen Prüfung. Prüfen Sie erneut, um sie zu aktualisieren.</string>
@@ -199,6 +194,13 @@
     <string name="updates_size">APK-Größe: %1$.1f MB</string>
     <string name="updates_stable_only">Kanal: Stable · Nur manuelle Prüfungen</string>
     <string name="updates_title">Updates</string>
+    <string name="updates_group_status">Status</string>
+    <string name="updates_installed_compare">Installiert: %1$s</string>
+    <string name="updates_stale_badge">Veraltete Daten</string>
+    <string name="updates_details">Details</string>
+    <string name="updates_detail_package">Paket: %1$s</string>
+    <string name="updates_detail_file">Datei: %1$s</string>
+    <string name="updates_detail_sha">SHA-256: %1$s</string>
     <string name="updates_preparing_install">Die APK wird vor der Installation überprüft…</string>
     <string name="updates_confirm_android_install">Bestätigen Sie das Update im Android-Installer.</string>
     <string name="updates_allow_unknown_sources">Erlauben Sie Installationen von BeyGram in den Android-Einstellungen, kehren Sie dann zurück und tippen Sie auf „Installation fortsetzen“.</string>
