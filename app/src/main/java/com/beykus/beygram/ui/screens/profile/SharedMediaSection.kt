@@ -15,9 +15,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -134,6 +136,8 @@ internal fun SharedMediaSection(
     val tabs = rememberSharedMediaWindows(chatId, load)
     val openMessage: (Long) -> Unit = { id -> onOpenMessage(id, tabs.topicOf(id)) }
     val pagerState = rememberPagerState { chatSharedKinds.size }
+    // Прокрутка каждой вкладки хранится в разделе: пейджер убирает далёкие страницы из композиции и терял бы позицию.
+    val scroll = rememberSharedMediaScrollStates(chatId)
     val pagerHeight = (LocalConfiguration.current.screenHeightDp * PAGER_SCREEN_FRACTION).dp.coerceAtLeast(PAGER_MIN_HEIGHT)
     var viewing by remember(chatId) { mutableStateOf<Long?>(null) }
     fun loadMore(kind: SharedMediaKind) {
@@ -155,7 +159,7 @@ internal fun SharedMediaSection(
         SharedMediaPageContent(kind, chatId, tabs.getValue(kind), onMore = { loadMore(kind) }, observeFile = observeFile, downloadFile = downloadFile,
             confirmExport = confirmExport, onContentOpened = onContentOpened,
             onOpenMedia = { messageId -> viewing = messageId }, onOpenMessage = openMessage, autoDownloadFile = autoDownloadFile,
-            protectedContent = protectedContent, onOpenMessageEntity = onOpenMessageEntity)
+            protectedContent = protectedContent, onOpenMessageEntity = onOpenMessageEntity, scroll = scroll)
     }
 
     SharedMediaViewer(media = tabs.getValue(SharedMediaKind.Media), viewing = viewing, onViewing = { viewing = it },
@@ -290,6 +294,18 @@ private fun SharedMediaTabBar(titles: List<String>, counts: List<String?>, selec
     }
 }
 
+/** Состояния прокрутки раздела: сетка «Медиа» и списки остальных вкладок. */
+internal class SharedMediaScrollStates(val grid: LazyGridState, val lists: Map<SharedMediaKind, LazyListState>)
+
+/** Состояния прокрутки живут, пока открыт чат: при смене чата они пересоздаются, чтобы не переносить позицию в другой чат. */
+@Composable
+internal fun rememberSharedMediaScrollStates(chatId: Long): SharedMediaScrollStates = key(chatId, LocalPlaybackAccountId.current) {
+    SharedMediaScrollStates(
+        grid = rememberLazyGridState(),
+        lists = SharedMediaKind.entries.map { it to rememberLazyListState() }.toMap()
+    )
+}
+
 @Composable
 private fun SharedMediaPageContent(
     kind: SharedMediaKind, chatId: Long, tab: SharedMediaWindow, onMore: () -> Unit,
@@ -297,14 +313,16 @@ private fun SharedMediaPageContent(
     onContentOpened: (Long) -> Unit, onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit,
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     protectedContent: Boolean = false,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    scroll: SharedMediaScrollStates
 ) {
     // Первую страницу грузим, как только вкладку показали; неудачную попытку повторяем при следующем показе.
     LaunchedEffect(kind) { if (!tab.loaded) onMore() }
     when {
         tab.messages.isEmpty() -> SharedMediaStatus(kind, tab, onRetry = onMore)
-        kind == SharedMediaKind.Media -> SharedMediaGrid(tab, onMore, observeFile, downloadFile, onOpenMedia, onOpenMessage)
-        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage, autoDownloadFile, protectedContent, onOpenMessageEntity)
+        kind == SharedMediaKind.Media -> SharedMediaGrid(tab, onMore, observeFile, downloadFile, onOpenMedia, onOpenMessage, scroll.grid)
+        else -> SharedMediaList(kind, chatId, tab, onMore, observeFile, downloadFile, confirmExport, onContentOpened, onOpenMessage, autoDownloadFile, protectedContent, onOpenMessageEntity,
+            scroll.lists.getValue(kind))
     }
 }
 
@@ -341,9 +359,8 @@ internal fun SharedMediaFooter(tab: SharedMediaWindow, onRetry: () -> Unit) {
 @Composable
 private fun SharedMediaGrid(
     tab: SharedMediaWindow, onMore: () -> Unit, observeFile: (Int) -> StateFlow<MediaFileState>, downloadFile: (Int) -> Unit,
-    onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit
+    onOpenMedia: (Long) -> Unit, onOpenMessage: (Long) -> Unit, gridState: LazyGridState
 ) {
-    val gridState = rememberLazyGridState()
     val nearEnd by remember(tab) { derivedStateOf { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= tab.messages.size - PREFETCH_CELLS } ?: true } }
     LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
     LazyVerticalGrid(
@@ -366,9 +383,9 @@ private fun SharedMediaList(
     onContentOpened: (Long) -> Unit, onOpenMessage: (Long) -> Unit,
     autoDownloadFile: ((AutoDownloadRequest) -> Unit)? = null,
     protectedContent: Boolean = false,
-    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null
+    onOpenMessageEntity: ((MessageEntityLink) -> Unit)? = null,
+    listState: LazyListState
 ) {
-    val listState = rememberLazyListState()
     val shown = remember(kind, tab.messages) { tab.messages.asReversed().filter { kind == SharedMediaKind.Links || it.media != null } }
     val nearEnd by remember(tab, shown) { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.index >= shown.size - PREFETCH_ROWS } ?: true } }
     LaunchedEffect(nearEnd, tab.messages.size, tab.hasOlder) { if (nearEnd && tab.hasOlder) onMore() }
