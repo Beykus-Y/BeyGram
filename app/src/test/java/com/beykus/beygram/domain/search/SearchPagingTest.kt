@@ -57,4 +57,22 @@ class SearchPagingTest {
         val merged = appendDistinctBy(first, second) { it.first to it.second }
         assertEquals(listOf(Triple(10L, 7L, "a"), Triple(11L, 7L, "b")), merged)
     }
+
+    @Test
+    fun autoLoadOnlyNearEndWithoutBusyErrorOrStale() {
+        assertTrue(shouldAutoLoadChatSearchPage(lastVisibleIndex = 40, resultCount = 45, hasMore = true, busy = false, failed = false, stale = false))
+        assertFalse(shouldAutoLoadChatSearchPage(lastVisibleIndex = 10, resultCount = 45, hasMore = true, busy = false, failed = false, stale = false))
+        assertFalse(shouldAutoLoadChatSearchPage(40, 45, hasMore = false, busy = false, failed = false, stale = false))
+        assertFalse(shouldAutoLoadChatSearchPage(40, 45, hasMore = true, busy = true, failed = false, stale = false))
+        assertFalse(shouldAutoLoadChatSearchPage(40, 45, hasMore = true, busy = false, failed = true, stale = false))
+        assertFalse(shouldAutoLoadChatSearchPage(40, 45, hasMore = true, busy = false, failed = false, stale = true))
+        assertFalse(shouldAutoLoadChatSearchPage(0, 0, hasMore = true, busy = false, failed = false, stale = false))
+    }
+
+    @Test
+    fun repeatedCursorStopsPaging() {
+        assertEquals(0L, nextChatSearchCursor(requestedCursor = 500L, returnedCursor = 500L))
+        assertEquals(420L, nextChatSearchCursor(requestedCursor = 500L, returnedCursor = 420L))
+        assertEquals(0L, nextChatSearchCursor(requestedCursor = 0L, returnedCursor = 0L))
+    }
 }

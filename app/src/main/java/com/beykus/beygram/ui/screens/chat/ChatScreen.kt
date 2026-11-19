@@ -111,6 +111,7 @@ import com.beykus.beygram.domain.model.*
 import com.beykus.beygram.domain.repository.ConversationRepository
 import com.beykus.beygram.domain.search.appendDistinctBy
 import com.beykus.beygram.domain.search.isCurrentChatSearch
+import com.beykus.beygram.domain.search.nextChatSearchCursor
 import com.beykus.beygram.data.media.VideoMessageSettingsStore
 import com.beykus.beygram.data.media.ComposerRecordingMode
 import com.beykus.beygram.data.presence.LastSeenStyle
@@ -362,12 +363,14 @@ fun ChatScreen(
     var searchGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     var searchBusy by remember(chat.id, forumTopicId) { mutableStateOf(false) }
     var searchError by remember(chat.id, forumTopicId) { mutableStateOf<String?>(null) }
+    var searchRefreshing by remember(chat.id, forumTopicId) { mutableStateOf(false) }
+    var searchRetry by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     var searchMatchSession by remember(chat.id, forumTopicId) { mutableStateOf(ChatSearchMatchSession()) }
     var searchMatchGeneration by remember(chat.id, forumTopicId) { mutableIntStateOf(0) }
     fun closeSearch(clearMatchSession: Boolean = true) {
         searching = false; searchQuery = ""; searchFilter = ChatSearchFilter()
         searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchGeneration++
-        searchBusy = false; searchError = null
+        searchBusy = false; searchError = null; searchRefreshing = false
         if (clearMatchSession) {
             searchMatchGeneration++
             searchMatchSession = ChatSearchMatchSession()
@@ -1507,14 +1510,19 @@ fun ChatScreen(
         }
     }
     // Results refresh after a short pause in typing; a new query or filter replaces the pending request.
-    LaunchedEffect(searching, searchQuery, searchFilter) {
+    LaunchedEffect(searching, searchQuery, searchFilter, searchRetry) {
         val generation = ++searchGeneration
-        searchResults = emptyList(); searchNextId = 0L; searchTotalCount = 0; searchError = null
+        searchNextId = 0L; searchError = null
         val needle = searchQuery.trim()
         val requestedFilter = searchFilter
         val active = needle.isNotEmpty() || requestedFilter.isActive
         searchBusy = searching && active
-        if (!searching || !active) return@LaunchedEffect
+        if (!searching || !active) {
+            searchResults = emptyList(); searchTotalCount = 0; searchRefreshing = false
+            return@LaunchedEffect
+        }
+        // Прежние результаты остаются на месте, но помечены устаревшими до ответа: без вспышки пустого экрана.
+        searchRefreshing = searchResults.isNotEmpty()
         delay(300)
         (if (forumTopicId > 0L) conversation.searchForumTopicMessages(chat.id, forumTopicId, needle, 0L, requestedFilter)
         else conversation.searchMessages(chat.id, needle, 0L, requestedFilter))
@@ -1524,10 +1532,13 @@ fun ChatScreen(
                     searchNextId = page.nextFromMessageId
                     // TDLib's total predates the local date filter, so the UI falls back to the loaded count then.
                     searchTotalCount = if (requestedFilter.hasDateRange) 0 else page.totalCount
+                    searchRefreshing = false
                 }
             }
             .onFailure { failure ->
                 if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) {
+                    searchResults = emptyList(); searchTotalCount = 0
+                    searchRefreshing = false
                     searchError = failure.userMessage(context, R.string.chat_search_failed)
                 }
             }
@@ -1546,7 +1557,8 @@ fun ChatScreen(
                 .onSuccess { page ->
                     if (generation == searchGeneration && isCurrentChatSearch(needle, requestedFilter, searchQuery, searchFilter)) {
                         searchResults = appendDistinctBy(searchResults, page.messages) { it.id }
-                        searchNextId = page.nextFromMessageId
+                        // Повторённый курсор означает ту же страницу: останавливаем автодогрузку, а не крутим её по кругу.
+                        searchNextId = nextChatSearchCursor(cursor, page.nextFromMessageId)
                     }
                 }
                 .onFailure { failure ->
@@ -2581,8 +2593,10 @@ fun ChatScreen(
             busy = searchBusy,
             error = searchError,
             hasMore = searchNextId != 0L,
+            stale = searchRefreshing,
             onOpen = ::openSearchResult,
             onMore = ::loadMoreResults,
+            onRetry = { searchRetry++ },
             onResetFilters = { searchFilter = ChatSearchFilter() }
         )
         if (videoNote.active) VideoNoteRecordingOverlay(videoNote)
