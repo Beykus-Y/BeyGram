@@ -2,6 +2,7 @@ package com.beykus.beygram.ui.screens.settings
 
 import android.content.Context
 import android.text.format.DateUtils
+import android.text.format.Formatter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -17,6 +18,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,10 +32,21 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
+import com.beykus.beygram.data.update.DownloadProgress
+import com.beykus.beygram.data.update.InstallNotice
 import com.beykus.beygram.data.update.StableRelease
+import com.beykus.beygram.data.update.StableUpdateActionPolicy
+import com.beykus.beygram.data.update.UpdateChannel
+import com.beykus.beygram.data.update.UpdateStatus
+import com.beykus.beygram.data.update.UpdateUiState
+import com.beykus.beygram.data.update.updateChannelFor
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.Button
 import com.beykus.beygram.ui.components.OutlinedButton
@@ -66,17 +80,30 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     val context = LocalContext.current
-    val status = model.status
+    val uiState by model.state.collectAsStateWithLifecycle()
+    val status = uiState.status
     val isDevBeta = updateChannelFor(BuildConfig.APPLICATION_ID) == UpdateChannel.DevBeta
+    val lifecycleOwner = LocalLifecycleOwner.current
+    // Returning from Android Settings or the installer re-reads the install permission and the installed version.
+    DisposableEffect(lifecycleOwner, model) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) model.onReturnedToApp()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     // A running or failed check keeps the release of the last successful check visible.
     val release: StableRelease? = when (status) {
         is UpdateStatus.Available -> status.release
         is UpdateStatus.Downloading -> status.release
+        is UpdateStatus.Verifying -> status.release
         is UpdateStatus.Ready -> status.release
         is UpdateStatus.PreparingInstall -> status.release
-        is UpdateStatus.Failure -> status.release ?: model.knownRelease
-        UpdateStatus.Checking -> model.knownRelease
-        UpdateStatus.Idle, UpdateStatus.Current -> null
+        is UpdateStatus.PermissionRequired -> status.release
+        is UpdateStatus.AwaitingInstaller -> status.release
+        is UpdateStatus.Failure -> status.release ?: uiState.knownRelease
+        UpdateStatus.Checking -> uiState.knownRelease
+        UpdateStatus.Idle, UpdateStatus.Current, is UpdateStatus.Installed -> null
     }
     val retryCheck = status is UpdateStatus.Failure && status.release == null
     Column(
@@ -106,8 +133,8 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
                         color = palette.textSecondary,
                         fontSize = 14.sp
                     )
-                    StatusLine(status, isDevBeta, verifyFailed = model.installNotice == InstallNotice.VerifyFailed)
-                    model.lastCheckedAt?.let { millis ->
+                    StatusLine(status, isDevBeta)
+                    uiState.lastCheckedAt?.let { millis ->
                         Text(
                             stringResource(R.string.updates_last_checked, formatUpdateDate(context, millis, withTime = true)),
                             color = palette.textSecondary,
@@ -124,7 +151,7 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
                 }
             }
             release?.let { current ->
-                ReleaseCard(model, status, current, isDevBeta)
+                ReleaseCard(model, uiState, current, isDevBeta)
                 SettingsGroup(stringResource(R.string.updates_changes)) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
                         ReleaseNotesContent(current.notes)
@@ -137,7 +164,7 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
 }
 
 @Composable
-private fun StatusLine(status: UpdateStatus, isDevBeta: Boolean, verifyFailed: Boolean) {
+private fun StatusLine(status: UpdateStatus, isDevBeta: Boolean) {
     val palette = beyGramPalette()
     val line = when (status) {
         UpdateStatus.Idle -> StatusLineContent(
@@ -158,6 +185,13 @@ private fun StatusLine(status: UpdateStatus, isDevBeta: Boolean, verifyFailed: B
             icon = Icons.Rounded.CheckCircle,
             announce = true
         )
+        is UpdateStatus.Installed -> StatusLineContent(
+            headline = stringResource(R.string.updates_state_installed),
+            detail = null,
+            tone = StatusTone.Success,
+            icon = Icons.Rounded.CheckCircle,
+            announce = true
+        )
         is UpdateStatus.Available -> StatusLineContent(
             headline = stringResource(R.string.updates_state_available),
             detail = stringResource(R.string.updates_available, status.release.versionName),
@@ -166,10 +200,17 @@ private fun StatusLine(status: UpdateStatus, isDevBeta: Boolean, verifyFailed: B
             announce = true
         )
         is UpdateStatus.Downloading -> StatusLineContent(
-            headline = stringResource(R.string.updates_state_downloading, status.progress),
-            detail = null,
+            headline = stringResource(R.string.updates_state_downloading, status.progress.percent),
+            detail = downloadDetail(status.progress),
             tone = StatusTone.Accent,
             icon = Icons.Rounded.Download
+        )
+        is UpdateStatus.Verifying -> StatusLineContent(
+            headline = stringResource(R.string.updates_state_verifying),
+            // 100% of the bytes is not yet a verified APK; the install stays unavailable until the checks pass.
+            detail = stringResource(R.string.updates_verifying_detail),
+            tone = StatusTone.Accent,
+            spinning = true
         )
         is UpdateStatus.PreparingInstall -> StatusLineContent(
             headline = stringResource(R.string.updates_preparing_install),
@@ -179,15 +220,28 @@ private fun StatusLine(status: UpdateStatus, isDevBeta: Boolean, verifyFailed: B
         )
         is UpdateStatus.Ready -> StatusLineContent(
             headline = stringResource(R.string.updates_state_ready),
-            // After a failed verification the file is not trusted; the notice below explains it.
-            detail = if (verifyFailed) null else stringResource(R.string.updates_state_ready_detail),
-            tone = if (verifyFailed) StatusTone.Warning else StatusTone.Success,
+            detail = stringResource(R.string.updates_state_ready_detail),
+            tone = StatusTone.Success,
             icon = Icons.Rounded.CheckCircle,
+            announce = true
+        )
+        is UpdateStatus.PermissionRequired -> StatusLineContent(
+            headline = stringResource(R.string.updates_state_permission),
+            detail = stringResource(R.string.updates_allow_unknown_sources),
+            tone = StatusTone.Accent,
+            icon = Icons.Rounded.SystemUpdate,
+            announce = true
+        )
+        is UpdateStatus.AwaitingInstaller -> StatusLineContent(
+            headline = stringResource(R.string.updates_state_awaiting),
+            detail = stringResource(R.string.updates_confirm_android_install),
+            tone = StatusTone.Accent,
+            icon = Icons.Rounded.SystemUpdate,
             announce = true
         )
         is UpdateStatus.Failure -> StatusLineContent(
             headline = stringResource(R.string.updates_state_failed),
-            detail = status.message,
+            detail = stringResource(updateFailureTextRes(status.reason, status.step)),
             tone = StatusTone.Warning,
             icon = Icons.Rounded.ErrorOutline,
             announce = true
@@ -239,11 +293,42 @@ private fun StatusLine(status: UpdateStatus, isDevBeta: Boolean, verifyFailed: B
     }
 }
 
+/** Bytes, and speed and time left once they are stable. Shown as text, so the numbers are never only a picture. */
 @Composable
-private fun ReleaseCard(model: StableUpdatesViewModel, status: UpdateStatus, release: StableRelease, isDevBeta: Boolean) {
+private fun downloadDetail(progress: DownloadProgress): String {
+    val context = LocalContext.current
+    val parts = mutableListOf(
+        stringResource(
+            R.string.updates_progress_bytes,
+            Formatter.formatShortFileSize(context, progress.bytes),
+            Formatter.formatShortFileSize(context, progress.total),
+        )
+    )
+    val speed = progress.bytesPerSecond
+    if (speed != null) {
+        parts += stringResource(R.string.updates_speed, Formatter.formatShortFileSize(context, speed))
+    }
+    val eta = progress.etaSeconds
+    if (eta != null) {
+        parts += stringResource(R.string.updates_eta, etaText(eta))
+    }
+    return parts.joinToString(" · ")
+}
+
+@Composable
+private fun etaText(seconds: Long): String =
+    if (seconds < 60L) {
+        stringResource(R.string.updates_eta_seconds, seconds)
+    } else {
+        stringResource(R.string.updates_eta_minutes, (seconds + 59L) / 60L)
+    }
+
+@Composable
+private fun ReleaseCard(model: StableUpdatesViewModel, state: UpdateUiState, release: StableRelease, isDevBeta: Boolean) {
     val palette = beyGramPalette()
     val context = LocalContext.current
     // A failed check keeps the release it found before, and says so: those details may be out of date.
+    val status = state.status
     val fromEarlierCheck = status is UpdateStatus.Failure && status.release == null
     SettingsGroup(stringResource(R.string.updates_group_available)) {
         Column(
@@ -273,22 +358,22 @@ private fun ReleaseCard(model: StableUpdatesViewModel, status: UpdateStatus, rel
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
-            ReleaseActions(model, status, release)
+            ReleaseActions(model, state, release)
         }
     }
 }
 
 /** The buttons of the release card. Each one acts on the process it is shown for; a failed check has none here. */
 @Composable
-private fun ReleaseActions(model: StableUpdatesViewModel, status: UpdateStatus, release: StableRelease) {
+private fun ReleaseActions(model: StableUpdatesViewModel, state: UpdateUiState, release: StableRelease) {
     val palette = beyGramPalette()
-    when (status) {
-        is UpdateStatus.Available -> Button(onClick = { model.download(release) }, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.updates_download))
-        }
-        is UpdateStatus.Downloading -> {
+    val status = state.status
+    // A verified APK for this release stays installable through a failed re-check and after a restart.
+    val ready = state.ready?.takeIf { it.release == release }
+    when {
+        status is UpdateStatus.Downloading -> {
             LinearProgressIndicator(
-                progress = { status.progress / 100f },
+                progress = { status.progress.percent / 100f },
                 modifier = Modifier.fillMaxWidth(),
                 color = palette.accent
             )
@@ -296,40 +381,42 @@ private fun ReleaseActions(model: StableUpdatesViewModel, status: UpdateStatus, 
                 Text(stringResource(R.string.updates_cancel))
             }
         }
-        is UpdateStatus.Ready -> {
-            model.installNotice?.let { notice -> InstallNoticeText(notice) }
-            if (model.installNotice == InstallNotice.VerifyFailed) {
-                // The installer refused this file, so installing it again would fail the same way.
-                Button(onClick = { model.redownload(release) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.updates_redownload))
-                }
-            } else {
-                Button(onClick = { model.install(status.file, status.release) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.updates_install))
-                }
+        status is UpdateStatus.Verifying || status is UpdateStatus.PreparingInstall ||
+            status is UpdateStatus.AwaitingInstaller || status is UpdateStatus.Checking -> Unit
+        status is UpdateStatus.PermissionRequired -> {
+            state.installNotice?.let { notice -> InstallNoticeText(notice) }
+            Button(onClick = model::openInstallPermission, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.updates_allow_install))
+            }
+            OutlinedButton(onClick = { model.install(release) }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.updates_continue_install))
             }
         }
-        is UpdateStatus.Failure -> {
-            // Only a failed download has a release to retry; a failed check is retried by the button above.
-            if (status.release != null) {
-                OutlinedButton(onClick = { model.download(release) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.updates_retry_download))
-                }
+        ready != null -> {
+            state.installNotice?.let { notice -> InstallNoticeText(notice) }
+            Button(onClick = { model.install(release) }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.updates_install))
             }
         }
-        UpdateStatus.Idle, UpdateStatus.Checking, UpdateStatus.Current, is UpdateStatus.PreparingInstall -> Unit
+        status is UpdateStatus.Available -> Button(onClick = { model.download(release) }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.updates_download))
+        }
+        status is UpdateStatus.Failure && status.release != null ->
+            OutlinedButton(onClick = { model.download(release) }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.updates_retry_download))
+            }
+        else -> Unit
     }
 }
 
 @Composable
 private fun InstallNoticeText(notice: InstallNotice) {
     val palette = beyGramPalette()
-    val failed = notice == InstallNotice.VerifyFailed || notice == InstallNotice.LaunchFailed
+    val failed = notice == InstallNotice.LaunchFailed
     val text = when (notice) {
-        InstallNotice.ConfirmInInstaller -> stringResource(R.string.updates_confirm_android_install)
-        InstallNotice.AllowUnknownSources -> stringResource(R.string.updates_allow_unknown_sources)
-        InstallNotice.VerifyFailed -> stringResource(R.string.updates_error_verify)
         InstallNotice.LaunchFailed -> stringResource(R.string.updates_error_launch_installer)
+        InstallNotice.NotInstalledYet -> stringResource(R.string.updates_not_installed_yet)
+        InstallNotice.PermissionGranted -> stringResource(R.string.updates_permission_granted)
     }
     Text(
         text,

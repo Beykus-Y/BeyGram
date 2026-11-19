@@ -1,5 +1,7 @@
 package com.beykus.beygram.ui.screens.settings
 
+import com.beykus.beygram.data.update.UpdateChannel
+import com.beykus.beygram.data.update.updateChannelFor
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

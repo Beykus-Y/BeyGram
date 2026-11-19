@@ -1,26 +1,15 @@
 package com.beykus.beygram.data.update
 
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
-import java.util.UUID
 
 internal const val DEV_PACKAGE = "com.beykus.beygram.dev"
 
@@ -39,7 +28,8 @@ private val devDigestPattern = Regex("^[0-9a-f]{64}$")
 class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
     private val releasesApi = "https://api.github.com/repos/Beykus-Y/BeyGram/releases?per_page=100&page="
     private val downloadPrefix = "https://github.com/Beykus-Y/BeyGram/releases/download/"
-    private val updateDir: File get() = File(context.cacheDir, "dev-updates")
+    override val updateDir: File get() = File(context.cacheDir, "dev-updates")
+    override val filePrefix: String = "dev"
 
     override fun installedCode(): Long =
         context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
@@ -52,16 +42,16 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
         val assets = release.getJSONArray("assets")
         val names = (0 until assets.length()).map { assets.getJSONObject(it).getString("name") }.toSet()
         if (DEV_APK_NAME !in names || DEV_MANIFEST_NAME !in names) {
-            throw IOException("В последней DEV-сборке нет APK или манифеста.")
+            throw StableUpdateException(StableUpdateReason.MissingAsset, "В последней DEV-сборке нет APK или манифеста.")
         }
-        val manifest = JSONObject(readText("$downloadPrefix$tag/$DEV_MANIFEST_NAME", 65_536))
+        val manifest = JSONObject(UpdateHttp.readText("$downloadPrefix$tag/$DEV_MANIFEST_NAME", 65_536))
         val code = manifest.getLong("versionCode")
         val size = manifest.getLong("size")
         val hash = manifest.getString("sha256").lowercase(Locale.ROOT)
         val signer = manifest.getString("signerSha256").lowercase(Locale.ROOT)
         if (manifest.getString("package") != DEV_PACKAGE || signer != DEV_SIGNER_SHA256 ||
             code !in 1..2_100_000_000L || size !in 1..DEV_MAX_APK_BYTES || !devDigestPattern.matches(hash)) {
-            throw IOException("Некорректный манифест DEV-сборки: установка запрещена.")
+            throw StableUpdateException(StableUpdateReason.InvalidMetadata, "Некорректный манифест DEV-сборки.")
         }
         if (code <= installedCode) return@withContext null
         StableRelease(
@@ -76,8 +66,8 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
         )
     }
 
-    /** Download into a private cache path, hash while streaming, then verify the package and signer. */
-    override suspend fun download(release: StableRelease, onProgress: suspend (Int) -> Unit): File =
+    /** Downloads with resume support, hashes the whole file, then verifies the package and the pinned signer. */
+    override suspend fun download(release: StableRelease, resume: PartialDownload?, listener: DownloadListener): File =
         withContext(Dispatchers.IO) {
             require(context.packageName == DEV_PACKAGE)
             require(
@@ -85,108 +75,41 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
                     release.tag == release.versionName && release.versionCode > 0 &&
                     release.size in 1..DEV_MAX_APK_BYTES && devDigestPattern.matches(release.sha256)
             )
-            if (release.versionCode <= installedCode()) {
-                throw IOException("Эта версия уже установлена или устарела.")
+            val installed = installedCode()
+            if (release.versionCode == installed) {
+                throw StableUpdateException(StableUpdateReason.AlreadyInstalled, "Эта версия уже установлена.")
             }
-            if (!updateDir.exists() && !updateDir.mkdirs()) throw IOException("Нет места для загрузки.")
-            // A new download replaces older DEV APKs, so the cache holds at most one of them.
-            updateDir.listFiles()?.forEach { if (it.name.startsWith("dev-")) it.delete() }
-            // Every user-initiated download gets its own path, so an APK already handed to the installer is never rewritten.
-            val downloadId = UUID.randomUUID().toString()
-            val temp = File(updateDir, "dev-$downloadId.part")
-            val target = File(updateDir, "dev-$downloadId.apk")
-            if (updateDir.usableSpace < release.size + 20_000_000L) {
-                throw IOException("Недостаточно свободного места для APK.")
+            if (release.versionCode < installed) {
+                throw StableUpdateException(StableUpdateReason.Outdated, "Версия DEV старше установленной.")
             }
-            try {
-                val digest = MessageDigest.getInstance("SHA-256")
-                val connection = connect("$downloadPrefix${release.tag}/${release.apkName}")
-                try {
-                    val reportedSize = connection.contentLengthLong
-                    if (reportedSize > 0 && reportedSize != release.size) {
-                        throw IOException("Размер файла на сервере изменился.")
-                    }
-                    var downloaded = 0L
-                    var lastPercent = -1
-                    connection.inputStream.use { input ->
-                        temp.outputStream().buffered().use { output ->
-                            val buffer = ByteArray(64 * 1024)
-                            while (true) {
-                                currentCoroutineContext().ensureActive()
-                                val count = input.read(buffer)
-                                if (count == -1) break
-                                downloaded += count
-                                if (downloaded > release.size) throw IOException("Размер APK превышен.")
-                                digest.update(buffer, 0, count)
-                                output.write(buffer, 0, count)
-                                val percent = ((downloaded * 100) / release.size).toInt()
-                                if (percent != lastPercent) {
-                                    lastPercent = percent
-                                    onProgress(percent)
-                                }
-                            }
-                        }
-                    }
-                    if (downloaded != release.size ||
-                        digest.digest().joinToString("") { "%02x".format(it) } != release.sha256) {
-                        throw IOException("Контрольная сумма APK не совпадает.")
-                    }
-                } finally {
-                    connection.disconnect()
-                }
-                if (!temp.renameTo(target)) throw IOException("Не удалось сохранить APK.")
-                verifyPackage(target, release)
-                target
-            } catch (error: Throwable) {
-                // Only files created by this failed attempt may be removed.
-                temp.delete()
-                target.delete()
-                throw error
-            }
+            // Older DEV APKs are not deleted here: the shared retention policy removes stale ones, never a handed-off APK.
+            downloadApkFile(
+                updateDir = updateDir,
+                prefix = filePrefix,
+                url = "$downloadPrefix${release.tag}/${release.apkName}",
+                release = release,
+                resume = resume,
+                listener = listener,
+                verifyPackage = { apk -> verifyPackage(apk, release) },
+            )
         }
 
     /** Recheck the bytes off the UI thread right before the platform installer. */
     override suspend fun verifyForInstall(apk: File, release: StableRelease) = withContext(Dispatchers.IO) {
         if (!apk.isFile || apk.parentFile?.canonicalFile != updateDir.canonicalFile) {
-            throw IOException("Файл обновления не найден.")
+            throw StableUpdateException(StableUpdateReason.MissingFile, "Файл обновления не найден.")
         }
-        val bytes = apk.inputStream().use { input ->
-            val digest = MessageDigest.getInstance("SHA-256")
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                currentCoroutineContext().ensureActive()
-                val read = input.read(buffer)
-                if (read < 0) break
-                digest.update(buffer, 0, read)
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        }
-        if (apk.length() != release.size || bytes != release.sha256) {
-            throw IOException("Контрольная сумма APK изменилась.")
+        if (apk.length() != release.size || sha256Of(apk) != release.sha256) {
+            throw StableUpdateException(StableUpdateReason.ChecksumMismatch, "Контрольная сумма APK изменилась.")
         }
         verifyPackage(apk, release)
     }
 
-    /** Android 8+ asks for consent to install from this source. Call on the main thread. */
-    override fun install(apk: File): Boolean {
-        if (!apk.isFile || apk.parentFile?.canonicalFile != updateDir.canonicalFile) {
-            throw IOException("Файл обновления не найден.")
-        }
-        if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
-            val permissionIntent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${context.packageName}")
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(permissionIntent)
-            return false
-        }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", apk)
-        val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-        return true
-    }
+    override fun canRequestInstalls(): Boolean = ApkInstaller.canRequestInstalls(context)
+
+    override fun openInstallPermissionSettings() = ApkInstaller.openPermissionSettings(context)
+
+    override fun launchInstaller(apk: File) = ApkInstaller.launch(context, apk, updateDir)
 
     /**
      * Up to three pages of releases. The endpoint sometimes answers page 1 with an empty list, though a
@@ -195,15 +118,17 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
     private suspend fun fetchReleases(): List<JSONObject> {
         val all = ArrayList<JSONObject>()
         for (page in 1..3) {
-            var batch = JSONArray(readText("$releasesApi$page", 4_000_000))
+            var batch = JSONArray(UpdateHttp.readText("$releasesApi$page", 4_000_000))
             if (page == 1) {
                 repeat(2) {
                     if (batch.length() == 0) {
                         kotlinx.coroutines.delay(1_500)
-                        batch = JSONArray(readText("$releasesApi$page", 4_000_000))
+                        batch = JSONArray(UpdateHttp.readText("$releasesApi$page", 4_000_000))
                     }
                 }
-                if (batch.length() == 0) throw IOException("GitHub вернул пустой список сборок. Повторите проверку позже.")
+                if (batch.length() == 0) {
+                    throw StableUpdateException(StableUpdateReason.MissingRelease, "GitHub вернул пустой список сборок.")
+                }
             }
             for (i in 0 until batch.length()) all += batch.getJSONObject(i)
             if (batch.length() < 100) break
@@ -215,17 +140,19 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
         val pm = context.packageManager
         @Suppress("DEPRECATION")
         val archive = pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
-            ?: throw IOException("Android не распознал скачанный APK.")
-        if (archive.packageName != DEV_PACKAGE || archive.longVersionCode != release.versionCode ||
-            archive.longVersionCode <= installedCode()) {
-            throw IOException("APK не соответствует ожидаемому пакету или версии.")
+            ?: throw StableUpdateException(StableUpdateReason.PackageMismatch, "Android не распознал скачанный APK.")
+        if (archive.packageName != DEV_PACKAGE || archive.longVersionCode != release.versionCode) {
+            throw StableUpdateException(StableUpdateReason.PackageMismatch, "APK не соответствует ожидаемому пакету или версии.")
+        }
+        if (archive.longVersionCode <= installedCode()) {
+            throw StableUpdateException(StableUpdateReason.Outdated, "APK не новее установленной версии.")
         }
         if ((archive.applicationInfo?.minSdkVersion ?: 0) > Build.VERSION.SDK_INT) {
-            throw IOException("Версия Android не поддерживается этим APK.")
+            throw StableUpdateException(StableUpdateReason.PackageMismatch, "Версия Android не поддерживается этим APK.")
         }
         // The pinned DEV key is the only accepted signer. Android's installer checks the rest of the lineage.
         if (apkSignerDigests(apk.absolutePath) != setOf(DEV_SIGNER_SHA256)) {
-            throw IOException("APK подписан другим ключом. Установка запрещена.")
+            throw StableUpdateException(StableUpdateReason.SignerMismatch, "APK подписан другим ключом.")
         }
     }
 
@@ -241,61 +168,6 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
             MessageDigest.getInstance("SHA-256").digest(signature.toByteArray())
                 .joinToString("") { "%02x".format(it) }
         }.toSet()
-    }
-
-    /** Only GitHub hosts may serve the DEV APK; redirects to other hosts are refused. */
-    private fun connect(address: String): HttpURLConnection {
-        var url = URL(address)
-        repeat(6) {
-            if (url.protocol != "https" || url.host.lowercase(Locale.ROOT) !in setOf(
-                    "github.com", "api.github.com", "release-assets.githubusercontent.com",
-                    "objects.githubusercontent.com"
-                )) throw IOException("Сервер перенаправил загрузку на недоверенный адрес.")
-            val connection = url.openConnection() as HttpURLConnection
-            connection.instanceFollowRedirects = false
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 25_000
-            connection.setRequestProperty("User-Agent", "BeyGram-Android-Updater")
-            connection.setRequestProperty("Accept", "application/vnd.github+json")
-            val status = connection.responseCode
-            if (status in 300..399) {
-                val location = connection.getHeaderField("Location")
-                    ?: throw IOException("Сервер вернул пустое перенаправление.")
-                url = URL(url, location)
-                connection.disconnect()
-            } else {
-                if (status !in 200..299) {
-                    connection.disconnect()
-                    throw IOException(when (status) {
-                        403, 429 -> "GitHub ограничил частоту запросов. Повторите проверку позже."
-                        404 -> "Релиз не найден на GitHub."
-                        else -> "Ошибка GitHub: HTTP $status."
-                    })
-                }
-                return connection
-            }
-        }
-        throw IOException("Слишком много перенаправлений при скачивании.")
-    }
-
-    private suspend fun readText(url: String, limit: Int): String {
-        val connection = connect(url)
-        try {
-            connection.inputStream.use { input ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(8192)
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val count = input.read(buffer)
-                    if (count == -1) break
-                    if (output.size() + count > limit) throw IOException("Ответ GitHub слишком большой.")
-                    output.write(buffer, 0, count)
-                }
-                return output.toString(Charsets.UTF_8.name())
-            }
-        } finally {
-            connection.disconnect()
-        }
     }
 }
 
