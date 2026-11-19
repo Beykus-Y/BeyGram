@@ -103,7 +103,7 @@ fun StorageSettingsScreen(
             Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            UsageCard(usage, model.loading, model.selected, busy, onToggle = model::toggle)
+            UsageCard(usage, model.loading, model.selected, busy, onToggle = model::toggle, onRetry = model::refresh)
             ClearCard(
                 usage = usage,
                 selected = model.selected,
@@ -154,7 +154,14 @@ fun StorageSettingsScreen(
 }
 
 @Composable
-private fun UsageCard(usage: StorageUsage?, loading: Boolean, selected: Set<StorageCategory>, busy: Boolean, onToggle: (StorageCategory) -> Unit) {
+private fun UsageCard(
+    usage: StorageUsage?,
+    loading: Boolean,
+    selected: Set<StorageCategory>,
+    busy: Boolean,
+    onToggle: (StorageCategory) -> Unit,
+    onRetry: () -> Unit
+) {
     val palette = beyGramPalette()
     val design = LocalDesignSystem.current
     Column(Modifier.fillMaxWidth().glassCard(design, groupSurfaceColor(), palette.textSecondary, listGroupShape()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -164,6 +171,12 @@ private fun UsageCard(usage: StorageUsage?, loading: Boolean, selected: Set<Stor
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(18.dp), color = palette.accent, strokeWidth = 2.dp)
                     Text(stringResource(R.string.storage_usage_loading), color = palette.textSecondary, fontSize = 14.sp, modifier = Modifier.padding(start = 10.dp))
+                }
+            } else {
+                // First load failed or was cancelled: say so and offer a retry instead of an empty card.
+                Text(stringResource(R.string.storage_load_failed), color = palette.danger, fontSize = 14.sp)
+                OutlinedButton(onClick = onRetry, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.storage_retry))
                 }
             }
         } else {
