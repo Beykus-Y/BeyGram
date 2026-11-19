@@ -30,6 +30,7 @@ class UpdateCoordinator private constructor(context: Context) {
         UpdateChannel.Stable -> StableUpdateRepository(context)
     }
     private val store = UpdateStateStore(context)
+    private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutableState = MutableStateFlow(UpdateUiState())
     val state: StateFlow<UpdateUiState> = mutableState.asStateFlow()
@@ -57,6 +58,7 @@ class UpdateCoordinator private constructor(context: Context) {
             val now = System.currentTimeMillis()
             store.saveLastCheckedAt(now)
             store.saveKnownRelease(release)
+            recordCheck(if (release == null) UpdateCheckOutcome.Current else UpdateCheckOutcome.Available, release, now)
             mutableState.update {
                 it.copy(
                     status = if (release == null) UpdateStatus.Current else UpdateStatus.Available(release),
@@ -68,6 +70,7 @@ class UpdateCoordinator private constructor(context: Context) {
         } catch (error: Exception) {
             if (error is CancellationException) throw error
             Log.w(LOG_TAG, "Update check failed", error)
+            recordCheck(UpdateCheckOutcome.Failed, null, System.currentTimeMillis())
             mutableState.update {
                 it.copy(
                     status = UpdateStatus.Failure(UpdateStep.Check, updateErrorReason(error), null),
@@ -221,6 +224,24 @@ class UpdateCoordinator private constructor(context: Context) {
                 mutableState.update { it.copy(installNotice = InstallNotice.PermissionGranted) }
             }
             else -> Unit
+        }
+    }
+
+    /** Keeps the outcome of a manual check for the Settings summary. A failed write never affects the check. */
+    private fun recordCheck(outcome: UpdateCheckOutcome, release: StableRelease?, now: Long) {
+        runCatching {
+            UpdateCheckStore.save(
+                appContext,
+                UpdateCheckRecord(
+                    packageName = appContext.packageName,
+                    installedCode = source.installedCode(),
+                    channel = if (updateChannelFor(appContext.packageName) == UpdateChannel.DevBeta) "dev" else "stable",
+                    checkedAt = now,
+                    outcome = outcome,
+                    availableLabel = release?.let { if (it.dev != null) it.tag else it.versionName },
+                    availableCode = release?.versionCode,
+                ),
+            )
         }
     }
 

@@ -1,8 +1,13 @@
 package com.beykus.beygram.ui.screens.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.text.format.DateUtils
 import android.text.format.Formatter
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -55,12 +60,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
+import com.beykus.beygram.data.update.DevChangeRange
 import com.beykus.beygram.data.update.DownloadProgress
 import com.beykus.beygram.data.update.InstallNotice
+import com.beykus.beygram.data.update.InstalledBuild
 import com.beykus.beygram.data.update.StableRelease
 import com.beykus.beygram.data.update.UpdateChannel
 import com.beykus.beygram.data.update.UpdateStep
 import com.beykus.beygram.data.update.UpdateUiState
+import com.beykus.beygram.data.update.commitUrl
+import com.beykus.beygram.data.update.devBuildInfoText
+import com.beykus.beygram.data.update.devReleaseUrl
+import com.beykus.beygram.data.update.installedBuild
+import com.beykus.beygram.data.update.knownSha
+import com.beykus.beygram.data.update.stableReleaseUrl
 import com.beykus.beygram.data.update.updateChannelFor
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.Button
@@ -132,7 +145,17 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
             card.release?.let { current ->
                 SettingsGroup(stringResource(R.string.updates_changes)) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
-                        ReleaseNotesContent(current.notes)
+                        val dev = current.dev
+                        if (isDevBeta && dev != null && dev.changes.entries.isNotEmpty()) {
+                            DevChangesContent(dev.changes, current.tag)
+                        } else {
+                            ReleaseNotesContent(
+                                current.notes,
+                                truncated = current.notesTruncated,
+                                releaseUrl = if (isDevBeta) devReleaseUrl(current.tag) else stableReleaseUrl(current.tag),
+                                compact = true,
+                            )
+                        }
                     }
                 }
             }
@@ -169,6 +192,7 @@ private fun UpdateCardBody(model: StableUpdatesViewModel, state: UpdateUiState, 
     val context = LocalContext.current
     val line = cardStatusContent(card, isDevBeta)
     val release = card.release
+    val installed = remember { installedBuild(BuildConfig.DEV_BUILD_NUMBER, BuildConfig.BUILD_GIT_SHA) }
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -187,9 +211,15 @@ private fun UpdateCardBody(model: StableUpdatesViewModel, state: UpdateUiState, 
                         modifier = Modifier.semantics { heading() }.then(announced)
                     )
                 }
-                // The new version when there is an offer; otherwise the installed one.
+                // The new version when there is an offer; otherwise the installed one. DEV names builds by number.
+                val targetBuild = release?.dev?.buildNumber?.takeIf { isDevBeta }
                 Text(
-                    release?.versionName ?: BuildConfig.VERSION_NAME,
+                    when {
+                        targetBuild != null -> stringResource(R.string.updates_release_build_title, targetBuild)
+                        release != null -> release.versionName
+                        isDevBeta -> installedBuildLabel(installed)
+                        else -> BuildConfig.VERSION_NAME
+                    },
                     color = palette.textPrimary,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.SemiBold
@@ -197,11 +227,22 @@ private fun UpdateCardBody(model: StableUpdatesViewModel, state: UpdateUiState, 
             }
         }
         release?.let { offer ->
+            val targetBuild = offer.dev?.buildNumber?.takeIf { isDevBeta }
+            val installedNumber = (installed as? InstalledBuild.Ci)?.number
             Text(
-                stringResource(R.string.updates_installed_compare, BuildConfig.VERSION_NAME),
+                when {
+                    targetBuild != null && installedNumber != null ->
+                        stringResource(R.string.updates_release_comparison, installedNumber, targetBuild)
+                    targetBuild != null -> stringResource(R.string.updates_release_comparison_unknown, targetBuild)
+                    isDevBeta -> stringResource(R.string.updates_installed_compare, installedBuildLabel(installed))
+                    else -> stringResource(R.string.updates_installed_compare, BuildConfig.VERSION_NAME)
+                },
                 color = palette.textSecondary,
                 fontSize = 14.sp
             )
+            offer.dev?.commit?.takeIf { isDevBeta }?.let { commit ->
+                Text(stringResource(R.string.updates_release_commit, commit.take(7)), color = palette.textSecondary, fontSize = 14.sp)
+            }
             val facts = listOfNotNull(
                 stringResource(R.string.updates_size, offer.size / (1024f * 1024f)),
                 formatPublishedDate(offer.publishedAt, context)?.let { date -> stringResource(R.string.updates_published, date) }
@@ -241,7 +282,8 @@ private fun UpdateCardBody(model: StableUpdatesViewModel, state: UpdateUiState, 
                 fontSize = 13.sp
             )
         }
-        UpdateDetails(release, isDevBeta)
+        UpdateDetails(release, isDevBeta, installed)
+        if (isDevBeta) DevBuildActions(installed, release)
     }
 }
 
@@ -375,7 +417,12 @@ private fun StaleNotice() {
 /** One button of the card. Each acts on the release it was shown for; the model only offers actions that are allowed. */
 @Composable
 private fun UpdateActionButton(action: UpdateAction, release: StableRelease?, model: StableUpdatesViewModel, isPrimary: Boolean) {
-    val label = stringResource(actionTextRes(action))
+    val buildNumber = release?.dev?.buildNumber
+    val label = if (action == UpdateAction.Download && buildNumber != null) {
+        stringResource(R.string.updates_download_build, buildNumber)
+    } else {
+        stringResource(actionTextRes(action))
+    }
     val onClick: () -> Unit = {
         when (action) {
             UpdateAction.Check, UpdateAction.RetryCheck -> model.check()
@@ -408,7 +455,7 @@ private fun actionTextRes(action: UpdateAction): Int = when (action) {
 
 /** Technical facts, collapsed by default: channel, source, file, checksum and package. */
 @Composable
-private fun UpdateDetails(release: StableRelease?, isDevBeta: Boolean) {
+private fun UpdateDetails(release: StableRelease?, isDevBeta: Boolean, installed: InstalledBuild) {
     val palette = beyGramPalette()
     val motion = rememberMotionSpec(MotionToken.BannerChange)
     var expanded by rememberSaveable { mutableStateOf(false) }
@@ -438,6 +485,14 @@ private fun UpdateDetails(release: StableRelease?, isDevBeta: Boolean) {
                 DetailLine(stringResource(if (isDevBeta) R.string.updates_dev_channel else R.string.updates_stable_only))
                 DetailLine(stringResource(R.string.updates_source))
                 DetailLine(stringResource(R.string.updates_detail_package, BuildConfig.APPLICATION_ID))
+                if (isDevBeta) {
+                    installed.knownSha()?.let { sha ->
+                        DetailLine(stringResource(R.string.updates_installed_details, BuildConfig.VERSION_CODE, sha.take(7)))
+                    }
+                    release?.versionCode?.let { code ->
+                        DetailLine(stringResource(R.string.updates_detail_version_code, code))
+                    }
+                }
                 release?.let { offer ->
                     DetailLine(stringResource(R.string.updates_detail_file, offer.apkName))
                     DetailLine(stringResource(R.string.updates_detail_sha, offer.sha256))
@@ -503,39 +558,6 @@ private fun InstallNoticeText(notice: InstallNotice) {
     )
 }
 
-/** Release notes as a readable list: sections as headings, bullets and numbers as markers. The PR appendix is never shown. */
-@Composable
-private fun ReleaseNotesContent(markdown: String) {
-    val palette = beyGramPalette()
-    val notes = remember(markdown) { parseReleaseNotes(markdown) }
-    if (notes.isEmpty()) {
-        Text(stringResource(R.string.updates_no_notes), color = palette.textSecondary, fontSize = 15.sp)
-        return
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        notes.forEach { note ->
-            when (note.kind) {
-                ReleaseNotesKind.Section -> Text(
-                    note.text,
-                    color = palette.textPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    modifier = Modifier.padding(top = 8.dp).semantics { heading() }
-                )
-                ReleaseNotesKind.Bullet -> Row(verticalAlignment = Alignment.Top) {
-                    Text("•", color = palette.accent, fontSize = 15.sp, modifier = Modifier.padding(end = 10.dp))
-                    Text(note.text, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                }
-                ReleaseNotesKind.Numbered -> Row(verticalAlignment = Alignment.Top) {
-                    Text(note.marker, color = palette.accent, fontSize = 15.sp, modifier = Modifier.padding(end = 10.dp))
-                    Text(note.text, color = palette.textPrimary, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                }
-                ReleaseNotesKind.Paragraph -> Text(note.text, color = palette.textPrimary, fontSize = 15.sp)
-            }
-        }
-    }
-}
-
 /** A date and, when [withTime] is set, the time, in the platform's format for the reader's locale. */
 private fun formatUpdateDate(context: Context, millis: Long, withTime: Boolean): String {
     val flags = DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_YEAR or DateUtils.FORMAT_ABBREV_MONTH or
@@ -548,4 +570,87 @@ private fun formatPublishedDate(publishedAt: String, context: Context): String? 
     if (publishedAt.isBlank()) return null
     val millis = runCatching { Instant.parse(publishedAt).toEpochMilli() }.getOrNull() ?: return null
     return formatUpdateDate(context, millis, withTime = false)
+}
+
+/** The installed build in the DEV installed block. Stable keeps the plain version name. */
+@Composable
+internal fun installedBuildLabel(installed: InstalledBuild): String {
+    val versionName = BuildConfig.VERSION_NAME
+    return when (installed) {
+        is InstalledBuild.Ci -> stringResource(R.string.updates_installed_build, versionName, installed.number)
+        is InstalledBuild.UnknownNumber -> stringResource(R.string.updates_installed_unknown_number, versionName)
+        InstalledBuild.Local -> stringResource(R.string.updates_installed_local, versionName)
+    }
+}
+
+/** DEV only: copies the build identity for a bug report, and opens the installed commit on GitHub when it is known. */
+@Composable
+private fun DevBuildActions(installed: InstalledBuild, release: StableRelease?) {
+    val context = LocalContext.current
+    OutlinedButton(
+        onClick = {
+            val text = devBuildInfoText(
+                packageName = BuildConfig.APPLICATION_ID,
+                versionName = BuildConfig.VERSION_NAME,
+                versionCode = BuildConfig.VERSION_CODE.toLong(),
+                installed = installed,
+                availableBuild = release?.dev?.buildNumber,
+                availableCommit = release?.dev?.commit,
+            )
+            context.getSystemService(ClipboardManager::class.java)
+                ?.setPrimaryClip(ClipData.newPlainText("BeyGram DEV", text))
+            Toast.makeText(context, R.string.updates_build_info_copied, Toast.LENGTH_SHORT).show()
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(stringResource(R.string.updates_copy_build_info))
+    }
+    commitUrl(installed.knownSha())?.let { url ->
+        OutlinedButton(onClick = { openExternalUrl(context, url) }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.updates_open_commit))
+        }
+    }
+}
+
+/**
+ * DEV only: the builds after the installed one, newest first. An incomplete list says why and offers the GitHub
+ * compare page; a truncated one links to the release. Only URLs made by the helpers in DevBuildIdentity are opened.
+ */
+@Composable
+private fun DevChangesContent(changes: DevChangeRange, tag: String) {
+    val palette = beyGramPalette()
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        changes.entries.forEachIndexed { index, entry ->
+            Text(
+                stringResource(R.string.updates_release_build_title, entry.buildNumber),
+                color = palette.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                modifier = Modifier.padding(top = if (index == 0) 0.dp else 8.dp).semantics { heading() }
+            )
+            ReleaseNotesContent(entry.notes)
+        }
+        if (!changes.complete) {
+            Text(stringResource(R.string.updates_changes_incomplete), color = palette.textSecondary, fontSize = 14.sp)
+            changes.compareUrl?.let { url ->
+                OutlinedButton(onClick = { openExternalUrl(context, url) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.updates_changes_compare))
+                }
+            }
+        }
+        if (changes.truncated) {
+            Text(stringResource(R.string.updates_changes_truncated), color = palette.textSecondary, fontSize = 14.sp)
+            devReleaseUrl(tag)?.let { url ->
+                OutlinedButton(onClick = { openExternalUrl(context, url) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.updates_open_release))
+                }
+            }
+        }
+    }
+}
+
+/** Opens a GitHub page in a browser. A device without a handler for it simply does nothing. */
+internal fun openExternalUrl(context: Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 }

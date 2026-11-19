@@ -21,7 +21,23 @@ data class StableRelease(
     val sha256: String,
     val notes: String,
     val publishedAt: String,
-)
+    /** DEV only: build number, commit and the cumulative changes. Null for Stable. */
+    val dev: DevReleaseInfo? = null,
+    /** True when the release body was longer than the 15_000 characters kept in [notes]. */
+    val notesTruncated: Boolean = false,
+) {
+    /*
+     * Identity is the published release only. [dev] and [notesTruncated] are display details that the persisted state
+     * does not keep, so a release restored after a restart must still equal the same release from a fresh check.
+     */
+    override fun equals(other: Any?): Boolean =
+        other is StableRelease && tag == other.tag && versionName == other.versionName &&
+            versionCode == other.versionCode && apkName == other.apkName && size == other.size &&
+            sha256 == other.sha256 && notes == other.notes && publishedAt == other.publishedAt
+
+    override fun hashCode(): Int =
+        listOf(tag, versionName, versionCode, apkName, size, sha256, notes, publishedAt).hashCode()
+}
 
 object StableUpdatePolicy {
     const val PACKAGE = "com.beykus.beygram"
@@ -128,10 +144,12 @@ class StableUpdateRepository(private val context: Context) : ApkUpdateSource {
         }
         // The asset name must match the signed manifest and GitHub's public release listing.
         if (!StableUpdatePolicy.isNewer(installedCode, code)) return@withContext null
+        val body = release.optString("body", "")
         StableRelease(
             tag, name, code, asset, size, hash,
-            release.optString("body", "").take(15_000),
-            release.optString("published_at", "")
+            body.take(15_000),
+            release.optString("published_at", ""),
+            notesTruncated = body.length > 15_000,
         )
     }
 
