@@ -227,4 +227,20 @@
     <string name="updates_error_no_space">Espace de stockage insuffisant sur l’appareil pour télécharger la mise à jour. Libérez de l’espace et réessayez.</string>
     <string name="updates_error_already_installed">Cette version est déjà installée ou plus ancienne. Recherchez à nouveau les mises à jour.</string>
     <string name="updates_error_checksum">Le fichier téléchargé ne correspond pas à la version publiée. Téléchargez à nouveau la mise à jour.</string>
+    <string name="updates_installed_build">%1$s · Build %2$d</string>
+    <string name="updates_installed_local">%1$s · Build local</string>
+    <string name="updates_installed_unknown_number">%1$s · Numéro de build inconnu</string>
+    <string name="updates_installed_details">versionCode %1$d · %2$s</string>
+    <string name="updates_copy_build_info">Copier les détails du build</string>
+    <string name="updates_build_info_copied">Détails du build copiés.</string>
+    <string name="updates_open_commit">Ouvrir le commit sur GitHub</string>
+    <string name="updates_release_build_title">Build %1$d</string>
+    <string name="updates_release_comparison">Installé : build %1$d → disponible : %2$d</string>
+    <string name="updates_release_comparison_unknown">Build installé inconnu → disponible : %1$d</string>
+    <string name="updates_release_commit">Commit %1$s</string>
+    <string name="updates_download_build">Télécharger le build %1$d</string>
+    <string name="updates_changes_incomplete">La liste est peut-être incomplète : certains builds intermédiaires sont indisponibles, ou le numéro du build installé est inconnu.</string>
+    <string name="updates_changes_compare">Comparaison sur GitHub</string>
+    <string name="updates_changes_truncated">Tous les changements ne sont pas affichés.</string>
+    <string name="updates_open_release">Ouvrir la version sur GitHub</string>
 </resources>

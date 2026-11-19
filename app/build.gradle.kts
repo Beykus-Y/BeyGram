@@ -131,6 +131,8 @@ android {
         // Shown in the video-note diagnostics so a report names the exact commit and library versions.
         buildConfigField("String", "BUILD_GIT_SHA",
             (providers.environmentVariable("GITHUB_SHA").orNull?.take(12) ?: "local").asBuildConfigString())
+        // Set by the DEV channel only (-PdevBuildNumber); -1 means the build has no CI run number.
+        buildConfigField("int", "DEV_BUILD_NUMBER", "-1")
         buildConfigField("String", "CAMERAX_VERSION", libs.versions.camerax.get().asBuildConfigString())
         buildConfigField("String", "MEDIA3_VERSION", libs.versions.media3.get().asBuildConfigString())
 
@@ -146,6 +148,8 @@ android {
             // DEV beta builds add the CI run number to the stable code: each published DEV build
             // installs over the previous one and stays above Stable. Local builds keep the stable code.
             versionCode = stableVersionCode + ((project.findProperty("devBuildNumber") as String?)?.toInt() ?: 0)
+            buildConfigField("int", "DEV_BUILD_NUMBER",
+                ((project.findProperty("devBuildNumber") as String?)?.toIntOrNull() ?: -1).toString())
             // Dev and Stable are often installed side by side. Loopback ports are shared by every app on the
             // device, so each variant needs its own listener port (issue #75).
             buildConfigField("int", "MIHOMO_PROXY_PORT", "17892")

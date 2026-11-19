@@ -31,6 +31,8 @@ data class StableRelease(
     val sha256: String,
     val notes: String,
     val publishedAt: String,
+    /** DEV only: build number, commit and the cumulative changes. Null for Stable. */
+    val dev: DevReleaseInfo? = null,
 )
 
 object StableUpdatePolicy {

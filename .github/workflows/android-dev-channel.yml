@@ -294,8 +294,16 @@ jobs:
           sha=$(sha256sum "$out" | awk '{print $1}')
           code=$("$build_tools/aapt" dump badging "$out" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -n 1)
           test -n "$code"
-          printf '{"package":"com.beykus.beygram.dev","versionCode":%s,"sha256":"%s","size":%s,"commit":"%s","signerSha256":"%s"}\n' \
-            "$code" "$sha" "$size" "$GITHUB_SHA" "$DEV_SIGNER_SHA256" > "$RUNNER_TEMP/dev-beta/manifest.json"
+          # The DEV versionName is the Stable name plus the -dev suffix of the flavor. Anything else is not published.
+          base_version=$(sed -n 's/^versionName=//p' release-version.properties | head -n 1)
+          expected_name="$base_version-dev"
+          name=$("$build_tools/aapt" dump badging "$out" | sed -n "/^package:/s/.*[[:space:]]versionName='\([^']*\)'.*/\1/p" | head -n 1)
+          if [ -z "$base_version" ] || [ "$name" != "$expected_name" ]; then
+            echo "::error::versionName '$name' does not match '$expected_name'; DEV beta is not published." >&2
+            exit 1
+          fi
+          printf '{"package":"com.beykus.beygram.dev","versionCode":%s,"sha256":"%s","size":%s,"commit":"%s","signerSha256":"%s","versionName":"%s","buildNumber":%s,"baseVersion":"%s"}\n' \
+            "$code" "$sha" "$size" "$GITHUB_SHA" "$DEV_SIGNER_SHA256" "$name" "${{ github.run_number }}" "$base_version" > "$RUNNER_TEMP/dev-beta/manifest.json"
 
       - name: Upload DEV beta artifact
         uses: actions/upload-artifact@v4
@@ -326,6 +334,7 @@ jobs:
             echo "Сборка DEV для проверки. Пакет com.beykus.beygram.dev ставится рядом со Stable."
             echo
             echo "Коммит ${GITHUB_SHA:0:7}."
+            echo "Сборка ${{ github.run_number }}."
             echo
             echo "Изменения с прошлой сборки:"
             echo
@@ -333,12 +342,30 @@ jobs:
             if [ -n "$previous" ]; then
               prev_sha=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$previous" --jq .target_commitish)
             fi
+            # The app reads the marker at the end of the notes: only a full SHA can be a chain link.
+            if [[ ! "$prev_sha" =~ ^[0-9a-f]{40}$ ]]; then prev_sha=""; fi
+            range_ok=false
+            limit=30
             # A force-push to DEV can drop the previous build's commit from history: then list the latest commits.
             if [ -n "$prev_sha" ] && git merge-base --is-ancestor "$prev_sha" "$GITHUB_SHA" 2>/dev/null; then
-              git log --no-merges --format='- %s' -n 100 "$prev_sha..$GITHUB_SHA"
+              range_ok=true
+              limit=100
+              count=$(git rev-list --no-merges --count "$prev_sha..$GITHUB_SHA" || echo 0)
+              git log --no-merges --format='- %s' -n "$limit" "$prev_sha..$GITHUB_SHA"
             else
-              git log --no-merges --format='- %s' -n 30 "$GITHUB_SHA"
+              count=$(git rev-list --no-merges --count "$GITHUB_SHA" || echo 0)
+              git log --no-merges --format='- %s' -n "$limit" "$GITHUB_SHA"
             fi
+            truncated=false
+            if [ "$count" -gt "$limit" ]; then
+              truncated=true
+              echo "- …и ещё $((count - limit)) изменений, полный список на GitHub"
+            fi
+            complete=false
+            if [ "$range_ok" = true ] && [ "$truncated" = false ]; then complete=true; fi
+            echo
+            # Last line of the notes: the app reads it to build the cumulative changes. It is hidden from the reader.
+            echo "<!-- beygram-dev-range from=${prev_sha:-none} to=$GITHUB_SHA complete=$complete -->"
           } > "$notes"
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --prerelease --latest=false \

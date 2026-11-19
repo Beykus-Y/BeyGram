@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import com.beykus.beygram.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -47,7 +48,8 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
     /** Newest DEV prerelease with its manifest. Returns null when the installed build is already current. */
     override suspend fun check(installedCode: Long): StableRelease? = withContext(Dispatchers.IO) {
         require(context.packageName == DEV_PACKAGE) { "Обновления DEV доступны только в DEV." }
-        val release = pickLatestDevRelease(fetchReleases()) ?: return@withContext null
+        val releases = fetchReleases()
+        val release = pickLatestDevRelease(releases) ?: return@withContext null
         val tag = release.getString("tag_name")
         val assets = release.getJSONArray("assets")
         val names = (0 until assets.length()).map { assets.getJSONObject(it).getString("name") }.toSet()
@@ -64,6 +66,14 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
             throw IOException("Некорректный манифест DEV-сборки: установка запрещена.")
         }
         if (code <= installedCode) return@withContext null
+        // Display metadata only: the update decision above stays on versionCode.
+        val extras = parseDevManifestExtras(manifest, tag)
+        val commit = extras.commit ?: release.optString("target_commitish", "").takeIf { isFullCommitSha(it) }
+        val changes = buildCumulativeChanges(
+            releases,
+            installedBuild(BuildConfig.DEV_BUILD_NUMBER, BuildConfig.BUILD_GIT_SHA),
+            tag,
+        )
         StableRelease(
             tag = tag,
             versionName = tag,
@@ -73,6 +83,12 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
             sha256 = hash,
             notes = release.optString("body", "").take(15_000),
             publishedAt = release.optString("published_at", ""),
+            dev = DevReleaseInfo(
+                buildNumber = extras.buildNumber,
+                commit = commit,
+                versionName = extras.versionName,
+                changes = changes,
+            ),
         )
     }
 
@@ -299,7 +315,7 @@ class DevUpdateRepository(private val context: Context) : ApkUpdateSource {
     }
 }
 
-private fun isDevPrerelease(release: JSONObject): Boolean =
+internal fun isDevPrerelease(release: JSONObject): Boolean =
     release.optBoolean("prerelease") && !release.optBoolean("draft") &&
         devTagPattern.matches(release.optString("tag_name"))
 

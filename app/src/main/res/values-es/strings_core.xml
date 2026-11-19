@@ -227,4 +227,20 @@
     <string name="updates_error_no_space">No hay suficiente espacio libre en el dispositivo para descargar la actualización. Libera espacio e inténtalo de nuevo.</string>
     <string name="updates_error_already_installed">Esta versión ya está instalada o es anterior. Vuelve a buscar actualizaciones.</string>
     <string name="updates_error_checksum">El archivo descargado no coincide con la versión publicada. Vuelve a descargar la actualización.</string>
+    <string name="updates_installed_build">%1$s · Compilación %2$d</string>
+    <string name="updates_installed_local">%1$s · Compilación local</string>
+    <string name="updates_installed_unknown_number">%1$s · Número de compilación desconocido</string>
+    <string name="updates_installed_details">versionCode %1$d · %2$s</string>
+    <string name="updates_copy_build_info">Copiar datos de la compilación</string>
+    <string name="updates_build_info_copied">Datos de la compilación copiados.</string>
+    <string name="updates_open_commit">Abrir commit en GitHub</string>
+    <string name="updates_release_build_title">Compilación %1$d</string>
+    <string name="updates_release_comparison">Instalada: compilación %1$d → disponible: %2$d</string>
+    <string name="updates_release_comparison_unknown">Compilación instalada desconocida → disponible: %1$d</string>
+    <string name="updates_release_commit">Commit %1$s</string>
+    <string name="updates_download_build">Descargar compilación %1$d</string>
+    <string name="updates_changes_incomplete">La lista puede estar incompleta: algunas compilaciones intermedias no están disponibles o se desconoce el número de la compilación instalada.</string>
+    <string name="updates_changes_compare">Comparar en GitHub</string>
+    <string name="updates_changes_truncated">No se muestran todos los cambios.</string>
+    <string name="updates_open_release">Abrir la versión en GitHub</string>
 </resources>

@@ -1,7 +1,12 @@
 package com.beykus.beygram.ui.screens.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.text.format.DateUtils
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -32,7 +37,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.beykus.beygram.BuildConfig
 import com.beykus.beygram.R
+import com.beykus.beygram.data.update.DevChangeRange
+import com.beykus.beygram.data.update.InstalledBuild
 import com.beykus.beygram.data.update.StableRelease
+import com.beykus.beygram.data.update.commitUrl
+import com.beykus.beygram.data.update.devBuildInfoText
+import com.beykus.beygram.data.update.devReleaseUrl
+import com.beykus.beygram.data.update.installedBuild
+import com.beykus.beygram.data.update.knownSha
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.ui.components.Button
 import com.beykus.beygram.ui.components.OutlinedButton
@@ -79,6 +91,7 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
         UpdateStatus.Idle, UpdateStatus.Current -> null
     }
     val retryCheck = status is UpdateStatus.Failure && status.release == null
+    val installed = remember { installedBuild(BuildConfig.DEV_BUILD_NUMBER, BuildConfig.BUILD_GIT_SHA) }
     Column(
         Modifier.fillMaxSize()
             .glassScreenBackground(design, palette.screen)
@@ -96,11 +109,20 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        BuildConfig.VERSION_NAME,
+                        if (isDevBeta) installedBuildLabel(installed) else BuildConfig.VERSION_NAME,
                         color = palette.textPrimary,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                    if (isDevBeta) {
+                        installed.knownSha()?.let { sha ->
+                            Text(
+                                stringResource(R.string.updates_installed_details, BuildConfig.VERSION_CODE, sha.take(7)),
+                                color = palette.textSecondary,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
                     Text(
                         stringResource(if (isDevBeta) R.string.updates_dev_channel else R.string.updates_stable_only),
                         color = palette.textSecondary,
@@ -121,13 +143,21 @@ fun StableUpdatesScreen(onBack: () -> Unit, model: StableUpdatesViewModel = view
                     ) {
                         Text(stringResource(if (retryCheck) R.string.updates_retry_check else R.string.updates_check))
                     }
+                    if (isDevBeta) {
+                        DevBuildActions(installed, release)
+                    }
                 }
             }
             release?.let { current ->
                 ReleaseCard(model, status, current, isDevBeta)
                 SettingsGroup(stringResource(R.string.updates_changes)) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
-                        ReleaseNotesContent(current.notes)
+                        val dev = current.dev
+                        if (isDevBeta && dev != null && dev.changes.entries.isNotEmpty()) {
+                            DevChangesContent(dev.changes, current.tag)
+                        } else {
+                            ReleaseNotesContent(current.notes)
+                        }
                     }
                 }
             }
@@ -250,12 +280,34 @@ private fun ReleaseCard(model: StableUpdatesViewModel, status: UpdateStatus, rel
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(release.versionName, color = palette.textPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            val dev = release.dev.takeIf { isDevBeta }
+            Text(
+                dev?.buildNumber?.let { stringResource(R.string.updates_release_build_title, it) } ?: release.versionName,
+                color = palette.textPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold
+            )
             Text(
                 stringResource(if (isDevBeta) R.string.updates_type_dev else R.string.updates_type_stable),
                 color = palette.textSecondary,
                 fontSize = 14.sp
             )
+            dev?.buildNumber?.let { target ->
+                // The installed number is known only for a CI build; otherwise the comparison says so.
+                val installedNumber = (installedBuild(BuildConfig.DEV_BUILD_NUMBER, BuildConfig.BUILD_GIT_SHA) as? InstalledBuild.Ci)?.number
+                Text(
+                    if (installedNumber != null) {
+                        stringResource(R.string.updates_release_comparison, installedNumber, target)
+                    } else {
+                        stringResource(R.string.updates_release_comparison_unknown, target)
+                    },
+                    color = palette.textSecondary,
+                    fontSize = 14.sp
+                )
+            }
+            dev?.commit?.let { commit ->
+                Text(stringResource(R.string.updates_release_commit, commit.take(7)), color = palette.textSecondary, fontSize = 14.sp)
+            }
             Text(
                 stringResource(R.string.updates_size, release.size / (1024f * 1024f)),
                 color = palette.textSecondary,
@@ -284,7 +336,10 @@ private fun ReleaseActions(model: StableUpdatesViewModel, status: UpdateStatus, 
     val palette = beyGramPalette()
     when (status) {
         is UpdateStatus.Available -> Button(onClick = { model.download(release) }, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.updates_download))
+            Text(
+                release.dev?.buildNumber?.let { stringResource(R.string.updates_download_build, it) }
+                    ?: stringResource(R.string.updates_download)
+            )
         }
         is UpdateStatus.Downloading -> {
             LinearProgressIndicator(
@@ -341,6 +396,89 @@ private fun InstallNoticeText(notice: InstallNotice) {
             .padding(12.dp)
             .errorAnnouncement()
     )
+}
+
+/** The installed build in the DEV installed block. Stable keeps the plain version name. */
+@Composable
+private fun installedBuildLabel(installed: InstalledBuild): String {
+    val versionName = BuildConfig.VERSION_NAME
+    return when (installed) {
+        is InstalledBuild.Ci -> stringResource(R.string.updates_installed_build, versionName, installed.number)
+        is InstalledBuild.UnknownNumber -> stringResource(R.string.updates_installed_unknown_number, versionName)
+        InstalledBuild.Local -> stringResource(R.string.updates_installed_local, versionName)
+    }
+}
+
+/** DEV only: copies the build identity for a bug report, and opens the installed commit on GitHub when it is known. */
+@Composable
+private fun DevBuildActions(installed: InstalledBuild, release: StableRelease?) {
+    val context = LocalContext.current
+    OutlinedButton(
+        onClick = {
+            val text = devBuildInfoText(
+                packageName = BuildConfig.APPLICATION_ID,
+                versionName = BuildConfig.VERSION_NAME,
+                versionCode = BuildConfig.VERSION_CODE.toLong(),
+                installed = installed,
+                availableBuild = release?.dev?.buildNumber,
+                availableCommit = release?.dev?.commit,
+            )
+            context.getSystemService(ClipboardManager::class.java)
+                ?.setPrimaryClip(ClipData.newPlainText("BeyGram DEV", text))
+            Toast.makeText(context, R.string.updates_build_info_copied, Toast.LENGTH_SHORT).show()
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(stringResource(R.string.updates_copy_build_info))
+    }
+    commitUrl(installed.knownSha())?.let { url ->
+        OutlinedButton(onClick = { openExternalUrl(context, url) }, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.updates_open_commit))
+        }
+    }
+}
+
+/**
+ * DEV only: the builds after the installed one, newest first. An incomplete list says why and offers the GitHub
+ * compare page; a truncated one links to the release. Only URLs made by the helpers in DevBuildIdentity are opened.
+ */
+@Composable
+private fun DevChangesContent(changes: DevChangeRange, tag: String) {
+    val palette = beyGramPalette()
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        changes.entries.forEachIndexed { index, entry ->
+            Text(
+                stringResource(R.string.updates_release_build_title, entry.buildNumber),
+                color = palette.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                modifier = Modifier.padding(top = if (index == 0) 0.dp else 8.dp).semantics { heading() }
+            )
+            ReleaseNotesContent(entry.notes)
+        }
+        if (!changes.complete) {
+            Text(stringResource(R.string.updates_changes_incomplete), color = palette.textSecondary, fontSize = 14.sp)
+            changes.compareUrl?.let { url ->
+                OutlinedButton(onClick = { openExternalUrl(context, url) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.updates_changes_compare))
+                }
+            }
+        }
+        if (changes.truncated) {
+            Text(stringResource(R.string.updates_changes_truncated), color = palette.textSecondary, fontSize = 14.sp)
+            devReleaseUrl(tag)?.let { url ->
+                OutlinedButton(onClick = { openExternalUrl(context, url) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.updates_open_release))
+                }
+            }
+        }
+    }
+}
+
+/** Opens a GitHub page in a browser. A device without a handler for it simply does nothing. */
+private fun openExternalUrl(context: Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 }
 
 /** Release notes as a readable list: sections as headings, bullets and numbers as markers. The PR appendix is never shown. */
