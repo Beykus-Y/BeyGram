@@ -3,7 +3,10 @@ package com.beykus.beygram.ui.screens.settings
 import com.beykus.beygram.R
 import com.beykus.beygram.data.update.StableUpdateException
 import com.beykus.beygram.data.update.StableUpdateReason
+import com.beykus.beygram.data.update.UpdateStep
+import com.beykus.beygram.data.update.updateErrorReason
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import java.io.IOException
 import java.net.ConnectException
@@ -13,30 +16,44 @@ import java.net.UnknownHostException
 class StableUpdateFailureTextTest {
     @Test fun connectionFailuresSayToCheckTheConnection() {
         assertEquals(R.string.updates_error_network,
-            updateFailureTextRes(UnknownHostException("api.github.com"), R.string.updates_error_check))
+            updateFailureTextRes(updateErrorReason(UnknownHostException("api.github.com")), UpdateStep.Check))
         assertEquals(R.string.updates_error_network,
-            updateFailureTextRes(ConnectException("connection refused"), R.string.updates_error_download))
-        assertEquals(R.string.updates_error_network,
-            updateFailureTextRes(SocketTimeoutException("read timed out"), R.string.updates_error_check))
+            updateFailureTextRes(updateErrorReason(ConnectException("connection refused")), UpdateStep.Download))
     }
 
-    @Test fun otherFailuresUseTheFriendlyTextOfTheirStep() {
-        // Repository messages can carry server text; the screen shows the step text instead of them.
+    @Test fun slowConnectionsGetTheTimeoutText() {
+        assertEquals(R.string.updates_error_timeout,
+            updateFailureTextRes(updateErrorReason(SocketTimeoutException("read timed out")), UpdateStep.Check))
+    }
+
+    @Test fun unclassifiedErrorsUseTheFriendlyTextOfTheirStep() {
+        // Repository messages can carry server text; without a typed reason the screen shows the step text.
         assertEquals(R.string.updates_error_check,
-            updateFailureTextRes(IOException("Ошибка GitHub: HTTP 503."), R.string.updates_error_check))
+            updateFailureTextRes(updateErrorReason(IOException("Ошибка GitHub: HTTP 503.")), UpdateStep.Check))
         assertEquals(R.string.updates_error_download,
-            updateFailureTextRes(IOException("Контрольная сумма APK не совпадает."), R.string.updates_error_download))
+            updateFailureTextRes(updateErrorReason(IOException("неизвестная ошибка")), UpdateStep.Download))
     }
 
     @Test fun typedFailuresGetTheirOwnText() {
         assertEquals(R.string.updates_error_no_space,
-            updateFailureTextRes(StableUpdateException(StableUpdateReason.NoFreeSpace, "Недостаточно свободного места для APK."),
-                R.string.updates_error_download))
+            updateFailureTextRes(updateErrorReason(StableUpdateException(StableUpdateReason.NoFreeSpace, "мало места")),
+                UpdateStep.Download))
         assertEquals(R.string.updates_error_already_installed,
-            updateFailureTextRes(StableUpdateException(StableUpdateReason.AlreadyInstalled, "Эта версия уже установлена или устарела."),
-                R.string.updates_error_download))
+            updateFailureTextRes(updateErrorReason(StableUpdateException(StableUpdateReason.AlreadyInstalled, "тот же код")),
+                UpdateStep.Download))
         assertEquals(R.string.updates_error_checksum,
-            updateFailureTextRes(StableUpdateException(StableUpdateReason.ChecksumMismatch, "Контрольная сумма APK не совпадает."),
-                R.string.updates_error_download))
+            updateFailureTextRes(updateErrorReason(StableUpdateException(StableUpdateReason.ChecksumMismatch, "hash")),
+                UpdateStep.Download))
+    }
+
+    @Test fun everyReasonHasItsOwnText() {
+        val texts = StableUpdateReason.values().map { updateReasonTextRes(it) }
+        assertEquals(StableUpdateReason.values().size, texts.toSet().size)
+    }
+
+    @Test fun rateLimitAndMissingReleaseAreNamedByReason() {
+        assertEquals(R.string.updates_error_rate_limited, updateReasonTextRes(StableUpdateReason.RateLimited))
+        assertEquals(R.string.updates_error_missing_release, updateReasonTextRes(StableUpdateReason.MissingRelease))
+        assertNotEquals(updateReasonTextRes(StableUpdateReason.Outdated), updateReasonTextRes(StableUpdateReason.AlreadyInstalled))
     }
 }
