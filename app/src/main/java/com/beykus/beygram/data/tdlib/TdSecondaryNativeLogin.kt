@@ -94,6 +94,8 @@ internal class TdSecondaryNativeLoginLauncher(
         if (planned is TdSecondaryRouteDecision.Blocked) {
             throw TdSecondaryRouteUnavailableException(planned.reason)
         }
+        // Lets the proxy logic know which accounts depend on the shared listener. Observation only.
+        runCatching { TdSecondaryConnectionStates.markRoute(accountId, planned == TdSecondaryRouteDecision.SharedMihomo) }
 
         val phases = MutableStateFlow(TdAccountAuthPhase.STARTING)
         val fullRepositoryObservers = CopyOnWriteArrayList<(TdApi.Object) -> Unit>()
