@@ -546,7 +546,7 @@ fun ChatScreen(
     var recordingQueueSending by remember(chat.id) { mutableStateOf(false) }
     var recordingQueueProgress by remember(chat.id) { mutableIntStateOf(0) }
     // Voice messages use this local queue; video notes are owned by VideoNoteExportCenter.
-    val pendingRecordingSends = remember(chat.id) { ArrayDeque<List<OutgoingMedia>>() }
+    val pendingRecordingSends = remember(chat.id) { ArrayDeque<Pair<VoiceRecordingDestination, List<OutgoingMedia>>>() }
     val videoExports by VideoNoteExportCenter.results.collectAsStateWithLifecycle()
     // The feed claims the notes of every topic of its chat; a topic view claims only the notes recorded in its own topic.
     val videoClaimTopicId: Long? = if (forumAllMessages) null else sendForumTopicId
@@ -562,16 +562,17 @@ fun ChatScreen(
         recordingRecovery.processingScope.launch {
             try {
                 while (pendingRecordingSends.isNotEmpty()) {
-                    val mediaList = pendingRecordingSends.removeFirst()
+                    val (destination, mediaList) = pendingRecordingSends.removeFirst()
                     mediaList.forEachIndexed { index, media ->
                         if (media.path in sentRecordingPaths) return@forEachIndexed
                         recordingQueueProgress = index + 1
-                        val result = conversation.sendMedia(chat.id, media, "", replyId, forumTopicId = sendForumTopicId)
+                        val result = conversation.sendMedia(chat.id, media, "", destination.replyId, forumTopicId = destination.topicId)
                         if (result.isSuccess) {
                             sentRecordingPaths = sentRecordingPaths + media.path
-                            clearReply()
+                            // Clear only the reply this take was sent with; a reply set after the take was queued stays.
+                            if (replyId == destination.replyId) clearReply()
                         } else {
-                            recordingRecovery.showPreview(mediaList, index)
+                            recordingRecovery.showPreview(mediaList, destination, index)
                             error = result.exceptionOrNull().userMessage(context, R.string.chat_video_note_send_failed)
                             pendingRecordingSends.clear()
                             return@launch
@@ -586,8 +587,8 @@ fun ChatScreen(
         }
     }
     /** Ставит запись в отправку. Пропусков нет: занятый worker сам подхватит очередь. */
-    fun sendRecordedMedia(mediaList: List<OutgoingMedia>) {
-        pendingRecordingSends.addLast(mediaList)
+    fun sendRecordedMedia(mediaList: List<OutgoingMedia>, destination: VoiceRecordingDestination) {
+        pendingRecordingSends.addLast(destination to mediaList)
         startRecordingSendWorker()
     }
     /** Typing is shown from each keystroke; clearing the field ends it. */
@@ -610,8 +611,9 @@ fun ChatScreen(
     // Chip taps leave the user's recent reactions alone; only a reaction picked from the extended menu is added there.
     fun react(messageId: Long, reaction: ReactionOption) = setReaction(messageId, reaction, addToRecent = false)
     fun capturedRecording(media: OutgoingMedia, previewFirst: Boolean) {
-        if (previewFirst) recordingRecovery.showPreview(listOf(media))
-        else sendRecordedMedia(listOf(media))
+        val destination = VoiceRecordingDestination(sendForumTopicId, replyId)
+        if (previewFirst) recordingRecovery.showPreview(listOf(media), destination)
+        else sendRecordedMedia(listOf(media), destination)
     }
     val mediaLaunchController = remember(accountId, chat.id, forumTopicId) { ComposerMediaLaunchController() }
     val mediaLaunchMotion = rememberMotionSpec(MotionToken.MediaExpand)
@@ -2945,15 +2947,15 @@ fun ChatScreen(
             }
         )
     }
-    if (videoPreview == null) recordingPreview?.let { mediaList -> RecordingPreviewDialog(
-        mediaList = mediaList,
+    if (videoPreview == null) recordingPreview?.let { preview -> RecordingPreviewDialog(
+        mediaList = preview.media,
         selectedIndex = recordingPreviewIndex,
         sentPaths = sentRecordingPaths,
         sending = recordingQueueSending,
         progress = recordingQueueProgress,
         onSelect = recordingRecovery::select,
-        onDelete = { mediaList.firstOrNull()?.let { java.io.File(it.path).parentFile?.deleteRecursively() }; sentRecordingPaths = emptySet(); recordingRecovery.dismissPreview() },
-        onSend = { sendRecordedMedia(mediaList) }
+        onDelete = { preview.media.firstOrNull()?.let { java.io.File(it.path).parentFile?.deleteRecursively() }; sentRecordingPaths = emptySet(); recordingRecovery.dismissPreview() },
+        onSend = { sendRecordedMedia(preview.media, preview.destination) }
     ) }
     val viewedRights = selectedMediaId?.let { MediaViewerPolicy.rightsFor(it, viewerRights) }
     // A view-once message is deleted by TDLib right after OpenMessageContent. Keep the already opened item for this

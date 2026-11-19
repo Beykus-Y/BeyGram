@@ -124,8 +124,17 @@ internal val videoNotePermissions = arrayOf(Manifest.permission.CAMERA, Manifest
 internal fun videoNoteAllowed(context: Context): Boolean =
     videoNotePermissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
+/** Куда отправить кружок. Фиксируется в момент начала записи, а не при финализации CameraX, которая может прийти позже. */
+internal data class VideoNoteDestination(
+    val chatId: Long,
+    val topicId: Long,
+    val accountId: String,
+    val replyToMessageId: Long?,
+    val recordedInFeed: Boolean
+)
+
 /** Одна запись: пишется или уже останавливается и ждёт финализации CameraX. */
-private class VideoTake(val file: File, val settings: VideoMessageSettings, val sessionName: String) {
+private class VideoTake(val file: File, val settings: VideoMessageSettings, val sessionName: String, val destination: VideoNoteDestination) {
     var discard = false
     var recording: Recording? = null
     var previewFirst = false
@@ -138,8 +147,10 @@ internal class VideoNoteRecorder(
     private val lifecycleOwner: LifecycleOwner,
     private val scope: CoroutineScope,
     private val currentSettings: () -> VideoMessageSettings,
+    /** Назначение читается в момент создания записи, поэтому позднее состояние композиции на него не влияет. */
+    private val currentDestination: () -> VideoNoteDestination,
     /** Сырая запись готова к экспорту: обработку выполняет VideoNoteExportCenter, переживая выход из чата. */
-    private val onTakeReady: (raw: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean) -> Unit,
+    private val onTakeReady: (raw: File, settings: VideoMessageSettings, sessionName: String, previewFirst: Boolean, destination: VideoNoteDestination) -> Unit,
     private val onError: (String) -> Unit
 ) {
     val previewView = PreviewView(context).apply {
@@ -754,7 +765,7 @@ internal class VideoNoteRecorder(
         // Замаскированные сегменты обработчик кладёт в filesDir/uploads, как и вложения: кэш система может очистить до отправки.
         val sessionName = UUID.randomUUID().toString()
         val rawDirectory = File(context.noBackupFilesDir, "uploads").resolve(sessionName).apply { mkdirs() }
-        val current = VideoTake(rawDirectory.resolve("video-note.mp4"), settings, sessionName)
+        val current = VideoTake(rawDirectory.resolve("video-note.mp4"), settings, sessionName, currentDestination())
         take = current
         VideoNoteDiagnostics.begin(
             context = context,
@@ -886,7 +897,7 @@ internal class VideoNoteRecorder(
                 current.file.parentFile?.deleteRecursively()
                 onError(context.getString(R.string.recorder_save_failed))
             }
-            VideoTakeOutcome.Send -> onTakeReady(current.file, current.settings, current.sessionName, current.previewFirst)
+            VideoTakeOutcome.Send -> onTakeReady(current.file, current.settings, current.sessionName, current.previewFirst, current.destination)
         }
     }
 }
@@ -956,8 +967,11 @@ internal fun rememberVideoNoteRecorder(
     val currentOnError by rememberUpdatedState(onError)
     val recorder = remember(owner, settings, processingScope) {
         VideoNoteRecorder(context, owner, processingScope, { settings.settings.value },
-            onTakeReady = { raw, takeSettings, sessionName, previewFirst ->
-                VideoNoteExportCenter.enqueue(context.applicationContext, currentChatId, raw, takeSettings, sessionName, previewFirst, currentTopicId, currentAccountId, currentReplyToMessageId, currentRecordedInFeed)
+            currentDestination = {
+                VideoNoteDestination(currentChatId, currentTopicId, currentAccountId, currentReplyToMessageId, currentRecordedInFeed)
+            },
+            onTakeReady = { raw, takeSettings, sessionName, previewFirst, destination ->
+                VideoNoteExportCenter.enqueue(context.applicationContext, destination.chatId, raw, takeSettings, sessionName, previewFirst, destination.topicId, destination.accountId, destination.replyToMessageId, destination.recordedInFeed)
             },
             onError = { currentOnError(it) })
     }

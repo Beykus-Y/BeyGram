@@ -110,4 +110,9 @@ class VideoNotePendingTest {
         val note = VideoNoteExportResult(7L, listOf(media("a")), false, "a", topicId = 1L, recordedInFeed = true)
         assertNull(note.sendReplyId(feedSender = false, composerReplyId = 99L))
     }
+
+    @Test fun retryAfterAcceptedSegmentsDoesNotRepeatTheReply() {
+        assertEquals(42L, initialSendReply(nextIndex = 0, replyId = 42L))
+        assertNull(initialSendReply(nextIndex = 1, replyId = 42L))
+    }
 }
