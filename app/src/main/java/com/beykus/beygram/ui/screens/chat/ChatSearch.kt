@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,12 +31,15 @@ import com.beykus.beygram.ui.components.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -52,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.ChatMessage
 import com.beykus.beygram.domain.search.appendDistinctBy
+import com.beykus.beygram.domain.search.shouldAutoLoadChatSearchPage
 import com.beykus.beygram.ui.accessibility.errorAnnouncement
 import com.beykus.beygram.domain.model.ChatSearchFilter
 import com.beykus.beygram.domain.model.SharedMediaKind
@@ -335,13 +340,21 @@ internal fun ChatSearchResults(
     busy: Boolean,
     error: String?,
     hasMore: Boolean,
+    stale: Boolean,
     onOpen: (ChatMessage) -> Unit,
     onMore: () -> Unit,
+    onRetry: () -> Unit,
     onResetFilters: () -> Unit
 ) {
     val palette = beyGramPalette()
     val needle = query.trim()
     val criteriaActive = needle.isNotEmpty() || filter.isActive
+    val listState = rememberLazyListState()
+    val lastVisible by remember { derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 } }
+    // Автодогрузка: у конца списка, без ошибки, без устаревших результатов и без параллельного запроса.
+    LaunchedEffect(lastVisible, results.size, hasMore, busy, error, stale) {
+        if (shouldAutoLoadChatSearchPage(lastVisible, results.size, hasMore, busy, error != null, stale)) onMore()
+    }
     Box(Modifier.fillMaxSize().background(palette.screen).imePadding()) {
         when {
             !criteriaActive -> SearchNote(stringResource(R.string.search_type_to_search), palette.textSecondary)
@@ -351,28 +364,39 @@ internal fun ChatSearchResults(
             results.isEmpty() -> Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
-                        Text(
-                            stringResource(
-                                when {
-                                    hasMore -> R.string.search_no_matches_page
-                                    filter.isActive -> R.string.search_no_filter_results
-                                    else -> R.string.search_nothing_found
-                                }
-                            ),
-                            color = palette.textSecondary,
-                            textAlign = TextAlign.Center
-                        )
-                        if (filter.isActive) {
-                            TextButton(onClick = onResetFilters) { Text(stringResource(R.string.search_filter_reset)) }
+                        if (error != null) {
+                            // Ошибка первой страницы отделена от «ничего не найдено»: повтор с теми же запросом и фильтрами.
+                            Text(
+                                error,
+                                color = palette.danger,
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.errorAnnouncement()
+                            )
+                            TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
+                        } else {
+                            Text(
+                                stringResource(
+                                    when {
+                                        filter.isActive -> R.string.search_no_filter_results
+                                        else -> R.string.search_nothing_found
+                                    }
+                                ),
+                                color = palette.textSecondary,
+                                textAlign = TextAlign.Center
+                            )
+                            if (filter.isActive) {
+                                TextButton(onClick = onResetFilters) { Text(stringResource(R.string.search_filter_reset)) }
+                            }
                         }
                     }
                 }
-                if (hasMore) SearchMoreButton(busy, onMore)
-                error?.let { message ->
-                    Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement())
-                }
             }
-            else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
+            else -> LazyColumn(
+                Modifier.fillMaxSize().alpha(if (stale) 0.5f else 1f),
+                state = listState,
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
                 item(key = "search_count") {
                     val shownCount = totalCount ?: results.size
                     Text(
@@ -382,7 +406,8 @@ internal fun ChatSearchResults(
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                     )
                 }
-                items(results, key = { it.id }) { message -> SearchResultRow(message, needle) { onOpen(message) } }
+                // Устаревшие результаты (запрос или фильтр уже поменялся) видны, но открыть их нельзя.
+                items(results, key = { it.id }) { message -> SearchResultRow(message, needle) { if (!stale) onOpen(message) } }
                 if (hasMore) item(key = "search_more") { SearchMoreButton(busy, onMore) }
                 error?.let { message ->
                     item(key = "search_error") { Text(message, color = palette.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp).errorAnnouncement()) }

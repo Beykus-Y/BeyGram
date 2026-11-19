@@ -30,3 +30,26 @@ fun isCurrentChatSearch(
     currentQuery: String,
     currentFilter: ChatSearchFilter
 ): Boolean = requestedFilter == currentFilter && isCurrentSearch(requestedQuery, currentQuery)
+
+/** Сколько последних результатов должно оказаться на экране, чтобы следующая страница догрузилась сама. */
+const val CHAT_SEARCH_AUTO_LOAD_THRESHOLD = 5
+
+/**
+ * Автодогрузка выдачи: только когда список дошёл до конца, есть курсор, не идёт запрос,
+ * нет ошибки и показанные результаты не устарели. Ошибка или устаревание не запускают цикл:
+ * тогда остаётся ручная кнопка «Показать ещё».
+ */
+fun shouldAutoLoadChatSearchPage(
+    lastVisibleIndex: Int,
+    resultCount: Int,
+    hasMore: Boolean,
+    busy: Boolean,
+    failed: Boolean,
+    stale: Boolean
+): Boolean =
+    resultCount > 0 && hasMore && !busy && !failed && !stale &&
+        lastVisibleIndex >= resultCount - CHAT_SEARCH_AUTO_LOAD_THRESHOLD
+
+/** Курсор, который не сдвинулся, означает, что TDLib отдал ту же страницу: дальше грузить нельзя. */
+fun nextChatSearchCursor(requestedCursor: Long, returnedCursor: Long): Long =
+    if (returnedCursor == requestedCursor) 0L else returnedCursor
