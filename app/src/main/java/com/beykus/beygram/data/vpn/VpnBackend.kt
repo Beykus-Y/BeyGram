@@ -161,7 +161,8 @@ internal class VpnBackend private constructor(
         if (!allowed) {
             // A listener that keeps dying right after each start is not recovered again without the user.
             MihomoRuntimeDiagnostics.event("backend", "listener keeps dropping; recovery limit reached")
-            _restoreFailed.value = true
+            // Ask only while TDLib still points at our listener; if it moved on, there is nothing to decide.
+            if (isTdLibProxyEnabled().getOrNull() != false) _restoreFailed.value = true
             return
         }
         MihomoRuntimeDiagnostics.event("backend", "listener dropped while Telegram uses it; recovering")
