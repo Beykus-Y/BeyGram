@@ -55,6 +55,8 @@ internal class TdForumTopicBriefs(
     private val lock = Any()
     /** Topics whose question to TDLib has no answer yet. Guarded by [lock]. */
     private val asked = HashSet<ForumTopicKey>()
+    /** Topics whose brief was stored (by an update or a listing) while their question was open. Guarded by [lock]. */
+    private val storedWhileAsked = HashSet<ForumTopicKey>()
     private val briefs = EvictableStateMap<ForumTopicKey, ForumTopicBrief?>(
         lock = lock,
         maxEntries = capacity,
@@ -79,12 +81,16 @@ internal class TdForumTopicBriefs(
     }
 
     private fun store(key: ForumTopicKey, brief: ForumTopicBrief) {
-        synchronized(lock) { briefs.stateLocked(key).value = brief }
+        synchronized(lock) {
+            if (key in asked) storedWhileAsked.add(key)
+            briefs.stateLocked(key).value = brief
+        }
     }
 
     private fun ask(key: ForumTopicKey) {
         synchronized(lock) {
             if (!asked.add(key)) return
+            storedWhileAsked.remove(key)
         }
         val failure = runCatching { fetch(key) { brief -> answer(key, brief) } }.exceptionOrNull()
         if (failure != null) answer(key, null)
@@ -93,8 +99,10 @@ internal class TdForumTopicBriefs(
     private fun answer(key: ForumTopicKey, brief: ForumTopicBrief?) {
         synchronized(lock) {
             asked.remove(key)
+            // An update or a listing described the topic after the question was sent: that newer state stays, and this
+            // late answer, which may be older, is dropped. A failed answer keeps the state too.
+            if (storedWhileAsked.remove(key)) return
             val state = briefs.stateLocked(key)
-            // An update or a listing may have described the topic while the question was open; a failed answer keeps that.
             if (brief != null) state.value = brief
             else if (state.value == null) state.value = unresolvedForumTopicBrief(key.topicId)
         }

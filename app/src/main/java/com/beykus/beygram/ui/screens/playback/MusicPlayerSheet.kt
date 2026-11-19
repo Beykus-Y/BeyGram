@@ -139,6 +139,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.LocalContext
@@ -314,6 +315,7 @@ internal fun MusicPlayerContent(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = 1f - ramp(queueMotion.value, 0f, 0.45f) }
+                        .blockInputWhile(moving)
                 ) {
                     PlayerHeader(
                         player = player,
@@ -351,11 +353,14 @@ internal fun MusicPlayerContent(
                             open()
                         }
                     },
-                    modifier = Modifier.graphicsLayer {
-                        val q = queueMotion.value
-                        alpha = ramp(q, 0.55f, 1f)
-                        translationY = (1f - q) * risePx
-                    },
+                    // Until the transition settles, a faded-out layer must not take touches meant for the visible one.
+                    modifier = Modifier
+                        .blockInputWhile(moving)
+                        .graphicsLayer {
+                            val q = queueMotion.value
+                            alpha = ramp(q, 0.55f, 1f)
+                            translationY = (1f - q) * risePx
+                        },
                     listState = queueList,
                     placed = queuePlaced,
                     onPlaced = { queuePlaced = true }
@@ -371,6 +376,18 @@ internal fun MusicPlayerContent(
                     artworkPx = queueArtworkPx
                 )
             }
+        }
+    }
+}
+
+/**
+ * Takes every touch while [blocked] holds, before the children see it: a layer that a transition fades out then
+ * receives no tap, drag or long press, so an invisible row never acts for the visible panel.
+ */
+private fun Modifier.blockInputWhile(blocked: Boolean): Modifier = if (!blocked) this else pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
         }
     }
 }

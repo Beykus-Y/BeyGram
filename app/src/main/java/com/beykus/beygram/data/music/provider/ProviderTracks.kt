@@ -37,13 +37,35 @@ object ProviderTracks {
     /** What the app knows about likes, by track id. A track missing here has an unknown like. */
     val liked: StateFlow<Map<String, Boolean>> = _liked.asStateFlow()
 
-    fun remember(list: List<ProviderTrack>) {
+    /**
+     * Caches [list]. [startedAt] is the [likeRevision] read before the list was requested: a like changed after it keeps
+     * its state, so a load that finishes late cannot put back a like the user has just removed (or the reverse).
+     */
+    fun remember(list: List<ProviderTrack>, startedAt: Long? = null) {
         synchronized(tracks) {
             if (tracks.size > MAX_REMEMBERED) tracks.clear()
             list.forEach { tracks[it.key] = it }
         }
         val known = list.mapNotNull { track -> track.liked?.let { track.trackId to it } }
-        if (known.isNotEmpty()) _liked.update { it + known }
+        if (known.isEmpty()) return
+        synchronized(likeLock) {
+            val current = known.filter { (id, _) -> startedAt == null || (likeChangedAt[id] ?: 0L) <= startedAt }
+            if (current.isNotEmpty()) _liked.update { it + current }
+        }
+    }
+
+    private val likeLock = Any()
+    private var likeRevision = 0L
+    private val likeChangedAt = HashMap<String, Long>()
+
+    /** The revision of the latest like change; read it before a request whose likes must not overwrite newer changes. */
+    fun likeRevision(): Long = synchronized(likeLock) { likeRevision }
+
+    /** Sets the known like of [trackId] (null forgets it) and records the change for [remember]. */
+    private fun changeLikeState(trackId: String, value: Boolean?) = synchronized(likeLock) {
+        likeRevision += 1
+        likeChangedAt[trackId] = likeRevision
+        _liked.update { if (value == null) it - trackId else it + (trackId to value) }
     }
 
     /** The source track behind a player key, if the app has seen it. */
@@ -126,16 +148,16 @@ object ProviderTracks {
     suspend fun setLiked(context: Context, track: ProviderTrack, liked: Boolean): ProviderResult<Unit> {
         val provider = MusicProviders.yandex(context) ?: return ProviderResult.Failure(MusicProviderFailure.Unavailable)
         val before = _liked.value[track.trackId]
-        _liked.update { it + (track.trackId to liked) }
+        changeLikeState(track.trackId, liked)
         val result = try {
             withContext(Dispatchers.IO) { provider.setLiked(track.trackId, liked) }
         } catch (e: CancellationException) {
             // Not known whether the service saved it: the state goes back to what it was before.
-            _liked.update { if (before == null) it - track.trackId else it + (track.trackId to before) }
+            changeLikeState(track.trackId, before)
             throw e
         }
         if (result is ProviderResult.Failure) {
-            _liked.update { if (before == null) it - track.trackId else it + (track.trackId to before) }
+            changeLikeState(track.trackId, before)
         }
         return result
     }

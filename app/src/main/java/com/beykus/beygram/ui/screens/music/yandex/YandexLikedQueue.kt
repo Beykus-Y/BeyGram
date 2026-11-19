@@ -18,6 +18,8 @@ internal class LikedPreload<O : Any>(
     val owner: O,
     /** The liked ids the load was started for: the caller passes an immutable copy, so a later change cannot reach it. */
     val ids: List<String>,
+    /** The [ProviderTracks.likeRevision] read when the load started: likes changed after it are not overwritten. */
+    val startedAt: Long? = null,
     fetch: suspend (List<String>) -> List<ProviderTrack>?,
     publish: (List<ProviderTrack>) -> Unit,
 ) {
