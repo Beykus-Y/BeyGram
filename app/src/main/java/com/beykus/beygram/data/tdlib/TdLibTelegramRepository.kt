@@ -454,6 +454,8 @@ class TdLibTelegramRepository private constructor(
         messageDrafts.updateTopic(chatId, forumTopicId, transform)
     override fun updateMessageDraft(chatId: Long, transform: (MessageDraft) -> MessageDraft) =
         messageDrafts.update(chatId, transform)
+    override fun forumTopicDraftOpened(chatId: Long, forumTopicId: Long) = messageDrafts.topicOpened(chatId, forumTopicId)
+    override fun forumTopicDraftClosed(chatId: Long, forumTopicId: Long) = messageDrafts.topicClosed(chatId, forumTopicId)
     private fun invalidatePins(chatId: Long) { pinnedVersions[chatId]?.update { it + 1 } }
 
     private val messageHistory = MessageHistoryStore()
@@ -2595,6 +2597,7 @@ class TdLibTelegramRepository private constructor(
         conversationActions.retryMessages(chatId, messageIds, sendNowConsent)
 
     override fun openChat(chatId: Long) {
+        messageDrafts.opened(chatId)
         botKeyboards.refresh(chatId)
         _notificationPresentation.update { it.copy(openedChats = it.openedChats + chatId) }
         conversationEffects.opened(chatId)
