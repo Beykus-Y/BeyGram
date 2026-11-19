@@ -122,15 +122,18 @@ class StorageSettingsViewModelTest {
     }
 
     @Test fun newCategoriesAreNotAddedToAUserChoice() {
-        val repository = FakeRepository().apply { usage = usageOf(StorageCategory.Photos to 10L) }
+        val repository = FakeRepository().apply { usage = usageOf(StorageCategory.Photos to 10L, StorageCategory.Videos to 5L) }
         val model = StorageSettingsViewModel(repository, FakeStore())
 
         model.refresh()
-        model.toggle(StorageCategory.Photos)
-        repository.usage = usageOf(StorageCategory.Photos to 10L, StorageCategory.Music to 7L)
+        // Пользователь оставил только Фото: Видео снято.
+        model.toggle(StorageCategory.Videos)
+        assertEquals(setOf(StorageCategory.Photos), model.selected)
+        // Появилась новая категория: в выбор она не должна попасть.
+        repository.usage = usageOf(StorageCategory.Photos to 10L, StorageCategory.Videos to 5L, StorageCategory.Music to 7L)
         model.refresh()
 
-        assertEquals(emptySet<StorageCategory>(), model.selected)
+        assertEquals(setOf(StorageCategory.Photos), model.selected)
     }
 
     private fun usageOf(vararg entries: Pair<StorageCategory, Long>) =
