@@ -108,6 +108,26 @@ class StorageSettingsViewModelTest {
         assertFalse(model.loading)
     }
 
+    @Test fun firstLoadFailureCanBeRetried() {
+        val repository = FakeRepository().apply { gateUsage = true }
+        val model = StorageSettingsViewModel(repository, FakeStore())
+
+        model.refresh()
+        repository.usageGates[0].complete(Result.failure(IllegalStateException("network")))
+
+        assertNull(model.usage)
+        assertFalse(model.loading)
+        assertEquals(UiText.Res(R.string.storage_load_failed), model.error)
+
+        // Повтор успешен: ошибка уходит, цифры появляются.
+        model.refresh()
+        repository.usageGates[1].complete(Result.success(usageOf(StorageCategory.Photos to 42L)))
+
+        assertEquals(42L, model.usage?.bytes(StorageCategory.Photos))
+        assertNull(model.error)
+        assertFalse(model.loading)
+    }
+
     @Test fun emptySelectionSurvivesRecalculation() {
         val repository = FakeRepository().apply { usage = usageOf(StorageCategory.Photos to 10L, StorageCategory.Videos to 5L) }
         val model = StorageSettingsViewModel(repository, FakeStore())
