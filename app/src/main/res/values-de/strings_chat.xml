@@ -71,7 +71,6 @@
     <string name="chat_message_forwarded">Nachricht weitergeleitet</string>
     <string name="chat_message_open_failed">Die Nachricht konnte nicht geöffnet werden</string>
     <string name="chat_message_unavailable">Nachricht nicht verfügbar</string>
-    <string name="chat_network_waiting">Kein Netzwerk. Nachrichten werden später gesendet</string>
     <string name="chat_pinned_hide_panel">Angeheftete Leiste ausblenden</string>
     <string name="chat_pinned_show_bar">Angeheftete Leiste anzeigen</string>
     <string name="chat_pinned_unpin">Nachricht nicht mehr anheften</string>

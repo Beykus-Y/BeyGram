@@ -1302,14 +1302,6 @@ private fun ChatsConnectionLine(status: ChatsConnectionStatus) {
     }
 }
 
-/** Текст строки для состояния TDLib; [ChatsConnectionStatus.None] сюда не попадает. */
-private fun ChatsConnectionStatus.labelResource(): Int = when (this) {
-    ChatsConnectionStatus.WaitingForNetwork -> R.string.chats_connection_waiting_network
-    ChatsConnectionStatus.Connecting -> R.string.chats_connection_connecting
-    ChatsConnectionStatus.Updating -> R.string.chats_connection_updating
-    ChatsConnectionStatus.None -> error("The plain title has no connection label")
-}
-
 @Composable
 private fun TelegramSearchAction(
     search: GlobalSearchQuery,

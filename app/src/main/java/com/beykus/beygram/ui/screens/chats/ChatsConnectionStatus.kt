@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.beykus.beygram.R
 import com.beykus.beygram.domain.model.TelegramConnectionState
 import kotlinx.coroutines.delay
 
@@ -27,6 +28,14 @@ internal enum class ChatsConnectionStatus {
     WaitingForNetwork,
     Connecting,
     Updating
+}
+
+/** Текст строки для состояния TDLib; [ChatsConnectionStatus.None] сюда не попадает. */
+internal fun ChatsConnectionStatus.labelResource(): Int = when (this) {
+    ChatsConnectionStatus.WaitingForNetwork -> R.string.chats_connection_waiting_network
+    ChatsConnectionStatus.Connecting -> R.string.chats_connection_connecting
+    ChatsConnectionStatus.Updating -> R.string.chats_connection_updating
+    ChatsConnectionStatus.None -> error("The plain title has no connection label")
 }
 
 /**

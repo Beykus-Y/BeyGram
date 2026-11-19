@@ -46,7 +46,6 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material3.*
 import com.beykus.beygram.ui.components.TextButton
@@ -2302,14 +2301,7 @@ fun ChatScreen(
         }
         // Sync the pinned preview with what the reader is currently seeing, as in official Telegram.
         if (!design.navigationFloating) pinnedBarSlot()
-        if (connectionState == TelegramConnectionState.WaitingForNetwork) Row(
-            Modifier.fillMaxWidth().background(palette.warningSurface).errorAnnouncement().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Rounded.WifiOff, null, tint = palette.warningText, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.chat_network_waiting), color = palette.warningText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-        }
+        ChatConnectionBanner(accountId, connectionState)
         // Non-inline wrappers keep these large blocks out of ChatScreen's own bytecode (JVM 64 KB method limit).
             },
             floatingContent = { if (design.navigationFloating) pinnedBarSlot() }
