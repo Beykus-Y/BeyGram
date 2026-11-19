@@ -1116,7 +1116,10 @@ internal class AttachmentState(
         }
         // Progress stays visible even when the stealth dialog is shown; a retry clears it when it starts.
         if (outcome.sentCount > 0) {
-            errorState.value = context.getString(R.string.composer_send_partial, outcome.sentCount, outcome.total)
+            val progress = context.getString(R.string.composer_send_partial, outcome.sentCount, outcome.total)
+            // Keep the real reason (for example, a file that is too large) next to the progress.
+            errorState.value = if (asked) progress
+                else progress + "\n" + outcome.error.userMessage(context, R.string.composer_send_failed)
         } else if (!asked) {
             errorState.value = outcome.error.userMessage(context, R.string.composer_send_failed)
         }
