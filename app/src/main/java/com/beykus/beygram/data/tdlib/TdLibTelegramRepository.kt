@@ -3236,7 +3236,7 @@ class TdLibTelegramRepository private constructor(
             /* apiId                 = */ config.apiId,
             /* apiHash               = */ config.apiHash,
             /* systemLanguageCode    = */ config.systemLanguageCode,
-            /* deviceModel           = */ "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+            /* deviceModel           = */ config.deviceModel,
             /* systemVersion         = */ Build.VERSION.RELEASE,
             /* applicationVersion    = */ config.applicationVersion
         )

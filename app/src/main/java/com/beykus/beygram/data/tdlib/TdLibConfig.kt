@@ -36,7 +36,7 @@ data class TdLibConfig(
                 databaseDirectory = directories.database.absolutePath,
                 filesDirectory = directories.files.absolutePath,
                 systemLanguageCode = Locale.getDefault().toLanguageTag(),
-                deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                deviceModel = TdDeviceModel.build(BuildConfig.VERSION_NAME, Build.MANUFACTURER, Build.MODEL),
                 applicationVersion = BuildConfig.VERSION_NAME
             )
         }
