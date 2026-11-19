@@ -82,7 +82,7 @@ class SharedMediaWindowTest {
         assertEquals((1L..20L).toList(), window.messages.map { it.id })
     }
 
-    @Test fun emptyPageWithMovingCursorKeepsLoadingWithinLimit() = runBlocking {
+    @Test fun emptyPageWithMovingCursorKeepsLoadingUntilFirstAttachment() = runBlocking {
         val requested = mutableListOf<Pair<Long, Boolean>>()
         val pages = ArrayDeque(listOf(
             MessageSearchPage(emptyList(), 50L),
@@ -112,7 +112,7 @@ class SharedMediaWindowTest {
         assertFalse(window.hasOlder)
     }
 
-    @Test fun endlessEmptyPagesStopAfterLimitAndCanRetry() = runBlocking {
+    @Test fun emptyPagesKeepLoadingWhileWindowIsEmptyThenStop() = runBlocking {
         val requested = mutableListOf<Pair<Long, Boolean>>()
         val pages = ArrayDeque(listOf(
             MessageSearchPage(emptyList(), 10L),
@@ -123,11 +123,22 @@ class SharedMediaWindowTest {
         val window = SharedMediaWindow(load = { from, newer -> requested += from to newer; Result.success(pages.removeFirst()) }, failure = { "failed" })
         window.restart(null)
         window.loadOlder()
-        assertEquals(listOf(0L to false, 10L to false, 20L to false), requested)
-        assertTrue(window.hasOlder)
-        assertTrue(window.messages.isEmpty())
-        window.loadOlder()
-        assertEquals(listOf(30L), requested.drop(3).map { it.first })
+        assertEquals(listOf(0L to false, 10L to false, 20L to false, 30L to false), requested)
         assertEquals(listOf(1L), window.messages.map { it.id })
+        assertFalse(window.hasOlder)
+    }
+
+    @Test fun emptyWindowWithStalledCursorStopsInsteadOfLooping() = runBlocking {
+        val requested = mutableListOf<Pair<Long, Boolean>>()
+        val pages = ArrayDeque(listOf(
+            MessageSearchPage(emptyList(), 10L),
+            MessageSearchPage(emptyList(), 10L)
+        ))
+        val window = SharedMediaWindow(load = { from, newer -> requested += from to newer; Result.success(pages.removeFirst()) }, failure = { "failed" })
+        window.restart(null)
+        window.loadOlder()
+        assertEquals(listOf(0L to false, 10L to false), requested)
+        assertTrue(window.messages.isEmpty())
+        assertFalse(window.hasOlder)
     }
 }
