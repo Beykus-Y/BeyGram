@@ -362,11 +362,18 @@ internal class VpnBackend private constructor(
                 throw tdlib.exceptionOrNull() ?: UserMessageException(UiText.Res(R.string.err_vpn_telegram_connect_failed))
             }
             // EnableProxy's OK alone is not a confirmed start: TDLib must report the subscription proxy as active.
-            // Other or unknown state stops the listener, so nothing is reported as applied when it is not.
-            if (!confirmTdLibRoute()) {
-                MihomoRuntimeDiagnostics.event("tdlib", "EnableProxy not confirmed; listener stopped")
+            val route = confirmTdLibRoute()
+            if (route == false) {
+                // TDLib points elsewhere, so the listener serves nobody and stops.
+                MihomoRuntimeDiagnostics.event("tdlib", "EnableProxy not confirmed; TDLib uses another route, listener stopped")
                 runCatching { appContext.startService(Intent(appContext, MihomoProxyService::class.java).setAction(MihomoProxyService.ACTION_STOP)) }
-                throw UserMessageException(UiText.Res(R.string.err_vpn_telegram_connect_failed), IllegalStateException("TDLib did not confirm the subscription route"))
+                throw UserMessageException(UiText.Res(R.string.err_vpn_telegram_connect_failed), IllegalStateException("TDLib uses another route"))
+            }
+            if (route == null) {
+                // The state is unknown, so TDLib may still point at this listener. It stays up: stopping it would
+                // leave TDLib on a dead port. The failure lets the user retry.
+                MihomoRuntimeDiagnostics.event("tdlib", "EnableProxy state unknown; listener kept running")
+                throw UserMessageException(UiText.Res(R.string.err_vpn_telegram_connect_failed), IllegalStateException("TDLib route state unknown"))
             }
             MihomoRuntimeDiagnostics.event("tdlib", "EnableProxy confirmed; actual connectivity is reported separately")
             checkSelectedRoute()
@@ -382,17 +389,17 @@ internal class VpnBackend private constructor(
     }
 
     /**
-     * True only when TDLib reports the subscription proxy as active. An explicit "other" answer is final;
-     * an unknown answer (null) is asked again a few times before the start counts as unconfirmed.
+     * true: TDLib uses the subscription proxy. false: TDLib answered with another route, which is final.
+     * null: TDLib never answered within the attempts, so the route is unknown.
      */
-    private suspend fun confirmTdLibRoute(): Boolean {
+    private suspend fun confirmTdLibRoute(): Boolean? {
         repeat(TDLIB_STATE_ATTEMPTS) { attempt ->
             val enabled = isTdLibProxyEnabled().getOrNull()
             MihomoRuntimeDiagnostics.event("tdlib", "route confirmation attempt ${attempt + 1} state=${enabled ?: "unknown"}")
             if (enabled != null) return enabled
             if (attempt < TDLIB_STATE_ATTEMPTS - 1) delay(TDLIB_STATE_RETRY_MILLIS)
         }
-        return false
+        return null
     }
 
     /** Probe the selected route once after enabling/changing it; do not block TDLib setup on upstream health. */
