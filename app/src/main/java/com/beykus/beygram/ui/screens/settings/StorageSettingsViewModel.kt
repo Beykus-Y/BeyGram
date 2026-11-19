@@ -41,19 +41,25 @@ class StorageSettingsViewModel(
     var error: UiText? by mutableStateOf(null)
         private set
 
+    /** Номер последнего пересчёта. Ответ более раннего пересчёта отбрасывается, даже если пришёл позже. */
+    private var loadGeneration = 0
+    /** Пользователь сам менял выбор: тогда пересчёт сохраняет его и не добавляет новые категории. */
+    private var selectionTouched = false
+
     /** Смены лимита или срока, которые ещё применяются. Очистка ждёт, пока они закончатся. */
     val applying: Boolean get() = pendingChanges > 0
     /** Экран занят, пока идёт очистка или применяется настройка. */
     val busy: Boolean get() = cleaningProgress != null || applying
 
     fun refresh() {
-        if (cleaningProgress != null) return
+        if (busy) return
         error = null
         viewModelScope.launch { loadUsage() }
     }
 
     fun toggle(category: StorageCategory) {
         if (cleaningProgress != null) return
+        selectionTouched = true
         selected = if (category in selected) selected - category else selected + category
     }
 
@@ -110,14 +116,27 @@ class StorageSettingsViewModel(
     }
 
     private suspend fun loadUsage() {
+        val generation = ++loadGeneration
         loading = true
-        repository.storageUsage()
-            .onSuccess { loaded ->
-                usage = loaded
-                selected = loaded.categoriesWithFiles()
-            }
-            .onFailure { error = it.toUiText(R.string.storage_load_failed) }
-        loading = false
+        try {
+            repository.storageUsage()
+                .onSuccess { loaded ->
+                    // Старый ответ не должен перезаписать более новый: снимок остаётся прежним, пока не придёт актуальный.
+                    if (generation != loadGeneration) return@onSuccess
+                    usage = loaded
+                    selected = reconcileSelection(loaded)
+                }
+                .onFailure { if (generation == loadGeneration) error = it.toUiText(R.string.storage_load_failed) }
+        } finally {
+            // Отмена пересчёта тоже снимает индикатор, но только у последнего пересчёта.
+            if (generation == loadGeneration) loading = false
+        }
+    }
+
+    /** Сохраняет явный выбор (в том числе пустой) и не добавляет новые категории к нему. По умолчанию выбрано всё, где есть файлы. */
+    private fun reconcileSelection(loaded: StorageUsage): Set<StorageCategory> {
+        val available = loaded.categoriesWithFiles()
+        return if (selectionTouched) selected.intersect(available) else available
     }
 
     private fun Throwable.toUiText(fallback: Int): UiText = (this as? UserMessageException)?.text ?: UiText.Res(fallback)
