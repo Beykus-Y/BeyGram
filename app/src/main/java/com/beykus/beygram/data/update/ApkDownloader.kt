@@ -78,7 +78,11 @@ internal suspend fun downloadApkFile(
     // Cancelling the coroutine closes the socket at once, which unblocks a read that waits on the network.
     val watcher = CoroutineScope(currentCoroutineContext()).launch {
         suspendCancellableCoroutine<Unit> { continuation ->
-            continuation.invokeOnCancellation { connection.disconnect() }
+            // Off the caller's thread: cancel() may run on the main thread, where closing a socket can be refused by StrictMode.
+            continuation.invokeOnCancellation {
+                val open = connection
+                Thread { runCatching { open.disconnect() } }.start()
+            }
         }
     }
     var target: File? = null

@@ -94,7 +94,9 @@ class UpdateCoordinator private constructor(context: Context) {
         setStatus(UpdateStatus.Downloading(release, DownloadProgress(0L, release.size, null, null)))
         val listener = object : DownloadListener {
             override suspend fun onResponse(startBytes: Long, validator: String?) {
-                store.savePartial(validator?.let { PartialDownload(release, it) })
+                // A resumed reply without its own validator keeps the one the partial was started with.
+                val kept = if (startBytes > 0L) validator ?: resume?.validator else validator
+                store.savePartial(kept?.let { PartialDownload(release, it) })
                 mutableState.update {
                     it.copy(status = UpdateStatus.Downloading(release, DownloadProgress(startBytes, release.size, null, null)))
                 }

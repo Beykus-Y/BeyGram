@@ -66,6 +66,9 @@ internal object StableUpdateActionPolicy {
     fun canInstall(state: UpdateStatus, release: StableRelease): Boolean = when (state) {
         is UpdateStatus.Ready -> state.release == release
         is UpdateStatus.PermissionRequired -> state.release == release
+        // A verified APK stays installable after a re-check (the coordinator also requires a matching ready file).
+        is UpdateStatus.Available -> state.release == release
+        is UpdateStatus.Failure -> state.release == null || state.release == release
         else -> false
     }
 }
