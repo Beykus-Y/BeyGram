@@ -240,6 +240,10 @@ fun ChatScreen(
     val draft by remember(composerDraftState) { derivedStateOf { composerDraftState.value.text } }
     val draftEntities by remember(composerDraftState) { derivedStateOf { composerDraftState.value.entities } }
     val replyId by remember(composerDraftState) { derivedStateOf { composerDraftState.value.replyToMessageId } }
+    DisposableEffect(conversation, chat.id, forumTopicId) {
+        if (forumTopicId > 0L) conversation.forumTopicDraftOpened(chat.id, forumTopicId)
+        onDispose { if (forumTopicId > 0L) conversation.forumTopicDraftClosed(chat.id, forumTopicId) }
+    }
     fun updateDraft(transform: (com.beykus.beygram.domain.model.MessageDraft) -> com.beykus.beygram.domain.model.MessageDraft) =
         if (forumTopicId > 0L) conversation.updateForumTopicDraft(chat.id, forumTopicId, transform)
         else conversation.updateMessageDraft(chat.id, transform)
@@ -2004,12 +2008,12 @@ fun ChatScreen(
             try {
                 val result = conversation.sendMessage(
                     chat.id, outgoing.text, replyId, outgoing.entities, forumTopicId = sendForumTopicId,
-                    clearDraft = !stealthWaitsLocally, options = effectiveOptions
+                    clearDraft = false, options = effectiveOptions
                 )
                 if (stealthWaitsLocally && result.isFailure) updateDraft { current -> if (current.text.isEmpty()) submitted else current }
                 if (result.isSuccess) {
                     delivered = true
-                    if (!stealthWaitsLocally) updateDraft { MessageDraft() }
+                    if (!stealthWaitsLocally) updateDraft { current -> if (current == submitted) MessageDraft() else current }
                     launch?.awaitingSend = false
                     if (composerDraftLaunchKey == launch?.key) composerDraftLaunchKey = null
                     botKeyboard?.takeIf { it.forceReply }?.let { conversation.dismissBotKeyboard(chat.id, it.messageId) }
